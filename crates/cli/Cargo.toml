@@ -1,0 +1,16 @@
+[package]
+name = "surfpool-cli"
+description = "Where you train before surfing Solana"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+
+[[bin]]
+name = "surfpool"
+path = "src/main.rs"
+
+[dependencies]
+surfpool-core = { workspace = true }

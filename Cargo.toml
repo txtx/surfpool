@@ -1,0 +1,18 @@
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/txtx/surfpool"
+keywords = ["solana-programs", "web3", "solana", "blockchains"]
+categories = ["cryptography"]
+
+[workspace]
+members = [
+    "crates/cli",
+    "crates/core"
+]
+default-members = ["crates/cli"]
+resolver = "2"
+
+[workspace.dependencies]
+surfpool-core = { path = "crates/core", default-features = false }
