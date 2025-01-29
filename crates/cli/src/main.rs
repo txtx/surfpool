@@ -1,3 +1,6 @@
+use surfpool_core::start_runloop;
+
 fn main() {
-    println!("Hello, world!");
+    println!("Where you train before surfing Solana");
+    start_runloop();
 }

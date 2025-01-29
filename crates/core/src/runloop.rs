@@ -1,13 +1,12 @@
-use std::{path::PathBuf, thread::sleep, time::Duration};
+use std::{thread::sleep, time::Duration};
 use chrono::Utc;
 use jsonrpc_core::MetaIoHandler;
-use jsonrpc_http_server::{AccessControlAllowOrigin, DomainsValidation, ServerBuilder};
+use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::{clock::Clock, transaction::Transaction};
 
 use crate::rpc::{self, minimal::Minimal, Router};
-
 
 // fn read_counter_program() -> Vec<u8> {
 //     let mut so_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -18,7 +17,7 @@ use crate::rpc::{self, minimal::Minimal, Router};
 pub async fn start(svm: &mut LiteSVM) {
     let mut mempool: Vec<Transaction> = Vec::new();
 
-    let handle = hiro_system_kit::thread_named("rpc handler").spawn(move || {
+    let _handle = hiro_system_kit::thread_named("rpc handler").spawn(move || {
         let mut io = MetaIoHandler::default();
         io.extend_with(rpc::minimal::MinimalImpl.to_delegate());
         let server = ServerBuilder::new(io)
@@ -81,6 +80,6 @@ pub async fn start(svm: &mut LiteSVM) {
             unix_timestamp,
         };
         svm.set_sysvar(&clock);
-        // println!("{:?} / {:?}", clock, svm.latest_blockhash());
+        println!("{:?} / {:?}", clock, svm.latest_blockhash());
     }
 }
