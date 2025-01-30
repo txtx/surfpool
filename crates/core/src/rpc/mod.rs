@@ -1,16 +1,11 @@
 use std::{
-    sync::{
-        atomic::{self, AtomicUsize},
-        Arc, Mutex, RwLock,
-    },
+    sync::{Arc, RwLock},
     time::Instant,
 };
 
 use jsonrpc_core::{
-    futures::future::Either, middleware, FutureResponse, Middleware, Request, Response,
+    futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
-use litesvm::LiteSVM;
-use minimal::RunloopContext;
 use serde_derive::{Deserialize, Serialize};
 use solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, transaction::Transaction};
 use tokio::sync::broadcast;
@@ -40,16 +35,15 @@ pub enum RpcHealthStatus {
     Unknown,
 }
 
-// pub struct Router {
+pub struct SurfpoolRpc;
 
-// }
+#[derive(Clone)]
+pub struct RunloopContext {
+    pub state: Arc<RwLock<GlobalState>>,
+    pub mempool_tx: broadcast::Sender<Transaction>,
+}
 
-// impl RequestMiddleware for Router {
-//     fn on_request(&self, request: Request<Body>) -> RequestMiddlewareAction {
-//         println!("{:?}", request);
-//         RequestMiddlewareAction::Proceed { should_continue_on_invalid_cors: true, request: request }
-//     }
-// }
+impl Metadata for RunloopContext {}
 
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;

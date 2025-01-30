@@ -11,7 +11,7 @@ use std::{
 };
 use tokio::sync::broadcast;
 
-use crate::rpc::{self, minimal::Minimal, Config, SurfpoolMiddleware};
+use crate::rpc::{self, full::Full, minimal::Minimal, Config, SurfpoolMiddleware};
 
 pub struct GlobalState {
     pub svm: LiteSVM,
@@ -42,7 +42,8 @@ pub async fn start(svm: LiteSVM) {
 
     let _handle = hiro_system_kit::thread_named("rpc handler").spawn(move || {
         let mut io = MetaIoHandler::with_middleware(middleware);
-        io.extend_with(rpc::minimal::MinimalImpl.to_delegate());
+        io.extend_with(rpc::minimal::SurfpoolMinimalRpc.to_delegate());
+        io.extend_with(rpc::full::SurfpoolFullRpc.to_delegate());
         let server = ServerBuilder::new(io)
             .cors(DomainsValidation::Disabled)
             .start_http(&"127.0.0.1:8899".parse().unwrap())

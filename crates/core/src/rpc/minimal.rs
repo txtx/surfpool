@@ -1,9 +1,7 @@
-use std::sync::{Arc, RwLock};
+use crate::rpc::utils::verify_pubkey;
 
-use crate::{rpc::utils::verify_pubkey, runloop::GlobalState};
-
-use super::RpcContextConfig;
-use jsonrpc_core::{Metadata, Result};
+use super::{RpcContextConfig, RunloopContext};
+use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_client::{
     rpc_config::{
@@ -19,9 +17,7 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{
     clock::{Clock, Slot},
     epoch_info::EpochInfo,
-    transaction::Transaction,
 };
-use tokio::sync::broadcast;
 
 #[rpc]
 pub trait Minimal {
@@ -94,8 +90,8 @@ pub trait Minimal {
     ) -> Result<Option<RpcLeaderSchedule>>;
 }
 
-pub struct MinimalImpl;
-impl Minimal for MinimalImpl {
+pub struct SurfpoolMinimalRpc;
+impl Minimal for SurfpoolMinimalRpc {
     type Metadata = Option<RunloopContext>;
 
     fn get_balance(
@@ -285,11 +281,3 @@ impl ForkGraph for MockForkGraph {
         }
     }
 }
-
-#[derive(Clone)]
-pub struct RunloopContext {
-    pub state: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: broadcast::Sender<Transaction>,
-}
-
-impl Metadata for RunloopContext {}

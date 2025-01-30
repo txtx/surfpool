@@ -12,8 +12,6 @@ use solana_sdk::{
     hash::Hash, pubkey::Pubkey, signature::Signature, transaction::SanitizedTransaction,
 };
 
-use super::CommitmentConfig;
-
 fn optimize_filters(filters: &mut [RpcFilterType]) {
     filters.iter_mut().for_each(|filter_type| {
         if let RpcFilterType::Memcmp(compare) = filter_type {
