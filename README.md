@@ -44,7 +44,7 @@ $ surfpool start
     - Priority 1:
         - [x] getVersion
         - [x] getSlot
-        - [ ] getEpochInfo
+        - [x] getEpochInfo
         - [ ] getLatestBlockhash
         - [ ] sendTransaction
     - Priority 2:

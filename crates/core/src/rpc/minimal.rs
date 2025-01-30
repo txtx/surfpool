@@ -1,22 +1,24 @@
 use std::sync::{Arc, RwLock};
 
-use crate::rpc::utils::verify_pubkey;
+use crate::{rpc::utils::verify_pubkey, runloop::GlobalState};
 
 use super::RpcContextConfig;
 use jsonrpc_core::{Metadata, Result};
 use jsonrpc_derive::rpc;
-use litesvm::LiteSVM;
 use solana_client::{
     rpc_config::{
         RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig, RpcLeaderScheduleConfigWrapper,
-    }, rpc_custom_error::RpcCustomError, rpc_response::{
+    },
+    rpc_custom_error::RpcCustomError,
+    rpc_response::{
         RpcIdentity, RpcLeaderSchedule, RpcSnapshotSlotInfo, RpcVersionInfo, RpcVoteAccountStatus,
-    }
+    },
 };
 use solana_program_runtime::loaded_programs::{BlockRelation, ForkGraph};
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{
-    clock::{Clock, Slot}, epoch_info::EpochInfo,
+    clock::{Clock, Slot},
+    epoch_info::EpochInfo,
     transaction::Transaction,
 };
 use tokio::sync::broadcast;
@@ -94,7 +96,7 @@ pub trait Minimal {
 
 pub struct MinimalImpl;
 impl Minimal for MinimalImpl {
-    type Metadata = Option<RunloopChannel>;
+    type Metadata = Option<RunloopContext>;
 
     fn get_balance(
         &self,
@@ -113,10 +115,22 @@ impl Minimal for MinimalImpl {
         meta: Self::Metadata,
         config: Option<RpcContextConfig>,
     ) -> Result<EpochInfo> {
-        println!("get_epoch_info rpc request received");
-        // let bank = meta.get_bank_with_config(config.unwrap_or_default())?;
-        // Ok(bank.get_epoch_info())
-        unimplemented!()
+        // Retrieve svm state
+        let Some(ctx) = meta else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+        // Lock read access
+        let Ok(state_reader) = ctx.state.try_read() else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+
+        Ok(state_reader.epoch_info.clone())
     }
 
     fn get_genesis_hash(&self, meta: Self::Metadata) -> Result<String> {
@@ -149,14 +163,21 @@ impl Minimal for MinimalImpl {
     }
 
     fn get_slot(&self, meta: Self::Metadata, _config: Option<RpcContextConfig>) -> Result<Slot> {
-        let Some(svm) = meta else {
+        // Retrieve svm state
+        let Some(ctx) = meta else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
-            }.into())
+            }
+            .into());
         };
-
-        let svm_reader = svm.state.try_read().unwrap();
-        let clock: Clock = svm_reader.get_sysvar();
+        // Lock read access
+        let Ok(state_reader) = ctx.state.try_read() else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+        let clock: Clock = state_reader.svm.get_sysvar();
         Ok(clock.slot.into())
     }
 
@@ -262,9 +283,9 @@ impl ForkGraph for MockForkGraph {
 }
 
 #[derive(Clone)]
-pub struct RunloopChannel {
-    pub state: Arc<RwLock<LiteSVM>>,
+pub struct RunloopContext {
+    pub state: Arc<RwLock<GlobalState>>,
     pub mempool_tx: broadcast::Sender<Transaction>,
 }
 
-impl Metadata for RunloopChannel {}
+impl Metadata for RunloopContext {}

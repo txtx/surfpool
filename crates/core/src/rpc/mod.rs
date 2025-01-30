@@ -10,7 +10,7 @@ use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Middleware, Request, Response,
 };
 use litesvm::LiteSVM;
-use minimal::RunloopChannel;
+use minimal::RunloopContext;
 use serde_derive::{Deserialize, Serialize};
 use solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, transaction::Transaction};
 use tokio::sync::broadcast;
@@ -52,30 +52,36 @@ pub enum RpcHealthStatus {
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
 
+use crate::runloop::GlobalState;
+
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
-    pub svm: Arc<RwLock<LiteSVM>>,
+    pub context: Arc<RwLock<GlobalState>>,
     pub mempool_tx: broadcast::Sender<Transaction>,
+    pub config: Config,
 }
 
-impl Middleware<Option<RunloopChannel>> for SurfpoolMiddleware {
+#[derive(Clone)]
+pub struct Config {}
+
+impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
     type Future = FutureResponse;
     type CallFuture = middleware::NoopCallFuture;
 
     fn on_request<F, X>(
         &self,
         request: Request,
-        _meta: Option<RunloopChannel>,
+        _meta: Option<RunloopContext>,
         next: F,
     ) -> Either<Self::Future, X>
     where
-        F: FnOnce(Request, Option<RunloopChannel>) -> X + Send,
+        F: FnOnce(Request, Option<RunloopContext>) -> X + Send,
         X: Future<Output = Option<Response>> + Send + 'static,
     {
         let start = Instant::now();
 
-        let meta = Some(RunloopChannel {
-            state: self.svm.clone(),
+        let meta = Some(RunloopContext {
+            state: self.context.clone(),
             mempool_tx: self.mempool_tx.clone(),
         });
         // println!("Processing request {}: {:?}, {:?}", request_number, request, meta);
