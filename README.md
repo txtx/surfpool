@@ -47,8 +47,8 @@ $ surfpool start
         - [x] getEpochInfo
         - [ ] getLatestBlockhash
         - [ ] sendTransaction
-    - Priority 2:
         - [ ] getAccountInfo
+    - Priority 2:
         - [ ] getBalance
         - [ ] getBlock
         - [ ] getBlockCommitment
@@ -62,7 +62,7 @@ $ surfpool start
         - [ ] getFeeForMessage
         - [ ] getFirstAvailableBlock
         - [ ] getGenesisHash
-        - [ ] getHealth
+        - [x] getHealth
         - [ ] getHighestSnapshotSlot
         - [ ] getIdentity
         - [ ] getInflationGovernor

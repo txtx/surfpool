@@ -14,6 +14,8 @@ use minimal::RunloopContext;
 use serde_derive::{Deserialize, Serialize};
 use solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, transaction::Transaction};
 use tokio::sync::broadcast;
+
+pub mod full;
 pub mod minimal;
 pub mod utils;
 
