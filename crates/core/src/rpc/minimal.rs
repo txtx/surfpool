@@ -140,18 +140,22 @@ impl Minimal for MinimalImpl {
     }
 
     fn get_health(&self, meta: Self::Metadata) -> Result<String> {
-        // match meta.health.check() {
-        //     RpcHealthStatus::Ok => Ok("ok".to_string()),
-        //     RpcHealthStatus::Unknown => Err(RpcCustomError::NodeUnhealthy {
-        //         num_slots_behind: None,
-        //     }
-        //     .into()),
-        //     RpcHealthStatus::Behind { num_slots } => Err(RpcCustomError::NodeUnhealthy {
-        //         num_slots_behind: Some(num_slots),
-        //     }
-        //     .into()),
-        // }
-        unimplemented!()
+        // Retrieve svm state
+        let Some(ctx) = meta else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+        // Lock read access
+        let Ok(_state_reader) = ctx.state.try_read() else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+        // todo: we could check the time from the state clock and compare
+        Ok("ok".to_string())
     }
 
     fn get_identity(&self, meta: Self::Metadata) -> Result<RpcIdentity> {
