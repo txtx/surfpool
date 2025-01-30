@@ -21,7 +21,9 @@ pub struct GlobalState {
     pub epoch_info: EpochInfo,
 }
 
-pub async fn start(svm: LiteSVM) {
+pub async fn start() {
+    let svm = LiteSVM::new();
+
     // Todo: should check config first
     let rpc_client = RpcClient::new("https://api.mainnet-beta.solana.com");
     let epoch_info = rpc_client.get_epoch_info().unwrap();
