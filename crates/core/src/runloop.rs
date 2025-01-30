@@ -1,12 +1,17 @@
-use std::{thread::sleep, time::Duration};
 use chrono::Utc;
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
 use solana_rpc_client::rpc_client::RpcClient;
-use solana_sdk::{clock::Clock, transaction::Transaction};
+use solana_sdk::clock::Clock;
+use std::{
+    sync::{Arc, RwLock},
+    thread::sleep,
+    time::Duration,
+};
+use tokio::sync::broadcast;
 
-use crate::rpc::{self, minimal::Minimal, Router};
+use crate::rpc::{self, minimal::Minimal, SurfpoolMiddleware};
 
 // fn read_counter_program() -> Vec<u8> {
 //     let mut so_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -14,14 +19,18 @@ use crate::rpc::{self, minimal::Minimal, Router};
 //     std::fs::read(so_path).unwrap()
 // }
 
-pub async fn start(svm: &mut LiteSVM) {
-    let mut mempool: Vec<Transaction> = Vec::new();
+pub async fn start(svm: LiteSVM) {
+    let svm = Arc::new(RwLock::new(svm));
+    let (mempool_tx, mut mempool_rx) = broadcast::channel(1024);
+    let middleware = SurfpoolMiddleware {
+        svm: svm.clone(),
+        mempool_tx,
+    };
 
     let _handle = hiro_system_kit::thread_named("rpc handler").spawn(move || {
-        let mut io = MetaIoHandler::default();
+        let mut io = MetaIoHandler::with_middleware(middleware);
         io.extend_with(rpc::minimal::MinimalImpl.to_delegate());
         let server = ServerBuilder::new(io)
-            .request_middleware(Router {})
             .cors(DomainsValidation::Disabled)
             .start_http(&"127.0.0.1:8899".parse().unwrap())
             .expect("Unable to start RPC server");
@@ -40,8 +49,13 @@ pub async fn start(svm: &mut LiteSVM) {
     loop {
         sleep(Duration::from_millis(400));
         let unix_timestamp: i64 = Utc::now().timestamp();
-    
-        for tx in mempool.drain(..) {
+
+        let Ok(mut svm) = svm.try_write() else {
+            println!("unable to lock svm");
+            continue;
+        };
+
+        while let Ok(tx) = mempool_rx.try_recv() {
             tx.verify().unwrap();
             let message = tx.message();
             for instruction in &message.instructions {
@@ -53,8 +67,8 @@ pub async fn start(svm: &mut LiteSVM) {
 
                 // let mut pt = solana_program_test::ProgramTest::default();
                 // add_program(&read_counter_program(), program_id, &mut pt);
-                // let mut ctx = pt.start_with_context().await;        
-                
+                // let mut ctx = pt.start_with_context().await;
+
                 if svm.get_account(&program_id).is_none() {
                     println!("Retrieving account from Mainnet: {:?}", program_id);
                     // solana_rpc_client::rpc_client::RpcClient::new(url)
@@ -63,10 +77,10 @@ pub async fn start(svm: &mut LiteSVM) {
                     println!("Injecting {:?}", program_id);
                 }
             }
-            let res= svm.send_transaction(tx);
+            let res = svm.send_transaction(tx);
             println!("{:?}", res);
         }
-        slot +=1;
+        slot += 1;
         if slot > slots_in_epoch {
             slot = 0;
             epoch += 1;

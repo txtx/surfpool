@@ -1,13 +1,18 @@
 use std::sync::Arc;
 
-use solana_client::{rpc_config::RpcTokenAccountsFilter, rpc_custom_error::RpcCustomError, rpc_filter::RpcFilterType, rpc_request::{TokenAccountsFilter, MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT}};
-use solana_runtime::verify_precompiles::verify_precompiles;
-use solana_sdk::{hash::Hash, pubkey::Pubkey, signature::Signature, transaction::SanitizedTransaction};
 use jsonrpc_core::{Error, Result};
+use solana_client::{
+    rpc_config::RpcTokenAccountsFilter,
+    rpc_custom_error::RpcCustomError,
+    rpc_filter::RpcFilterType,
+    rpc_request::{TokenAccountsFilter, MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT},
+};
+use solana_runtime::verify_precompiles::verify_precompiles;
+use solana_sdk::{
+    hash::Hash, pubkey::Pubkey, signature::Signature, transaction::SanitizedTransaction,
+};
 
 use super::CommitmentConfig;
-
-
 
 fn optimize_filters(filters: &mut [RpcFilterType]) {
     filters.iter_mut().for_each(|filter_type| {

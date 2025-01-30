@@ -42,7 +42,8 @@ $ surfpool start
 
 - [ ] Support `HTTP Methods`
     - Priority 1:
-        - [ ] getSlot
+        - [x] getVersion
+        - [x] getSlot
         - [ ] getEpochInfo
         - [ ] getLatestBlockhash
         - [ ] sendTransaction
@@ -89,7 +90,6 @@ $ surfpool start
         - [ ] getTokenSupply
         - [ ] getTransaction
         - [ ] getTransactionCount
-        - [ ] getVersion
         - [ ] getVoteAccounts
         - [ ] isBlockhashValid
         - [ ] minimumLedgerSlot

@@ -2,14 +2,24 @@ use std::sync::{Arc, RwLock};
 
 use crate::rpc::utils::verify_pubkey;
 
-use super::{RpcContextConfig, RpcHealthStatus};
-use jsonrpc_core::{Error, Result, Metadata};
+use super::RpcContextConfig;
+use jsonrpc_core::{Metadata, Result};
 use jsonrpc_derive::rpc;
-use solana_client::{rpc_config::{RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig, RpcLeaderScheduleConfigWrapper}, rpc_custom_error::RpcCustomError, rpc_response::{RpcIdentity, RpcLeaderSchedule, RpcSnapshotSlotInfo, RpcVersionInfo, RpcVoteAccountStatus}};
+use litesvm::LiteSVM;
+use solana_client::{
+    rpc_config::{
+        RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig, RpcLeaderScheduleConfigWrapper,
+    }, rpc_custom_error::RpcCustomError, rpc_response::{
+        RpcIdentity, RpcLeaderSchedule, RpcSnapshotSlotInfo, RpcVersionInfo, RpcVoteAccountStatus,
+    }
+};
 use solana_program_runtime::loaded_programs::{BlockRelation, ForkGraph};
-use solana_sdk::{account::AccountSharedData, clock::Slot, epoch_info::EpochInfo, exit::Exit, pubkey::Pubkey};
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_svm::transaction_processor::TransactionBatchProcessor;
+use solana_sdk::{
+    clock::{Clock, Slot}, epoch_info::EpochInfo,
+    transaction::Transaction,
+};
+use tokio::sync::broadcast;
 
 #[rpc]
 pub trait Minimal {
@@ -84,7 +94,7 @@ pub trait Minimal {
 
 pub struct MinimalImpl;
 impl Minimal for MinimalImpl {
-    type Metadata = JsonRpcRequestProcessor;
+    type Metadata = Option<RunloopChannel>;
 
     fn get_balance(
         &self,
@@ -128,7 +138,6 @@ impl Minimal for MinimalImpl {
         //     .into()),
         // }
         unimplemented!()
-
     }
 
     fn get_identity(&self, meta: Self::Metadata) -> Result<RpcIdentity> {
@@ -139,10 +148,16 @@ impl Minimal for MinimalImpl {
         unimplemented!()
     }
 
-    fn get_slot(&self, meta: Self::Metadata, config: Option<RpcContextConfig>) -> Result<Slot> {
-        println!("get_slot rpc request received");
-        // meta.get_slot(config.unwrap_or_default())
-        unimplemented!()
+    fn get_slot(&self, meta: Self::Metadata, _config: Option<RpcContextConfig>) -> Result<Slot> {
+        let Some(svm) = meta else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }.into())
+        };
+
+        let svm_reader = svm.state.try_read().unwrap();
+        let clock: Clock = svm_reader.get_sysvar();
+        Ok(clock.slot.into())
     }
 
     fn get_block_height(
@@ -176,7 +191,7 @@ impl Minimal for MinimalImpl {
 
     fn get_version(&self, _: Self::Metadata) -> Result<RpcVersionInfo> {
         println!("get_version rpc request received");
-        
+
         let version = solana_version::Version::default();
         Ok(RpcVersionInfo {
             solana_core: version.to_string(),
@@ -246,12 +261,10 @@ impl ForkGraph for MockForkGraph {
     }
 }
 
-#[derive(Clone, Default)]
-pub struct JsonRpcRequestProcessor {
-    account_map: Vec<(Pubkey, AccountSharedData)>,
-    #[allow(dead_code)]
-    exit: Arc<RwLock<Exit>>,
-    transaction_processor: Arc<RwLock<TransactionBatchProcessor<MockForkGraph>>>,
+#[derive(Clone)]
+pub struct RunloopChannel {
+    pub state: Arc<RwLock<LiteSVM>>,
+    pub mempool_tx: broadcast::Sender<Transaction>,
 }
 
-impl Metadata for JsonRpcRequestProcessor {}
+impl Metadata for RunloopChannel {}
