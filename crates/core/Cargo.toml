@@ -2,6 +2,7 @@
 name = "surfpool-core"
 description = "Where you train before surfing Solana"
 version = { workspace = true }
+readme = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
 repository = { workspace = true }

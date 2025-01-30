@@ -46,8 +46,9 @@ $ surfpool start
         - [x] getSlot
         - [x] getEpochInfo
         - [x] getLatestBlockhash
-        - [ ] sendTransaction
+        - [x] sendTransaction
         - [ ] getAccountInfo
+        - [ ] requestAirdrop
     - Priority 2:
         - [ ] getBalance
         - [ ] getBlock
@@ -93,9 +94,11 @@ $ surfpool start
         - [ ] getVoteAccounts
         - [ ] isBlockhashValid
         - [ ] minimumLedgerSlot
-        - [ ] requestAirdrop
         - [ ] simulateTransaction
 - [ ] Support `Websocket Methods`
+
+### Going Further
+- [ ] Ability to watch and update fetched account
 
 ### Credits
 - [Jacob Creech](https://x.com/jacobvcreech)

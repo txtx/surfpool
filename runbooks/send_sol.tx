@@ -1,0 +1,21 @@
+// Setup
+//
+// brew tap txtx/txtx
+// brew install txtx
+//
+// txtx run send_sol.tx
+
+addon "svm" {
+}
+
+signer "deployer" "svm::secret_key" {
+    keypair_json = "~/.config/solana/id.json"
+}
+
+action "send_sol" "svm::send_sol" {
+    description = "Send some SOL"
+    amount = svm::sol_to_lamports(1)
+    signer = signer.deployer
+    rpc_api_url = "http://localhost:8899"
+    recipient = "zbBjhHwuqyKMmz8ber5oUtJJ3ZV4B6ePmANfGyKzVGV"
+}

@@ -1,5 +1,6 @@
+use super::utils::decode_and_deserialize;
 use jsonrpc_core::BoxFuture;
-use jsonrpc_core::Result;
+use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcApiVersion;
@@ -17,10 +18,13 @@ use solana_client::{
 };
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::clock::UnixTimestamp;
-use solana_sdk::epoch_info::EpochInfo;
+use solana_sdk::transaction::VersionedTransaction;
+use solana_send_transaction_service::send_transaction_service::TransactionInfo;
+use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
 };
+
 use {
     super::*,
     solana_sdk::message::{SanitizedVersionedMessage, VersionedMessage},
@@ -239,6 +243,32 @@ impl Full for SurfpoolFullRpc {
         data: String,
         config: Option<RpcSendTransactionConfig>,
     ) -> Result<String> {
+        let RpcSendTransactionConfig {
+            skip_preflight,
+            preflight_commitment,
+            encoding,
+            max_retries,
+            min_context_slot,
+        } = config.unwrap_or_default();
+
+        let tx_encoding = encoding.unwrap_or(UiTransactionEncoding::Base58);
+        let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
+            Error::invalid_params(format!(
+                "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
+            ))
+        })?;
+        let (_, unsanitized_tx) =
+            decode_and_deserialize::<VersionedTransaction>(data, binary_encoding)?;
+
+        let Some(ctx) = meta else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+        let _ = ctx.mempool_tx.send(unsanitized_tx);
+
+        // Todo I believe we're supposed to send back a signature
         Ok("ok".to_string())
     }
 

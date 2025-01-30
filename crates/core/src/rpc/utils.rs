@@ -1,5 +1,7 @@
-use std::sync::Arc;
+use std::{any::type_name, collections::HashSet, sync::Arc};
 
+use base64::{prelude::BASE64_STANDARD, Engine};
+use bincode::Options;
 use jsonrpc_core::{Error, Result};
 use solana_client::{
     rpc_config::RpcTokenAccountsFilter,
@@ -7,10 +9,19 @@ use solana_client::{
     rpc_filter::RpcFilterType,
     rpc_request::{TokenAccountsFilter, MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT},
 };
+use solana_metrics::inc_new_counter;
+use solana_metrics::inc_new_counter_info;
 use solana_runtime::verify_precompiles::verify_precompiles;
+use solana_runtime_transaction::runtime_transaction::RuntimeTransaction;
 use solana_sdk::{
-    hash::Hash, pubkey::Pubkey, signature::Signature, transaction::SanitizedTransaction,
+    hash::Hash,
+    message::AddressLoader,
+    packet::PACKET_DATA_SIZE,
+    pubkey::Pubkey,
+    signature::Signature,
+    transaction::{MessageHash, SanitizedTransaction, VersionedTransaction},
 };
+use solana_transaction_status::TransactionBinaryEncoding;
 
 fn optimize_filters(filters: &mut [RpcFilterType]) {
     filters.iter_mut().for_each(|filter_type| {
@@ -101,4 +112,66 @@ fn verify_and_parse_signatures_for_address_params(
         )));
     }
     Ok((address, before, until, limit))
+}
+
+const MAX_BASE58_SIZE: usize = 1683; // Golden, bump if PACKET_DATA_SIZE changes
+const MAX_BASE64_SIZE: usize = 1644; // Golden, bump if PACKET_DATA_SIZE changes
+pub fn decode_and_deserialize<T>(
+    encoded: String,
+    encoding: TransactionBinaryEncoding,
+) -> Result<(Vec<u8>, T)>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let wire_output = match encoding {
+        TransactionBinaryEncoding::Base58 => {
+            if encoded.len() > MAX_BASE58_SIZE {
+                return Err(Error::invalid_params(format!(
+                    "base58 encoded {} too large: {} bytes (max: encoded/raw {}/{})",
+                    type_name::<T>(),
+                    encoded.len(),
+                    MAX_BASE58_SIZE,
+                    PACKET_DATA_SIZE,
+                )));
+            }
+            bs58::decode(encoded)
+                .into_vec()
+                .map_err(|e| Error::invalid_params(format!("invalid base58 encoding: {e:?}")))?
+        }
+        TransactionBinaryEncoding::Base64 => {
+            if encoded.len() > MAX_BASE64_SIZE {
+                return Err(Error::invalid_params(format!(
+                    "base64 encoded {} too large: {} bytes (max: encoded/raw {}/{})",
+                    type_name::<T>(),
+                    encoded.len(),
+                    MAX_BASE64_SIZE,
+                    PACKET_DATA_SIZE,
+                )));
+            }
+            BASE64_STANDARD
+                .decode(encoded)
+                .map_err(|e| Error::invalid_params(format!("invalid base64 encoding: {e:?}")))?
+        }
+    };
+    if wire_output.len() > PACKET_DATA_SIZE {
+        return Err(Error::invalid_params(format!(
+            "decoded {} too large: {} bytes (max: {} bytes)",
+            type_name::<T>(),
+            wire_output.len(),
+            PACKET_DATA_SIZE
+        )));
+    }
+    bincode::options()
+        .with_limit(PACKET_DATA_SIZE as u64)
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+        .deserialize_from(&wire_output[..])
+        .map_err(|err| {
+            Error::invalid_params(format!(
+                "failed to deserialize {}: {}",
+                type_name::<T>(),
+                &err.to_string()
+            ))
+        })
+        .map(|output| (wire_output, output))
 }

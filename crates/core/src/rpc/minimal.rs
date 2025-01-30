@@ -1,7 +1,7 @@
 use crate::rpc::utils::verify_pubkey;
 
 use super::{RpcContextConfig, RunloopContext};
-use jsonrpc_core::Result;
+use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use solana_client::{
     rpc_config::{

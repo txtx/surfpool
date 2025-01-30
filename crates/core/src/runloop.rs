@@ -13,6 +13,8 @@ use tokio::sync::broadcast;
 
 use crate::rpc::{self, full::Full, minimal::Minimal, Config, SurfpoolMiddleware};
 
+const DEFAULT_SLOT_TIME: u64 = 2000;
+
 pub struct GlobalState {
     pub svm: LiteSVM,
     pub transactions_processed: u64,
@@ -52,7 +54,7 @@ pub async fn start(svm: LiteSVM) {
     });
 
     loop {
-        sleep(Duration::from_millis(400));
+        sleep(Duration::from_millis(DEFAULT_SLOT_TIME));
         let unix_timestamp: i64 = Utc::now().timestamp();
 
         let Ok(mut ctx) = context.try_write() else {
@@ -61,8 +63,10 @@ pub async fn start(svm: LiteSVM) {
         };
 
         while let Ok(tx) = mempool_rx.try_recv() {
-            tx.verify().unwrap();
-            let message = tx.message();
+            tx.verify_with_results();
+            let tx = tx.into_legacy_transaction().unwrap();
+            let message = &tx.message;
+            println!("Processing Transaction {:?}", tx);
             for instruction in &message.instructions {
                 // The Transaction may not be sanitized at this point
                 if instruction.program_id_index as usize >= message.account_keys.len() {

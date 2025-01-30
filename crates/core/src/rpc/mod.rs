@@ -7,7 +7,11 @@ use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
 use serde_derive::{Deserialize, Serialize};
-use solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, transaction::Transaction};
+use solana_sdk::{
+    clock::Slot,
+    commitment_config::CommitmentLevel,
+    transaction::{Transaction, VersionedTransaction},
+};
 use tokio::sync::broadcast;
 
 pub mod full;
@@ -40,7 +44,7 @@ pub struct SurfpoolRpc;
 #[derive(Clone)]
 pub struct RunloopContext {
     pub state: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: broadcast::Sender<Transaction>,
+    pub mempool_tx: broadcast::Sender<VersionedTransaction>,
 }
 
 impl Metadata for RunloopContext {}
@@ -53,7 +57,7 @@ use crate::runloop::GlobalState;
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
     pub context: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: broadcast::Sender<Transaction>,
+    pub mempool_tx: broadcast::Sender<VersionedTransaction>,
     pub config: Config,
 }
 
