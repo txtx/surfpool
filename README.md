@@ -99,8 +99,3 @@ $ surfpool start
 
 ### Going Further
 - [ ] Ability to watch and update fetched account
-
-### Credits
-- [Jacob Creech](https://x.com/jacobvcreech)
-- [Turbin3](https://x.com/solanaturbine?lang=en)
-- [Aursen](https://x.com/exoaursen)
