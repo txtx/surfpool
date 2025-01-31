@@ -10,9 +10,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  run_cargo_checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Rustup install nightly
+        run: rustup toolchain install nightly
+      - name: Rustup install rustfmt
+        run: rustup component add rustfmt --toolchain nightly
+      - name: Run Cargo fmt
+        run: cargo +nightly fmt --all -- --check
+      - name: Run Cargo clippy
+        run: cargo clippy --all-targets --all-features
   build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
       - name: Build
