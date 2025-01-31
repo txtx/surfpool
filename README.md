@@ -16,10 +16,10 @@
 
 ### Design
 
-Instead of using  a full Solana test validator `solana-test-validator`, `surfpool` uses the low level `solan-svm` API through the excellent wrapper [LiteSVM](https://github.com/LiteSVM/litesvm).
+Instead of using  a full Solana test validator `solana-test-validator`, `surfpool` uses the low level `solana-svm` API through the excellent wrapper [LiteSVM](https://github.com/LiteSVM/litesvm).
 This approach provides greater flexibility and significantly faster boot times.
 
-`surfpool` is also available as library on crates.io - facilitating its integration in other projects.
+`surfpool` is also available as a library on crates.io - facilitating its integration in other projects.
 
 ### Command line
 
