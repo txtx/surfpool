@@ -1,6 +1,10 @@
-use surfpool_core::start_simnet;
+mod macros;
+
+#[macro_use]
+extern crate hiro_system_kit;
+
+pub mod cli;
 
 fn main() {
-    println!("Where you train before surfing Solana");
-    start_simnet();
+    cli::main();
 }
