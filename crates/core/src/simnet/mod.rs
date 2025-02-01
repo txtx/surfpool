@@ -21,7 +21,7 @@ pub struct GlobalState {
     pub epoch_info: EpochInfo,
 }
 
-pub async fn start() {
+pub async fn start() -> Result<(), Box<dyn std::error::Error>> {
     let svm = LiteSVM::new();
 
     // Todo: should check config first
@@ -82,7 +82,6 @@ pub async fn start() {
 
                 if ctx.svm.get_account(&program_id).is_none() {
                     println!("Retrieving account from Mainnet: {:?}", program_id);
-                    // solana_rpc_client::rpc_client::RpcClient::new(url)
                     let mainnet_account = rpc_client.get_account(&program_id).unwrap();
                     let _ = ctx.svm.set_account(*program_id, mainnet_account);
                     println!("Injecting {:?}", program_id);
