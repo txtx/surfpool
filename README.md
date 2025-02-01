@@ -49,8 +49,12 @@ $ surfpool start
         - [x] sendTransaction
         - [ ] getAccountInfo
         - [ ] requestAirdrop
-    - Priority 2:
+        - [ ] getMultipleAccounts
+        - [ ] getFeeForMessage
         - [ ] getBalance
+        - [ ] simulateTransaction
+        - [ ] getTransaction
+    - Priority 2:
         - [ ] getBlock
         - [ ] getBlockCommitment
         - [ ] getBlockHeight
@@ -60,7 +64,6 @@ $ surfpool start
         - [ ] getBlockTime
         - [ ] getClusterNodes
         - [ ] getEpochSchedule
-        - [ ] getFeeForMessage
         - [ ] getFirstAvailableBlock
         - [ ] getGenesisHash
         - [x] getHealth
@@ -74,7 +77,6 @@ $ surfpool start
         - [ ] getMaxRetransmitSlot
         - [ ] getMaxShredInsertSlot
         - [ ] getMinimumBalanceForRentExemption
-        - [ ] getMultipleAccounts
         - [ ] getProgramAccounts
         - [ ] getRecentPerformanceSamples
         - [ ] getRecentPrioritizationFees
@@ -89,18 +91,11 @@ $ surfpool start
         - [ ] getTokenAccountsByOwner
         - [ ] getTokenLargestAccounts
         - [ ] getTokenSupply
-        - [ ] getTransaction
         - [ ] getTransactionCount
         - [ ] getVoteAccounts
         - [ ] isBlockhashValid
         - [ ] minimumLedgerSlot
-        - [ ] simulateTransaction
 - [ ] Support `Websocket Methods`
 
 ### Going Further
 - [ ] Ability to watch and update fetched account
-
-### Credits
-- [Jacob Creech](https://x.com/jacobvcreech)
-- [Turbin3](https://x.com/solanaturbine?lang=en)
-- [Aursen](https://x.com/exoaursen)
