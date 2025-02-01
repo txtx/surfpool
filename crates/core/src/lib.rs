@@ -17,6 +17,7 @@ pub use litesvm;
 pub use solana_rpc_client;
 pub use solana_sdk;
 
-pub async fn start_simnet() {
-    simnet::start().await;
+pub async fn start_simnet() -> Result<(), Box<dyn std::error::Error>> {
+    simnet::start().await?;
+    Ok(())
 }
