@@ -49,9 +49,9 @@ pub struct RunloopContext {
 
 impl Metadata for RunloopContext {}
 
+use crate::simnet::GlobalState;
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
-use crate::simnet::GlobalState;
 
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {

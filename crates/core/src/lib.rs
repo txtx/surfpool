@@ -17,7 +17,7 @@ pub use litesvm;
 pub use solana_rpc_client;
 pub use solana_sdk;
 
-
-pub fn start_simnet() {
-    hiro_system_kit::nestable_block_on(simnet::start());
+pub async fn start_simnet() -> Result<(), Box<dyn std::error::Error>> {
+    simnet::start().await?;
+    Ok(())
 }
