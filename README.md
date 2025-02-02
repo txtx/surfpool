@@ -1,31 +1,47 @@
-# surfpool
-
-> Where you train before surfing Solana
-
 <div align="center">
   <picture>
-    <source srcset="https://raw.githubusercontent.com/txtx/surfpool/main/docs/assets/surfpool.png">
+    <source srcset="https://raw.githubusercontent.com/txtx/surfpool/main/docs/assets/surfpool-hero.png">
     <img alt="surfpool" style="max-width: 60%;">
   </picture>
 </div>
 
+# surfpool
+
+### TL;DR
+
 `surfpool` is to solana what `anvil` is to ethereum: a blazing fast in-memory testnet that has the ability to point-fork Solana mainnet instantly.
-
-## Specs
-
 
 ### Design
 
-Instead of using  a full Solana test validator `solana-test-validator`, `surfpool` uses the low level `solana-svm` API through the excellent wrapper [LiteSVM](https://github.com/LiteSVM/litesvm).
+`surfpool` uses the low level `solana-svm` API through the excellent wrapper [LiteSVM](https://github.com/LiteSVM/litesvm).
 This approach provides greater flexibility and significantly faster boot times.
 
 `surfpool` is also available as a library on crates.io - facilitating its integration in other projects.
 
-### Command line
+### Getting Started
+
+Install `surfpool` from crates.io:
+
+```console
+$ cargo install surfpool-cli
+```
+
+Start a local validator / simnet:
 
 ```console
 $ surfpool start
 ```
+
+<div align="center">
+  <picture>
+    <source srcset="https://raw.githubusercontent.com/txtx/surfpool/main/docs/assets/screenshot.png">
+    <img alt="surfpool" style="max-width: 60%;">
+  </picture>
+</div>
+
+## Status
+
+`surfpool` is in active development, here are a few todos of what's coming next.
 
 ### Configurable
 

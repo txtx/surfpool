@@ -179,8 +179,11 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                 SimnetEvent::ClockUpdate(clock) => {
                     app.clock = clock;
                     if app.include_debug_logs {
-                        app.events
-                            .push_front((EventType::Debug, Local::now(), "Clock updated".into()));
+                        app.events.push_front((
+                            EventType::Debug,
+                            Local::now(),
+                            "Clock updated".into(),
+                        ));
                     }
                 }
                 SimnetEvent::ErrorLog(dt, log) => {
