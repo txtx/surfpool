@@ -1,7 +1,7 @@
-use atty::Stream;
-use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, CommandFactory, Parser, Subcommand};
+use clap_complete::{Generator, Shell};
 use hiro_system_kit::{self, Logger};
-use std::{process, thread};
+use std::{fs::File, process};
 
 mod simnet;
 
@@ -38,7 +38,7 @@ impl Context {
 }
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[clap(author, version, about, long_about = None, name = "surfpool", bin_name = "surfpool")]
 struct Opts {
     #[clap(subcommand)]
     command: Command,
@@ -47,8 +47,11 @@ struct Opts {
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum Command {
     /// Start Simnet
-    #[clap(name = "simnet", bin_name = "simnet")]
+    #[clap(name = "simnet", bin_name = "simnet", aliases = &["start"])]
     Simnet(StartSimnet),
+    /// Generate shell completions scripts
+    #[clap(name = "completions", bin_name = "completions", aliases = &["completion"])]
+    Completions(Completions),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -66,6 +69,19 @@ pub struct StartSimnet {
     /// Set the ip
     #[arg(long = "ip", short = 'i', default_value = DEFAULT_BINDING_ADDRESS )]
     pub network_binding_ip_address: String,
+    /// Display streams of logs instead of terminal UI dashboard (default: false)
+    #[clap(long = "no-tui")]
+    pub no_tui: bool,
+    /// Include debug logs (default: false)
+    #[clap(long = "debug", action=ArgAction::SetTrue)]
+    pub debug: bool,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+struct Completions {
+    /// Specify which shell to generation completions script for
+    #[arg(ignore_case = true)]
+    pub shell: Shell,
 }
 
 pub fn main() {
@@ -93,9 +109,18 @@ pub fn main() {
 
 async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     match opts.command {
-        Command::Simnet(cmd) => {
-            simnet::handle_start_simnet_command(&cmd, ctx).await?;
-        }
+        Command::Simnet(cmd) => simnet::handle_start_simnet_command(&cmd, ctx),
+        Command::Completions(cmd) => generate_completion_helpers(&cmd),
     }
+}
+
+fn generate_completion_helpers(cmd: &Completions) -> Result<(), String> {
+    let mut app = Opts::command();
+    let file_name = cmd.shell.file_name("surfpool");
+    let mut file = File::create(file_name.clone())
+        .map_err(|e| format!("unable to create file {}: {}", file_name, e))?;
+    clap_complete::generate(cmd.shell, &mut app, "surfpool", &mut file);
+    println!("{} {}", green!("Created file"), file_name.clone());
+    println!("Check your shell’s docs for how to enable completions for surfpool.");
     Ok(())
 }

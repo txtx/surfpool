@@ -17,11 +17,16 @@ path = "src/main.rs"
 surfpool-core = { workspace = true }
 hiro-system-kit = "0.3.1"
 atty = "0.2.13"
+ansi_term = "0.12.1"
 clap = { version = "4.5.27", features = ["derive"], optional = true }
-clap_generate = { version = "3.0.3", optional = true }
 toml = { version = "0.8.2", features = ["preserve_order"], optional = true }
 ctrlc = { version = "3.4.5", optional = true }
+clap_generate = "3.0.3"
+clap_complete = "4.5.44"
+crossterm = "0.28.1"
+ratatui = "0.29.0"
+chrono = "0.4"
 
 [features]
 default = ["cli"]
-cli = ["clap", "clap_generate", "toml", "ctrlc", "hiro-system-kit/log"]
+cli = ["clap", "toml", "ctrlc", "hiro-system-kit/log"]
