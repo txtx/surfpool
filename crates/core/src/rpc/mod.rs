@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, RwLockReadGuard},
     time::Instant,
 };
 
@@ -7,6 +7,7 @@ use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
 use serde_derive::{Deserialize, Serialize};
+use solana_client::rpc_custom_error::RpcCustomError;
 use solana_sdk::{
     clock::Slot, commitment_config::CommitmentLevel, transaction::VersionedTransaction,
 };
@@ -54,6 +55,32 @@ pub struct SurfpoolRpc;
 pub struct RunloopContext {
     pub state: Arc<RwLock<GlobalState>>,
     pub mempool_tx: broadcast::Sender<VersionedTransaction>,
+}
+
+trait State {
+    fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, GlobalState>, RpcCustomError>;
+}
+
+impl State for Option<RunloopContext> {
+    fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, GlobalState>, RpcCustomError> {
+        // Retrieve svm state
+        let Some(ctx) = self else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+
+        // Lock read access
+        let Ok(state_reader) = ctx.state.try_read() else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+
+        Ok(state_reader)
+    }
 }
 
 impl Metadata for RunloopContext {}

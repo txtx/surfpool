@@ -1,4 +1,7 @@
-use crate::rpc::utils::{format_account, verify_pubkey};
+use crate::rpc::{
+    utils::{format_account, verify_pubkey},
+    State,
+};
 
 use super::{RpcContextConfig, RunloopContext};
 use jsonrpc_core::Result;
@@ -121,20 +124,7 @@ impl Minimal for SurfpoolMinimalRpc {
             }
         };
 
-        // Retrieve svm state
-        let Some(ctx) = meta else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
-        // Lock read access
-        let Ok(state_reader) = ctx.state.try_read() else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
+        let state_reader = meta.get_state()?;
 
         Ok(format_account(
             state_reader.svm.get_account(&pubkey),
@@ -159,20 +149,7 @@ impl Minimal for SurfpoolMinimalRpc {
         meta: Self::Metadata,
         config: Option<RpcContextConfig>,
     ) -> Result<EpochInfo> {
-        // Retrieve svm state
-        let Some(ctx) = meta else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
-        // Lock read access
-        let Ok(state_reader) = ctx.state.try_read() else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
+        let state_reader = meta.get_state()?;
 
         Ok(state_reader.epoch_info.clone())
     }
@@ -184,20 +161,8 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_health(&self, meta: Self::Metadata) -> Result<String> {
-        // Retrieve svm state
-        let Some(ctx) = meta else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
-        // Lock read access
-        let Ok(_state_reader) = ctx.state.try_read() else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
+        let _state_reader = meta.get_state()?;
+
         // todo: we could check the time from the state clock and compare
         Ok("ok".to_string())
     }
@@ -211,20 +176,7 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_slot(&self, meta: Self::Metadata, _config: Option<RpcContextConfig>) -> Result<Slot> {
-        // Retrieve svm state
-        let Some(ctx) = meta else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
-        // Lock read access
-        let Ok(state_reader) = ctx.state.try_read() else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
+        let state_reader = meta.get_state()?;
         let clock: Clock = state_reader.svm.get_sysvar();
         Ok(clock.slot.into())
     }
