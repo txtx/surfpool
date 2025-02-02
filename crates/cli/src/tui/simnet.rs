@@ -171,15 +171,17 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         EventType::Success,
                         Local::now(),
                         format!(
-                            "Connection established. Epoch {}, Slot {}.",
+                            "Connection established at Slot {} / Epoch {}.",
                             app.epoch_info.epoch, app.epoch_info.slot_index
                         ),
                     ));
                 }
                 SimnetEvent::ClockUpdate(clock) => {
                     app.clock = clock;
-                    app.events
-                        .push_front((EventType::Info, Local::now(), "Clock updated".into()));
+                    if app.include_debug_logs {
+                        app.events
+                            .push_front((EventType::Debug, Local::now(), "Clock updated".into()));
+                    }
                 }
                 SimnetEvent::ErrorLog(dt, log) => {
                     app.events.push_front((EventType::Failure, dt, log));
