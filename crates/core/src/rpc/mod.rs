@@ -6,41 +6,13 @@ use std::{
 use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
-use serde_derive::{Deserialize, Serialize};
 use solana_client::rpc_custom_error::RpcCustomError;
-use solana_sdk::{
-    clock::Slot, commitment_config::CommitmentLevel, transaction::VersionedTransaction,
-};
+use solana_sdk::{clock::Slot, transaction::VersionedTransaction};
 use tokio::sync::broadcast;
 
 pub mod full;
 pub mod minimal;
 pub mod utils;
-
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CommitmentConfig {
-    pub commitment: CommitmentLevel,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Encoding {
-    Base58,
-    Base64,
-    #[serde(rename = "base64+zstd")]
-    Base64Zstd,
-    JsonParsed,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcContextConfig {
-    #[serde(flatten)]
-    pub commitment: Option<CommitmentConfig>,
-    pub encoding: Option<Encoding>,
-    pub min_context_slot: Option<Slot>,
-}
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum RpcHealthStatus {

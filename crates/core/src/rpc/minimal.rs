@@ -3,14 +3,15 @@ use crate::rpc::{
     State,
 };
 
-use super::{RpcContextConfig, RunloopContext};
+use super::RunloopContext;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
+use solana_account_decoder::UiAccount;
 use solana_client::{
     rpc_config::{
-        RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig, RpcLeaderScheduleConfigWrapper,
+        RpcAccountInfoConfig, RpcContextConfig, RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig,
+        RpcLeaderScheduleConfigWrapper,
     },
-    rpc_custom_error::RpcCustomError,
     rpc_response::{
         RpcIdentity, RpcLeaderSchedule, RpcSnapshotSlotInfo, RpcVersionInfo, RpcVoteAccountStatus,
     },
@@ -31,8 +32,8 @@ pub trait Minimal {
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        config: Option<RpcContextConfig>,
-    ) -> Result<Option<RpcAccount>>;
+        config: Option<RpcAccountInfoConfig>,
+    ) -> Result<Option<UiAccount>>;
 
     #[rpc(meta, name = "getBalance")]
     fn get_balance(
@@ -109,8 +110,8 @@ impl Minimal for SurfpoolMinimalRpc {
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        config: Option<RpcContextConfig>,
-    ) -> Result<Option<RpcAccount>> {
+        config: Option<RpcAccountInfoConfig>,
+    ) -> Result<Option<UiAccount>> {
         println!(
             "get_account_info rpc request received: {:?} {:?}",
             pubkey_str, config
@@ -120,7 +121,7 @@ impl Minimal for SurfpoolMinimalRpc {
             if let Some(config) = config {
                 config
             } else {
-                RpcContextConfig::default()
+                RpcAccountInfoConfig::default()
             }
         };
 

@@ -1,57 +1,49 @@
-use std::{any::type_name, collections::HashSet, sync::Arc};
+use std::{any::type_name, sync::Arc};
 
 use base64::{prelude::BASE64_STANDARD, Engine};
 use bincode::Options;
 use jsonrpc_core::{Error, Result};
+use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
 use solana_client::{
     rpc_config::RpcTokenAccountsFilter,
     rpc_custom_error::RpcCustomError,
     rpc_filter::RpcFilterType,
     rpc_request::{TokenAccountsFilter, MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT},
 };
-use solana_metrics::inc_new_counter;
-use solana_metrics::inc_new_counter_info;
 use solana_runtime::verify_precompiles::verify_precompiles;
-use solana_runtime_transaction::runtime_transaction::RuntimeTransaction;
 use solana_sdk::{
-    account::Account,
-    hash::Hash,
-    message::AddressLoader,
-    packet::PACKET_DATA_SIZE,
-    pubkey::Pubkey,
-    signature::Signature,
-    transaction::{MessageHash, SanitizedTransaction, VersionedTransaction},
+    account::Account, hash::Hash, packet::PACKET_DATA_SIZE, pubkey::Pubkey, signature::Signature,
+    transaction::SanitizedTransaction,
 };
 use solana_transaction_status::TransactionBinaryEncoding;
 
-use super::Encoding;
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcAccount {
-    lamports: u64,
-    owner: String,
-    data: String, // TODO: could also be parsed JSON
-    executable: bool,
-    rent_epoch: u64,
-    space: u64,
-}
-
-pub fn format_account(account: Option<Account>, encoding: Option<Encoding>) -> Option<RpcAccount> {
+pub fn format_account(
+    account: Option<Account>,
+    encoding: Option<UiAccountEncoding>,
+) -> Option<UiAccount> {
     if let Some(account) = account {
         println!("{:?}", encoding);
-        Some(RpcAccount {
+        Some(UiAccount {
             lamports: account.lamports,
             owner: account.owner.to_string(),
             data: match encoding {
-                Some(Encoding::Base64) => BASE64_STANDARD.encode(account.data.clone()),
-                Some(Encoding::Base58) => bs58::encode(account.data.clone()).into_string(),
-                None => bs58::encode(account.data.clone()).into_string(),
+                Some(UiAccountEncoding::Base64) => UiAccountData::Binary(
+                    BASE64_STANDARD.encode(account.data.clone()),
+                    UiAccountEncoding::Base64,
+                ),
+                Some(UiAccountEncoding::Base58) => UiAccountData::Binary(
+                    bs58::encode(account.data.clone()).into_string(),
+                    UiAccountEncoding::Base58,
+                ),
+                None => UiAccountData::Binary(
+                    bs58::encode(account.data.clone()).into_string(),
+                    UiAccountEncoding::Base64,
+                ),
                 _ => unimplemented!(),
             },
             executable: account.executable,
             rent_epoch: account.rent_epoch,
-            space: account.data.len() as u64,
+            space: Some(account.data.len() as u64),
         })
     } else {
         None
