@@ -69,6 +69,9 @@ pub struct StartSimnet {
     /// Set the ip
     #[arg(long = "ip", short = 'i', default_value = DEFAULT_BINDING_ADDRESS )]
     pub network_binding_ip_address: String,
+    /// Display streams of logs instead of terminal UI dashboard
+    #[clap(long = "no-tui")]
+    pub no_tui: bool,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
