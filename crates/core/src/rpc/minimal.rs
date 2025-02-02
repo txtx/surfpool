@@ -133,9 +133,8 @@ impl Minimal for SurfpoolMinimalRpc {
                 owner: account.owner.to_string(),
                 data: {
                     let account_data = if let Some(data_slice) = config.data_slice {
-                        account.data.clone()
-                            [data_slice.offset..(data_slice.offset + data_slice.length)]
-                            .to_vec()
+                        let end = std::cmp::min(account.data.len(), data_slice.offset + data_slice.length);
+                        account.data.clone()[data_slice.offset..end].to_vec()
                     } else {
                         account.data.clone()
                     };
