@@ -8,9 +8,7 @@ use jsonrpc_core::{
 };
 use serde_derive::{Deserialize, Serialize};
 use solana_sdk::{
-    clock::Slot,
-    commitment_config::CommitmentLevel,
-    transaction::{Transaction, VersionedTransaction},
+    clock::Slot, commitment_config::CommitmentLevel, transaction::VersionedTransaction,
 };
 use tokio::sync::broadcast;
 
@@ -24,11 +22,22 @@ pub struct CommitmentConfig {
     pub commitment: CommitmentLevel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Encoding {
+    Base58,
+    Base64,
+    #[serde(rename = "base64+zstd")]
+    Base64Zstd,
+    JsonParsed,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcContextConfig {
     #[serde(flatten)]
     pub commitment: Option<CommitmentConfig>,
+    pub encoding: Option<Encoding>,
     pub min_context_slot: Option<Slot>,
 }
 

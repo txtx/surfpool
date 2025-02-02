@@ -14,6 +14,7 @@ use solana_metrics::inc_new_counter_info;
 use solana_runtime::verify_precompiles::verify_precompiles;
 use solana_runtime_transaction::runtime_transaction::RuntimeTransaction;
 use solana_sdk::{
+    account::Account,
     hash::Hash,
     message::AddressLoader,
     packet::PACKET_DATA_SIZE,
@@ -22,6 +23,40 @@ use solana_sdk::{
     transaction::{MessageHash, SanitizedTransaction, VersionedTransaction},
 };
 use solana_transaction_status::TransactionBinaryEncoding;
+
+use super::Encoding;
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcAccount {
+    lamports: u64,
+    owner: String,
+    data: String, // TODO: could also be parsed JSON
+    executable: bool,
+    rent_epoch: u64,
+    space: u64,
+}
+
+pub fn format_account(account: Option<Account>, encoding: Option<Encoding>) -> Option<RpcAccount> {
+    if let Some(account) = account {
+        println!("{:?}", encoding);
+        Some(RpcAccount {
+            lamports: account.lamports,
+            owner: account.owner.to_string(),
+            data: match encoding {
+                Some(Encoding::Base64) => BASE64_STANDARD.encode(account.data.clone()),
+                Some(Encoding::Base58) => bs58::encode(account.data.clone()).into_string(),
+                None => bs58::encode(account.data.clone()).into_string(),
+                _ => unimplemented!(),
+            },
+            executable: account.executable,
+            rent_epoch: account.rent_epoch,
+            space: account.data.len() as u64,
+        })
+    } else {
+        None
+    }
+}
 
 fn optimize_filters(filters: &mut [RpcFilterType]) {
     filters.iter_mut().for_each(|filter_type| {

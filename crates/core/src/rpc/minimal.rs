@@ -1,4 +1,4 @@
-use crate::rpc::utils::verify_pubkey;
+use crate::rpc::utils::{format_account, verify_pubkey};
 
 use super::{RpcContextConfig, RunloopContext};
 use jsonrpc_core::Result;
@@ -22,6 +22,14 @@ use solana_sdk::{
 #[rpc]
 pub trait Minimal {
     type Metadata;
+
+    #[rpc(meta, name = "getAccountInfo")]
+    fn get_account_info(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        config: Option<RpcContextConfig>,
+    ) -> Result<Option<RpcAccount>>;
 
     #[rpc(meta, name = "getBalance")]
     fn get_balance(
@@ -93,6 +101,46 @@ pub trait Minimal {
 pub struct SurfpoolMinimalRpc;
 impl Minimal for SurfpoolMinimalRpc {
     type Metadata = Option<RunloopContext>;
+
+    fn get_account_info(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        config: Option<RpcContextConfig>,
+    ) -> Result<Option<RpcAccount>> {
+        println!(
+            "get_account_info rpc request received: {:?} {:?}",
+            pubkey_str, config
+        );
+        let pubkey = verify_pubkey(&pubkey_str)?;
+        let config = {
+            if let Some(config) = config {
+                config
+            } else {
+                RpcContextConfig::default()
+            }
+        };
+
+        // Retrieve svm state
+        let Some(ctx) = meta else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+        // Lock read access
+        let Ok(state_reader) = ctx.state.try_read() else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+
+        Ok(format_account(
+            state_reader.svm.get_account(&pubkey),
+            config.encoding,
+        ))
+    }
 
     fn get_balance(
         &self,
