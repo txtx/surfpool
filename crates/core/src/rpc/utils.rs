@@ -3,7 +3,6 @@ use std::{any::type_name, sync::Arc};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use bincode::Options;
 use jsonrpc_core::{Error, Result};
-use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
 use solana_client::{
     rpc_config::RpcTokenAccountsFilter,
     rpc_custom_error::RpcCustomError,
@@ -12,43 +11,10 @@ use solana_client::{
 };
 use solana_runtime::verify_precompiles::verify_precompiles;
 use solana_sdk::{
-    account::Account, hash::Hash, packet::PACKET_DATA_SIZE, pubkey::Pubkey, signature::Signature,
+    hash::Hash, packet::PACKET_DATA_SIZE, pubkey::Pubkey, signature::Signature,
     transaction::SanitizedTransaction,
 };
 use solana_transaction_status::TransactionBinaryEncoding;
-
-pub fn format_account(
-    account: Option<Account>,
-    encoding: Option<UiAccountEncoding>,
-) -> Option<UiAccount> {
-    if let Some(account) = account {
-        println!("{:?}", encoding);
-        Some(UiAccount {
-            lamports: account.lamports,
-            owner: account.owner.to_string(),
-            data: match encoding {
-                Some(UiAccountEncoding::Base64) => UiAccountData::Binary(
-                    BASE64_STANDARD.encode(account.data.clone()),
-                    UiAccountEncoding::Base64,
-                ),
-                Some(UiAccountEncoding::Base58) => UiAccountData::Binary(
-                    bs58::encode(account.data.clone()).into_string(),
-                    UiAccountEncoding::Base58,
-                ),
-                None => UiAccountData::Binary(
-                    bs58::encode(account.data.clone()).into_string(),
-                    UiAccountEncoding::Base64,
-                ),
-                _ => unimplemented!(),
-            },
-            executable: account.executable,
-            rent_epoch: account.rent_epoch,
-            space: Some(account.data.len() as u64),
-        })
-    } else {
-        None
-    }
-}
 
 fn optimize_filters(filters: &mut [RpcFilterType]) {
     filters.iter_mut().for_each(|filter_type| {

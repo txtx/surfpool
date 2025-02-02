@@ -1,12 +1,12 @@
-use crate::rpc::{
-    utils::{format_account, verify_pubkey},
-    State,
-};
+use std::io::Write;
+
+use crate::rpc::{utils::verify_pubkey, State};
 
 use super::RunloopContext;
+use base64::prelude::*;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use solana_account_decoder::UiAccount;
+use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
 use solana_client::{
     rpc_config::{
         RpcAccountInfoConfig, RpcContextConfig, RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig,
@@ -117,7 +117,7 @@ impl Minimal for SurfpoolMinimalRpc {
             pubkey_str, config
         );
         let pubkey = verify_pubkey(&pubkey_str)?;
-        let config = {
+        let config: RpcAccountInfoConfig = {
             if let Some(config) = config {
                 config
             } else {
@@ -127,10 +127,62 @@ impl Minimal for SurfpoolMinimalRpc {
 
         let state_reader = meta.get_state()?;
 
-        Ok(format_account(
-            state_reader.svm.get_account(&pubkey),
-            config.encoding,
-        ))
+        if let Some(account) = state_reader.svm.get_account(&pubkey) {
+            Ok(Some(UiAccount {
+                lamports: account.lamports,
+                owner: account.owner.to_string(),
+                data: {
+                    let account_data = if let Some(data_slice) = config.data_slice {
+                        account.data.clone()
+                            [data_slice.offset..(data_slice.offset + data_slice.length)]
+                            .to_vec()
+                    } else {
+                        account.data.clone()
+                    };
+
+                    match config.encoding {
+                        Some(UiAccountEncoding::Base58) => UiAccountData::Binary(
+                            bs58::encode(account_data).into_string(),
+                            UiAccountEncoding::Base58,
+                        ),
+                        Some(UiAccountEncoding::Base64) => UiAccountData::Binary(
+                            BASE64_STANDARD.encode(account_data),
+                            UiAccountEncoding::Base64,
+                        ),
+                        Some(UiAccountEncoding::Base64Zstd) => {
+                            let mut data = Vec::with_capacity(account_data.len());
+
+                            // Default compression level
+                            match zstd::Encoder::new(&mut data, 0).and_then(|mut encoder| {
+                                encoder
+                                    .write_all(&account_data)
+                                    .and_then(|_| encoder.finish())
+                            }) {
+                                Ok(_) => UiAccountData::Binary(
+                                    BASE64_STANDARD.encode(&data),
+                                    UiAccountEncoding::Base64Zstd,
+                                ),
+                                // Falling back on standard base64 encoding if compression failed
+                                Err(_) => UiAccountData::Binary(
+                                    BASE64_STANDARD.encode(&account_data),
+                                    UiAccountEncoding::Base64,
+                                ),
+                            }
+                        }
+                        None => UiAccountData::Binary(
+                            bs58::encode(account_data.clone()).into_string(),
+                            UiAccountEncoding::Base64,
+                        ),
+                        _ => unimplemented!(),
+                    }
+                },
+                executable: account.executable,
+                rent_epoch: account.rent_epoch,
+                space: Some(account.data.len() as u64),
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     fn get_balance(
