@@ -22,39 +22,52 @@ pub fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Result<(
         .map_err(|e| format!("{}", e))?;
     // Start frontend - kept on main thread
     if cmd.no_tui {
-        log_events(simnet_events_rx, ctx);
+        log_events(simnet_events_rx, cmd.debug, ctx);
     } else {
-        tui::simnet::start_app(simnet_events_rx).map_err(|e| format!("{}", e))?;
+        tui::simnet::start_app(simnet_events_rx, cmd.debug).map_err(|e| format!("{}", e))?;
     }
     handle.join().map_err(|_e| format!("unable to terminate"))?
 }
 
-fn log_events(simnet_events_rx: Receiver<SimnetEvent>, ctx: &Context) {
+fn log_events(simnet_events_rx: Receiver<SimnetEvent>, include_debug_logs: bool, ctx: &Context) {
     info!(
         ctx.expect_logger(),
         "Surfpool: The best place to train before surfing Solana"
     );
     while let Ok(event) = simnet_events_rx.recv() {
         match event {
-            SimnetEvent::AccountUpdate(account) => {
+            SimnetEvent::AccountUpdate(_, account) => {
                 info!(
                     ctx.expect_logger(),
                     "Account retrieved from Mainnet {}", account
                 );
             }
+            SimnetEvent::EpochInfoUpdate(epoch_info) => {
+                info!(
+                    ctx.expect_logger(),
+                    "Connection established. Epoch {}, Slot {}.",
+                    epoch_info.epoch,
+                    epoch_info.slot_index
+                );
+            }
             SimnetEvent::ClockUpdate(clock) => {
                 info!(ctx.expect_logger(), "Slot #{} ", clock.slot);
             }
-            SimnetEvent::ErroLog(log) => {
+            SimnetEvent::ErrorLog(_, log) => {
                 error!(ctx.expect_logger(), "{} ", log);
             }
-            SimnetEvent::InfoLog(log) => {
+            SimnetEvent::InfoLog(_, log) => {
                 info!(ctx.expect_logger(), "{} ", log);
             }
-            SimnetEvent::WarnLog(log) => {
+            SimnetEvent::WarnLog(_, log) => {
                 warn!(ctx.expect_logger(), "{} ", log);
             }
-            SimnetEvent::TransactionReceived(transaction) => {
+            SimnetEvent::DebugLog(_, log) => {
+                if include_debug_logs {
+                    debug!(ctx.expect_logger(), "{} ", log);
+                }
+            }
+            SimnetEvent::TransactionReceived(_, _transaction) => {
                 info!(ctx.expect_logger(), "Transaction received");
             }
             SimnetEvent::BlockHashExpired => {}

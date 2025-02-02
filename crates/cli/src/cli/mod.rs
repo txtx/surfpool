@@ -1,4 +1,4 @@
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use clap_complete::{Generator, Shell};
 use hiro_system_kit::{self, Logger};
 use std::{fs::File, process};
@@ -69,9 +69,12 @@ pub struct StartSimnet {
     /// Set the ip
     #[arg(long = "ip", short = 'i', default_value = DEFAULT_BINDING_ADDRESS )]
     pub network_binding_ip_address: String,
-    /// Display streams of logs instead of terminal UI dashboard
+    /// Display streams of logs instead of terminal UI dashboard (default: false)
     #[clap(long = "no-tui")]
     pub no_tui: bool,
+    /// Include debug logs (default: false)
+    #[clap(long = "debug", action=ArgAction::SetTrue)]
+    pub debug: bool,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]

@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Local, Utc};
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
@@ -25,12 +25,14 @@ pub struct GlobalState {
 
 pub enum SimnetEvent {
     ClockUpdate(Clock),
+    EpochInfoUpdate(EpochInfo),
     BlockHashExpired,
-    InfoLog(String),
-    ErroLog(String),
-    WarnLog(String),
-    TransactionReceived(VersionedTransaction),
-    AccountUpdate(Pubkey),
+    InfoLog(DateTime<Local>, String),
+    ErrorLog(DateTime<Local>, String),
+    WarnLog(DateTime<Local>, String),
+    DebugLog(DateTime<Local>, String),
+    TransactionReceived(DateTime<Local>, VersionedTransaction),
+    AccountUpdate(DateTime<Local>, Pubkey),
 }
 
 pub async fn start(
@@ -41,6 +43,7 @@ pub async fn start(
     // Todo: should check config first
     let rpc_client = RpcClient::new("https://api.mainnet-beta.solana.com");
     let epoch_info = rpc_client.get_epoch_info().unwrap();
+    let _ = simnet_events_tx.send(SimnetEvent::EpochInfoUpdate(epoch_info.clone()));
     // Question: can the value `slots_in_epoch` fluctuate over time?
     let slots_in_epoch = epoch_info.slots_in_epoch;
 
@@ -81,7 +84,8 @@ pub async fn start(
         };
 
         while let Ok(tx) = mempool_rx.try_recv() {
-            let _ = simnet_events_tx.send(SimnetEvent::TransactionReceived(tx.clone()));
+            let _ =
+                simnet_events_tx.send(SimnetEvent::TransactionReceived(Local::now(), tx.clone()));
 
             tx.verify_with_results();
             let tx = tx.into_legacy_transaction().unwrap();
@@ -99,17 +103,17 @@ pub async fn start(
                     let event = match res {
                         Ok(account) => {
                             let _ = ctx.svm.set_account(*program_id, account);
-                            SimnetEvent::AccountUpdate(program_id.clone())
+                            SimnetEvent::AccountUpdate(Local::now(), program_id.clone())
                         }
-                        Err(e) => {
-                            SimnetEvent::ErroLog(format!("unable to retrieve account: {}", e))
-                        }
+                        Err(e) => SimnetEvent::ErrorLog(
+                            Local::now(),
+                            format!("unable to retrieve account: {}", e),
+                        ),
                     };
                     let _ = simnet_events_tx.send(event);
                 }
             }
             let res = ctx.svm.send_transaction(tx);
-            // println!("{:?}", res);
         }
         ctx.epoch_info.slot_index += 1;
         ctx.epoch_info.absolute_slot += 1;

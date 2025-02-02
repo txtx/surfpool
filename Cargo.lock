@@ -7567,6 +7567,7 @@ version = "0.1.1"
 dependencies = [
  "ansi_term",
  "atty",
+ "chrono",
  "clap 4.5.27",
  "clap_complete 4.5.44",
  "clap_generate",
