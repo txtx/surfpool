@@ -7,9 +7,13 @@ use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
 use solana_client::rpc_custom_error::RpcCustomError;
-use solana_sdk::{clock::Slot, transaction::VersionedTransaction};
+use serde_derive::{Deserialize, Serialize};
+use solana_sdk::{
+    clock::Slot, commitment_config::CommitmentLevel, transaction::VersionedTransaction,
+};
 use tokio::sync::broadcast;
 
+pub mod accounts_data;
 pub mod full;
 pub mod minimal;
 pub mod utils;
@@ -55,6 +59,7 @@ impl State for Option<RunloopContext> {
     fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, GlobalState>, RpcCustomError> {
         // Retrieve svm state
         let Some(ctx) = self else {
+        let Ok(state_reader) = ctx.state.try_read() else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             }
@@ -67,6 +72,8 @@ impl State for Option<RunloopContext> {
             .map_err(|_| RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             })
+
+       Ok(state_reader)
     }
 }
 
