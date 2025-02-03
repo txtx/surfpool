@@ -2,8 +2,6 @@ use super::utils::decode_and_deserialize;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use litesvm::types::FailedTransactionMetadata;
-use solana_account::Account;
 use solana_client::rpc_config::RpcContextConfig;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcApiVersion;
