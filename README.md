@@ -43,17 +43,6 @@ $ surfpool start
 
 `surfpool` is in active development, here are a few todos of what's coming next.
 
-### Configurable
-
-- [ ] Ability to pull configuration from a `Surfpool.toml` manifest file
-- [ ] Ability to setup slot time (default to `400ms`)
-- [ ] Ability to setup epoch duration (default to `432,000`)
-- [ ] Ability to configure behavior:
-    - [ ] genesis
-    - [ ] point-fork mainnet
-    - [ ] stream-fork mainnet
-- [ ] Ability to configure the RPC node URL to default to.
-
 ### RPC Support
 
 - [ ] Support `HTTP Methods`
@@ -63,10 +52,11 @@ $ surfpool start
         - [x] getEpochInfo
         - [x] getLatestBlockhash
         - [x] sendTransaction
-        - [ ] getAccountInfo
+        - [x] getAccountInfo
+        - [x] getMultipleAccounts
+        - [x] getFeeForMessage
+        - [ ] getMinimumBalanceForRentExemption
         - [ ] requestAirdrop
-        - [ ] getMultipleAccounts
-        - [ ] getFeeForMessage
         - [ ] getBalance
         - [ ] simulateTransaction
         - [ ] getTransaction
@@ -112,6 +102,17 @@ $ surfpool start
         - [ ] isBlockhashValid
         - [ ] minimumLedgerSlot
 - [ ] Support `Websocket Methods`
+
+### Configurations
+
+- [ ] Ability to pull configuration from a `Surfpool.toml` manifest file
+- [ ] Ability to setup slot time (default to `400ms`)
+- [ ] Ability to setup epoch duration (default to `432,000`)
+- [ ] Ability to configure behavior:
+    - [ ] genesis
+    - [ ] point-fork mainnet
+    - [ ] stream-fork mainnet
+- [ ] Ability to configure the RPC node URL to default to.
 
 ### Going Further
 - [ ] Ability to watch and update fetched account
