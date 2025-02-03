@@ -1,4 +1,4 @@
-use std::{any::type_name, collections::HashSet, sync::Arc};
+use std::{any::type_name, sync::Arc};
 
 use base64::{prelude::BASE64_STANDARD, Engine};
 use bincode::Options;
@@ -9,17 +9,10 @@ use solana_client::{
     rpc_filter::RpcFilterType,
     rpc_request::{TokenAccountsFilter, MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT},
 };
-use solana_metrics::inc_new_counter;
-use solana_metrics::inc_new_counter_info;
 use solana_runtime::verify_precompiles::verify_precompiles;
-use solana_runtime_transaction::runtime_transaction::RuntimeTransaction;
 use solana_sdk::{
-    hash::Hash,
-    message::AddressLoader,
-    packet::PACKET_DATA_SIZE,
-    pubkey::Pubkey,
-    signature::Signature,
-    transaction::{MessageHash, SanitizedTransaction, VersionedTransaction},
+    hash::Hash, packet::PACKET_DATA_SIZE, pubkey::Pubkey, signature::Signature,
+    transaction::SanitizedTransaction,
 };
 use solana_transaction_status::TransactionBinaryEncoding;
 

@@ -1,13 +1,17 @@
-use crate::rpc::utils::verify_pubkey;
+use std::io::Write;
 
-use super::{RpcContextConfig, RunloopContext};
+use crate::rpc::{utils::verify_pubkey, State};
+
+use super::RunloopContext;
+use base64::prelude::*;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
+use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
 use solana_client::{
     rpc_config::{
-        RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig, RpcLeaderScheduleConfigWrapper,
+        RpcAccountInfoConfig, RpcContextConfig, RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig,
+        RpcLeaderScheduleConfigWrapper,
     },
-    rpc_custom_error::RpcCustomError,
     rpc_response::{
         RpcIdentity, RpcLeaderSchedule, RpcSnapshotSlotInfo, RpcVersionInfo, RpcVoteAccountStatus,
     },
@@ -22,6 +26,14 @@ use solana_sdk::{
 #[rpc]
 pub trait Minimal {
     type Metadata;
+
+    #[rpc(meta, name = "getAccountInfo")]
+    fn get_account_info(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        config: Option<RpcAccountInfoConfig>,
+    ) -> Result<Option<UiAccount>>;
 
     #[rpc(meta, name = "getBalance")]
     fn get_balance(
@@ -94,6 +106,92 @@ pub struct SurfpoolMinimalRpc;
 impl Minimal for SurfpoolMinimalRpc {
     type Metadata = Option<RunloopContext>;
 
+    fn get_account_info(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        config: Option<RpcAccountInfoConfig>,
+    ) -> Result<Option<UiAccount>> {
+        println!(
+            "get_account_info rpc request received: {:?} {:?}",
+            pubkey_str, config
+        );
+        let pubkey = verify_pubkey(&pubkey_str)?;
+        let config: RpcAccountInfoConfig = {
+            if let Some(config) = config {
+                config
+            } else {
+                RpcAccountInfoConfig::default()
+            }
+        };
+
+        let state_reader = meta.get_state()?;
+
+        if let Some(account) = state_reader.svm.get_account(&pubkey) {
+            Ok(Some(UiAccount {
+                lamports: account.lamports,
+                owner: account.owner.to_string(),
+                data: {
+                    let account_data = if let Some(data_slice) = config.data_slice {
+                        let end = std::cmp::min(
+                            account.data.len(),
+                            data_slice.offset + data_slice.length,
+                        );
+                        account.data.clone()[data_slice.offset..end].to_vec()
+                    } else {
+                        account.data.clone()
+                    };
+
+                    match config.encoding {
+                        Some(UiAccountEncoding::Base58) => UiAccountData::Binary(
+                            bs58::encode(account_data).into_string(),
+                            UiAccountEncoding::Base58,
+                        ),
+                        Some(UiAccountEncoding::Base64) => UiAccountData::Binary(
+                            BASE64_STANDARD.encode(account_data),
+                            UiAccountEncoding::Base64,
+                        ),
+                        Some(UiAccountEncoding::Base64Zstd) => {
+                            let mut data = Vec::with_capacity(account_data.len());
+
+                            // Default compression level
+                            match zstd::Encoder::new(&mut data, 0).and_then(|mut encoder| {
+                                encoder
+                                    .write_all(&account_data)
+                                    .and_then(|_| encoder.finish())
+                            }) {
+                                Ok(_) => UiAccountData::Binary(
+                                    BASE64_STANDARD.encode(&data),
+                                    UiAccountEncoding::Base64Zstd,
+                                ),
+                                // Falling back on standard base64 encoding if compression failed
+                                Err(err) => {
+                                    eprintln!("Zstd compression failed: {err}");
+                                    UiAccountData::Binary(
+                                        BASE64_STANDARD.encode(&account_data),
+                                        UiAccountEncoding::Base64,
+                                    )
+                                }
+                            }
+                        }
+                        None => UiAccountData::Binary(
+                            bs58::encode(account_data.clone()).into_string(),
+                            UiAccountEncoding::Base58,
+                        ),
+                        encoding => Err(jsonrpc_core::Error::invalid_params(format!(
+                            "Encoding {encoding:?} is not supported yet."
+                        )))?,
+                    }
+                },
+                executable: account.executable,
+                rent_epoch: account.rent_epoch,
+                space: Some(account.data.len() as u64),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn get_balance(
         &self,
         meta: Self::Metadata,
@@ -111,20 +209,7 @@ impl Minimal for SurfpoolMinimalRpc {
         meta: Self::Metadata,
         config: Option<RpcContextConfig>,
     ) -> Result<EpochInfo> {
-        // Retrieve svm state
-        let Some(ctx) = meta else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
-        // Lock read access
-        let Ok(state_reader) = ctx.state.try_read() else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
+        let state_reader = meta.get_state()?;
 
         Ok(state_reader.epoch_info.clone())
     }
@@ -136,20 +221,8 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_health(&self, meta: Self::Metadata) -> Result<String> {
-        // Retrieve svm state
-        let Some(ctx) = meta else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
-        // Lock read access
-        let Ok(_state_reader) = ctx.state.try_read() else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
+        let _state_reader = meta.get_state()?;
+
         // todo: we could check the time from the state clock and compare
         Ok("ok".to_string())
     }
@@ -163,20 +236,7 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_slot(&self, meta: Self::Metadata, _config: Option<RpcContextConfig>) -> Result<Slot> {
-        // Retrieve svm state
-        let Some(ctx) = meta else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
-        // Lock read access
-        let Ok(state_reader) = ctx.state.try_read() else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
+        let state_reader = meta.get_state()?;
         let clock: Clock = state_reader.svm.get_sysvar();
         Ok(clock.slot.into())
     }

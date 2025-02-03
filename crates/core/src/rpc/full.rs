@@ -2,6 +2,7 @@ use super::utils::decode_and_deserialize;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
+use solana_client::rpc_config::RpcContextConfig;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcApiVersion;
 use solana_client::rpc_response::RpcResponseContext;
@@ -19,17 +20,12 @@ use solana_client::{
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::clock::UnixTimestamp;
 use solana_sdk::transaction::VersionedTransaction;
-use solana_send_transaction_service::send_transaction_service::TransactionInfo;
 use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
 };
 
-use {
-    super::*,
-    solana_sdk::message::{SanitizedVersionedMessage, VersionedMessage},
-    solana_transaction_status::parse_ui_inner_instructions,
-};
+use super::*;
 
 #[rpc]
 pub trait Full {
