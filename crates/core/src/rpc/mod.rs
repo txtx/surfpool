@@ -8,12 +8,11 @@ use jsonrpc_core::{
 };
 use serde_derive::{Deserialize, Serialize};
 use solana_sdk::{
-    clock::Slot,
-    commitment_config::CommitmentLevel,
-    transaction::{Transaction, VersionedTransaction},
+    clock::Slot, commitment_config::CommitmentLevel, transaction::VersionedTransaction,
 };
 use tokio::sync::broadcast;
 
+pub mod accounts_data;
 pub mod full;
 pub mod minimal;
 pub mod utils;
