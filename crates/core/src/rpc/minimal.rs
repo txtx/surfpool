@@ -133,7 +133,10 @@ impl Minimal for SurfpoolMinimalRpc {
                 owner: account.owner.to_string(),
                 data: {
                     let account_data = if let Some(data_slice) = config.data_slice {
-                        let end = std::cmp::min(account.data.len(), data_slice.offset + data_slice.length);
+                        let end = std::cmp::min(
+                            account.data.len(),
+                            data_slice.offset + data_slice.length,
+                        );
                         account.data.clone()[data_slice.offset..end].to_vec()
                     } else {
                         account.data.clone()
@@ -162,17 +165,22 @@ impl Minimal for SurfpoolMinimalRpc {
                                     UiAccountEncoding::Base64Zstd,
                                 ),
                                 // Falling back on standard base64 encoding if compression failed
-                                Err(_) => UiAccountData::Binary(
-                                    BASE64_STANDARD.encode(&account_data),
-                                    UiAccountEncoding::Base64,
-                                ),
+                                Err(_) => {
+                                    eprintln!("Zstd compression failed: {e}");
+                                    UiAccountData::Binary(
+                                        BASE64_STANDARD.encode(&account_data),
+                                        UiAccountEncoding::Base64,
+                                    )
+                                }
                             }
                         }
                         None => UiAccountData::Binary(
                             bs58::encode(account_data.clone()).into_string(),
-                            UiAccountEncoding::Base64,
+                            UiAccountEncoding::Base58,
                         ),
-                        _ => unimplemented!(),
+                        encoding => Err(jsonrpc_core::Error::invalid_params(format!(
+                            "Encoding {encoding:?} is not supported yet."
+                        )))?,
                     }
                 },
                 executable: account.executable,
