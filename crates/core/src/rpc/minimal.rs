@@ -1,29 +1,14 @@
-use crate::rpc::{
-    utils::{transform_account_to_ui_account, verify_pubkey},
-    State,
-};
-
 use super::RunloopContext;
-use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
-use solana_account_decoder::UiAccount;
-use std::io::Write;
-
 use crate::rpc::{utils::verify_pubkey, State};
-
-use super::RunloopContext;
-use base64::prelude::*;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
 use solana_client::{
     rpc_config::{
-        RpcAccountInfoConfig, RpcContextConfig, RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig,
+        RpcContextConfig, RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig,
         RpcLeaderScheduleConfigWrapper,
     },
     rpc_response::{
-        RpcIdentity, RpcLeaderSchedule, RpcResponseContext, RpcSnapshotSlotInfo, RpcVersionInfo,
-        RpcVoteAccountStatus,
+        RpcIdentity, RpcLeaderSchedule, RpcSnapshotSlotInfo, RpcVersionInfo, RpcVoteAccountStatus,
     },
 };
 use solana_program_runtime::loaded_programs::{BlockRelation, ForkGraph};
@@ -36,14 +21,6 @@ use solana_sdk::{
 #[rpc]
 pub trait Minimal {
     type Metadata;
-
-    #[rpc(meta, name = "getAccountInfo")]
-    fn get_account_info(
-        &self,
-        meta: Self::Metadata,
-        pubkey_str: String,
-        config: Option<RpcAccountInfoConfig>,
-    ) -> Result<Option<UiAccount>>;
 
     #[rpc(meta, name = "getBalance")]
     fn get_balance(
@@ -82,14 +59,6 @@ pub trait Minimal {
     #[rpc(meta, name = "getHighestSnapshotSlot")]
     fn get_highest_snapshot_slot(&self, meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo>;
 
-    #[rpc(meta, name = "getMultipleAccounts")]
-    fn get_multiple_accounts(
-        &self,
-        meta: Self::Metadata,
-        pubkeys: Vec<String>,
-        config: Option<RpcAccountInfoConfig>,
-    ) -> Result<RpcResponse<Vec<Option<UiAccount>>>>;
-
     #[rpc(meta, name = "getTransactionCount")]
     fn get_transaction_count(
         &self,
@@ -123,25 +92,6 @@ pub trait Minimal {
 pub struct SurfpoolMinimalRpc;
 impl Minimal for SurfpoolMinimalRpc {
     type Metadata = Option<RunloopContext>;
-
-    fn get_account_info(
-        &self,
-        meta: Self::Metadata,
-        pubkey_str: String,
-        config: Option<RpcAccountInfoConfig>,
-    ) -> Result<Option<UiAccount>> {
-        println!(
-            "get_account_info rpc request received: {:?} {:?}",
-            pubkey_str, config
-        );
-        let pubkey = verify_pubkey(&pubkey_str)?;
-
-        let config = config.unwrap_or_default();
-
-        let state_reader = meta.get_state()?;
-
-        transform_account_to_ui_account(&state_reader.svm.get_account(&pubkey), &config)
-    }
 
     fn get_balance(
         &self,
@@ -209,28 +159,6 @@ impl Minimal for SurfpoolMinimalRpc {
         //     incremental: None,
         // })
         unimplemented!()
-    }
-
-    fn get_multiple_accounts(
-        &self,
-        meta: Self::Metadata,
-        pubkeys: Vec<String>,
-        config: Option<RpcAccountInfoConfig>,
-    ) -> Result<RpcResponse<Vec<Option<UiAccount>>>> {
-        let config = config.unwrap_or_default();
-        let state_reader = meta.get_state()?;
-
-        pubkeys
-            .iter()
-            .map(|s| {
-                let pk = verify_pubkey(s)?;
-                transform_account_to_ui_account(&state_reader.svm.get_account(&pk), &config)
-            })
-            .collect::<Result<Vec<_>>>()
-            .map(|value| RpcResponse {
-                context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
-                value,
-            })
     }
 
     fn get_transaction_count(
