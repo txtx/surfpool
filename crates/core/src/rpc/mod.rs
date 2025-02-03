@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, RwLock, RwLockReadGuard},
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::Instant,
 };
 
@@ -35,6 +35,7 @@ pub struct RunloopContext {
 
 trait State {
     fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, GlobalState>, RpcCustomError>;
+    fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, GlobalState>, RpcCustomError>;
 }
 
 impl State for Option<RunloopContext> {
@@ -48,6 +49,16 @@ impl State for Option<RunloopContext> {
         };
 
         // Lock read access
+        ctx.state
+            .try_read()
+            .map_err(|_| RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            })
+    }
+
+    fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, GlobalState>, RpcCustomError> {
+        // Retrieve svm state
+        let Some(ctx) = self else {
         let Ok(state_reader) = ctx.state.try_read() else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
@@ -55,7 +66,14 @@ impl State for Option<RunloopContext> {
             .into());
         };
 
-        Ok(state_reader)
+        // Lock write access to get a mutable reference
+        ctx.state
+            .try_write()
+            .map_err(|_| RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            })
+
+       Ok(state_reader)
     }
 }
 

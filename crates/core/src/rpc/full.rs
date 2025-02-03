@@ -19,6 +19,7 @@ use solana_client::{
 };
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::clock::UnixTimestamp;
+use solana_sdk::pubkey::Pubkey;
 use solana_sdk::transaction::VersionedTransaction;
 use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::{
@@ -228,9 +229,17 @@ impl Full for SurfpoolFullRpc {
         meta: Self::Metadata,
         pubkey_str: String,
         lamports: u64,
-        config: Option<RpcRequestAirdropConfig>,
+        _config: Option<RpcRequestAirdropConfig>,
     ) -> Result<String> {
-        unimplemented!()
+        let pk = Pubkey::from_str_const(&pubkey_str);
+        let mut state_reader = meta.get_state_mut()?;
+
+        let tx_result = state_reader
+            .svm
+            .airdrop(&pk, lamports)
+            .map_err(|err| Error::invalid_params(format!("failed to send transaction: {err:?}")))?;
+
+        Ok(tx_result.signature.to_string())
     }
 
     fn send_transaction(
