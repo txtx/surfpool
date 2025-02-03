@@ -2,6 +2,8 @@ use super::utils::decode_and_deserialize;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
+use serde::Deserialize;
+use solana_accounts_db::blockhash_queue::BlockhashQueue;
 use solana_client::rpc_config::RpcContextConfig;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcApiVersion;
@@ -19,12 +21,14 @@ use solana_client::{
 };
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::clock::UnixTimestamp;
+use solana_sdk::fee_calculator::FeeCalculator;
+use solana_sdk::message::{Message, VersionedMessage};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::transaction::VersionedTransaction;
-use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
 };
+use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
 
 use super::*;
 
@@ -396,10 +400,18 @@ impl Full for SurfpoolFullRpc {
     fn get_fee_for_message(
         &self,
         meta: Self::Metadata,
-        data: String,
-        config: Option<RpcContextConfig>,
+        encoded: String,
+        _config: Option<RpcContextConfig>, // TODO: use config
     ) -> Result<RpcResponse<Option<u64>>> {
-        unimplemented!()
+        let (_, message) =
+            decode_and_deserialize::<VersionedMessage>(encoded, TransactionBinaryEncoding::Base64)?;
+        let state_reader = meta.get_state()?;
+
+        // TODO: add fee computation APIs in LiteSVM
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
+            value: Some((message.header().num_required_signatures as u64) * 5000),
+        })
     }
 
     fn get_stake_minimum_delegation(
