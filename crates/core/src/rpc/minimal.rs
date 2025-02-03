@@ -7,6 +7,15 @@ use super::RunloopContext;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_account_decoder::UiAccount;
+use std::io::Write;
+
+use crate::rpc::{utils::verify_pubkey, State};
+
+use super::RunloopContext;
+use base64::prelude::*;
+use jsonrpc_core::Result;
+use jsonrpc_derive::rpc;
+use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
 use solana_client::{
     rpc_config::{
         RpcAccountInfoConfig, RpcContextConfig, RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig,
@@ -126,6 +135,7 @@ impl Minimal for SurfpoolMinimalRpc {
             pubkey_str, config
         );
         let pubkey = verify_pubkey(&pubkey_str)?;
+
         let config = config.unwrap_or_default();
 
         let state_reader = meta.get_state()?;

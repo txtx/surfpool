@@ -25,6 +25,7 @@ use solana_sdk::fee_calculator::FeeCalculator;
 use solana_sdk::message::{Message, VersionedMessage};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::transaction::VersionedTransaction;
+use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
 };
