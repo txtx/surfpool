@@ -14,7 +14,8 @@ use std::{
 use tokio::sync::broadcast;
 
 use crate::rpc::{
-    self, accounts_data::AccountsData, full::Full, minimal::Minimal, Config, SurfpoolMiddleware,
+    self, accounts_data::AccountsData, bank_data::BankData, full::Full, minimal::Minimal, Config,
+    SurfpoolMiddleware,
 };
 
 const DEFAULT_SLOT_TIME: u64 = 400;
@@ -68,6 +69,7 @@ pub async fn start(
         io.extend_with(rpc::minimal::SurfpoolMinimalRpc.to_delegate());
         io.extend_with(rpc::full::SurfpoolFullRpc.to_delegate());
         io.extend_with(rpc::accounts_data::SurfpoolAccountsDataRpc.to_delegate());
+        io.extend_with(rpc::bank_data::SurfpoolBankDataRpc.to_delegate());
         let res = ServerBuilder::new(io)
             .cors(DomainsValidation::Disabled)
             .start_http(&"127.0.0.1:8899".parse().unwrap());

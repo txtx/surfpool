@@ -11,6 +11,7 @@ use solana_sdk::{clock::Slot, transaction::VersionedTransaction};
 use tokio::sync::broadcast;
 
 pub mod accounts_data;
+pub mod bank_data;
 pub mod full;
 pub mod minimal;
 pub mod utils;
