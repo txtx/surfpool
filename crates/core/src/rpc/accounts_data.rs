@@ -1,39 +1,21 @@
-use super::utils::decode_and_deserialize;
+use crate::rpc::utils::{transform_account_to_ui_account, verify_pubkey};
+use crate::rpc::State;
+
+use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;
-use jsonrpc_core::{Error, Result};
+use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_account_decoder::parse_token::UiTokenAmount;
 use solana_account_decoder::UiAccount;
 use solana_client::rpc_config::RpcAccountInfoConfig;
-use solana_client::rpc_custom_error::RpcCustomError;
+use solana_client::rpc_response::RpcBlockCommitment;
 use solana_client::rpc_response::RpcResponseContext;
-use solana_client::rpc_response::{RpcApiVersion, RpcBlockCommitment};
-use solana_client::{
-    rpc_config::{
-        RpcBlockConfig, RpcBlocksConfigWrapper, RpcEncodingConfigWrapper, RpcEpochConfig,
-        RpcRequestAirdropConfig, RpcSendTransactionConfig, RpcSignatureStatusConfig,
-        RpcSignaturesForAddressConfig, RpcSimulateTransactionConfig, RpcTransactionConfig,
-    },
-    rpc_response::{
-        RpcBlockhash, RpcConfirmedTransactionStatusWithSignature, RpcContactInfo,
-        RpcInflationReward, RpcPerfSample, RpcPrioritizationFee, RpcSimulateTransactionResult,
-    },
-};
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_runtime::commitment::BlockCommitmentArray;
-use solana_sdk::clock::UnixTimestamp;
-use solana_sdk::transaction::VersionedTransaction;
-use solana_send_transaction_service::send_transaction_service::TransactionInfo;
-use solana_transaction_status::UiTransactionEncoding;
-use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
-};
+use solana_sdk::clock::Slot;
+use solana_sdk::commitment_config::CommitmentConfig;
 
-use {
-    super::*,
-    solana_sdk::message::{SanitizedVersionedMessage, VersionedMessage},
-    solana_transaction_status::parse_ui_inner_instructions,
-};
+use super::RunloopContext;
 
 #[rpc]
 pub trait AccountsData {
@@ -93,16 +75,62 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         pubkey_str: String,
         config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Option<UiAccount>>>> {
-        unimplemented!()
+        println!(
+            "get_account_info rpc request received: {:?} {:?}",
+            pubkey_str, config
+        );
+        let pubkey = match verify_pubkey(&pubkey_str) {
+            Ok(res) => res,
+            Err(e) => return Box::pin(future::err(e)),
+        };
+
+        let config = config.unwrap_or_default();
+        let state_reader = match meta.get_state() {
+            Ok(res) => res,
+            Err(e) => return Box::pin(future::err(e.into())),
+        };
+
+        let res = match transform_account_to_ui_account(
+            &state_reader.svm.get_account(&pubkey),
+            &config,
+        ) {
+            Ok(res) => Ok(res),
+            Err(e) => return Box::pin(future::err(e.into())),
+        };
+
+        let res = res.map(|value| RpcResponse {
+            context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
+            value,
+        });
+
+        Box::pin(future::ready(res))
     }
 
     fn get_multiple_accounts(
         &self,
         meta: Self::Metadata,
-        pubkey_strs: Vec<String>,
+        pubkeys: Vec<String>,
         config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<Option<UiAccount>>>>> {
-        unimplemented!()
+        let config = config.unwrap_or_default();
+        let state_reader = match meta.get_state() {
+            Ok(res) => res,
+            Err(e) => return Box::pin(future::err(e.into())),
+        };
+
+        let res = pubkeys
+            .iter()
+            .map(|s| {
+                let pk = verify_pubkey(s)?;
+                transform_account_to_ui_account(&state_reader.svm.get_account(&pk), &config)
+            })
+            .collect::<Result<Vec<_>>>()
+            .map(|value| RpcResponse {
+                context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
+                value,
+            });
+
+        Box::pin(future::ready(res))
     }
 
     fn get_block_commitment(

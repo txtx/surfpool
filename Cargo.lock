@@ -8294,6 +8294,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "solana-account",
  "solana-account-decoder",
  "solana-accounts-db",
  "solana-client",
@@ -8327,6 +8328,7 @@ dependencies = [
  "symlink",
  "tokio",
  "tokio-util 0.7.13",
+ "zstd",
 ]
 
 [[package]]

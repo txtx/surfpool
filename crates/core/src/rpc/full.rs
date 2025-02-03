@@ -2,6 +2,7 @@ use super::utils::decode_and_deserialize;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
+use solana_client::rpc_config::RpcContextConfig;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcApiVersion;
 use solana_client::rpc_response::RpcResponseContext;
@@ -18,18 +19,15 @@ use solana_client::{
 };
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::clock::UnixTimestamp;
+use solana_sdk::message::VersionedMessage;
+use solana_sdk::pubkey::Pubkey;
 use solana_sdk::transaction::VersionedTransaction;
-use solana_send_transaction_service::send_transaction_service::TransactionInfo;
-use solana_transaction_status::UiTransactionEncoding;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
 };
+use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
 
-use {
-    super::*,
-    solana_sdk::message::{SanitizedVersionedMessage, VersionedMessage},
-    solana_transaction_status::parse_ui_inner_instructions,
-};
+use super::*;
 
 #[rpc]
 pub trait Full {
@@ -232,9 +230,17 @@ impl Full for SurfpoolFullRpc {
         meta: Self::Metadata,
         pubkey_str: String,
         lamports: u64,
-        config: Option<RpcRequestAirdropConfig>,
+        _config: Option<RpcRequestAirdropConfig>,
     ) -> Result<String> {
-        unimplemented!()
+        let pk = Pubkey::from_str_const(&pubkey_str);
+        let mut state_reader = meta.get_state_mut()?;
+
+        let tx_result = state_reader
+            .svm
+            .airdrop(&pk, lamports)
+            .map_err(|err| Error::invalid_params(format!("failed to send transaction: {err:?}")))?;
+
+        Ok(tx_result.signature.to_string())
     }
 
     fn send_transaction(
@@ -391,10 +397,18 @@ impl Full for SurfpoolFullRpc {
     fn get_fee_for_message(
         &self,
         meta: Self::Metadata,
-        data: String,
-        config: Option<RpcContextConfig>,
+        encoded: String,
+        _config: Option<RpcContextConfig>, // TODO: use config
     ) -> Result<RpcResponse<Option<u64>>> {
-        unimplemented!()
+        let (_, message) =
+            decode_and_deserialize::<VersionedMessage>(encoded, TransactionBinaryEncoding::Base64)?;
+        let state_reader = meta.get_state()?;
+
+        // TODO: add fee computation APIs in LiteSVM
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
+            value: Some((message.header().num_required_signatures as u64) * 5000),
+        })
     }
 
     fn get_stake_minimum_delegation(

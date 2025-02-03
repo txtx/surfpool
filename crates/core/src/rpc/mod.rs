@@ -1,35 +1,19 @@
 use std::{
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::Instant,
 };
 
 use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
-use serde_derive::{Deserialize, Serialize};
-use solana_sdk::{
-    clock::Slot, commitment_config::CommitmentLevel, transaction::VersionedTransaction,
-};
+use solana_client::rpc_custom_error::RpcCustomError;
+use solana_sdk::{clock::Slot, transaction::VersionedTransaction};
 use tokio::sync::broadcast;
 
 pub mod accounts_data;
 pub mod full;
 pub mod minimal;
 pub mod utils;
-
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CommitmentConfig {
-    pub commitment: CommitmentLevel,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcContextConfig {
-    #[serde(flatten)]
-    pub commitment: Option<CommitmentConfig>,
-    pub min_context_slot: Option<Slot>,
-}
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum RpcHealthStatus {
@@ -44,6 +28,47 @@ pub struct SurfpoolRpc;
 pub struct RunloopContext {
     pub state: Arc<RwLock<GlobalState>>,
     pub mempool_tx: broadcast::Sender<VersionedTransaction>,
+}
+
+trait State {
+    fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, GlobalState>, RpcCustomError>;
+    fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, GlobalState>, RpcCustomError>;
+}
+
+impl State for Option<RunloopContext> {
+    fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, GlobalState>, RpcCustomError> {
+        // Retrieve svm state
+        let Some(ctx) = self else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+
+        // Lock read access
+        ctx.state
+            .try_read()
+            .map_err(|_| RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            })
+    }
+
+    fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, GlobalState>, RpcCustomError> {
+        // Retrieve svm state
+        let Some(ctx) = self else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+
+        // Lock write access to get a mutable reference
+        ctx.state
+            .try_write()
+            .map_err(|_| RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            })
+    }
 }
 
 impl Metadata for RunloopContext {}
