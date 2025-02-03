@@ -165,8 +165,8 @@ impl Minimal for SurfpoolMinimalRpc {
                                     UiAccountEncoding::Base64Zstd,
                                 ),
                                 // Falling back on standard base64 encoding if compression failed
-                                Err(_) => {
-                                    eprintln!("Zstd compression failed: {e}");
+                                Err(err) => {
+                                    eprintln!("Zstd compression failed: {err}");
                                     UiAccountData::Binary(
                                         BASE64_STANDARD.encode(&account_data),
                                         UiAccountEncoding::Base64,
