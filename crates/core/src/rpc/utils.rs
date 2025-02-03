@@ -3,6 +3,7 @@ use std::{any::type_name, sync::Arc};
 use base64::prelude::*;
 use bincode::Options;
 use jsonrpc_core::{Error, Result};
+use litesvm::types::TransactionMetadata;
 use solana_client::{
     rpc_config::RpcTokenAccountsFilter,
     rpc_custom_error::RpcCustomError,
@@ -14,7 +15,9 @@ use solana_sdk::{
     hash::Hash, packet::PACKET_DATA_SIZE, pubkey::Pubkey, signature::Signature,
     transaction::SanitizedTransaction,
 };
-use solana_transaction_status::TransactionBinaryEncoding;
+use solana_transaction_status::{
+    InnerInstruction, InnerInstructions, TransactionBinaryEncoding, UiInnerInstructions,
+};
 
 fn optimize_filters(filters: &mut [RpcFilterType]) {
     filters.iter_mut().for_each(|filter_type| {
@@ -167,4 +170,26 @@ where
             ))
         })
         .map(|output| (wire_output, output))
+}
+
+pub fn transform_tx_metadata_to_ui_accounts(
+    meta: &TransactionMetadata,
+) -> Vec<UiInnerInstructions> {
+    meta.inner_instructions
+        .iter()
+        .enumerate()
+        .map(|(i, ixs)| {
+            InnerInstructions {
+                index: i as u8,
+                instructions: ixs
+                    .iter()
+                    .map(|ix| InnerInstruction {
+                        instruction: ix.instruction.clone(),
+                        stack_height: Some(ix.stack_height as u32),
+                    })
+                    .collect(),
+            }
+            .into()
+        })
+        .collect()
 }
