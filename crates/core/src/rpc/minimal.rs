@@ -22,7 +22,6 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{
     clock::{Clock, Slot},
     epoch_info::EpochInfo,
-    pubkey::Pubkey,
 };
 
 #[rpc]
@@ -214,7 +213,7 @@ impl Minimal for SurfpoolMinimalRpc {
         pubkeys
             .iter()
             .map(|s| {
-                let pk = Pubkey::from_str_const(s);
+                let pk = verify_pubkey(s)?;
                 transform_account_to_ui_account(&state_reader.svm.get_account(&pk), &config)
             })
             .collect::<Result<Vec<_>>>()
