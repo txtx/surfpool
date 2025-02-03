@@ -1,11 +1,11 @@
-use std::sync::mpsc::{channel, Receiver};
+use std::{sync::mpsc::{channel, Receiver}, thread::sleep, time::Duration};
 
-use crate::tui;
+use crate::{scaffold::detect_program_frameworks, tui};
 
 use super::{Context, StartSimnet};
 use surfpool_core::{simnet::SimnetEvent, start_simnet};
 
-pub fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Result<(), String> {
+pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Result<(), String> {
     let (simnet_events_tx, simnet_events_rx) = channel();
     let ctx_cloned = ctx.clone();
     // Start backend - background task
@@ -20,6 +20,20 @@ pub fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Result<(
             Ok(())
         })
         .map_err(|e| format!("{}", e))?;
+
+
+    sleep(Duration::from_secs(10));
+    match detect_program_frameworks(&cmd.manifest_path).await {
+        Err(e) => error!(ctx.expect_logger(), "{}", e),
+        Ok(Some(framework)) => {
+            info!(
+                ctx.expect_logger(),
+                "Loading contracts from {:?}", framework
+            )
+        }
+        _ => {}
+    };
+
     // Start frontend - kept on main thread
     if cmd.no_tui {
         log_events(simnet_events_rx, cmd.debug, ctx);
@@ -51,7 +65,9 @@ fn log_events(simnet_events_rx: Receiver<SimnetEvent>, include_debug_logs: bool,
                 );
             }
             SimnetEvent::ClockUpdate(clock) => {
-                info!(ctx.expect_logger(), "Slot #{} ", clock.slot);
+                if include_debug_logs {
+                    info!(ctx.expect_logger(), "Slot #{} ", clock.slot);
+                }
             }
             SimnetEvent::ErrorLog(_, log) => {
                 error!(ctx.expect_logger(), "{} ", log);
