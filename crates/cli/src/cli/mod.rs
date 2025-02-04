@@ -13,7 +13,7 @@ pub struct Context {
 
 pub const DEFAULT_SLOT_TIME_MS: &str = "400";
 pub const DEFAULT_BINDING_PORT: &str = "8899";
-pub const DEFAULT_BINDING_ADDRESS: &str = "localhost";
+pub const DEFAULT_BINDING_ADDRESS: &str = "127.0.0.1";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 
 #[allow(dead_code)]

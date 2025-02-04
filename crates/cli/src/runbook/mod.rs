@@ -1,8 +1,9 @@
+use ratatui::widgets::Block;
 use std::io::Write;
 use txtx_addon_network_svm::SvmNetworkAddon;
 use txtx_core::{
     kit::{
-        channel::unbounded,
+        channel::{unbounded, Sender},
         helpers::fs::FileLocation,
         types::{
             frontend::{BlockEvent, ProgressBarStatusColor},
@@ -28,6 +29,7 @@ pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
 
 pub async fn execute_runbook(
     runbook_id: &str,
+    progress_tx: Sender<BlockEvent>,
     manifest_location: &FileLocation,
 ) -> Result<(), String> {
     let base_dir_location = manifest_location.get_parent_location()?;
@@ -58,53 +60,6 @@ pub async fn execute_runbook(
     }
 
     runbook.enable_full_execution_mode();
-
-    let (progress_tx, progress_rx) = unbounded();
-    // should not be generating actions
-    let _ = hiro_system_kit::thread_named("Display background tasks logs").spawn(move || {
-        while let Ok(msg) = progress_rx.recv() {
-            match msg {
-                BlockEvent::UpdateProgressBarStatus(update) => {
-                    match update.new_status.status_color {
-                        ProgressBarStatusColor::Yellow => {
-                            print!(
-                                "\r{} {} {:<150}",
-                                yellow!("→"),
-                                yellow!(format!("{}", update.new_status.status)),
-                                update.new_status.message,
-                            );
-                        }
-                        ProgressBarStatusColor::Green => {
-                            print!(
-                                "\r{} {} {:<150}\n",
-                                green!("✓"),
-                                green!(format!("{}", update.new_status.status)),
-                                update.new_status.message,
-                            );
-                        }
-                        ProgressBarStatusColor::Red => {
-                            print!(
-                                "\r{} {} {:<150}\n",
-                                red!("x"),
-                                red!(format!("{}", update.new_status.status)),
-                                update.new_status.message,
-                            );
-                        }
-                        ProgressBarStatusColor::Purple => {
-                            print!(
-                                "\r{} {} {:<150}\n",
-                                purple!("→"),
-                                purple!(format!("{}", update.new_status.status)),
-                                update.new_status.message,
-                            );
-                        }
-                    };
-                    std::io::stdout().flush().unwrap();
-                }
-                _ => {}
-            }
-        }
-    });
 
     let res = start_unsupervised_runbook_runloop(&mut runbook, &progress_tx).await;
     if let Err(diags) = res {

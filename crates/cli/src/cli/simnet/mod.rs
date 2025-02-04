@@ -1,5 +1,4 @@
-use crate::{scaffold::detect_program_frameworks, tui};
-use std::sync::mpsc::{channel, Receiver};
+use crate::{runbook::execute_runbook, scaffold::detect_program_frameworks, tui};
 
 use super::{Context, StartSimnet};
 use surfpool_core::{
@@ -7,6 +6,7 @@ use surfpool_core::{
     start_simnet,
     types::{RpcConfig, SimnetConfig, SurfpoolConfig},
 };
+use txtx_core::kit::{channel::Receiver, helpers::fs::FileLocation, types::frontend::BlockEvent};
 
 pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Result<(), String> {
     let config = SurfpoolConfig {
@@ -21,7 +21,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         },
     };
 
-    let (simnet_events_tx, simnet_events_rx) = channel();
+    let (simnet_events_tx, simnet_events_rx) = crossbeam::channel::unbounded();
     let ctx_cloned = ctx.clone();
     // Start backend - background task
     let _handle = hiro_system_kit::thread_named("simnet")
@@ -49,22 +49,29 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
 
     // Propose deployments (use --no-deploy)
 
-    match detect_program_frameworks(&cmd.manifest_path).await {
-        Err(e) => error!(ctx.expect_logger(), "{}", e),
-        Ok(Some(framework)) => {
-            info!(
-                ctx.expect_logger(),
-                "Loading contracts from {:?}", framework
-            )
+    let deployment = match detect_program_frameworks(&cmd.manifest_path).await {
+        Err(e) => {
+            error!(ctx.expect_logger(), "{}", e);
+            None
         }
-        _ => {}
+        Ok(deployment) => deployment,
+    };
+
+    let deploy_progress_rx = if let Some((framework, programs)) = deployment {
+        let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
+        let manifest_location = FileLocation::from_path_string(&cmd.manifest_path)?;
+        execute_runbook("v1", progress_tx, &manifest_location).await?;
+        Some(progress_rx)
+    } else {
+        None
     };
 
     // Start frontend - kept on main thread
     if cmd.no_tui {
-        log_events(simnet_events_rx, cmd.debug, ctx)?;
+        log_events(simnet_events_rx, cmd.debug, deploy_progress_rx, ctx)?;
     } else {
-        tui::simnet::start_app(simnet_events_rx, cmd.debug).map_err(|e| format!("{}", e))?;
+        tui::simnet::start_app(simnet_events_rx, cmd.debug, deploy_progress_rx)
+            .map_err(|e| format!("{}", e))?;
     }
     Ok(())
 }
@@ -72,6 +79,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
 fn log_events(
     simnet_events_rx: Receiver<SimnetEvent>,
     include_debug_logs: bool,
+    deploy_progress_rx: Option<Receiver<BlockEvent>>,
     ctx: &Context,
 ) -> Result<(), String> {
     info!(
