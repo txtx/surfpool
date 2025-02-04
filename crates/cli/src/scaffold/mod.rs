@@ -45,7 +45,7 @@ pub async fn detect_program_frameworks(
         return Ok(Some((framework, programs)));
     }
 
-    return Ok(None);
+    Ok(None)
 }
 
 pub fn scaffold_runbooks_layout(

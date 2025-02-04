@@ -39,7 +39,7 @@ pub fn try_get_programs_from_project(
             "~/.config/solana/id.json",
         ));
 
-        for (_cluster, deployments) in manifest.programs.iter() {
+        if let Some((_, deployments)) = manifest.programs.iter().next() {
             for (program_name, _deployment) in deployments.iter() {
                 programs.push(program_name.clone());
                 runbook_src.push_str(&get_interpolated_anchor_program_deployment_template(
@@ -52,10 +52,9 @@ pub fn try_get_programs_from_project(
                 // ];
                 // let command = GetProgramFromAnchorProject::run(function_spec, &context, &args);
             }
-            break;
         }
 
-        return Ok(Some((Framework::Anchor, programs, runbook_src)));
+        Ok(Some((Framework::Anchor, programs, runbook_src)))
     } else {
         Ok(None)
     }

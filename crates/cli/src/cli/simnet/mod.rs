@@ -124,5 +124,5 @@ fn log_events(
             SimnetEvent::Ready => {}
         }
     }
-    return Ok(());
+    Ok(())
 }
