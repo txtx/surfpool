@@ -55,6 +55,7 @@ $ surfpool start
         - [x] getAccountInfo
         - [x] getMultipleAccounts
         - [x] getFeeForMessage
+        - [ ] getSignatureStatuses
         - [ ] getMinimumBalanceForRentExemption
         - [ ] requestAirdrop
         - [ ] getBalance
@@ -87,7 +88,6 @@ $ surfpool start
         - [ ] getRecentPerformanceSamples
         - [ ] getRecentPrioritizationFees
         - [ ] getSignaturesForAddress
-        - [ ] getSignatureStatuses
         - [ ] getSlotLeader
         - [ ] getSlotLeaders
         - [ ] getStakeMinimumDelegation
