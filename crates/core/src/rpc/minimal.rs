@@ -8,7 +8,8 @@ use solana_client::{
         RpcLeaderScheduleConfigWrapper,
     },
     rpc_response::{
-        RpcIdentity, RpcLeaderSchedule, RpcSnapshotSlotInfo, RpcVersionInfo, RpcVoteAccountStatus,
+        RpcIdentity, RpcLeaderSchedule, RpcResponseContext, RpcSnapshotSlotInfo, RpcVersionInfo,
+        RpcVoteAccountStatus,
     },
 };
 use solana_program_runtime::loaded_programs::{BlockRelation, ForkGraph};
@@ -111,7 +112,6 @@ impl Minimal for SurfpoolMinimalRpc {
         config: Option<RpcContextConfig>,
     ) -> Result<EpochInfo> {
         let state_reader = meta.get_state()?;
-
         Ok(state_reader.epoch_info.clone())
     }
 

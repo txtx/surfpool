@@ -47,11 +47,9 @@ impl State for Option<RunloopContext> {
         };
 
         // Lock read access
-        ctx.state
-            .try_read()
-            .map_err(|_| RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            })
+        ctx.state.read().map_err(|_| RpcCustomError::NodeUnhealthy {
+            num_slots_behind: None,
+        })
     }
 
     fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, GlobalState>, RpcCustomError> {
@@ -65,7 +63,7 @@ impl State for Option<RunloopContext> {
 
         // Lock write access to get a mutable reference
         ctx.state
-            .try_write()
+            .write()
             .map_err(|_| RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             })
@@ -74,7 +72,7 @@ impl State for Option<RunloopContext> {
 
 impl Metadata for RunloopContext {}
 
-use crate::simnet::GlobalState;
+use crate::{simnet::GlobalState, types::RpcConfig};
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
 
@@ -82,11 +80,8 @@ use std::future::Future;
 pub struct SurfpoolMiddleware {
     pub context: Arc<RwLock<GlobalState>>,
     pub mempool_tx: broadcast::Sender<VersionedTransaction>,
-    pub config: Config,
+    pub config: RpcConfig,
 }
-
-#[derive(Clone)]
-pub struct Config {}
 
 impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
     type Future = FutureResponse;
@@ -102,8 +97,6 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
         F: FnOnce(Request, Option<RunloopContext>) -> X + Send,
         X: Future<Output = Option<Response>> + Send + 'static,
     {
-        let start = Instant::now();
-
         let meta = Some(RunloopContext {
             state: self.context.clone(),
             mempool_tx: self.mempool_tx.clone(),
@@ -111,7 +104,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
         // println!("Processing request {}: {:?}, {:?}", request_number, request, meta);
 
         Either::Left(Box::pin(next(request, meta).map(move |res| {
-            println!("Processing took: {:?}", start.elapsed());
+            // println!("Processing took: {:?}", start.elapsed());
             res
         })))
     }

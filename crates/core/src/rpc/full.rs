@@ -1,4 +1,5 @@
 use super::utils::decode_and_deserialize;
+use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
@@ -23,7 +24,8 @@ use solana_sdk::message::VersionedMessage;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::transaction::VersionedTransaction;
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
+    EncodedConfirmedTransactionWithStatusMeta, TransactionConfirmationStatus, TransactionStatus,
+    UiConfirmedBlock,
 };
 use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
 
@@ -272,10 +274,13 @@ impl Full for SurfpoolFullRpc {
             }
             .into());
         };
+
+        let signatures = unsanitized_tx.signatures.clone();
+        let signature = signatures[0];
         let _ = ctx.mempool_tx.send(unsanitized_tx);
 
         // Todo I believe we're supposed to send back a signature
-        Ok("ok".to_string())
+        Ok(signature.to_string())
     }
 
     fn simulate_transaction(
@@ -363,7 +368,7 @@ impl Full for SurfpoolFullRpc {
             .into());
         };
         // Lock read access
-        let Ok(state_reader) = ctx.state.try_read() else {
+        let Ok(state_reader) = ctx.state.read() else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             }

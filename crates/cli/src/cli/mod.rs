@@ -11,8 +11,10 @@ pub struct Context {
     pub tracer: bool,
 }
 
+pub const DEFAULT_SLOT_TIME_MS: &str = "400";
 pub const DEFAULT_BINDING_PORT: &str = "8899";
 pub const DEFAULT_BINDING_ADDRESS: &str = "localhost";
+pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 
 #[allow(dead_code)]
 impl Context {
@@ -47,7 +49,7 @@ struct Opts {
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum Command {
     /// Start Simnet
-    #[clap(name = "simnet", bin_name = "simnet", aliases = &["start"])]
+    #[clap(name = "simnet", bin_name = "simnet", aliases = &["run", "start"])]
     Simnet(StartSimnet),
     /// Generate shell completions scripts
     #[clap(name = "completions", bin_name = "completions", aliases = &["completion"])]
@@ -64,14 +66,23 @@ pub struct StartSimnet {
     )]
     pub manifest_path: String,
     /// Set the port
-    #[arg(long = "port", short = 'p', default_value = DEFAULT_BINDING_PORT )]
+    #[arg(long = "port", short = 'p', default_value = DEFAULT_BINDING_PORT)]
     pub network_binding_port: u16,
     /// Set the ip
-    #[arg(long = "ip", short = 'i', default_value = DEFAULT_BINDING_ADDRESS )]
+    #[arg(long = "ip", short = 'i', default_value = DEFAULT_BINDING_ADDRESS)]
     pub network_binding_ip_address: String,
+    /// Set the slot time
+    #[arg(long = "slot-time", short = 's', default_value = DEFAULT_SLOT_TIME_MS)]
+    pub slot_time: u64,
+    /// Set the ip
+    #[arg(long = "rpc-url", short = 'r', default_value = DEFAULT_RPC_URL)]
+    pub rpc_url: String,
     /// Display streams of logs instead of terminal UI dashboard (default: false)
     #[clap(long = "no-tui")]
     pub no_tui: bool,
+    /// Disable auto deployments
+    #[clap(long = "no-deploy")]
+    pub no_deploy: bool,
     /// Include debug logs (default: false)
     #[clap(long = "debug", action=ArgAction::SetTrue)]
     pub debug: bool,
@@ -109,7 +120,7 @@ pub fn main() {
 
 async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     match opts.command {
-        Command::Simnet(cmd) => simnet::handle_start_simnet_command(&cmd, ctx),
+        Command::Simnet(cmd) => simnet::handle_start_simnet_command(&cmd, ctx).await,
         Command::Completions(cmd) => generate_completion_helpers(&cmd),
     }
 }

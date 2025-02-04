@@ -66,6 +66,7 @@ struct App {
     simnet_events_rx: Receiver<SimnetEvent>,
     clock: Clock,
     epoch_info: EpochInfo,
+    successful_transactions: u32,
     events: VecDeque<(EventType, DateTime<Local>, String)>,
     include_debug_logs: bool,
 }
@@ -86,6 +87,7 @@ impl App {
                 block_height: 0,
                 transaction_count: None,
             },
+            successful_transactions: 0,
             events: VecDeque::new(),
             include_debug_logs,
         }
@@ -200,14 +202,17 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                 SimnetEvent::WarnLog(dt, log) => {
                     app.events.push_front((EventType::Warning, dt, log));
                 }
-                SimnetEvent::TransactionReceived(dt, _transaction) => {
-                    app.events.push_front((
-                        EventType::Success,
-                        dt,
-                        format!("Transaction received"),
-                    ));
+                SimnetEvent::TransactionReceived(_dt, _transaction) => {
+                    app.successful_transactions += 1;
                 }
                 SimnetEvent::BlockHashExpired => {}
+                SimnetEvent::Aborted(error) => {
+                    break;
+                }
+                SimnetEvent::Ready => {}
+                SimnetEvent::Shutdown => {
+                    break;
+                }
             }
         }
 
@@ -231,7 +236,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
 
 fn ui(f: &mut Frame, app: &mut App) {
     let rects = Layout::vertical([
-        Constraint::Length(7),
+        Constraint::Length(8),
         Constraint::Min(5),
         Constraint::Length(3),
     ])
@@ -264,7 +269,7 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Length(7),  // Slots Title
         Constraint::Min(30),    // Slots
         Constraint::Length(1),  // Leader Details
-        Constraint::Length(50), // Leader Details
+        Constraint::Length(56), // Leader Details
     ])
     .split(area);
 
@@ -304,6 +309,34 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
         .border_style(default_style)
         .border_type(BorderType::Plain);
     f.render_widget(separator, columns[3]);
+
+    render_stats(f, app, columns[3].inner(Margin::new(2, 0)));
+}
+
+fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
+    let infos = vec![
+        Line::from(vec![
+            Span::styled("۬", app.colors.white),
+            Span::styled("RPC     ", app.colors.gray),
+            Span::styled("http://localhost:8899 ", app.colors.white),
+        ]),
+        Line::from(vec![
+            Span::styled("۬", app.colors.white),
+            Span::styled("Source  ", app.colors.gray),
+            Span::styled("https://mainnet-beta.txtx.networks:8899 ", app.colors.white),
+        ]),
+        Line::from(vec![Span::styled("۬-", app.colors.gray)]),
+        Line::from(vec![
+            Span::styled("۬", app.colors.white),
+            Span::styled(
+                format!("{} ", app.successful_transactions),
+                app.colors.accent,
+            ),
+            Span::styled("transactions processed", app.colors.white),
+        ]),
+    ];
+    let title = Paragraph::new(infos);
+    f.render_widget(title.style(app.colors.white), area);
 }
 
 fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
@@ -336,7 +369,10 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
     let title = Block::new()
         .padding(Padding::symmetric(4, 4))
         .borders(Borders::NONE)
-        .title(Line::from(format!("Activity {}", cursor)));
+        .title(Line::from(format!(
+            "{} Processing incoming transactions",
+            cursor
+        )));
     f.render_widget(title, rects[0]);
 
     let rows = app.events.iter().map(|(event_type, dt, log)| {
