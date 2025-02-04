@@ -1,4 +1,5 @@
 use chrono::{DateTime, Local, Utc};
+use crossbeam_channel::Sender;
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
@@ -8,10 +9,7 @@ use solana_sdk::{
 };
 use std::{
     net::SocketAddr,
-    sync::{
-        mpsc::{channel, Sender},
-        Arc, RwLock,
-    },
+    sync::{mpsc::channel, Arc, RwLock},
     thread::sleep,
     time::Duration,
 };

@@ -12,8 +12,7 @@ pub mod rpc;
 pub mod simnet;
 pub mod types;
 
-use std::sync::mpsc::Sender;
-
+use crossbeam_channel::Sender;
 pub use jsonrpc_core;
 pub use jsonrpc_http_server;
 pub use litesvm;

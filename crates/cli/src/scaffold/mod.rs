@@ -26,7 +26,6 @@ pub async fn detect_program_frameworks(
         anchor::try_get_programs_from_project(base_dir.clone())?
     {
         scaffold_runbooks_layout(runbook, base_dir)?;
-        execute_runbook("v1", &manifest_location).await?;
         return Ok(Some((framework, programs)));
     }
 
