@@ -2,8 +2,6 @@ use anyhow::{anyhow, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, str::FromStr};
 use txtx_addon_network_svm::{
-    self as txtx_svm,
-    functions::GetProgramFromAnchorProject,
     templates::{
         get_interpolated_addon_template, get_interpolated_anchor_program_deployment_template,
         get_interpolated_header_template, get_interpolated_signer_template,
@@ -11,9 +9,7 @@ use txtx_addon_network_svm::{
     SvmNetworkAddon,
 };
 use txtx_core::kit::helpers::fs::FileLocation;
-use txtx_core::kit::types::{
-    functions::FunctionImplementation, types::Value, AuthorizationContext,
-};
+use txtx_core::kit::types::AuthorizationContext;
 use url::Url;
 
 use crate::types::Framework;

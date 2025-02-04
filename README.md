@@ -29,7 +29,7 @@ $ cargo install surfpool-cli
 Start a local validator / simnet:
 
 ```console
-$ surfpool start
+$ surfpool run
 ```
 
 <div align="center">
@@ -46,13 +46,13 @@ $ surfpool start
 ### Configurable
 
 - [ ] Ability to pull configuration from a `Surfpool.toml` manifest file
-- [ ] Ability to setup slot time (default to `400ms`)
+- [x] Ability to setup slot time (default to `400ms`)
 - [ ] Ability to setup epoch duration (default to `432,000`)
 - [ ] Ability to configure behavior:
     - [ ] genesis
     - [ ] point-fork mainnet
     - [ ] stream-fork mainnet
-- [ ] Ability to configure the RPC node URL to default to.
+- [x] Ability to configure the RPC node URL to default to.
 
 ### RPC Support
 

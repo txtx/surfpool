@@ -5,7 +5,7 @@ mod macros;
 extern crate hiro_system_kit;
 
 pub mod cli;
-pub mod manifest;
+// pub mod manifest;
 pub mod runbook;
 pub mod scaffold;
 pub mod tui;

@@ -1,31 +1,19 @@
-use dialoguer::{console::Style, theme::ColorfulTheme, Input, Select};
-use std::{
-    env,
-    fs::{self, File},
-    io::Write,
-};
+use std::io::Write;
 use txtx_addon_network_svm::SvmNetworkAddon;
 use txtx_core::{
     kit::{
-        channel::{self, unbounded},
-        helpers::fs::{get_txtx_files_paths, FileLocation},
+        channel::unbounded,
+        helpers::fs::FileLocation,
         types::{
             frontend::{BlockEvent, ProgressBarStatusColor},
-            AuthorizationContext, RunbookId,
+            AuthorizationContext,
         },
         Addon,
     },
-    manifest::{
-        file::read_runbooks_from_manifest, RunbookMetadata, RunbookState, WorkspaceManifest,
-    },
-    runbook::RunbookTopLevelInputsMap,
+    manifest::{file::read_runbooks_from_manifest, WorkspaceManifest},
     start_unsupervised_runbook_runloop,
     std::StdAddon,
-    templates::{build_manifest_data, TXTX_MANIFEST_TEMPLATE, TXTX_README_TEMPLATE},
-    types::{Runbook, RunbookSources},
 };
-
-use crate::types::Framework;
 
 pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
     let available_addons: Vec<Box<dyn Addon>> =
@@ -126,8 +114,6 @@ pub async fn execute_runbook(
         }
         // write_runbook_transient_state(&mut runbook, runbook_state)?;
         return Ok(());
-    } else {
-        println!("Good!");
     }
 
     if let Err(diags) = res {

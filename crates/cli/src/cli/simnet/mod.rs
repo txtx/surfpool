@@ -1,28 +1,54 @@
-use std::{sync::mpsc::{channel, Receiver}, thread::sleep, time::Duration};
-
 use crate::{scaffold::detect_program_frameworks, tui};
+use std::sync::mpsc::{channel, Receiver};
 
 use super::{Context, StartSimnet};
-use surfpool_core::{simnet::SimnetEvent, start_simnet};
+use surfpool_core::{
+    simnet::SimnetEvent,
+    start_simnet,
+    types::{RpcConfig, SimnetConfig, SurfpoolConfig},
+};
 
 pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Result<(), String> {
+    let config = SurfpoolConfig {
+        rpc: RpcConfig {
+            remote_rpc_url: cmd.rpc_url.clone(),
+            bind_port: cmd.network_binding_port,
+            bind_address: cmd.network_binding_ip_address.clone(),
+        },
+        simnet: SimnetConfig {
+            remote_rpc_url: cmd.rpc_url.clone(),
+            slot_time: cmd.slot_time,
+        },
+    };
+
     let (simnet_events_tx, simnet_events_rx) = channel();
     let ctx_cloned = ctx.clone();
     // Start backend - background task
-    let handle = hiro_system_kit::thread_named("simnet")
+    let _handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
-            let future = start_simnet(simnet_events_tx);
+            let future = start_simnet(&config, simnet_events_tx);
             if let Err(e) = hiro_system_kit::nestable_block_on(future) {
                 error!(ctx_cloned.expect_logger(), "{e}");
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 std::process::exit(1);
             }
-            Ok(())
+            Ok::<(), String>(())
         })
         .map_err(|e| format!("{}", e))?;
 
+    loop {
+        match simnet_events_rx.recv() {
+            Ok(SimnetEvent::Aborted(error)) => return Err(error),
+            Ok(SimnetEvent::Shutdown) => return Ok(()),
+            Ok(SimnetEvent::Ready) => break,
+            _other => continue,
+        }
+    }
 
-    sleep(Duration::from_secs(10));
+    // Initialize if required
+
+    // Propose deployments (use --no-deploy)
+
     match detect_program_frameworks(&cmd.manifest_path).await {
         Err(e) => error!(ctx.expect_logger(), "{}", e),
         Ok(Some(framework)) => {
@@ -36,14 +62,18 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
 
     // Start frontend - kept on main thread
     if cmd.no_tui {
-        log_events(simnet_events_rx, cmd.debug, ctx);
+        log_events(simnet_events_rx, cmd.debug, ctx)?;
     } else {
         tui::simnet::start_app(simnet_events_rx, cmd.debug).map_err(|e| format!("{}", e))?;
     }
-    handle.join().map_err(|_e| format!("unable to terminate"))?
+    Ok(())
 }
 
-fn log_events(simnet_events_rx: Receiver<SimnetEvent>, include_debug_logs: bool, ctx: &Context) {
+fn log_events(
+    simnet_events_rx: Receiver<SimnetEvent>,
+    include_debug_logs: bool,
+    ctx: &Context,
+) -> Result<(), String> {
     info!(
         ctx.expect_logger(),
         "Surfpool: The best place to train before surfing Solana"
@@ -87,6 +117,12 @@ fn log_events(simnet_events_rx: Receiver<SimnetEvent>, include_debug_logs: bool,
                 info!(ctx.expect_logger(), "Transaction received");
             }
             SimnetEvent::BlockHashExpired => {}
+            SimnetEvent::Aborted(error) => {
+                return Err(error);
+            }
+            SimnetEvent::Shutdown => break,
+            SimnetEvent::Ready => {}
         }
     }
+    return Ok(());
 }

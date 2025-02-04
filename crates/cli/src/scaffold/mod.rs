@@ -26,9 +26,7 @@ pub async fn detect_program_frameworks(
         anchor::try_get_programs_from_project(base_dir.clone())?
     {
         scaffold_runbooks_layout(runbook, base_dir)?;
-
-        let _ = execute_runbook("v1", &manifest_location).await?;
-
+        execute_runbook("v1", &manifest_location).await?;
         return Ok(Some((framework, programs)));
     }
 
@@ -54,7 +52,6 @@ pub fn scaffold_runbooks_layout(
     runbook_source: String,
     base_location: FileLocation,
 ) -> Result<(), String> {
-
     let theme = ColorfulTheme {
         values_style: Style::new().green(),
         hint_style: Style::new().cyan(),

@@ -135,8 +135,8 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
     fn get_block_commitment(
         &self,
-        meta: Self::Metadata,
-        block: Slot,
+        _meta: Self::Metadata,
+        _block: Slot,
     ) -> Result<RpcBlockCommitment<BlockCommitmentArray>> {
         unimplemented!()
     }
@@ -147,18 +147,18 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
     fn get_token_account_balance(
         &self,
-        meta: Self::Metadata,
-        pubkey_str: String,
-        commitment: Option<CommitmentConfig>,
+        _meta: Self::Metadata,
+        _pubkey_str: String,
+        _commitment: Option<CommitmentConfig>,
     ) -> Result<RpcResponse<UiTokenAmount>> {
         unimplemented!()
     }
 
     fn get_token_supply(
         &self,
-        meta: Self::Metadata,
-        mint_str: String,
-        commitment: Option<CommitmentConfig>,
+        _meta: Self::Metadata,
+        _mint_str: String,
+        _commitment: Option<CommitmentConfig>,
     ) -> Result<RpcResponse<UiTokenAmount>> {
         unimplemented!()
     }
