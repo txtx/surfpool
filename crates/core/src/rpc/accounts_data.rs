@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::rpc::utils::{transform_account_to_ui_account, verify_pubkey};
+use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
 
 use jsonrpc_core::futures::future::{self, join_all};
@@ -87,20 +87,50 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return Box::pin(future::err(e.into())),
         };
 
-        let res = match transform_account_to_ui_account(
-            &state_reader.svm.get_account(&pubkey),
-            &config,
-        ) {
-            Ok(res) => Ok(res),
-            Err(e) => return Box::pin(future::err(e.into())),
-        };
+        let account = state_reader.svm.get_account(&pubkey);
 
-        let res = res.map(|value| RpcResponse {
-            context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
-            value,
-        });
+        // Drop the lock on the state while we fetch accounts
+        let absolute_slot = state_reader.epoch_info.absolute_slot;
+        let rpc_client = state_reader.rpc_client.clone();
+        let encoding = config.encoding.clone();
+        let data_slice = config.data_slice.clone();
+        drop(state_reader);
 
-        Box::pin(future::ready(res))
+        Box::pin(async move {
+            let account = if let None = account {
+                // Fetch and save the missing account
+                if let Some(fetched_account) = rpc_client.get_account(&pubkey).await.ok() {
+                    let mut state_reader = meta.get_state_mut()?;
+                    state_reader
+                        .svm
+                        .set_account(pubkey, fetched_account.clone())
+                        .map_err(|err| {
+                            Error::invalid_params(format!(
+                                "failed to save fetched account {pubkey:?}: {err:?}"
+                            ))
+                        })?;
+
+                    Some(fetched_account)
+                } else {
+                    None
+                }
+            } else {
+                account
+            };
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(absolute_slot),
+                value: account.map(|account| {
+                    encode_ui_account(
+                        &pubkey,
+                        &account,
+                        encoding.unwrap_or(UiAccountEncoding::Base64),
+                        None,
+                        data_slice,
+                    )
+                }),
+            })
+        })
     }
 
     fn get_multiple_accounts(
@@ -157,7 +187,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                             .set_account(*pk, account.clone())
                             .map_err(|err| {
                                 Error::invalid_params(format!(
-                                    "failed to save fetched account: {err:?}"
+                                    "failed to save fetched account {pk:?}: {err:?}"
                                 ))
                             })?;
                         Ok((pk, Some(account)))
