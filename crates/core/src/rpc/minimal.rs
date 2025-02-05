@@ -23,14 +23,6 @@ use solana_sdk::{
 pub trait Minimal {
     type Metadata;
 
-    #[rpc(meta, name = "getBalance")]
-    fn get_balance(
-        &self,
-        meta: Self::Metadata,
-        pubkey_str: String,
-        config: Option<RpcContextConfig>,
-    ) -> Result<RpcResponse<u64>>;
-
     #[rpc(meta, name = "getEpochInfo")]
     fn get_epoch_info(
         &self,
@@ -93,22 +85,6 @@ pub trait Minimal {
 pub struct SurfpoolMinimalRpc;
 impl Minimal for SurfpoolMinimalRpc {
     type Metadata = Option<RunloopContext>;
-
-    fn get_balance(
-        &self,
-        meta: Self::Metadata,
-        pubkey_str: String,
-        config: Option<RpcContextConfig>,
-    ) -> Result<RpcResponse<u64>> {
-        // println!("get_balance rpc request received: {:?}", pubkey_str);
-        let pubkey = verify_pubkey(&pubkey_str)?;
-        let state_reader = meta.get_state()?;
-        let res = RpcResponse {
-            context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
-            value: 10000,
-        };
-        Ok(res)
-    }
 
     fn get_epoch_info(
         &self,
