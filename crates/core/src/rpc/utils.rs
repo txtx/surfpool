@@ -1,12 +1,10 @@
-use std::{any::type_name, io::Write, sync::Arc};
+use std::{any::type_name, sync::Arc};
 
 use base64::prelude::*;
 use bincode::Options;
 use jsonrpc_core::{Error, Result};
-use solana_account::Account;
-use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
 use solana_client::{
-    rpc_config::{RpcAccountInfoConfig, RpcTokenAccountsFilter},
+    rpc_config::RpcTokenAccountsFilter,
     rpc_custom_error::RpcCustomError,
     rpc_filter::RpcFilterType,
     rpc_request::{TokenAccountsFilter, MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT},
@@ -169,71 +167,4 @@ where
             ))
         })
         .map(|output| (wire_output, output))
-}
-
-pub fn transform_account_to_ui_account(
-    account: &Option<Account>,
-    config: &RpcAccountInfoConfig,
-) -> Result<Option<UiAccount>> {
-    if let Some(account) = account {
-        Ok(Some(UiAccount {
-            lamports: account.lamports,
-            owner: account.owner.to_string(),
-            data: {
-                let account_data = if let Some(data_slice) = config.data_slice {
-                    let end =
-                        std::cmp::min(account.data.len(), data_slice.offset + data_slice.length);
-                    account.data.clone()[data_slice.offset..end].to_vec()
-                } else {
-                    account.data.clone()
-                };
-
-                match config.encoding {
-                    Some(UiAccountEncoding::Base58) => UiAccountData::Binary(
-                        bs58::encode(account_data).into_string(),
-                        UiAccountEncoding::Base58,
-                    ),
-                    Some(UiAccountEncoding::Base64) => UiAccountData::Binary(
-                        BASE64_STANDARD.encode(account_data),
-                        UiAccountEncoding::Base64,
-                    ),
-                    Some(UiAccountEncoding::Base64Zstd) => {
-                        let mut data = Vec::with_capacity(account_data.len());
-
-                        // Default compression level
-                        match zstd::Encoder::new(&mut data, 0).and_then(|mut encoder| {
-                            encoder
-                                .write_all(&account_data)
-                                .and_then(|_| encoder.finish())
-                        }) {
-                            Ok(_) => UiAccountData::Binary(
-                                BASE64_STANDARD.encode(&data),
-                                UiAccountEncoding::Base64Zstd,
-                            ),
-                            // Falling back on standard base64 encoding if compression failed
-                            Err(err) => {
-                                eprintln!("Zstd compression failed: {err}");
-                                UiAccountData::Binary(
-                                    BASE64_STANDARD.encode(&account_data),
-                                    UiAccountEncoding::Base64,
-                                )
-                            }
-                        }
-                    }
-                    None => UiAccountData::Binary(
-                        bs58::encode(account_data.clone()).into_string(),
-                        UiAccountEncoding::Base58,
-                    ),
-                    encoding => Err(jsonrpc_core::Error::invalid_params(format!(
-                        "Encoding {encoding:?} is not supported yet."
-                    )))?,
-                }
-            },
-            executable: account.executable,
-            rent_epoch: account.rent_epoch,
-            space: Some(account.data.len() as u64),
-        }))
-    } else {
-        Ok(None)
-    }
 }

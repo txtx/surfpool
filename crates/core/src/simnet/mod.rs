@@ -3,13 +3,13 @@ use crossbeam_channel::Sender;
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
-use solana_rpc_client::rpc_client::RpcClient;
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     clock::Clock, epoch_info::EpochInfo, pubkey::Pubkey, transaction::VersionedTransaction,
 };
 use std::{
     net::SocketAddr,
-    sync::{mpsc::channel, Arc, RwLock},
+    sync::{Arc, RwLock},
     thread::sleep,
     time::Duration,
 };
@@ -27,6 +27,7 @@ pub struct GlobalState {
     pub svm: LiteSVM,
     pub transactions_processed: u64,
     pub epoch_info: EpochInfo,
+    pub rpc_client: Arc<RpcClient>,
 }
 
 #[derive(Debug)]
@@ -52,8 +53,8 @@ pub async fn start(
     let svm = LiteSVM::new();
 
     // Todo: should check config first
-    let rpc_client = RpcClient::new(&config.simnet.remote_rpc_url);
-    let epoch_info = rpc_client.get_epoch_info()?;
+    let rpc_client = Arc::new(RpcClient::new(config.simnet.remote_rpc_url.clone()));
+    let epoch_info = rpc_client.get_epoch_info().await?;
     // Question: can the value `slots_in_epoch` fluctuate over time?
     let slots_in_epoch = epoch_info.slots_in_epoch;
 
@@ -61,6 +62,7 @@ pub async fn start(
         svm,
         transactions_processed: 0,
         epoch_info: epoch_info.clone(),
+        rpc_client: rpc_client.clone(),
     };
 
     let context = Arc::new(RwLock::new(context));
@@ -118,7 +120,7 @@ pub async fn start(
                 let program_id = &message.account_keys[instruction.program_id_index as usize];
                 if ctx.svm.get_account(&program_id).is_none() {
                     // println!("Retrieving account from Mainnet: {:?}", program_id);
-                    let res = rpc_client.get_account(&program_id);
+                    let res = rpc_client.get_account(&program_id).await;
                     let event = match res {
                         Ok(account) => {
                             let _ = ctx.svm.set_account(*program_id, account);
