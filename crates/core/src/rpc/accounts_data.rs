@@ -75,10 +75,10 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         pubkey_str: String,
         config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Option<UiAccount>>>> {
-        println!(
-            "get_account_info rpc request received: {:?} {:?}",
-            pubkey_str, config
-        );
+        // println!(
+        //     "get_account_info rpc request received: {:?} {:?}",
+        //     pubkey_str, config
+        // );
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
             Err(e) => return Box::pin(future::err(e)),

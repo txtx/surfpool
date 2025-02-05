@@ -247,6 +247,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 }
                                 ProgressBarStatusColor::Green => {
                                     app.status_bar_message = None;
+                                    app.events.push_front((EventType::Info, Local::now(), update.new_status.message));
                                 }
                                 ProgressBarStatusColor::Red => {
                                     app.status_bar_message = None;
@@ -268,7 +269,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
 
         terminal.draw(|f| ui(f, &mut app))?;
 
-        if event::poll(Duration::from_millis(1))? {
+        if event::poll(Duration::from_millis(3))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     use KeyCode::*;
