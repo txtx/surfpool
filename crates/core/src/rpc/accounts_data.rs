@@ -8,6 +8,7 @@ use jsonrpc_derive::rpc;
 use solana_account_decoder::parse_token::UiTokenAmount;
 use solana_account_decoder::UiAccount;
 use solana_client::rpc_config::RpcAccountInfoConfig;
+use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcBlockCommitment;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -90,20 +91,46 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return Box::pin(future::err(e.into())),
         };
 
-        let res = match transform_account_to_ui_account(
-            &state_reader.svm.get_account(&pubkey),
-            &config,
-        ) {
-            Ok(res) => Ok(res),
-            Err(e) => return Box::pin(future::err(e.into())),
+        println!(
+            "account from state: {:?}",
+            state_reader.svm.get_account(&pubkey)
+        );
+
+        let ui_account = match state_reader.svm.get_account(&pubkey) {
+            Some(account) => match transform_account_to_ui_account(&account, &config) {
+                Ok(res) => Some(res),
+                Err(e) => return Box::pin(future::err(e.into())),
+            },
+            None => match meta.get_remote_rpc_client() {
+                Ok(rpc_client) => match rpc_client.get_account(&pubkey) {
+                    Ok(account) => {
+                        // let mut mut_state_reader = match meta.get_state_mut() {
+                        //     Ok(res) => res,
+                        //     Err(e) => return Box::pin(future::err(e.into())),
+                        // };
+                        // match mut_state_reader.svm.set_account(pubkey, account.clone()) {
+                        //     Ok(_) => (),
+                        //     Err(e) => {
+                        //         println!("error caching setting account: {:?}", e);
+                        //     }
+                        // };
+                        // drop(mut_state_reader);
+                        // println!("remote rpc account: {:?}", account);
+                        match transform_account_to_ui_account(&account, &config) {
+                            Ok(res) => Some(res),
+                            Err(e) => return Box::pin(future::err(e.into())),
+                        }
+                    }
+                    Err(_) => None,
+                },
+                Err(e) => return Box::pin(future::err(e.into())),
+            },
         };
-
-        let res = res.map(|value| RpcResponse {
+        let res = RpcResponse {
             context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
-            value,
-        });
-
-        Box::pin(future::ready(res))
+            value: ui_account,
+        };
+        Box::pin(future::ready(Ok(res)))
     }
 
     fn get_multiple_accounts(
@@ -122,7 +149,10 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             .iter()
             .map(|s| {
                 let pk = verify_pubkey(s)?;
-                transform_account_to_ui_account(&state_reader.svm.get_account(&pk), &config)
+                match state_reader.svm.get_account(&pk) {
+                    Some(account) => Ok(Some(transform_account_to_ui_account(&account, &config)?)),
+                    None => Ok(None),
+                }
             })
             .collect::<Result<Vec<_>>>()
             .map(|value| RpcResponse {
