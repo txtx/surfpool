@@ -1,6 +1,11 @@
-use crate::{runbook::execute_runbook, scaffold::detect_program_frameworks, tui};
+use crate::{
+    runbook::execute_runbook,
+    scaffold::{detect_program_frameworks, scaffold_runbooks_layout},
+    tui,
+};
 
 use super::{Context, StartSimnet};
+use dialoguer::{console::Style, theme::ColorfulTheme, MultiSelect};
 use surfpool_core::{
     simnet::SimnetEvent,
     start_simnet,
@@ -58,9 +63,28 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     };
 
     let deploy_progress_rx = if let Some((framework, programs)) = deployment {
+        let theme = ColorfulTheme {
+            values_style: Style::new().green(),
+            hint_style: Style::new().cyan(),
+            ..ColorfulTheme::default()
+        };
+
+        let selection = MultiSelect::with_theme(&theme)
+            .with_prompt("Programs to deploy:")
+            .items(&programs)
+            .interact()
+            .unwrap();
+
+        let selected_programs = selection
+            .iter()
+            .map(|i| programs[*i].clone())
+            .collect::<Vec<_>>();
+
+        scaffold_runbooks_layout(selected_programs, &cmd.manifest_path)?;
+
         let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
         let manifest_location = FileLocation::from_path_string(&cmd.manifest_path)?;
-        execute_runbook("v1", progress_tx, &manifest_location).await?;
+        execute_runbook("deployment", progress_tx, &manifest_location).await?;
         Some(progress_rx)
     } else {
         None

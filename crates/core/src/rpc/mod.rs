@@ -1,13 +1,10 @@
-use std::{
-    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
-    time::Instant,
-};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
 use solana_client::rpc_custom_error::RpcCustomError;
-use solana_sdk::{clock::Slot, transaction::VersionedTransaction};
+use solana_sdk::{blake3::Hash, clock::Slot, transaction::VersionedTransaction};
 use tokio::sync::broadcast;
 
 pub mod accounts_data;
@@ -27,8 +24,9 @@ pub struct SurfpoolRpc;
 
 #[derive(Clone)]
 pub struct RunloopContext {
+    pub id: Hash,
     pub state: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: broadcast::Sender<VersionedTransaction>,
+    pub mempool_tx: broadcast::Sender<(Hash, VersionedTransaction)>,
 }
 
 trait State {
@@ -79,7 +77,7 @@ use std::future::Future;
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
     pub context: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: broadcast::Sender<VersionedTransaction>,
+    pub mempool_tx: broadcast::Sender<(Hash, VersionedTransaction)>,
     pub config: RpcConfig,
 }
 
@@ -98,6 +96,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
         X: Future<Output = Option<Response>> + Send + 'static,
     {
         let meta = Some(RunloopContext {
+            id: Hash::new_unique(),
             state: self.context.clone(),
             mempool_tx: self.mempool_tx.clone(),
         });

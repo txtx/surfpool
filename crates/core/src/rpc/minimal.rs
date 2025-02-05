@@ -100,10 +100,14 @@ impl Minimal for SurfpoolMinimalRpc {
         pubkey_str: String,
         config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<u64>> {
-        println!("get_balance rpc request received: {:?}", pubkey_str);
+        // println!("get_balance rpc request received: {:?}", pubkey_str);
         let pubkey = verify_pubkey(&pubkey_str)?;
-        // meta.get_balance(&pubkey, config.unwrap_or_default())
-        unimplemented!()
+        let state_reader = meta.get_state()?;
+        let res = RpcResponse {
+            context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
+            value: 10000,
+        };
+        Ok(res)
     }
 
     fn get_epoch_info(

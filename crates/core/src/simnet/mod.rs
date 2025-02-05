@@ -81,12 +81,12 @@ pub async fn start(
     io.extend_with(rpc::accounts_data::SurfpoolAccountsDataRpc.to_delegate());
     io.extend_with(rpc::bank_data::SurfpoolBankDataRpc.to_delegate());
 
-    let server = ServerBuilder::new(io)
-        .cors(DomainsValidation::Disabled)
-        .start_http(&server_bind)?;
-
-    let _ = simnet_events_tx_copy.send(SimnetEvent::Ready);
     let _handle = hiro_system_kit::thread_named("rpc handler").spawn(move || {
+        let server = ServerBuilder::new(io)
+            .cors(DomainsValidation::Disabled)
+            .start_http(&server_bind)
+            .unwrap();
+        let _ = simnet_events_tx_copy.send(SimnetEvent::Ready);
         server.wait();
         let _ = simnet_events_tx_copy.send(SimnetEvent::Shutdown);
     });
@@ -102,7 +102,7 @@ pub async fn start(
             continue;
         };
 
-        while let Ok(tx) = mempool_rx.try_recv() {
+        while let Ok((_, tx)) = mempool_rx.try_recv() {
             let _ =
                 simnet_events_tx.send(SimnetEvent::TransactionReceived(Local::now(), tx.clone()));
 
