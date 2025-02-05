@@ -9,6 +9,7 @@ use solana_sdk::{
 };
 use std::{
     net::SocketAddr,
+    str::FromStr,
     sync::{Arc, RwLock},
     thread::sleep,
     time::Duration,
@@ -50,7 +51,13 @@ pub async fn start(
     config: &SurfpoolConfig,
     simnet_events_tx: Sender<SimnetEvent>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let svm = LiteSVM::new();
+    // let path = PathBuf::from("~/.config/solana/id.json");
+    // let pubkey = Keypair::read_from_file(path).unwrap().pubkey(); // todo: make this configurable
+    let pubkey = Pubkey::from_str("zbBjhHwuqyKMmz8ber5oUtJJ3ZV4B6ePmANfGyKzVGV").unwrap();
+    let lamports = 10000000000000;
+
+    let mut svm = LiteSVM::new();
+    let res = svm.airdrop(&pubkey, lamports);
 
     // Todo: should check config first
     let rpc_client = Arc::new(RpcClient::new(config.simnet.remote_rpc_url.clone()));
@@ -111,6 +118,7 @@ pub async fn start(
             tx.verify_with_results();
             let tx = tx.into_legacy_transaction().unwrap();
             let message = &tx.message;
+
             // println!("Processing Transaction {:?}", tx);
             for instruction in &message.instructions {
                 // The Transaction may not be sanitized at this point
@@ -134,7 +142,10 @@ pub async fn start(
                     let _ = simnet_events_tx.send(event);
                 }
             }
-            let res = ctx.svm.send_transaction(tx);
+            match ctx.svm.send_transaction(tx.clone()) {
+                Ok(_) => {}
+                Err(e) => println!("transaction error: {:?}\nfor tx: {:?}", e, tx),
+            }
         }
         ctx.epoch_info.slot_index += 1;
         ctx.epoch_info.absolute_slot += 1;

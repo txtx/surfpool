@@ -1,0 +1,2 @@
+[alias]
+surfpool-install = "install --path crates/cli --locked --force"

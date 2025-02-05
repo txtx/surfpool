@@ -100,15 +100,15 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             let account = if let None = account {
                 // Fetch and save the missing account
                 if let Some(fetched_account) = rpc_client.get_account(&pubkey).await.ok() {
-                    let mut state_reader = meta.get_state_mut()?;
-                    state_reader
-                        .svm
-                        .set_account(pubkey, fetched_account.clone())
-                        .map_err(|err| {
-                            Error::invalid_params(format!(
-                                "failed to save fetched account {pubkey:?}: {err:?}"
-                            ))
-                        })?;
+                    // let mut state_reader = meta.get_state_mut()?;
+                    // state_reader
+                    //     .svm
+                    //     .set_account(pubkey, fetched_account.clone())
+                    //     .map_err(|err| {
+                    //         Error::invalid_params(format!(
+                    //             "failed to save fetched account {pubkey:?}: {err:?}"
+                    //         ))
+                    //     })?;
 
                     Some(fetched_account)
                 } else {

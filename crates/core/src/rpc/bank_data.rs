@@ -7,7 +7,7 @@ use solana_sdk::clock::Slot;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::epoch_schedule::EpochSchedule;
 
-use super::RunloopContext;
+use super::{RunloopContext, State};
 
 #[rpc]
 pub trait BankData {
@@ -67,7 +67,8 @@ impl BankData for SurfpoolBankDataRpc {
         data_len: usize,
         commitment: Option<CommitmentConfig>,
     ) -> Result<u64> {
-        Ok(100)
+        let ctx = meta.get_state().unwrap();
+        Ok(ctx.svm.minimum_balance_for_rent_exemption(data_len))
     }
 
     fn get_inflation_governor(
