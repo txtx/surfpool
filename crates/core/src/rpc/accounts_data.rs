@@ -1,19 +1,20 @@
+use std::sync::Arc;
+
 use crate::rpc::utils::{transform_account_to_ui_account, verify_pubkey};
 use crate::rpc::State;
 
-use jsonrpc_core::futures::future;
+use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
-use jsonrpc_core::Result;
+use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::parse_token::UiTokenAmount;
-use solana_account_decoder::UiAccount;
+use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
 use solana_client::rpc_config::RpcAccountInfoConfig;
 use solana_client::rpc_response::RpcBlockCommitment;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_runtime::commitment::BlockCommitmentArray;
-use solana_sdk::clock::Slot;
-use solana_sdk::commitment_config::CommitmentConfig;
+use solana_sdk::{clock::Slot, commitment_config::CommitmentConfig};
 
 use super::RunloopContext;
 
@@ -75,16 +76,12 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         pubkey_str: String,
         config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Option<UiAccount>>>> {
-        println!(
-            "get_account_info rpc request received: {:?} {:?}",
-            pubkey_str, config
-        );
+        let config = config.unwrap_or_default();
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
             Err(e) => return Box::pin(future::err(e)),
         };
 
-        let config = config.unwrap_or_default();
         let state_reader = match meta.get_state() {
             Ok(res) => res,
             Err(e) => return Box::pin(future::err(e.into())),
@@ -118,19 +115,79 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return Box::pin(future::err(e.into())),
         };
 
-        let res = pubkeys
+        let accounts = match pubkeys
             .iter()
             .map(|s| {
                 let pk = verify_pubkey(s)?;
-                transform_account_to_ui_account(&state_reader.svm.get_account(&pk), &config)
+                Ok((pk, state_reader.svm.get_account(&pk)))
             })
             .collect::<Result<Vec<_>>>()
-            .map(|value| RpcResponse {
-                context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
-                value,
-            });
+        {
+            Ok(accs) => accs,
+            Err(e) => return Box::pin(future::err(e.into())),
+        };
 
-        Box::pin(future::ready(res))
+        // Drop the lock on the state while we fetch accounts
+        let absolute_slot = state_reader.epoch_info.absolute_slot;
+        let rpc_client = state_reader.rpc_client.clone();
+        let encoding = config.encoding.clone();
+        let data_slice = config.data_slice.clone();
+        drop(state_reader);
+
+        Box::pin(async move {
+            // Fetch all accounts at once and then only use those that are missing
+            let fetched_accounts = join_all(accounts.iter().map(|(pk, _)| {
+                let rpc_client = Arc::clone(&rpc_client);
+
+                async move { (pk, rpc_client.get_account(&pk).await.ok()) }
+            }))
+            .await;
+
+            // Save missing fetched accounts
+            let mut state_reader = meta.get_state_mut()?;
+            let combined_accounts = accounts
+                .iter()
+                .zip(fetched_accounts)
+                .map(|((pk, local), (_, fetched_account))| {
+                    if local.is_some() {
+                        Ok((pk, local.clone()))
+                    } else if let Some(account) = fetched_account {
+                        state_reader
+                            .svm
+                            .set_account(*pk, account.clone())
+                            .map_err(|err| {
+                                Error::invalid_params(format!(
+                                    "failed to save fetched account: {err:?}"
+                                ))
+                            })?;
+                        Ok((pk, Some(account)))
+                    } else {
+                        Ok((pk, None))
+                    }
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(absolute_slot),
+                value: combined_accounts
+                    .into_iter()
+                    .map(|(pk, account)| {
+                        let encoding = encoding.clone();
+                        let data_slice = data_slice.clone();
+
+                        account.map(|account| {
+                            encode_ui_account(
+                                &pk,
+                                &account,
+                                encoding.unwrap_or(UiAccountEncoding::Base64),
+                                None,
+                                data_slice,
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            })
+        })
     }
 
     fn get_block_commitment(
