@@ -84,7 +84,8 @@ pub async fn start(
     let _handle = hiro_system_kit::thread_named("rpc handler").spawn(move || {
         let server = ServerBuilder::new(io)
             .cors(DomainsValidation::Disabled)
-            .start_http(&server_bind).unwrap();
+            .start_http(&server_bind)
+            .unwrap();
         let _ = simnet_events_tx_copy.send(SimnetEvent::Ready);
         server.wait();
         let _ = simnet_events_tx_copy.send(SimnetEvent::Shutdown);

@@ -1,8 +1,15 @@
 use dialoguer::{console::Style, theme::ColorfulTheme, Confirm, Input, Select};
-use txtx_addon_network_svm::{templates::{get_interpolated_addon_template, get_interpolated_anchor_program_deployment_template, get_interpolated_header_template, get_interpolated_mainnet_signer_template, get_interpolated_signer_template}, SvmNetworkAddon};
 use std::{
     env,
     fs::{self, File},
+};
+use txtx_addon_network_svm::{
+    templates::{
+        get_interpolated_addon_template, get_interpolated_anchor_program_deployment_template,
+        get_interpolated_header_template, get_interpolated_mainnet_signer_template,
+        get_interpolated_signer_template,
+    },
+    SvmNetworkAddon,
 };
 use txtx_core::{
     kit::{helpers::fs::FileLocation, indexmap::indexmap, types::AuthorizationContext},
@@ -23,9 +30,7 @@ pub async fn detect_program_frameworks(
     let manifest_location = FileLocation::from_path_string(manifest_path)?;
     let base_dir = manifest_location.get_parent_location()?;
     // Look for Anchor project layout
-    if let Some((framework, programs)) =
-        anchor::try_get_programs_from_project(base_dir.clone())?
-    {
+    if let Some((framework, programs)) = anchor::try_get_programs_from_project(base_dir.clone())? {
         return Ok(Some((framework, programs)));
     }
 
@@ -74,7 +79,6 @@ pub fn scaffold_runbooks_layout(
     let mut manifest = match manifest_res {
         Ok(manifest) => manifest,
         Err(_) => {
-        
             let current_dir = env::current_dir()
                 .ok()
                 .and_then(|d| d.file_name().map(|f| f.to_string_lossy().to_string()));
@@ -94,7 +98,10 @@ pub fn scaffold_runbooks_layout(
     };
 
     let mut runbook_src: String = String::new();
-    runbook_src.push_str(&get_interpolated_header_template(&format!("{} deployment", manifest.name)));
+    runbook_src.push_str(&get_interpolated_header_template(&format!(
+        "{} deployment",
+        manifest.name
+    )));
     runbook_src.push_str(&get_interpolated_addon_template("input.rpc_api_url"));
 
     let mut signer_mainnet = String::new();
@@ -134,11 +141,11 @@ pub fn scaffold_runbooks_layout(
     let description = Some("Deploy programs".to_string());
     let location = format!("runbooks/deployment");
 
-    let runbook = RunbookMetadata { 
-        location, 
-        description, 
-        name: runbook_name.to_string(), 
-        state: None 
+    let runbook = RunbookMetadata {
+        location,
+        description,
+        name: runbook_name.to_string(),
+        state: None,
     };
 
     let mut collision = false;
@@ -167,18 +174,24 @@ pub fn scaffold_runbooks_layout(
         manifest_location
     };
 
-    manifest.environments.insert("localnet".into(), indexmap! {
-        "network_id".to_string() => "localnet".to_string(),
-        "rpc_api_url".to_string() => "http://127.0.0.1:8899".to_string(),
-        "payer_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
-        "authority_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
-    });
-    manifest.environments.insert("devnet".into(), indexmap! {
-        "network_id".to_string() => "devnet".to_string(),
-        "rpc_api_url".to_string() => "https://api.devnet.solana.com".to_string(),
-        "payer_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
-        "authority_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
-    });
+    manifest.environments.insert(
+        "localnet".into(),
+        indexmap! {
+            "network_id".to_string() => "localnet".to_string(),
+            "rpc_api_url".to_string() => "http://127.0.0.1:8899".to_string(),
+            "payer_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
+            "authority_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
+        },
+    );
+    manifest.environments.insert(
+        "devnet".into(),
+        indexmap! {
+            "network_id".to_string() => "devnet".to_string(),
+            "rpc_api_url".to_string() => "https://api.devnet.solana.com".to_string(),
+            "payer_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
+            "authority_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
+        },
+    );
 
     let mut manifest_file = File::create(manifest_location.to_string()).expect("creation failed");
 
@@ -236,7 +249,6 @@ pub fn scaffold_runbooks_layout(
         }
     }
 
-
     // Create runbook
     runbook_file_location.append_path(&format!("main.tx"))?;
     match runbook_file_location.exists() {
@@ -248,8 +260,7 @@ pub fn scaffold_runbooks_layout(
             return Ok(());
         }
         false => {
-            let _ =
-                File::create(runbook_file_location.to_string()).expect("creation failed");
+            let _ = File::create(runbook_file_location.to_string()).expect("creation failed");
             runbook_file_location.write_content(runbook_src.as_bytes())?;
             println!(
                 "{} {}",
@@ -260,9 +271,8 @@ pub fn scaffold_runbooks_layout(
             );
             let mut base_dir = runbook_file_location.get_parent_location().unwrap();
             base_dir.append_path(&format!("signers.localnet.tx"))?;
-            let _ =
-                File::create(base_dir.to_string()).expect("creation failed");
-                base_dir.write_content(signer_simnet.as_bytes())?;
+            let _ = File::create(base_dir.to_string()).expect("creation failed");
+            base_dir.write_content(signer_simnet.as_bytes())?;
             println!(
                 "{} {}",
                 green!("Created runbook"),
@@ -272,9 +282,8 @@ pub fn scaffold_runbooks_layout(
             );
             let mut base_dir = base_dir.get_parent_location().unwrap();
             base_dir.append_path(&format!("signers.testnet.tx"))?;
-            let _ =
-                File::create(base_dir.to_string()).expect("creation failed");
-                base_dir.write_content(signer_testnet.as_bytes())?;
+            let _ = File::create(base_dir.to_string()).expect("creation failed");
+            base_dir.write_content(signer_testnet.as_bytes())?;
             println!(
                 "{} {}",
                 green!("Created runbook"),
@@ -284,9 +293,8 @@ pub fn scaffold_runbooks_layout(
             );
             let mut base_dir = base_dir.get_parent_location().unwrap();
             base_dir.append_path(&format!("signers.mainnet.tx"))?;
-            let _ =
-                File::create(base_dir.to_string()).expect("creation failed");
-                base_dir.write_content(signer_mainnet.as_bytes())?;
+            let _ = File::create(base_dir.to_string()).expect("creation failed");
+            base_dir.write_content(signer_mainnet.as_bytes())?;
             println!(
                 "{} {}",
                 green!("Created runbook"),
@@ -300,7 +308,9 @@ pub fn scaffold_runbooks_layout(
     println!("\n{}\n", runbook_src);
 
     let confirmation = Confirm::with_theme(&theme)
-        .with_prompt("Review your deployment in 'runbooks/deployment/main.tx' and confirm to continue")
+        .with_prompt(
+            "Review your deployment in 'runbooks/deployment/main.tx' and confirm to continue",
+        )
         .interact()
         .unwrap();
 

@@ -1,4 +1,8 @@
-use crate::{runbook::execute_runbook, scaffold::{detect_program_frameworks, scaffold_runbooks_layout}, tui};
+use crate::{
+    runbook::execute_runbook,
+    scaffold::{detect_program_frameworks, scaffold_runbooks_layout},
+    tui,
+};
 
 use super::{Context, StartSimnet};
 use dialoguer::{console::Style, theme::ColorfulTheme, MultiSelect};
@@ -64,15 +68,18 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             hint_style: Style::new().cyan(),
             ..ColorfulTheme::default()
         };
-        
+
         let selection = MultiSelect::with_theme(&theme)
             .with_prompt("Programs to deploy:")
             .items(&programs)
             .interact()
             .unwrap();
 
-        let selected_programs = selection.iter().map(|i| programs[*i].clone()).collect::<Vec<_>>();
-        
+        let selected_programs = selection
+            .iter()
+            .map(|i| programs[*i].clone())
+            .collect::<Vec<_>>();
+
         scaffold_runbooks_layout(selected_programs, &cmd.manifest_path)?;
 
         let (progress_tx, progress_rx) = crossbeam::channel::unbounded();

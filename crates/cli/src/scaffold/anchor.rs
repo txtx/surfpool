@@ -1,9 +1,7 @@
 use anyhow::{anyhow, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, str::FromStr};
-use txtx_addon_network_svm::{
-    SvmNetworkAddon,
-};
+use txtx_addon_network_svm::SvmNetworkAddon;
 use txtx_core::kit::helpers::fs::FileLocation;
 use txtx_core::kit::types::AuthorizationContext;
 use url::Url;
