@@ -38,8 +38,10 @@ pub async fn execute_runbook(
 
     let manifest = WorkspaceManifest::from_location(&txtx_manifest_location)?;
     let runbook_selector = vec![runbook_id.to_string()];
-    let mut runbooks = read_runbooks_from_manifest(&manifest, &None, Some(&runbook_selector))?;
-    let top_level_inputs_map = manifest.get_runbook_inputs(&None, &vec![], None)?;
+    let mut runbooks =
+        read_runbooks_from_manifest(&manifest, &Some("localnet".into()), Some(&runbook_selector))?;
+    let top_level_inputs_map =
+        manifest.get_runbook_inputs(&Some("localnet".into()), &vec![], None)?;
 
     let Some((mut runbook, runbook_sources, state, smt)) = runbooks.swap_remove(runbook_id) else {
         return Err(format!("Deployment {} not found", runbook_id));

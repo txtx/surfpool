@@ -216,7 +216,23 @@ impl Full for SurfpoolFullRpc {
         signature_strs: Vec<String>,
         config: Option<RpcSignatureStatusConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<Option<TransactionStatus>>>>> {
-        unimplemented!()
+        let mut statuses = vec![];
+        for sig in signature_strs.iter() {
+            statuses.push(Some(TransactionStatus {
+                slot: 0,
+                confirmations: Some(5),
+                status: Ok(()),
+                err: None,
+                confirmation_status: Some(TransactionConfirmationStatus::Finalized),
+            }));
+        }
+
+        let res = RpcResponse {
+            context: RpcResponseContext::new(0),
+            value: statuses,
+        };
+
+        Box::pin(future::ready(Ok(res)))
     }
 
     fn get_max_retransmit_slot(&self, meta: Self::Metadata) -> Result<Slot> {
@@ -277,7 +293,7 @@ impl Full for SurfpoolFullRpc {
 
         let signatures = unsanitized_tx.signatures.clone();
         let signature = signatures[0];
-        let _ = ctx.mempool_tx.send(unsanitized_tx);
+        let _ = ctx.mempool_tx.send((ctx.id.clone(), unsanitized_tx));
 
         // Todo I believe we're supposed to send back a signature
         Ok(signature.to_string())

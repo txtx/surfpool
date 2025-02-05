@@ -1,13 +1,7 @@
 use anyhow::{anyhow, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, str::FromStr};
-use txtx_addon_network_svm::{
-    templates::{
-        get_interpolated_addon_template, get_interpolated_anchor_program_deployment_template,
-        get_interpolated_header_template, get_interpolated_signer_template,
-    },
-    SvmNetworkAddon,
-};
+use txtx_addon_network_svm::SvmNetworkAddon;
 use txtx_core::kit::helpers::fs::FileLocation;
 use txtx_core::kit::types::AuthorizationContext;
 use url::Url;
@@ -16,7 +10,7 @@ use crate::types::Framework;
 
 pub fn try_get_programs_from_project(
     base_location: FileLocation,
-) -> Result<Option<(Framework, Vec<String>, String)>, String> {
+) -> Result<Option<(Framework, Vec<String>)>, String> {
     let mut manifest_location = base_location.clone();
     manifest_location.append_path("Anchor.toml")?;
     if manifest_location.exists() {
@@ -32,29 +26,14 @@ pub fn try_get_programs_from_project(
         let addon = SvmNetworkAddon::new();
         let _function_spec = &addon.get_deploy_action_spec();
         let _context = AuthorizationContext::empty();
-        let mut runbook_src = String::new();
-        runbook_src.push_str(&get_interpolated_header_template(&format!("Runbook")));
-        runbook_src.push_str(&get_interpolated_addon_template("http://localhost:8899"));
-        runbook_src.push_str(&get_interpolated_signer_template(
-            "~/.config/solana/id.json",
-        ));
 
         if let Some((_, deployments)) = manifest.programs.iter().next() {
             for (program_name, _deployment) in deployments.iter() {
                 programs.push(program_name.clone());
-                runbook_src.push_str(&get_interpolated_anchor_program_deployment_template(
-                    program_name,
-                ));
-                // Configure initialize instruction
-                // let args = vec![
-                //     Value::string("hellosol".into()),
-                //     Value::string(target_location.to_string())
-                // ];
-                // let command = GetProgramFromAnchorProject::run(function_spec, &context, &args);
             }
         }
 
-        Ok(Some((Framework::Anchor, programs, runbook_src)))
+        Ok(Some((Framework::Anchor, programs)))
     } else {
         Ok(None)
     }

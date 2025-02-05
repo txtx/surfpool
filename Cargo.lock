@@ -9105,9 +9105,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a05ac79a3a1c3511d7d65ac1cfda168b4d759f7a48aac926ee88ebf8ba06eb5"
+checksum = "ecb637392a03f2f0bf13921db948c39b9b37535fbe4d87792a3cb93c9ac4be73"
 dependencies = [
  "anchor-lang-idl",
  "async-recursion",

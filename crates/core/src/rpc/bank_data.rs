@@ -67,7 +67,7 @@ impl BankData for SurfpoolBankDataRpc {
         data_len: usize,
         commitment: Option<CommitmentConfig>,
     ) -> Result<u64> {
-        unimplemented!()
+        Ok(100)
     }
 
     fn get_inflation_governor(
