@@ -8342,7 +8342,6 @@ dependencies = [
  "solana-send-transaction-service",
  "solana-stake-program",
  "solana-storage-bigtable",
- "solana-streamer",
  "solana-svm",
  "solana-transaction-status",
  "solana-version",
