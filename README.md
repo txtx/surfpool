@@ -20,11 +20,13 @@ This approach provides greater flexibility and significantly faster boot times.
 
 ### Getting Started
 
-Install `surfpool` from crates.io:
+Install `surfpool` from homebrew:
 
-```console
-$ cargo install surfpool-cli
+```bash
+brew install txtx/taps/surfpool
 ```
+
+Alternatively, you can clone the repo and build from source.
 
 Start a local validator / simnet:
 
