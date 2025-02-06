@@ -210,14 +210,14 @@ jobs:
 
       - name: Clone the tap repository
         run: |
-          git clone https://github.com/txtx/homebrew-txtx.git
-          cd homebrew-txtx
+          git clone https://github.com/txtx/homebrew-taps.git
+          cd homebrew-taps
 
       - name: Update the formula with new version and SHA256 values
         run: |
           pwd
           ls
-          cd homebrew-txtx
+          cd homebrew-taps
           pwd
           ls
           # Define the new version
@@ -242,12 +242,12 @@ jobs:
         run: |
           pwd
           ls
-          cd homebrew-txtx
+          cd homebrew-taps
           pwd
           ls
           git add Formula/surfpool.rb
           git commit -m "Update to version ${{ needs.get_release_info.outputs.tag }}"
-          git push https://txtx:${{ secrets.TXTX_ACCESS_TOKEN }}@github.com/txtx/homebrew-txtx.git
+          git push https://txtx:${{ secrets.TXTX_ACCESS_TOKEN }}@github.com/txtx/homebrew-taps.git
   
   snapcraft:
     name: Update Snapcraft
