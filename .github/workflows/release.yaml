@@ -54,8 +54,12 @@ jobs:
         include:
           - os: ubuntu-20.04
             platform: linux
-            target: x86_64-unknown-linux-musl
+            target: x86_64-unknown-linux-gnu
             architecture: x64
+          - os: ubuntu-20.04
+            platform: linux
+            target: aarch64-unknown-linux-gnu
+            architecture: arm64
           # - os: windows-latest
           #   platform: windows
           #   target: x86_64-pc-windows-msvc
@@ -81,25 +85,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # build for linux-musl
-      - name: Build-musl
-        if: matrix.os == 'ubuntu-20.04'
-        uses: gmiam/rust-musl-action@master
-        with:
-          args: cargo build --target ${{ matrix.target }} --release
 
-      # set up rust for non linux-musl
+      # set up rust for all envs
       - name: Install Rust toolchain
-        if: matrix.os != 'ubuntu-20.04'
         run: rustup toolchain install 1.79 --profile minimal --target ${{ matrix.target }}
 
       - name: Install Rust Target
-        if: matrix.os != 'ubuntu-20.04'
         run: rustup target add ${{ matrix.target }}
 
-      # env vars darwin
-      - name: "Get Rust version (darwin)"
-        if: matrix.os != 'windows-latest' && matrix.ox != 'ubuntu-20.04'
+      # env vars unix
+      - name: Get Rust version (unix)
+        if: matrix.os != 'windows-latest'
         run: echo "RUST_VERSION_HASH=$(rustc --version | shasum -a 256 | awk '{print $1}')" >> $GITHUB_ENV
 
       # env vars windows
@@ -109,7 +105,6 @@ jobs:
         run: echo "RUST_VERSION_HASH=$(rustc --version | sha256sum | awk '{print $1}')" >> $GITHUB_ENV
 
       - name: Cache cargo
-        if: matrix.os != 'ubuntu-20.04'
         uses: actions/cache@v3
         with:
           path: |
@@ -130,8 +125,7 @@ jobs:
           echo "SHORT_TARGET_NAME=${{ matrix.platform }}-${{ matrix.architecture }}" >> $GITHUB_ENV
           echo "PRE_GYP_TARGET_NAME=${{ matrix.platform }}-${{ matrix.architecture }}-unknown" >> $GITHUB_ENV
         
-      - name: Build - Cargo (not linux-musl)
-        if: matrix.os != 'ubuntu-20.04'
+      - name: Build - Cargo
         run: 
           cargo build --release --locked --target ${{ matrix.target }}
 
