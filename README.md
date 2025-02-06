@@ -56,11 +56,11 @@ $ surfpool run
         - [x] getMultipleAccounts
         - [x] getFeeForMessage
         - [ ] getSignatureStatuses
-        - [ ] getMinimumBalanceForRentExemption
-        - [ ] getBalance
+        - [x] getMinimumBalanceForRentExemption
+        - [x] getBalance
         - [ ] simulateTransaction
         - [ ] getTransaction
-        - [ ] requestAirdrop
+        - [x] requestAirdrop
     - Priority 2:
         - [ ] getBlock
         - [ ] getBlockCommitment
