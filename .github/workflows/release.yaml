@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - ci
   workflow_dispatch:
 
 concurrency:
@@ -153,7 +154,7 @@ jobs:
         if: matrix.os != 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: txsurfpooltx-${{ env.SHORT_TARGET_NAME }}
+          name: surfpool-${{ env.SHORT_TARGET_NAME }}
           path: surfpool-${{ env.SHORT_TARGET_NAME }}.tar.gz
 
   release:
