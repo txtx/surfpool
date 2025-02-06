@@ -9,7 +9,7 @@ use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::parse_token::UiTokenAmount;
 use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
-use solana_client::rpc_config::{RpcAccountInfoConfig, RpcContextConfig};
+use solana_client::rpc_config::RpcAccountInfoConfig;
 use solana_client::rpc_response::RpcBlockCommitment;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -29,14 +29,6 @@ pub trait AccountsData {
         pubkey_str: String,
         config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Option<UiAccount>>>>;
-
-    #[rpc(meta, name = "getBalance")]
-    fn get_balance(
-        &self,
-        meta: Self::Metadata,
-        pubkey_str: String,
-        config: Option<RpcContextConfig>,
-    ) -> BoxFuture<Result<RpcResponse<u64>>>;
 
     #[rpc(meta, name = "getBlockCommitment")]
     fn get_block_commitment(
@@ -137,29 +129,6 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                         data_slice,
                     )
                 }),
-            })
-        })
-    }
-
-    fn get_balance(
-        &self,
-        meta: Self::Metadata,
-        pubkey_str: String,
-        _config: Option<RpcContextConfig>,
-    ) -> BoxFuture<Result<RpcResponse<u64>>> {
-        let absolute_slot = match meta.get_state() {
-            Ok(s) => s.epoch_info.absolute_slot,
-            Err(e) => return Box::pin(future::err(e.into())),
-        };
-        let account =
-            self.get_account_info(meta, pubkey_str, Some(RpcAccountInfoConfig::default()));
-
-        Box::pin(async move {
-            let lamports = account.await?.value.map_or(0, |account| account.lamports);
-
-            Ok(RpcResponse {
-                context: RpcResponseContext::new(absolute_slot),
-                value: lamports,
             })
         })
     }
