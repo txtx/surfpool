@@ -1,6 +1,6 @@
 use super::RunloopContext;
 use crate::rpc::{utils::verify_pubkey, State};
-use jsonrpc_core::Result;
+use jsonrpc_core::{futures::future, BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
 use solana_client::{
     rpc_config::{
@@ -28,8 +28,8 @@ pub trait Minimal {
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        config: Option<RpcContextConfig>,
-    ) -> Result<RpcResponse<u64>>;
+        _config: Option<RpcContextConfig>,
+    ) -> BoxFuture<Result<RpcResponse<u64>>>;
 
     #[rpc(meta, name = "getEpochInfo")]
     fn get_epoch_info(
@@ -98,16 +98,51 @@ impl Minimal for SurfpoolMinimalRpc {
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        config: Option<RpcContextConfig>,
-    ) -> Result<RpcResponse<u64>> {
-        // println!("get_balance rpc request received: {:?}", pubkey_str);
-        let pubkey = verify_pubkey(&pubkey_str)?;
-        let state_reader = meta.get_state()?;
-        let res = RpcResponse {
-            context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
-            value: 10000,
+        _config: Option<RpcContextConfig>, // TODO: use config
+    ) -> BoxFuture<Result<RpcResponse<u64>>> {
+        let pubkey = match verify_pubkey(&pubkey_str) {
+            Ok(res) => res,
+            Err(e) => return Box::pin(future::err(e)),
         };
-        Ok(res)
+
+        let state_reader = match meta.get_state() {
+            Ok(res) => res,
+            Err(e) => return Box::pin(future::err(e.into())),
+        };
+        let account = state_reader.svm.get_account(&pubkey);
+
+        // Drop the lock on the state while we fetch accounts
+        let absolute_slot = state_reader.epoch_info.absolute_slot;
+        let rpc_client = state_reader.rpc_client.clone();
+        drop(state_reader);
+
+        Box::pin(async move {
+            let account = if let None = account {
+                // Fetch and save the missing account
+                if let Some(fetched_account) = rpc_client.get_account(&pubkey).await.ok() {
+                    let mut state_reader = meta.get_state_mut()?;
+                    state_reader
+                        .svm
+                        .set_account(pubkey, fetched_account.clone())
+                        .map_err(|err| {
+                            Error::invalid_params(format!(
+                                "failed to save fetched account {pubkey:?}: {err:?}"
+                            ))
+                        })?;
+
+                    Some(fetched_account)
+                } else {
+                    None
+                }
+            } else {
+                account
+            };
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(absolute_slot),
+                value: account.map(|account| account.lamports).unwrap_or(0),
+            })
+        })
     }
 
     fn get_epoch_info(
