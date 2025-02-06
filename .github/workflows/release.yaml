@@ -56,10 +56,6 @@ jobs:
             platform: linux
             target: x86_64-unknown-linux-gnu
             architecture: x64
-          - os: ubuntu-20.04
-            platform: linux
-            target: aarch64-unknown-linux-gnu
-            architecture: arm64
           # - os: windows-latest
           #   platform: windows
           #   target: x86_64-pc-windows-msvc
