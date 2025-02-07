@@ -1,7 +1,10 @@
 use chrono::{DateTime, Local};
-use crossbeam::{channel::unbounded, select};
+use crossbeam::{
+    channel::{unbounded, Sender},
+    select,
+};
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -12,8 +15,9 @@ use ratatui::{
 };
 use std::{collections::VecDeque, error::Error, io, time::Duration};
 use surfpool_core::{
-    simnet::SimnetEvent,
+    simnet::{ClockCommand, SimnetCommand, SimnetEvent},
     solana_sdk::{clock::Clock, epoch_info::EpochInfo},
+    types::RunloopTriggerMode,
 };
 use txtx_core::kit::types::frontend::BlockEvent;
 use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};
@@ -66,6 +70,7 @@ struct App {
     scroll_state: ScrollbarState,
     colors: ColorTheme,
     simnet_events_rx: Receiver<SimnetEvent>,
+    simnet_commands_tx: Sender<SimnetCommand>,
     clock: Clock,
     epoch_info: EpochInfo,
     successful_transactions: u32,
@@ -78,6 +83,7 @@ struct App {
 impl App {
     fn new(
         simnet_events_rx: Receiver<SimnetEvent>,
+        simnet_commands_tx: Sender<SimnetCommand>,
         include_debug_logs: bool,
         deploy_progress_rx: Option<Receiver<BlockEvent>>,
     ) -> App {
@@ -86,6 +92,7 @@ impl App {
             scroll_state: ScrollbarState::new(5 * ITEM_HEIGHT),
             colors: ColorTheme::new(&palette::tailwind::EMERALD),
             simnet_events_rx,
+            simnet_commands_tx,
             clock: Clock::default(),
             epoch_info: EpochInfo {
                 epoch: 0,
@@ -141,6 +148,7 @@ impl App {
 
 pub fn start_app(
     simnet_events_rx: Receiver<SimnetEvent>,
+    simnet_commands_tx: Sender<SimnetCommand>,
     include_debug_logs: bool,
     deploy_progress_rx: Option<Receiver<BlockEvent>>,
 ) -> Result<(), Box<dyn Error>> {
@@ -152,7 +160,12 @@ pub fn start_app(
     let mut terminal = Terminal::new(backend)?;
 
     // create app and run it
-    let app = App::new(simnet_events_rx, include_debug_logs, deploy_progress_rx);
+    let app = App::new(
+        simnet_events_rx,
+        simnet_commands_tx,
+        include_debug_logs,
+        deploy_progress_rx,
+    );
     let res = run_app(&mut terminal, app);
 
     // restore terminal
@@ -280,6 +293,26 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         Char('q') | Esc => return Ok(()),
                         Char('j') | Down => app.next(),
                         Char('k') | Up => app.previous(),
+                        Char(' ') => {
+                            let _ = app
+                                .simnet_commands_tx
+                                .send(SimnetCommand::UpdateClock(ClockCommand::Toggle));
+                        }
+                        Tab => {
+                            let _ = app.simnet_commands_tx.send(SimnetCommand::SlotForward);
+                        }
+                        Char('t') => {
+                            let _ = app
+                                .simnet_commands_tx
+                                .send(SimnetCommand::UpdateRunloopMode(
+                                    RunloopTriggerMode::Transaction,
+                                ));
+                        }
+                        Char('c') => {
+                            let _ = app
+                                .simnet_commands_tx
+                                .send(SimnetCommand::UpdateRunloopMode(RunloopTriggerMode::Clock));
+                        }
                         _ => {}
                     }
                 }

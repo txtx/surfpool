@@ -1,5 +1,6 @@
 use chrono::{DateTime, Local, Utc};
-use crossbeam_channel::Sender;
+use crossbeam::select;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
@@ -14,14 +15,13 @@ use std::{
     thread::sleep,
     time::Duration,
 };
-use tokio::sync::broadcast;
 
 use crate::{
     rpc::{
         self, accounts_data::AccountsData, bank_data::BankData, full::Full, minimal::Minimal,
         SurfpoolMiddleware,
     },
-    types::SurfpoolConfig,
+    types::{RunloopTriggerMode, SurfpoolConfig},
 };
 
 pub struct GlobalState {
@@ -47,9 +47,28 @@ pub enum SimnetEvent {
     AccountUpdate(DateTime<Local>, Pubkey),
 }
 
+pub enum SimnetCommand {
+    SlotForward,
+    SlotBackward,
+    UpdateClock(ClockCommand),
+    UpdateRunloopMode(RunloopTriggerMode),
+}
+
+pub enum ClockCommand {
+    Pause,
+    Resume,
+    Toggle,
+    UpdateSlotInterval(u64),
+}
+
+pub enum ClockEvent {
+    Tick,
+}
+
 pub async fn start(
     config: &SurfpoolConfig,
     simnet_events_tx: Sender<SimnetEvent>,
+    simnet_commands_rx: Receiver<SimnetCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // let path = PathBuf::from("~/.config/solana/id.json");
     // let pubkey = Keypair::read_from_file(path).unwrap().pubkey(); // todo: make this configurable
@@ -73,7 +92,7 @@ pub async fn start(
     };
 
     let context = Arc::new(RwLock::new(context));
-    let (mempool_tx, mut mempool_rx) = broadcast::channel(1024);
+    let (mempool_tx, mut mempool_rx) = unbounded();
     let middleware = SurfpoolMiddleware {
         context: context.clone(),
         mempool_tx,
@@ -100,18 +119,97 @@ pub async fn start(
         let _ = simnet_events_tx_copy.send(SimnetEvent::Shutdown);
     });
 
+    let (clock_event_tx, clock_event_rx) = unbounded::<ClockEvent>();
+    let (clock_command_tx, clock_command_rx) = unbounded::<ClockCommand>();
+
+    let mut slot_time = config.simnet.slot_time;
+    let _handle = hiro_system_kit::thread_named("clock").spawn(move || {
+        let mut enabled = true;
+        loop {
+            match clock_command_rx.try_recv() {
+                Ok(ClockCommand::Pause) => {
+                    enabled = false;
+                }
+                Ok(ClockCommand::Resume) => {
+                    enabled = true;
+                }
+                Ok(ClockCommand::Toggle) => {
+                    enabled = !enabled;
+                }
+                Ok(ClockCommand::UpdateSlotInterval(updated_slot_time)) => {
+                    slot_time = updated_slot_time;
+                }
+                Err(_e) => {}
+            }
+            sleep(Duration::from_millis(slot_time));
+            if enabled {
+                let _ = clock_event_tx.send(ClockEvent::Tick);
+            }
+        }
+    });
+
     let _ = simnet_events_tx.send(SimnetEvent::EpochInfoUpdate(epoch_info.clone()));
-
+    let mut runloop_trigger_mode = config.simnet.runloop_trigger_mode.clone();
+    let mut transactions_to_process = vec![];
     loop {
-        sleep(Duration::from_millis(config.simnet.slot_time));
-        let unix_timestamp: i64 = Utc::now().timestamp();
+        let mut create_slot = false;
+        select! {
+            recv(clock_event_rx) -> msg => match msg {
+                Ok(event) => {
+                    match event {
+                        ClockEvent::Tick => {
+                            if runloop_trigger_mode.eq(&RunloopTriggerMode::Clock) {
+                                create_slot = true;
+                            }
+                        }
+                    }
+                },
+                Err(_) => {},
+            },
+            recv(simnet_commands_rx) -> msg => match msg {
+                Ok(event) => {
+                    match event {
+                        SimnetCommand::SlotForward => {
+                            runloop_trigger_mode = RunloopTriggerMode::Manual;
+                            create_slot = true;
+                        }
+                        SimnetCommand::SlotBackward => {
 
+                        }
+                        SimnetCommand::UpdateClock(update) => {
+                            let _ = clock_command_tx.send(update);
+                            continue
+                        }
+                        SimnetCommand::UpdateRunloopMode(update) => {
+                            runloop_trigger_mode = update;
+                            continue
+                        }
+                    }
+                },
+                Err(_) => {},
+            },
+            recv(mempool_rx) -> msg => match msg {
+                Ok(transaction) => {
+                    transactions_to_process.push(transaction);
+                },
+                Err(_) => {},
+            },
+            default => {},
+        }
+
+        if !create_slot {
+            continue;
+        }
+
+        // We will create a slot!
+        let unix_timestamp: i64 = Utc::now().timestamp();
         let Ok(mut ctx) = context.try_write() else {
             println!("unable to lock svm");
             continue;
         };
 
-        while let Ok((_, tx)) = mempool_rx.try_recv() {
+        // Handle the transactions accumulated
+        for (key, tx) in transactions_to_process.drain(..) {
             let _ =
                 simnet_events_tx.send(SimnetEvent::TransactionReceived(Local::now(), tx.clone()));
 
