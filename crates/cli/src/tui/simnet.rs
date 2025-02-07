@@ -273,6 +273,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     use KeyCode::*;
+                    if key.modifiers == KeyModifiers::CONTROL && key.code == Char('c') {
+                        return Ok(());
+                    }
                     match key.code {
                         Char('q') | Esc => return Ok(()),
                         Char('j') | Down => app.next(),
