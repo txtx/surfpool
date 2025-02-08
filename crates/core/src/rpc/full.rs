@@ -1,8 +1,11 @@
+use std::str::FromStr;
+
 use super::utils::decode_and_deserialize;
-use jsonrpc_core::futures::future;
+use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
+use litesvm::types::TransactionResult;
 use solana_client::rpc_config::RpcContextConfig;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcApiVersion;
@@ -22,6 +25,7 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::clock::UnixTimestamp;
 use solana_sdk::message::VersionedMessage;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signature::Signature;
 use solana_sdk::transaction::VersionedTransaction;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionConfirmationStatus, TransactionStatus,
@@ -214,25 +218,79 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         signature_strs: Vec<String>,
-        config: Option<RpcSignatureStatusConfig>,
+        _config: Option<RpcSignatureStatusConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<Option<TransactionStatus>>>>> {
-        let mut statuses = vec![];
-        for sig in signature_strs.iter() {
-            statuses.push(Some(TransactionStatus {
-                slot: 0,
-                confirmations: Some(5),
-                status: Ok(()),
-                err: None,
-                confirmation_status: Some(TransactionConfirmationStatus::Finalized),
-            }));
-        }
+        let signatures = signature_strs
+            .iter()
+            .map(|s| Signature::from_str(&s).ok())
+            .collect::<Vec<Option<Signature>>>();
 
-        let res = RpcResponse {
-            context: RpcResponseContext::new(0),
-            value: statuses,
+        let state_reader = match meta.get_state() {
+            Ok(s) => s,
+            Err(e) => return Box::pin(future::err(e.into())),
         };
+        let local_statuses = signatures
+            .iter()
+            .map(|signature| {
+                signature
+                    .map(|signature| {
+                        state_reader.svm.get_transaction(&signature).map(|tx| {
+                            tx.clone().ok().map(|_tx| TransactionStatus {
+                                slot: 0,
+                                confirmations: Some(5),
+                                status: Ok(()),
+                                err: None,
+                                confirmation_status: Some(TransactionConfirmationStatus::Finalized),
+                            })
+                        })
+                    })
+                    .flatten()
+                    .flatten()
+            })
+            .collect::<Vec<Option<TransactionStatus>>>();
+        let rpc_client = state_reader.rpc_client.clone();
+        let current_slot = state_reader.epoch_info.absolute_slot;
+        drop(state_reader);
 
-        Box::pin(future::ready(Ok(res)))
+        Box::pin(async move {
+            let fetched_statuses = join_all(signatures.iter().map(|signature| {
+                let rpc_client = rpc_client.clone();
+                async move {
+                    if let Some(signature) = signature {
+                        rpc_client
+                            .get_transaction(&signature, UiTransactionEncoding::Json)
+                            .await
+                            .ok()
+                            .map(|tx| TransactionStatus {
+                                slot: tx.slot,
+                                confirmations: Some((current_slot - tx.slot) as usize),
+                                status: tx.transaction.meta.clone().map_or(Ok(()), |m| m.status),
+                                err: tx.transaction.meta.map(|m| m.err).flatten(),
+                                confirmation_status: Some(TransactionConfirmationStatus::Confirmed),
+                            })
+                    } else {
+                        None
+                    }
+                }
+            }))
+            .await;
+
+            let combined_statuses = local_statuses
+                .iter()
+                .zip(fetched_statuses)
+                .map(|(local, fetched)| {
+                    if local.is_some() {
+                        local.clone()
+                    } else {
+                        fetched
+                    }
+                })
+                .collect::<Vec<Option<TransactionStatus>>>();
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(0),
+                value: combined_statuses,
+            })
+        })
     }
 
     fn get_max_retransmit_slot(&self, meta: Self::Metadata) -> Result<Slot> {
