@@ -22,10 +22,13 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::clock::UnixTimestamp;
 use solana_sdk::message::VersionedMessage;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signature::Signature;
 use solana_sdk::transaction::VersionedTransaction;
+use solana_transaction_status::option_serializer::OptionSerializer;
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionConfirmationStatus, TransactionStatus,
-    UiConfirmedBlock,
+    EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction,
+    EncodedTransactionWithStatusMeta, TransactionConfirmationStatus, TransactionStatus,
+    UiConfirmedBlock, UiMessage, UiParsedMessage, UiTransaction, UiTransactionStatusMeta,
 };
 use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
 
@@ -355,7 +358,86 @@ impl Full for SurfpoolFullRpc {
         signature_str: String,
         config: Option<RpcEncodingConfigWrapper<RpcTransactionConfig>>,
     ) -> BoxFuture<Result<Option<EncodedConfirmedTransactionWithStatusMeta>>> {
-        unimplemented!()
+        let config = config
+            .map(|c| match c {
+                RpcEncodingConfigWrapper::Deprecated(encoding) => RpcTransactionConfig {
+                    encoding,
+                    ..RpcTransactionConfig::default()
+                },
+                RpcEncodingConfigWrapper::Current(None) => RpcTransactionConfig::default(),
+                RpcEncodingConfigWrapper::Current(Some(c)) => c,
+            })
+            .unwrap_or_default();
+        let signature_bytes = match bs58::decode(signature_str)
+            .into_vec()
+            .map_err(|e| Error::invalid_params("failed to decode bs58 data"))
+        {
+            Ok(s) => s,
+            Err(err) => return Box::pin(future::err(err.into())),
+        };
+        let signature = match Signature::try_from(signature_bytes.as_slice())
+            .map_err(|e| Error::invalid_params("failed to decode bs58 data"))
+        {
+            Ok(s) => s,
+            Err(err) => return Box::pin(future::err(err.into())),
+        };
+
+        let state_reader = match meta.get_state() {
+            Ok(s) => s,
+            Err(err) => return Box::pin(future::err(err.into())),
+        };
+        let slot = state_reader.epoch_info.absolute_slot;
+        let recent_blockhash = state_reader.svm.latest_blockhash();
+        let rpc_client = state_reader.rpc_client.clone();
+        let tx = state_reader
+            .svm
+            .get_transaction(&signature)
+            .map(|result| result.to_owned());
+        drop(state_reader);
+
+        Box::pin(async move {
+            // TODO: implement new interfaces in LiteSVM to get all the relevant info
+            // needed to return the actual tx, not just some metadata
+            if let Some(tx) = tx {
+                let (metadata, _err) = match tx {
+                    Ok(tx) => (tx, None),
+                    Err(tx) => (tx.meta, Some(tx.err)),
+                };
+                Ok(Some(EncodedConfirmedTransactionWithStatusMeta {
+                    slot,
+                    block_time: None,
+                    transaction: EncodedTransactionWithStatusMeta {
+                        transaction: match config.encoding {
+                            None | Some(UiTransactionEncoding::Json) => {
+                                EncodedTransaction::Json(UiTransaction {
+                                    signatures: vec![metadata.signature.to_string()],
+                                    message: UiMessage::Parsed(UiParsedMessage {
+                                        account_keys: vec![],
+                                        address_table_lookups: None,
+                                        recent_blockhash: recent_blockhash.to_string(),
+                                        instructions: vec![],
+                                    }),
+                                })
+                            }
+                            _ => unimplemented!(),
+                        },
+                        meta: None,
+                        version: None,
+                    },
+                }))
+            } else {
+                match rpc_client
+                    .get_transaction(
+                        &signature,
+                        config.encoding.unwrap_or(UiTransactionEncoding::Json),
+                    )
+                    .await
+                {
+                    Ok(tx) => return Ok(Some(tx)),
+                    Err(_tx) => Ok(None),
+                }
+            }
+        })
     }
 
     fn get_signatures_for_address(
