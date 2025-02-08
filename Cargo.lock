@@ -3590,6 +3590,7 @@ dependencies = [
  "indexmap 2.7.1",
  "itertools 0.14.0",
  "log 0.4.25",
+ "qualifier_attr",
  "solana-address-lookup-table-program",
  "solana-bpf-loader-program",
  "solana-compute-budget",

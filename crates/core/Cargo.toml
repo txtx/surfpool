@@ -36,7 +36,7 @@ jsonrpc-core-client = "18.0.0"
 jsonrpc-http-server = "18.0.0"
 libc = "0.2.169"
 regex = "1.11.1"
-litesvm = "0.5.0"
+litesvm = { version = "0.5.0", features = ["nodejs-internal"] }
 crossbeam = "0.8.4"
 # litesvm = { path = "../../../litesvm/crates/litesvm" }
 
