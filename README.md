@@ -16,8 +16,6 @@
 `surfpool` uses the low level `solana-svm` API through the excellent wrapper [LiteSVM](https://github.com/LiteSVM/litesvm).
 This approach provides greater flexibility and significantly faster boot times.
 
-`surfpool` is also available as a library on crates.io - facilitating its integration in other projects.
-
 ### Getting Started
 
 Install `surfpool` from homebrew:
@@ -43,78 +41,8 @@ $ surfpool run
 
 ## Status
 
-`surfpool` is in active development, here are a few todos of what's coming next.
+`surfpool` is in active development, if you'd like to get involved, you can:
 
-### RPC Support
+- Take a stab at any of these issues: https://github.com/txtx/surfpool/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22help%20wanted%22
+- Join the telegram channel https://t.me/surfpool
 
-- [ ] Support `HTTP Methods`
-    - Priority 1:
-        - [x] getVersion
-        - [x] getSlot
-        - [x] getEpochInfo
-        - [x] getLatestBlockhash
-        - [x] sendTransaction
-        - [x] getAccountInfo
-        - [x] getMultipleAccounts
-        - [x] getFeeForMessage
-        - [ ] getSignatureStatuses
-        - [x] getMinimumBalanceForRentExemption
-        - [x] getBalance
-        - [ ] simulateTransaction
-        - [ ] getTransaction
-        - [x] requestAirdrop
-    - Priority 2:
-        - [ ] getBlock
-        - [ ] getBlockCommitment
-        - [ ] getBlockHeight
-        - [ ] getBlockProduction
-        - [ ] getBlocks
-        - [ ] getBlocksWithLimit
-        - [ ] getBlockTime
-        - [ ] getClusterNodes
-        - [ ] getEpochSchedule
-        - [ ] getFirstAvailableBlock
-        - [ ] getGenesisHash
-        - [x] getHealth
-        - [ ] getHighestSnapshotSlot
-        - [ ] getIdentity
-        - [ ] getInflationGovernor
-        - [ ] getInflationRate
-        - [ ] getInflationReward
-        - [ ] getLargestAccounts
-        - [ ] getLeaderSchedule
-        - [ ] getMaxRetransmitSlot
-        - [ ] getMaxShredInsertSlot
-        - [ ] getMinimumBalanceForRentExemption
-        - [ ] getProgramAccounts
-        - [ ] getRecentPerformanceSamples
-        - [ ] getRecentPrioritizationFees
-        - [ ] getSignaturesForAddress
-        - [ ] getSlotLeader
-        - [ ] getSlotLeaders
-        - [ ] getStakeMinimumDelegation
-        - [ ] getSupply
-        - [ ] getTokenAccountBalance
-        - [ ] getTokenAccountsByDelegate
-        - [ ] getTokenAccountsByOwner
-        - [ ] getTokenLargestAccounts
-        - [ ] getTokenSupply
-        - [ ] getTransactionCount
-        - [ ] getVoteAccounts
-        - [ ] isBlockhashValid
-        - [ ] minimumLedgerSlot
-- [ ] Support `Websocket Methods`
-
-### Configurations
-
-- [ ] Ability to pull configuration from a `Surfpool.toml` manifest file
-- [x] Ability to setup slot time (default to `400ms`)
-- [ ] Ability to setup epoch duration (default to `432,000`)
-- [ ] Ability to configure behavior:
-    - [ ] genesis
-    - [ ] point-fork mainnet
-    - [ ] stream-fork mainnet
-- [x] Ability to configure the RPC node URL to default to.
-
-### Going Further
-- [ ] Ability to watch and update fetched account
