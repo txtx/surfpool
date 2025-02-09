@@ -30,12 +30,8 @@ pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
 pub async fn execute_runbook(
     runbook_id: &str,
     progress_tx: Sender<BlockEvent>,
-    manifest_location: &FileLocation,
+    txtx_manifest_location: &FileLocation,
 ) -> Result<(), String> {
-    let base_dir_location = manifest_location.get_parent_location()?;
-    let mut txtx_manifest_location = base_dir_location.clone();
-    txtx_manifest_location.append_path("txtx.yml")?;
-
     let manifest = WorkspaceManifest::from_location(&txtx_manifest_location)?;
     let runbook_selector = vec![runbook_id.to_string()];
     let mut runbooks =

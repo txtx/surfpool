@@ -1,11 +1,10 @@
 use crate::{
     runbook::execute_runbook,
-    scaffold::{detect_program_frameworks, scaffold_runbooks_layout},
+    scaffold::{detect_program_frameworks, scaffold_iac_layout},
     tui,
 };
 
 use super::{Context, StartSimnet};
-use dialoguer::{console::Style, theme::ColorfulTheme, MultiSelect};
 use surfpool_core::{
     simnet::SimnetEvent,
     start_simnet,
@@ -54,44 +53,34 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         }
     }
 
-    // Initialize if required
-
-    // Propose deployments (use --no-deploy)
-
-    let deployment = match detect_program_frameworks(&cmd.manifest_path).await {
-        Err(e) => {
-            error!(ctx.expect_logger(), "{}", e);
-            None
-        }
-        Ok(deployment) => deployment,
-    };
-
-    let deploy_progress_rx = if let Some((framework, programs)) = deployment {
-        let theme = ColorfulTheme {
-            values_style: Style::new().green(),
-            hint_style: Style::new().cyan(),
-            ..ColorfulTheme::default()
+    let mut deploy_progress_rx = vec![];
+    if !cmd.no_deploy {
+        // Are we in a project directory?
+        let deployment = match detect_program_frameworks(&cmd.manifest_path).await {
+            Err(e) => {
+                error!(ctx.expect_logger(), "{}", e);
+                None
+            }
+            Ok(deployment) => deployment,
         };
 
-        let selection = MultiSelect::with_theme(&theme)
-            .with_prompt("Programs to deploy:")
-            .items(&programs)
-            .interact()
-            .unwrap();
+        if let Some((framework, programs)) = deployment {
+            // Is infrastructure-as-code (IaC) already setup?
+            let base_location =
+                FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
+            let mut txtx_manifest_location = base_location.clone();
+            txtx_manifest_location.append_path("txtx.yml")?;
+            if !txtx_manifest_location.exists() {
+                // Scaffold IaC
+                scaffold_iac_layout(programs, &base_location)?;
+            }
 
-        let selected_programs = selection
-            .iter()
-            .map(|i| programs[*i].clone())
-            .collect::<Vec<_>>();
-
-        scaffold_runbooks_layout(selected_programs, &cmd.manifest_path)?;
-
-        let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-        let manifest_location = FileLocation::from_path_string(&cmd.manifest_path)?;
-        execute_runbook("deployment", progress_tx, &manifest_location).await?;
-        Some(progress_rx)
-    } else {
-        None
+            for runbook_id in cmd.runbooks.iter() {
+                let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
+                execute_runbook(runbook_id, progress_tx, &txtx_manifest_location).await?;
+                deploy_progress_rx.push(progress_rx);
+            }
+        }
     };
 
     // Start frontend - kept on main thread
@@ -114,7 +103,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
 fn log_events(
     simnet_events_rx: Receiver<SimnetEvent>,
     include_debug_logs: bool,
-    deploy_progress_rx: Option<Receiver<BlockEvent>>,
+    deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     ctx: &Context,
 ) -> Result<(), String> {
     info!(

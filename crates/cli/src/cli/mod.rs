@@ -15,6 +15,7 @@ pub const DEFAULT_SLOT_TIME_MS: &str = "400";
 pub const DEFAULT_BINDING_PORT: &str = "8899";
 pub const DEFAULT_BINDING_ADDRESS: &str = "127.0.0.1";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
+pub const DEFAULT_RUNBOOK: &str = "deployment";
 
 #[allow(dead_code)]
 impl Context {
@@ -75,17 +76,20 @@ pub struct StartSimnet {
     #[arg(long = "slot-time", short = 's', default_value = DEFAULT_SLOT_TIME_MS)]
     pub slot_time: u64,
     /// Set the ip
-    #[arg(long = "rpc-url", short = 'r', default_value = DEFAULT_RPC_URL)]
+    #[arg(long = "rpc-url", short = 'u', default_value = DEFAULT_RPC_URL)]
     pub rpc_url: String,
     /// Display streams of logs instead of terminal UI dashboard (default: false)
     #[clap(long = "no-tui")]
     pub no_tui: bool,
-    /// Disable auto deployments
-    #[clap(long = "no-deploy")]
-    pub no_deploy: bool,
     /// Include debug logs (default: false)
     #[clap(long = "debug", action=ArgAction::SetTrue)]
     pub debug: bool,
+    /// Disable auto deployments (default: false)
+    #[clap(long = "no-deploy")]
+    pub no_deploy: bool,
+    /// Specify the runbook
+    #[arg(long = "runbook", short = 'r', default_value = DEFAULT_RUNBOOK)]
+    pub runbooks: Vec<String>,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
