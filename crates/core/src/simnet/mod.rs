@@ -100,8 +100,7 @@ pub async fn start(
     };
 
     let simnet_events_tx_copy = simnet_events_tx.clone();
-    let server_bind: SocketAddr =
-        format!("{}:{}", config.rpc.bind_address, config.rpc.bind_port).parse()?;
+    let server_bind: SocketAddr = config.rpc.get_socket_address().parse()?;
 
     let mut io = MetaIoHandler::with_middleware(middleware);
     io.extend_with(rpc::minimal::SurfpoolMinimalRpc.to_delegate());

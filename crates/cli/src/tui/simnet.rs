@@ -406,12 +406,12 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
         Line::from(vec![
             Span::styled("۬", app.colors.white),
             Span::styled("RPC     ", app.colors.gray),
-            Span::styled("http://localhost:8899 ", app.colors.white),
+            Span::styled(&app.local_rpc_url, app.colors.white),
         ]),
         Line::from(vec![
             Span::styled("۬", app.colors.white),
             Span::styled("Source  ", app.colors.gray),
-            Span::styled("https://mainnet-beta.txtx.networks:8899 ", app.colors.white),
+            Span::styled(&app.remote_rpc_url, app.colors.white),
         ]),
         Line::from(vec![Span::styled("۬-", app.colors.gray)]),
         Line::from(vec![
@@ -523,6 +523,6 @@ fn render_footer(f: &mut Frame, app: &mut App, area: Rect) {
     };
     f.render_widget(status, rects[0]);
 
-    let link = title_block(TXTX_LINK, Alignment::Right).style(Style::new().fg(app.colors.white));
-    f.render_widget(link, rects[1]);
+    // let link = title_block(TXTX_LINK, Alignment::Right).style(Style::new().fg(app.colors.white));
+    // f.render_widget(link, rects[1]);
 }

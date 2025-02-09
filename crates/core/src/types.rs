@@ -24,3 +24,9 @@ pub struct RpcConfig {
     pub bind_port: u16,
     pub remote_rpc_url: String,
 }
+
+impl RpcConfig {
+    pub fn get_socket_address(&self) -> String {
+        format!("{}:{}", self.bind_address, self.bind_port)
+    }
+}

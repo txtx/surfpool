@@ -26,11 +26,13 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             runloop_trigger_mode: RunloopTriggerMode::Clock,
         },
     };
+    let remote_rpc_url = config.rpc.remote_rpc_url.clone();
+    let local_rpc_url = config.rpc.get_socket_address();
 
+    // Start backend - background task
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
     let (simnet_events_tx, simnet_events_rx) = crossbeam::channel::unbounded();
     let ctx_cloned = ctx.clone();
-    // Start backend - background task
     let _handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
             let future = start_simnet(&config, simnet_events_tx, simnet_commands_rx);
@@ -101,6 +103,8 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             simnet_commands_tx,
             cmd.debug,
             deploy_progress_rx,
+            &remote_rpc_url,
+            &local_rpc_url,
         )
         .map_err(|e| format!("{}", e))?;
     }
