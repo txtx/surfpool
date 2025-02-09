@@ -30,6 +30,13 @@ pub trait AccountsData {
         config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Option<UiAccount>>>>;
 
+    #[rpc(meta, name = "getBlockCommitment")]
+    fn get_block_commitment(
+        &self,
+        meta: Self::Metadata,
+        block: Slot,
+    ) -> Result<RpcBlockCommitment<BlockCommitmentArray>>;
+
     #[rpc(meta, name = "getMultipleAccounts")]
     fn get_multiple_accounts(
         &self,
@@ -37,13 +44,6 @@ pub trait AccountsData {
         pubkey_strs: Vec<String>,
         config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<Option<UiAccount>>>>>;
-
-    #[rpc(meta, name = "getBlockCommitment")]
-    fn get_block_commitment(
-        &self,
-        meta: Self::Metadata,
-        block: Slot,
-    ) -> Result<RpcBlockCommitment<BlockCommitmentArray>>;
 
     // SPL Token-specific RPC endpoints
     // See https://github.com/solana-labs/solana-program-library/releases/tag/token-v2.0.0 for

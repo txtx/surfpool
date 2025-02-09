@@ -213,7 +213,6 @@ pub fn scaffold_runbooks_layout(
                     e
                 )
             })?;
-            println!("{} deployment", green!("Created directory"));
         }
     }
 
@@ -245,7 +244,6 @@ pub fn scaffold_runbooks_layout(
                     e
                 )
             })?;
-            println!("{} runbooks", green!("Created directory"));
         }
     }
 
@@ -264,7 +262,7 @@ pub fn scaffold_runbooks_layout(
             runbook_file_location.write_content(runbook_src.as_bytes())?;
             println!(
                 "{} {}",
-                green!("Created runbook"),
+                green!("Created file"),
                 runbook_file_location
                     .get_relative_path_from_base(&base_location)
                     .unwrap()
@@ -275,7 +273,7 @@ pub fn scaffold_runbooks_layout(
             base_dir.write_content(signer_simnet.as_bytes())?;
             println!(
                 "{} {}",
-                green!("Created runbook"),
+                green!("Created file"),
                 base_dir
                     .get_relative_path_from_base(&base_location)
                     .unwrap()
@@ -286,7 +284,7 @@ pub fn scaffold_runbooks_layout(
             base_dir.write_content(signer_testnet.as_bytes())?;
             println!(
                 "{} {}",
-                green!("Created runbook"),
+                green!("Created file"),
                 base_dir
                     .get_relative_path_from_base(&base_location)
                     .unwrap()
@@ -297,7 +295,7 @@ pub fn scaffold_runbooks_layout(
             base_dir.write_content(signer_mainnet.as_bytes())?;
             println!(
                 "{} {}",
-                green!("Created runbook"),
+                green!("Created file"),
                 base_dir
                     .get_relative_path_from_base(&base_location)
                     .unwrap()

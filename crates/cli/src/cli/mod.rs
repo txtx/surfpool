@@ -49,7 +49,7 @@ struct Opts {
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum Command {
     /// Start Simnet
-    #[clap(name = "simnet", bin_name = "simnet", aliases = &["run", "start"])]
+    #[clap(name = "run", bin_name = "run", aliases = &["run", "start", "simnet"])]
     Simnet(StartSimnet),
     /// Generate shell completions scripts
     #[clap(name = "completions", bin_name = "completions", aliases = &["completion"])]

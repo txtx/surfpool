@@ -1,11 +1,11 @@
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use crossbeam_channel::Sender;
 use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_sdk::{blake3::Hash, clock::Slot, transaction::VersionedTransaction};
-use tokio::sync::broadcast;
 
 pub mod accounts_data;
 pub mod bank_data;
@@ -26,7 +26,7 @@ pub struct SurfpoolRpc;
 pub struct RunloopContext {
     pub id: Hash,
     pub state: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: broadcast::Sender<(Hash, VersionedTransaction)>,
+    pub mempool_tx: Sender<(Hash, VersionedTransaction)>,
 }
 
 trait State {
@@ -77,7 +77,7 @@ use std::future::Future;
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
     pub context: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: broadcast::Sender<(Hash, VersionedTransaction)>,
+    pub mempool_tx: Sender<(Hash, VersionedTransaction)>,
     pub config: RpcConfig,
 }
 

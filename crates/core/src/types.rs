@@ -1,3 +1,10 @@
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunloopTriggerMode {
+    Clock,
+    Manual,
+    Transaction,
+}
+
 #[derive(Clone, Debug)]
 pub struct SurfpoolConfig {
     pub simnet: SimnetConfig,
@@ -8,6 +15,7 @@ pub struct SurfpoolConfig {
 pub struct SimnetConfig {
     pub remote_rpc_url: String,
     pub slot_time: u64,
+    pub runloop_trigger_mode: RunloopTriggerMode,
 }
 
 #[derive(Clone, Debug)]
