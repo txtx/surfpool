@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts};
 use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
@@ -31,6 +30,7 @@ use solana_transaction_status::{
     UiConfirmedBlock,
 };
 use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
+use std::str::FromStr;
 
 use super::*;
 
