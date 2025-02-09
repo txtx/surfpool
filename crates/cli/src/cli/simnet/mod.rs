@@ -120,54 +120,95 @@ fn log_events(
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     ctx: &Context,
 ) -> Result<(), String> {
-    info!(
-        ctx.expect_logger(),
-        "Surfpool: The best place to train before surfing Solana"
-    );
-    while let Ok(event) = simnet_events_rx.recv() {
-        match event {
-            SimnetEvent::AccountUpdate(_, account) => {
-                info!(
-                    ctx.expect_logger(),
-                    "Account retrieved from Mainnet {}", account
-                );
-            }
-            SimnetEvent::EpochInfoUpdate(epoch_info) => {
-                info!(
-                    ctx.expect_logger(),
-                    "Connection established. Epoch {}, Slot {}.",
-                    epoch_info.epoch,
-                    epoch_info.slot_index
-                );
-            }
-            SimnetEvent::ClockUpdate(clock) => {
-                if include_debug_logs {
-                    info!(ctx.expect_logger(), "Slot #{} ", clock.slot);
+    loop {
+        let mut selector = Select::new();
+        let mut handles = vec![];
+
+        selector.recv(&simnet_events_rx);
+        for rx in deploy_progress_rx.iter() {
+            handles.push(selector.recv(rx));
+        }
+
+        let oper = selector.select();
+        match oper.index() {
+            0 => match oper.recv(&simnet_events_rx) {
+                Ok(event) => match event {
+                    SimnetEvent::AccountUpdate(_dt, account) => {
+                        info!(
+                            ctx.expect_logger(),
+                            "Account {} retrieved from Mainnet", account
+                        );
+                    }
+                    SimnetEvent::EpochInfoUpdate(epoch_info) => {
+                        info!(
+                            ctx.expect_logger(),
+                            "Connection established. Epoch {}, Slot {}.",
+                            epoch_info.epoch,
+                            epoch_info.slot_index
+                        );
+                    }
+                    SimnetEvent::ClockUpdate(clock) => {
+                        if include_debug_logs {
+                            info!(
+                                ctx.expect_logger(),
+                                "Clock ticking (epoch {}, slot {})", clock.epoch, clock.slot
+                            );
+                        }
+                    }
+                    SimnetEvent::ErrorLog(_dt, log) => {
+                        error!(ctx.expect_logger(), "{} ", log);
+                    }
+                    SimnetEvent::InfoLog(_dt, log) => {
+                        info!(ctx.expect_logger(), "{} ", log);
+                    }
+                    SimnetEvent::DebugLog(_dt, log) => {
+                        if include_debug_logs {
+                            info!(ctx.expect_logger(), "{} ", log);
+                        }
+                    }
+                    SimnetEvent::WarnLog(_dt, log) => {
+                        warn!(ctx.expect_logger(), "{} ", log);
+                    }
+                    SimnetEvent::TransactionReceived(_dt, transaction) => {
+                        info!(
+                            ctx.expect_logger(),
+                            "Transaction received {}", transaction.signatures[0]
+                        );
+                    }
+                    SimnetEvent::BlockHashExpired => {}
+                    SimnetEvent::Aborted(error) => {
+                        error!(ctx.expect_logger(), "{} ", error);
+                        return Err(error);
+                    }
+                    SimnetEvent::Ready => {}
+                    SimnetEvent::Shutdown => {
+                        break;
+                    }
+                },
+                Err(e) => {
+                    error!(ctx.expect_logger(), "{}", e.to_string());
+                    break;
                 }
-            }
-            SimnetEvent::ErrorLog(_, log) => {
-                error!(ctx.expect_logger(), "{} ", log);
-            }
-            SimnetEvent::InfoLog(_, log) => {
-                info!(ctx.expect_logger(), "{} ", log);
-            }
-            SimnetEvent::WarnLog(_, log) => {
-                warn!(ctx.expect_logger(), "{} ", log);
-            }
-            SimnetEvent::DebugLog(_, log) => {
-                if include_debug_logs {
-                    debug!(ctx.expect_logger(), "{} ", log);
+            },
+            i => match oper.recv(&deploy_progress_rx[i - 1]) {
+                Ok(event) => match event {
+                    BlockEvent::UpdateProgressBarStatus(update) => {
+                        info!(
+                            ctx.expect_logger(),
+                            "{}",
+                            format!(
+                                "{}: {}",
+                                update.new_status.status, update.new_status.message
+                            )
+                        );
+                    }
+                    _ => {}
+                },
+                Err(e) => {
+                    error!(ctx.expect_logger(), "{}", e.to_string());
+                    break;
                 }
-            }
-            SimnetEvent::TransactionReceived(_, _transaction) => {
-                info!(ctx.expect_logger(), "Transaction received");
-            }
-            SimnetEvent::BlockHashExpired => {}
-            SimnetEvent::Aborted(error) => {
-                return Err(error);
-            }
-            SimnetEvent::Shutdown => break,
-            SimnetEvent::Ready => {}
+            },
         }
     }
     Ok(())
