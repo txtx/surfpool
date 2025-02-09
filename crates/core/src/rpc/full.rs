@@ -194,21 +194,21 @@ impl Full for SurfpoolFullRpc {
 
     fn get_inflation_reward(
         &self,
-        meta: Self::Metadata,
-        address_strs: Vec<String>,
-        config: Option<RpcEpochConfig>,
+        _meta: Self::Metadata,
+        _address_strs: Vec<String>,
+        _config: Option<RpcEpochConfig>,
     ) -> BoxFuture<Result<Vec<Option<RpcInflationReward>>>> {
         unimplemented!()
     }
 
-    fn get_cluster_nodes(&self, meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
+    fn get_cluster_nodes(&self, _meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
         unimplemented!()
     }
 
     fn get_recent_performance_samples(
         &self,
-        meta: Self::Metadata,
-        limit: Option<usize>,
+        _meta: Self::Metadata,
+        _limit: Option<usize>,
     ) -> Result<Vec<RpcPerfSample>> {
         unimplemented!()
     }
@@ -292,11 +292,11 @@ impl Full for SurfpoolFullRpc {
         })
     }
 
-    fn get_max_retransmit_slot(&self, meta: Self::Metadata) -> Result<Slot> {
+    fn get_max_retransmit_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
         unimplemented!()
     }
 
-    fn get_max_shred_insert_slot(&self, meta: Self::Metadata) -> Result<Slot> {
+    fn get_max_shred_insert_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
         unimplemented!()
     }
 
@@ -484,73 +484,73 @@ impl Full for SurfpoolFullRpc {
         })
     }
 
-    fn minimum_ledger_slot(&self, meta: Self::Metadata) -> Result<Slot> {
+    fn minimum_ledger_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
         unimplemented!()
     }
 
     fn get_block(
         &self,
-        meta: Self::Metadata,
-        slot: Slot,
-        config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
+        _meta: Self::Metadata,
+        _slot: Slot,
+        _config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
         unimplemented!()
     }
 
     fn get_block_time(
         &self,
-        meta: Self::Metadata,
-        slot: Slot,
+        _meta: Self::Metadata,
+        _slot: Slot,
     ) -> BoxFuture<Result<Option<UnixTimestamp>>> {
         unimplemented!()
     }
 
     fn get_blocks(
         &self,
-        meta: Self::Metadata,
-        start_slot: Slot,
-        wrapper: Option<RpcBlocksConfigWrapper>,
-        config: Option<RpcContextConfig>,
+        _meta: Self::Metadata,
+        _start_slot: Slot,
+        _wrapper: Option<RpcBlocksConfigWrapper>,
+        _config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>> {
         unimplemented!()
     }
 
     fn get_blocks_with_limit(
         &self,
-        meta: Self::Metadata,
-        start_slot: Slot,
-        limit: usize,
-        config: Option<RpcContextConfig>,
+        _meta: Self::Metadata,
+        _start_slot: Slot,
+        _limit: usize,
+        _config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>> {
         unimplemented!()
     }
 
     fn get_transaction(
         &self,
-        meta: Self::Metadata,
-        signature_str: String,
-        config: Option<RpcEncodingConfigWrapper<RpcTransactionConfig>>,
+        _meta: Self::Metadata,
+        _signature_str: String,
+        _config: Option<RpcEncodingConfigWrapper<RpcTransactionConfig>>,
     ) -> BoxFuture<Result<Option<EncodedConfirmedTransactionWithStatusMeta>>> {
         unimplemented!()
     }
 
     fn get_signatures_for_address(
         &self,
-        meta: Self::Metadata,
-        address: String,
-        config: Option<RpcSignaturesForAddressConfig>,
+        _meta: Self::Metadata,
+        _address: String,
+        _config: Option<RpcSignaturesForAddressConfig>,
     ) -> BoxFuture<Result<Vec<RpcConfirmedTransactionStatusWithSignature>>> {
         unimplemented!()
     }
 
-    fn get_first_available_block(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
+    fn get_first_available_block(&self, _meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
         unimplemented!()
     }
 
     fn get_latest_blockhash(
         &self,
         meta: Self::Metadata,
-        config: Option<RpcContextConfig>,
+        _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<RpcBlockhash>> {
         // Retrieve svm state
         let Some(ctx) = meta else {
@@ -584,9 +584,9 @@ impl Full for SurfpoolFullRpc {
 
     fn is_blockhash_valid(
         &self,
-        meta: Self::Metadata,
-        blockhash: String,
-        config: Option<RpcContextConfig>,
+        _meta: Self::Metadata,
+        _blockhash: String,
+        _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<bool>> {
         unimplemented!()
     }
@@ -610,16 +610,16 @@ impl Full for SurfpoolFullRpc {
 
     fn get_stake_minimum_delegation(
         &self,
-        meta: Self::Metadata,
-        config: Option<RpcContextConfig>,
+        _meta: Self::Metadata,
+        _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<u64>> {
         unimplemented!()
     }
 
     fn get_recent_prioritization_fees(
         &self,
-        meta: Self::Metadata,
-        pubkey_strs: Option<Vec<String>>,
+        _meta: Self::Metadata,
+        _pubkey_strs: Option<Vec<String>>,
     ) -> Result<Vec<RpcPrioritizationFee>> {
         unimplemented!()
     }

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{any::type_name, sync::Arc};
 
 use base64::prelude::*;

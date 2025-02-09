@@ -1,8 +1,5 @@
 use chrono::{DateTime, Local};
-use crossbeam::{
-    channel::{unbounded, Select, Sender},
-    select,
-};
+use crossbeam::channel::{Select, Sender};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
@@ -23,7 +20,7 @@ use txtx_core::kit::types::frontend::BlockEvent;
 use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};
 
 const HELP_TEXT: &str = "(Esc) quit | (↑) move up | (↓) move down";
-const TXTX_LINK: &str = "https://txtx.run";
+const SURFPOOL_LINK: &str = "https://surfpool.run";
 
 const ITEM_HEIGHT: usize = 1;
 
@@ -228,7 +225,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             app.events.push_front((
                                 EventType::Debug,
                                 Local::now(),
-                                "Clock updated".into(),
+                                format!(
+                                    "Clock ticking (epoch {}, slot {})",
+                                    app.clock.epoch, app.clock.slot
+                                ),
                             ));
                         }
                     }
@@ -250,7 +250,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         app.successful_transactions += 1;
                     }
                     SimnetEvent::BlockHashExpired => {}
-                    SimnetEvent::Aborted(error) => {
+                    SimnetEvent::Aborted(_error) => {
                         break;
                     }
                     SimnetEvent::Ready => {}
@@ -258,7 +258,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         break;
                     }
                 },
-                Err(_) => {}
+                Err(_) => break,
             },
             i => match oper.recv(&app.deploy_progress_rx[i - 1]) {
                 Ok(event) => match event {
@@ -298,7 +298,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     }
                     _ => {}
                 },
-                Err(e) => {}
+                Err(_) => break,
             },
         }
 
@@ -545,6 +545,7 @@ fn render_footer(f: &mut Frame, app: &mut App, area: Rect) {
     };
     f.render_widget(status, rects[0]);
 
-    // let link = title_block(TXTX_LINK, Alignment::Right).style(Style::new().fg(app.colors.white));
-    // f.render_widget(link, rects[1]);
+    let link =
+        title_block(SURFPOOL_LINK, Alignment::Right).style(Style::new().fg(app.colors.white));
+    f.render_widget(link, rects[1]);
 }

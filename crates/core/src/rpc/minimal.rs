@@ -148,13 +148,13 @@ impl Minimal for SurfpoolMinimalRpc {
     fn get_epoch_info(
         &self,
         meta: Self::Metadata,
-        config: Option<RpcContextConfig>,
+        _config: Option<RpcContextConfig>,
     ) -> Result<EpochInfo> {
         let state_reader = meta.get_state()?;
         Ok(state_reader.epoch_info.clone())
     }
 
-    fn get_genesis_hash(&self, meta: Self::Metadata) -> Result<String> {
+    fn get_genesis_hash(&self, _meta: Self::Metadata) -> Result<String> {
         println!("get_genesis_hash rpc request received");
         // Ok(meta.genesis_hash.to_string())
         unimplemented!()
@@ -167,7 +167,7 @@ impl Minimal for SurfpoolMinimalRpc {
         Ok("ok".to_string())
     }
 
-    fn get_identity(&self, meta: Self::Metadata) -> Result<RpcIdentity> {
+    fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
         println!("get_identity rpc request received");
         // Ok(RpcIdentity {
         //     identity: meta.cluster_info.id().to_string(),
@@ -183,15 +183,15 @@ impl Minimal for SurfpoolMinimalRpc {
 
     fn get_block_height(
         &self,
-        meta: Self::Metadata,
-        config: Option<RpcContextConfig>,
+        _meta: Self::Metadata,
+        _config: Option<RpcContextConfig>,
     ) -> Result<u64> {
         println!("get_block_height rpc request received");
         // meta.get_block_height(config.unwrap_or_default())
         unimplemented!()
     }
 
-    fn get_highest_snapshot_slot(&self, meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
+    fn get_highest_snapshot_slot(&self, _meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
         println!("get_highest_snapshot_slot rpc request received");
         // Ok(RpcSnapshotSlotInfo {
         //     full: 0,
@@ -202,8 +202,8 @@ impl Minimal for SurfpoolMinimalRpc {
 
     fn get_transaction_count(
         &self,
-        meta: Self::Metadata,
-        config: Option<RpcContextConfig>,
+        _meta: Self::Metadata,
+        _config: Option<RpcContextConfig>,
     ) -> Result<u64> {
         println!("get_transaction_count rpc request received");
         // meta.get_transaction_count(config.unwrap_or_default())
@@ -224,8 +224,8 @@ impl Minimal for SurfpoolMinimalRpc {
     //       it can be removed from rpc_minimal
     fn get_vote_accounts(
         &self,
-        meta: Self::Metadata,
-        config: Option<RpcGetVoteAccountsConfig>,
+        _meta: Self::Metadata,
+        _config: Option<RpcGetVoteAccountsConfig>,
     ) -> Result<RpcVoteAccountStatus> {
         println!("get_vote_accounts rpc request received");
         // meta.get_vote_accounts(config)
@@ -236,9 +236,9 @@ impl Minimal for SurfpoolMinimalRpc {
     //       it can be removed from rpc_minimal
     fn get_leader_schedule(
         &self,
-        meta: Self::Metadata,
-        options: Option<RpcLeaderScheduleConfigWrapper>,
-        config: Option<RpcLeaderScheduleConfig>,
+        _meta: Self::Metadata,
+        _options: Option<RpcLeaderScheduleConfigWrapper>,
+        _config: Option<RpcLeaderScheduleConfig>,
     ) -> Result<Option<RpcLeaderSchedule>> {
         // let (slot, maybe_config) = options.map(|options| options.unzip()).unwrap_or_default();
         // let config = maybe_config.or(config).unwrap_or_default();

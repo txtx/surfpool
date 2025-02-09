@@ -6,11 +6,13 @@ use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
-    clock::Clock, epoch_info::EpochInfo, pubkey::Pubkey, transaction::VersionedTransaction,
+    clock::Clock,
+    epoch_info::EpochInfo,
+    pubkey::Pubkey,
+    transaction::VersionedTransaction,
 };
 use std::{
     net::SocketAddr,
-    str::FromStr,
     sync::{Arc, RwLock},
     thread::sleep,
     time::Duration,
@@ -92,7 +94,7 @@ pub async fn start(
     };
 
     let context = Arc::new(RwLock::new(context));
-    let (mempool_tx, mut mempool_rx) = unbounded();
+    let (mempool_tx, mempool_rx) = unbounded();
     let middleware = SurfpoolMiddleware {
         context: context.clone(),
         mempool_tx,
@@ -208,7 +210,7 @@ pub async fn start(
         };
 
         // Handle the transactions accumulated
-        for (key, tx) in transactions_to_process.drain(..) {
+        for (_key, tx) in transactions_to_process.drain(..) {
             let _ =
                 simnet_events_tx.send(SimnetEvent::TransactionReceived(Local::now(), tx.clone()));
 
