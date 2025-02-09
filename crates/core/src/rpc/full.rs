@@ -1,11 +1,9 @@
-use std::str::FromStr;
-
-use super::utils::decode_and_deserialize;
+use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts};
 use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use litesvm::types::TransactionResult;
+use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::rpc_config::RpcContextConfig;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcApiVersion;
@@ -22,16 +20,17 @@ use solana_client::{
     },
 };
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::clock::UnixTimestamp;
 use solana_sdk::message::VersionedMessage;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
-use solana_sdk::transaction::VersionedTransaction;
+use solana_sdk::transaction::{Transaction, VersionedTransaction};
+use solana_sdk::{account::Account, clock::UnixTimestamp};
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionConfirmationStatus, TransactionStatus,
     UiConfirmedBlock,
 };
 use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
+use std::str::FromStr;
 
 use super::*;
 
@@ -94,7 +93,7 @@ pub trait Full {
         meta: Self::Metadata,
         data: String,
         config: Option<RpcSimulateTransactionConfig>,
-    ) -> Result<RpcResponse<RpcSimulateTransactionResult>>;
+    ) -> BoxFuture<Result<RpcResponse<RpcSimulateTransactionResult>>>;
 
     #[rpc(meta, name = "minimumLedgerSlot")]
     fn minimum_ledger_slot(&self, meta: Self::Metadata) -> Result<Slot>;
@@ -325,15 +324,8 @@ impl Full for SurfpoolFullRpc {
         data: String,
         config: Option<RpcSendTransactionConfig>,
     ) -> Result<String> {
-        let RpcSendTransactionConfig {
-            skip_preflight,
-            preflight_commitment,
-            encoding,
-            max_retries,
-            min_context_slot,
-        } = config.unwrap_or_default();
-
-        let tx_encoding = encoding.unwrap_or(UiTransactionEncoding::Base58);
+        let config = config.unwrap_or_default();
+        let tx_encoding = config.encoding.unwrap_or(UiTransactionEncoding::Base58);
         let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
             Error::invalid_params(format!(
                 "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
@@ -362,8 +354,134 @@ impl Full for SurfpoolFullRpc {
         meta: Self::Metadata,
         data: String,
         config: Option<RpcSimulateTransactionConfig>,
-    ) -> Result<RpcResponse<RpcSimulateTransactionResult>> {
-        unimplemented!()
+    ) -> BoxFuture<Result<RpcResponse<RpcSimulateTransactionResult>>> {
+        let config = config.unwrap_or_default();
+        let (_bytes, tx): (Vec<_>, Transaction) = match decode_and_deserialize(
+            data,
+            config
+                .encoding
+                .map(|enconding| enconding.into_binary_encoding())
+                .flatten()
+                .unwrap_or(TransactionBinaryEncoding::Base58),
+        ) {
+            Ok(res) => res,
+            Err(e) => return Box::pin(future::err(e)),
+        };
+
+        let (local_accounts, replacement_blockhash, rpc_client) = {
+            let state = match meta.get_state_mut() {
+                Ok(res) => res,
+                Err(e) => return Box::pin(future::err(e.into())),
+            };
+            let local_accounts: Vec<Option<Account>> = tx
+                .message
+                .account_keys
+                .clone()
+                .into_iter()
+                .map(|pk| state.svm.get_account(&pk))
+                .collect();
+            let replacement_blockhash = Some(RpcBlockhash {
+                blockhash: state.svm.latest_blockhash().to_string(),
+                last_valid_block_height: state.epoch_info.block_height,
+            });
+            let rpc_client = state.rpc_client.clone();
+
+            (local_accounts, replacement_blockhash, rpc_client)
+        };
+
+        Box::pin(async move {
+            let fetched_accounts = join_all(
+                tx.message
+                    .account_keys
+                    .iter()
+                    .map(|pk| async { rpc_client.get_account(pk).await.ok() }),
+            )
+            .await;
+
+            let mut state_writer = meta.get_state_mut()?;
+            state_writer.svm.set_sigverify(config.sig_verify);
+            // // TODO: LiteSVM does not enable replacing the current blockhash
+
+            // Update missing local accounts
+            tx.message
+                .account_keys
+                .iter()
+                .zip(local_accounts.iter().zip(fetched_accounts))
+                .map(|(pk, (local, fetched))| {
+                    if local.is_none() {
+                        if let Some(account) = fetched {
+                            state_writer.svm.set_account(*pk, account).map_err(|err| {
+                                Error::invalid_params(format!(
+                                    "failed to save fetched account {pk:?}: {err:?}"
+                                ))
+                            })?;
+                        }
+                    }
+                    Ok(())
+                })
+                .collect::<Result<()>>()?;
+
+            match state_writer.svm.simulate_transaction(tx) {
+                Ok(tx_info) => Ok(RpcResponse {
+                    context: RpcResponseContext::new(state_writer.epoch_info.absolute_slot),
+                    value: RpcSimulateTransactionResult {
+                        err: None,
+                        logs: Some(tx_info.meta.logs.clone()),
+                        accounts: if let Some(accounts) = config.accounts {
+                            Some(
+                                accounts
+                                    .addresses
+                                    .iter()
+                                    .map(|pk_str| {
+                                        if let Some((pk, account)) = tx_info
+                                            .post_accounts
+                                            .iter()
+                                            .find(|(pk, _)| pk.to_string() == *pk_str)
+                                        {
+                                            Some(encode_ui_account(
+                                                pk,
+                                                account,
+                                                UiAccountEncoding::Base64,
+                                                None,
+                                                None,
+                                            ))
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect(),
+                            )
+                        } else {
+                            None
+                        },
+                        units_consumed: Some(tx_info.meta.compute_units_consumed),
+                        return_data: Some(tx_info.meta.return_data.clone().into()),
+                        inner_instructions: if config.inner_instructions {
+                            Some(transform_tx_metadata_to_ui_accounts(&tx_info.meta))
+                        } else {
+                            None
+                        },
+                        replacement_blockhash,
+                    },
+                }),
+                Err(tx_info) => Ok(RpcResponse {
+                    context: RpcResponseContext::new(state_writer.epoch_info.absolute_slot),
+                    value: RpcSimulateTransactionResult {
+                        err: Some(tx_info.err),
+                        logs: Some(tx_info.meta.logs.clone()),
+                        accounts: None,
+                        units_consumed: Some(tx_info.meta.compute_units_consumed),
+                        return_data: Some(tx_info.meta.return_data.clone().into()),
+                        inner_instructions: if config.inner_instructions {
+                            Some(transform_tx_metadata_to_ui_accounts(&tx_info.meta))
+                        } else {
+                            None
+                        },
+                        replacement_blockhash,
+                    },
+                }),
+            }
+        })
     }
 
     fn minimum_ledger_slot(&self, meta: Self::Metadata) -> Result<Slot> {
