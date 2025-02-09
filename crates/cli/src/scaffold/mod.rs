@@ -1,4 +1,4 @@
-use dialoguer::{console::Style, theme::ColorfulTheme, Confirm, Input, MultiSelect, Select};
+use dialoguer::{console::Style, theme::ColorfulTheme, Confirm, Input, MultiSelect};
 use std::{
     env,
     fs::{self, File},
@@ -17,7 +17,7 @@ use txtx_core::{
     templates::{build_manifest_data, TXTX_MANIFEST_TEMPLATE, TXTX_README_TEMPLATE},
 };
 
-use crate::{runbook::execute_runbook, types::Framework};
+use crate::types::Framework;
 
 mod anchor;
 mod native;

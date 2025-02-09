@@ -74,11 +74,19 @@ pub async fn start(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // let path = PathBuf::from("~/.config/solana/id.json");
     // let pubkey = Keypair::read_from_file(path).unwrap().pubkey(); // todo: make this configurable
-    let pubkey = Pubkey::from_str("zbBjhHwuqyKMmz8ber5oUtJJ3ZV4B6ePmANfGyKzVGV").unwrap();
-    let lamports = 10000000000000;
 
     let mut svm = LiteSVM::new();
-    let res = svm.airdrop(&pubkey, lamports);
+    for recipient in config.simnet.airdrop_addresses.iter() {
+        let _ = svm.airdrop(&recipient, config.simnet.airdrop_token_amount);
+        let _ = simnet_events_tx.send(SimnetEvent::InfoLog(
+            Local::now(),
+            format!(
+                "Genesis airdrop successful {}: {}",
+                recipient.to_string(),
+                config.simnet.airdrop_token_amount
+            ),
+        ));
+    }
 
     // Todo: should check config first
     let rpc_client = Arc::new(RpcClient::new(config.simnet.remote_rpc_url.clone()));

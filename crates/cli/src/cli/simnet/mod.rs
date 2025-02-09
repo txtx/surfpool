@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{
     runbook::execute_runbook,
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
@@ -5,14 +7,24 @@ use crate::{
 };
 
 use super::{Context, StartSimnet};
+use crossbeam::channel::Select;
 use surfpool_core::{
     simnet::SimnetEvent,
+    solana_sdk::pubkey::Pubkey,
     start_simnet,
     types::{RpcConfig, RunloopTriggerMode, SimnetConfig, SurfpoolConfig},
 };
 use txtx_core::kit::{channel::Receiver, helpers::fs::FileLocation, types::frontend::BlockEvent};
 
 pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Result<(), String> {
+    // Check aidrop addresses
+    let mut airdrop_addresses = vec![];
+    for address in cmd.airdrop_addresses.iter() {
+        let pubkey = Pubkey::from_str(&address).map_err(|e| e.to_string())?;
+        airdrop_addresses.push(pubkey);
+    }
+
+    // Build config
     let config = SurfpoolConfig {
         rpc: RpcConfig {
             remote_rpc_url: cmd.rpc_url.clone(),
@@ -23,6 +35,8 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             remote_rpc_url: cmd.rpc_url.clone(),
             slot_time: cmd.slot_time,
             runloop_trigger_mode: RunloopTriggerMode::Clock,
+            airdrop_addresses,
+            airdrop_token_amount: cmd.airdrop_token_amount,
         },
     };
     let remote_rpc_url = config.rpc.remote_rpc_url.clone();
@@ -64,7 +78,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             Ok(deployment) => deployment,
         };
 
-        if let Some((framework, programs)) = deployment {
+        if let Some((_framework, programs)) = deployment {
             // Is infrastructure-as-code (IaC) already setup?
             let base_location =
                 FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;

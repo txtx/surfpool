@@ -16,6 +16,7 @@ pub const DEFAULT_BINDING_PORT: &str = "8899";
 pub const DEFAULT_BINDING_ADDRESS: &str = "127.0.0.1";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
+pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
 
 #[allow(dead_code)]
 impl Context {
@@ -87,9 +88,15 @@ pub struct StartSimnet {
     /// Disable auto deployments (default: false)
     #[clap(long = "no-deploy")]
     pub no_deploy: bool,
-    /// Specify the runbook
+    /// List runbooks to run  
     #[arg(long = "runbook", short = 'r', default_value = DEFAULT_RUNBOOK)]
     pub runbooks: Vec<String>,
+    /// List addresses to airdrop
+    #[arg(long = "airdrop", short = 'a')]
+    pub airdrop_addresses: Vec<String>,
+    /// Quantity of tokens to airdrop
+    #[arg(long = "airdrop-amount", short = 'q', default_value = DEFAULT_AIRDROP_AMOUNT)]
+    pub airdrop_token_amount: u64,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]

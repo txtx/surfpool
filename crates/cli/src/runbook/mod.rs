@@ -1,14 +1,9 @@
-use ratatui::widgets::Block;
-use std::io::Write;
 use txtx_addon_network_svm::SvmNetworkAddon;
 use txtx_core::{
     kit::{
-        channel::{unbounded, Sender},
+        channel::Sender,
         helpers::fs::FileLocation,
-        types::{
-            frontend::{BlockEvent, ProgressBarStatusColor},
-            AuthorizationContext,
-        },
+        types::{frontend::BlockEvent, AuthorizationContext},
         Addon,
     },
     manifest::{file::read_runbooks_from_manifest, WorkspaceManifest},
@@ -39,7 +34,8 @@ pub async fn execute_runbook(
     let top_level_inputs_map =
         manifest.get_runbook_inputs(&Some("localnet".into()), &vec![], None)?;
 
-    let Some((mut runbook, runbook_sources, state, smt)) = runbooks.swap_remove(runbook_id) else {
+    let Some((mut runbook, runbook_sources, _state, _smt)) = runbooks.swap_remove(runbook_id)
+    else {
         return Err(format!("Deployment {} not found", runbook_id));
     };
     println!("{} '{}' successfully checked", green!("✓"), runbook_id);
