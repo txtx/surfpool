@@ -67,7 +67,8 @@ impl BankData for SurfpoolBankDataRpc {
         data_len: usize,
         commitment: Option<CommitmentConfig>,
     ) -> Result<u64> {
-        let ctx = meta.get_state().unwrap();
+        let ctx = meta.get_state()?;
+
         Ok(ctx.svm.minimum_balance_for_rent_exemption(data_len))
     }
 

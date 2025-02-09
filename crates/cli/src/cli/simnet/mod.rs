@@ -9,7 +9,7 @@ use dialoguer::{console::Style, theme::ColorfulTheme, MultiSelect};
 use surfpool_core::{
     simnet::SimnetEvent,
     start_simnet,
-    types::{RpcConfig, SimnetConfig, SurfpoolConfig},
+    types::{RpcConfig, RunloopTriggerMode, SimnetConfig, SurfpoolConfig},
 };
 use txtx_core::kit::{channel::Receiver, helpers::fs::FileLocation, types::frontend::BlockEvent};
 
@@ -23,15 +23,17 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         simnet: SimnetConfig {
             remote_rpc_url: cmd.rpc_url.clone(),
             slot_time: cmd.slot_time,
+            runloop_trigger_mode: RunloopTriggerMode::Clock,
         },
     };
 
+    let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
     let (simnet_events_tx, simnet_events_rx) = crossbeam::channel::unbounded();
     let ctx_cloned = ctx.clone();
     // Start backend - background task
     let _handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
-            let future = start_simnet(&config, simnet_events_tx);
+            let future = start_simnet(&config, simnet_events_tx, simnet_commands_rx);
             if let Err(e) = hiro_system_kit::nestable_block_on(future) {
                 error!(ctx_cloned.expect_logger(), "{e}");
                 std::thread::sleep(std::time::Duration::from_millis(500));
@@ -94,8 +96,13 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     if cmd.no_tui {
         log_events(simnet_events_rx, cmd.debug, deploy_progress_rx, ctx)?;
     } else {
-        tui::simnet::start_app(simnet_events_rx, cmd.debug, deploy_progress_rx)
-            .map_err(|e| format!("{}", e))?;
+        tui::simnet::start_app(
+            simnet_events_rx,
+            simnet_commands_tx,
+            cmd.debug,
+            deploy_progress_rx,
+        )
+        .map_err(|e| format!("{}", e))?;
     }
     Ok(())
 }
