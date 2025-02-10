@@ -25,9 +25,11 @@ use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
 use solana_sdk::transaction::{Transaction, VersionedTransaction};
 use solana_sdk::{account::Account, clock::UnixTimestamp};
+use solana_transaction_status::option_serializer::OptionSerializer;
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionConfirmationStatus, TransactionStatus,
-    UiConfirmedBlock,
+    EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction,
+    EncodedTransactionWithStatusMeta, TransactionConfirmationStatus, TransactionStatus,
+    UiConfirmedBlock, UiMessage, UiParsedMessage, UiTransaction, UiTransactionStatusMeta,
 };
 use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
 use std::str::FromStr;
@@ -233,17 +235,11 @@ impl Full for SurfpoolFullRpc {
             .map(|signature| {
                 signature
                     .map(|signature| {
-                        state_reader.svm.get_transaction(&signature).map(|tx| {
-                            tx.clone().ok().map(|_tx| TransactionStatus {
-                                slot: 0,
-                                confirmations: Some(5),
-                                status: Ok(()),
-                                err: None,
-                                confirmation_status: Some(TransactionConfirmationStatus::Finalized),
-                            })
+                        state_reader.history.get(&signature).map(|tx| {
+                            tx.clone()
+                                .into_status(state_reader.epoch_info.absolute_slot)
                         })
                     })
-                    .flatten()
                     .flatten()
             })
             .collect::<Vec<Option<TransactionStatus>>>();
@@ -531,7 +527,58 @@ impl Full for SurfpoolFullRpc {
         signature_str: String,
         config: Option<RpcEncodingConfigWrapper<RpcTransactionConfig>>,
     ) -> BoxFuture<Result<Option<EncodedConfirmedTransactionWithStatusMeta>>> {
-        unimplemented!()
+        let config = config
+            .map(|c| match c {
+                RpcEncodingConfigWrapper::Deprecated(encoding) => RpcTransactionConfig {
+                    encoding,
+                    ..RpcTransactionConfig::default()
+                },
+                RpcEncodingConfigWrapper::Current(None) => RpcTransactionConfig::default(),
+                RpcEncodingConfigWrapper::Current(Some(c)) => c,
+            })
+            .unwrap_or_default();
+        let signature_bytes = match bs58::decode(signature_str)
+            .into_vec()
+            .map_err(|e| Error::invalid_params(format!("failed to decode bs58 data: {e:?}")))
+        {
+            Ok(s) => s,
+            Err(err) => return Box::pin(future::err(err.into())),
+        };
+        let signature = match Signature::try_from(signature_bytes.as_slice())
+            .map_err(|e| Error::invalid_params(format!("failed to decode bs58 data: {e:?}")))
+        {
+            Ok(s) => s,
+            Err(err) => return Box::pin(future::err(err.into())),
+        };
+
+        let state_reader = match meta.get_state() {
+            Ok(s) => s,
+            Err(err) => return Box::pin(future::err(err.into())),
+        };
+        let rpc_client = state_reader.rpc_client.clone();
+        let tx = state_reader
+            .history
+            .get(&signature)
+            .map(|tx| tx.clone().into());
+
+        Box::pin(async move {
+            // TODO: implement new interfaces in LiteSVM to get all the relevant info
+            // needed to return the actual tx, not just some metadata
+            if let Some(tx) = tx {
+                Ok(Some(tx))
+            } else {
+                match rpc_client
+                    .get_transaction(
+                        &signature,
+                        config.encoding.unwrap_or(UiTransactionEncoding::Json),
+                    )
+                    .await
+                {
+                    Ok(tx) => return Ok(Some(tx)),
+                    Err(_tx) => Ok(None),
+                }
+            }
+        })
     }
 
     fn get_signatures_for_address(

@@ -1,19 +1,32 @@
+use base64::prelude::{Engine, BASE64_STANDARD};
 use chrono::{DateTime, Local, Utc};
 use crossbeam::select;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
-use litesvm::LiteSVM;
+use litesvm::{types::TransactionMetadata, LiteSVM};
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
-    clock::Clock, epoch_info::EpochInfo, pubkey::Pubkey, transaction::VersionedTransaction,
+    clock::Clock,
+    epoch_info::EpochInfo,
+    pubkey::Pubkey,
+    signature::Signature,
+    transaction::{Transaction, TransactionError, TransactionVersion, VersionedTransaction},
+};
+use solana_transaction_status::{
+    option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
+    EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionConfirmationStatus,
+    TransactionStatus, UiCompiledInstruction, UiInnerInstructions, UiInstruction, UiMessage,
+    UiRawMessage, UiReturnDataEncoding, UiTransaction, UiTransactionReturnData,
+    UiTransactionStatusMeta,
 };
 use std::{
+    collections::HashMap,
     net::SocketAddr,
     str::FromStr,
     sync::{Arc, RwLock},
     thread::sleep,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
@@ -24,8 +37,118 @@ use crate::{
     types::{RunloopTriggerMode, SurfpoolConfig},
 };
 
+#[derive(Debug, Clone)]
+pub struct TransactionWithStatusMeta(
+    u64,
+    Transaction,
+    TransactionMetadata,
+    Option<TransactionError>,
+);
+
+impl TransactionWithStatusMeta {
+    pub fn into_status(&self, current_slot: u64) -> TransactionStatus {
+        TransactionStatus {
+            slot: self.0,
+            confirmations: Some((current_slot - self.0) as usize),
+            status: match self.3.clone() {
+                Some(err) => Err(err),
+                None => Ok(()),
+            },
+            err: self.3.clone(),
+            confirmation_status: Some(TransactionConfirmationStatus::Finalized),
+        }
+    }
+}
+
+impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMeta {
+    fn into(self) -> EncodedConfirmedTransactionWithStatusMeta {
+        let slot = self.0;
+        let tx = self.1;
+        let meta = self.2;
+        let err = self.3;
+        EncodedConfirmedTransactionWithStatusMeta {
+            slot,
+            transaction: EncodedTransactionWithStatusMeta {
+                transaction: EncodedTransaction::Json(UiTransaction {
+                    signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
+                    message: UiMessage::Raw(UiRawMessage {
+                        header: tx.message.header,
+                        account_keys: tx
+                            .message
+                            .account_keys
+                            .iter()
+                            .map(|pk| pk.to_string())
+                            .collect(),
+                        recent_blockhash: tx.message.recent_blockhash.to_string(),
+                        instructions: tx
+                            .message
+                            .instructions
+                            .iter()
+                            // TODO: use stack height
+                            .map(|ix| UiCompiledInstruction::from(ix, None))
+                            .collect(),
+                        address_table_lookups: None, // TODO: use lookup table
+                    }),
+                }),
+                meta: Some(UiTransactionStatusMeta {
+                    err: err.clone(),
+                    status: match err {
+                        Some(e) => Err(e),
+                        None => Ok(()),
+                    },
+                    fee: 5000 * (tx.signatures.len() as u64), // TODO: fix calculation
+                    pre_balances: vec![],
+                    post_balances: vec![],
+                    inner_instructions: OptionSerializer::Some(
+                        meta.inner_instructions
+                            .iter()
+                            .enumerate()
+                            .map(|(i, ixs)| UiInnerInstructions {
+                                index: i as u8,
+                                instructions: ixs
+                                    .iter()
+                                    .map(|ix| {
+                                        UiInstruction::Compiled(UiCompiledInstruction {
+                                            program_id_index: ix.instruction.program_id_index,
+                                            accounts: ix.instruction.accounts.clone(),
+                                            data: String::from_utf8(ix.instruction.data.clone())
+                                                .unwrap(),
+                                            stack_height: Some(ix.stack_height as u32),
+                                        })
+                                    })
+                                    .collect(),
+                            })
+                            .collect(),
+                    ),
+                    log_messages: OptionSerializer::Some(meta.logs),
+                    pre_token_balances: OptionSerializer::None,
+                    post_token_balances: OptionSerializer::None,
+                    rewards: OptionSerializer::None,
+                    loaded_addresses: OptionSerializer::None,
+                    return_data: OptionSerializer::Some(UiTransactionReturnData {
+                        program_id: meta.return_data.program_id.to_string(),
+                        data: (
+                            BASE64_STANDARD.encode(meta.return_data.data),
+                            UiReturnDataEncoding::Base64,
+                        ),
+                    }),
+                    compute_units_consumed: OptionSerializer::Some(meta.compute_units_consumed),
+                }),
+                version: Some(TransactionVersion::Legacy(
+                    solana_sdk::transaction::Legacy::Legacy,
+                )),
+            },
+            block_time: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .ok(),
+        }
+    }
+}
+
 pub struct GlobalState {
     pub svm: LiteSVM,
+    pub history: HashMap<Signature, TransactionWithStatusMeta>,
     pub transactions_processed: u64,
     pub epoch_info: EpochInfo,
     pub rpc_client: Arc<RpcClient>,
@@ -76,7 +199,7 @@ pub async fn start(
     let lamports = 10000000000000;
 
     let mut svm = LiteSVM::new();
-    let res = svm.airdrop(&pubkey, lamports);
+    let _res = svm.airdrop(&pubkey, lamports);
 
     // Todo: should check config first
     let rpc_client = Arc::new(RpcClient::new(config.simnet.remote_rpc_url.clone()));
@@ -86,13 +209,14 @@ pub async fn start(
 
     let context = GlobalState {
         svm,
+        history: HashMap::new(),
         transactions_processed: 0,
         epoch_info: epoch_info.clone(),
         rpc_client: rpc_client.clone(),
     };
 
     let context = Arc::new(RwLock::new(context));
-    let (mempool_tx, mut mempool_rx) = unbounded();
+    let (mempool_tx, mempool_rx) = unbounded();
     let middleware = SurfpoolMiddleware {
         context: context.clone(),
         mempool_tx,
@@ -209,7 +333,7 @@ pub async fn start(
         };
 
         // Handle the transactions accumulated
-        for (key, tx) in transactions_to_process.drain(..) {
+        for (_key, tx) in transactions_to_process.drain(..) {
             let _ =
                 simnet_events_tx.send(SimnetEvent::TransactionReceived(Local::now(), tx.clone()));
 
@@ -217,7 +341,6 @@ pub async fn start(
             let tx = tx.into_legacy_transaction().unwrap();
             let message = &tx.message;
 
-            // println!("Processing Transaction {:?}", tx);
             for instruction in &message.instructions {
                 // The Transaction may not be sanitized at this point
                 if instruction.program_id_index as usize >= message.account_keys.len() {
@@ -225,7 +348,6 @@ pub async fn start(
                 }
                 let program_id = &message.account_keys[instruction.program_id_index as usize];
                 if ctx.svm.get_account(&program_id).is_none() {
-                    // println!("Retrieving account from Mainnet: {:?}", program_id);
                     let res = rpc_client.get_account(&program_id).await;
                     let event = match res {
                         Ok(account) => {
@@ -240,10 +362,16 @@ pub async fn start(
                     let _ = simnet_events_tx.send(event);
                 }
             }
-            match ctx.svm.send_transaction(tx.clone()) {
-                Ok(_) => {}
-                Err(e) => println!("transaction error: {:?}\nfor tx: {:?}", e, tx),
-            }
+
+            let (meta, err) = match ctx.svm.send_transaction(tx.clone()) {
+                Ok(res) => (res, None),
+                Err(e) => (e.meta, Some(e.err)),
+            };
+            let slot = ctx.epoch_info.absolute_slot;
+            ctx.history.insert(
+                tx.signatures[0],
+                TransactionWithStatusMeta(slot, tx, meta, err),
+            );
         }
         ctx.epoch_info.slot_index += 1;
         ctx.epoch_info.absolute_slot += 1;
