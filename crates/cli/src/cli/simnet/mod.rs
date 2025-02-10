@@ -217,7 +217,7 @@ fn log_events(
                             info!(
                                 ctx.expect_logger(),
                                 "Transaction received {}", transaction.signatures[0]
-                            );    
+                            );
                         }
                     }
                     SimnetEvent::BlockHashExpired => {}
