@@ -36,6 +36,8 @@ use crate::{
     types::{RunloopTriggerMode, SurfpoolConfig},
 };
 
+const BLOCKHASH_SLOT_TTL: u64 = 75;
+
 #[derive(Debug, Clone)]
 pub struct TransactionWithStatusMeta(
     u64,
@@ -257,6 +259,8 @@ pub async fn start(
             .start_http(&server_bind)
             .unwrap();
         let _ = simnet_events_tx_copy.send(SimnetEvent::Ready);
+        let _ = simnet_events_tx_copy.send(SimnetEvent::EpochInfoUpdate(epoch_info));
+
         server.wait();
         let _ = simnet_events_tx_copy.send(SimnetEvent::Shutdown);
     });
@@ -289,7 +293,7 @@ pub async fn start(
             if enabled {
                 let _ = clock_event_tx.send(ClockEvent::Tick);
                 // Todo: the block expiration is not completely accurate.
-                if block_hash_timeout.elapsed() > Duration::from_millis(75 * slot_time) {
+                if block_hash_timeout.elapsed() > Duration::from_millis(BLOCKHASH_SLOT_TTL * slot_time) {
                     let _ = clock_event_tx.send(ClockEvent::ExpireBlockHash);
                     block_hash_timeout = Instant::now();
                 }
@@ -297,7 +301,6 @@ pub async fn start(
         }
     });
 
-    let _ = simnet_events_tx.send(SimnetEvent::EpochInfoUpdate(epoch_info.clone()));
     let mut runloop_trigger_mode = config.simnet.runloop_trigger_mode.clone();
     let mut transactions_to_process = vec![];
     loop {
