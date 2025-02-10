@@ -1,3 +1,5 @@
+use crate::simnet::EntryStatus;
+
 use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts};
 use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
@@ -219,69 +221,61 @@ impl Full for SurfpoolFullRpc {
         signature_strs: Vec<String>,
         _config: Option<RpcSignatureStatusConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<Option<TransactionStatus>>>>> {
-        let signatures = signature_strs
-            .iter()
-            .map(|s| Signature::from_str(&s).ok())
-            .collect::<Vec<Option<Signature>>>();
-
         let state_reader = match meta.get_state() {
             Ok(s) => s,
             Err(e) => return Box::pin(future::err(e.into())),
         };
-        let local_statuses = signatures
-            .iter()
-            .map(|signature| {
-                signature
-                    .map(|signature| {
-                        state_reader.history.get(&signature).map(|tx| {
-                            tx.clone()
-                                .into_status(state_reader.epoch_info.absolute_slot)
-                        })
-                    })
-                    .flatten()
-            })
-            .collect::<Vec<Option<TransactionStatus>>>();
-        let rpc_client = state_reader.rpc_client.clone();
+
+        let mut responses = Vec::with_capacity(signature_strs.len());
+        let mut indices_to_fetch = Vec::with_capacity(signature_strs.len());
+        for (i, signature_str) in signature_strs.iter().enumerate() {
+            let Ok(signature) = Signature::from_str(&signature_str) else {
+                responses.push(None);
+                continue;
+            };
+            let entry = state_reader
+                .history
+                .get(&signature)
+                .map(|entry| match entry {
+                    EntryStatus::Received => TransactionStatus {
+                        slot: 0,
+                        confirmations: None,
+                        status: Ok(()),
+                        err: None,
+                        confirmation_status: None,
+                    },
+                    EntryStatus::Processed(tx) => tx
+                        .clone()
+                        .into_status(state_reader.epoch_info.absolute_slot),
+                });
+            if let Some(status) = entry {
+                responses.push(Some(status));
+                continue;
+            }
+            indices_to_fetch.push((i, signature));
+        }
+
         let current_slot = state_reader.epoch_info.absolute_slot;
-        drop(state_reader);
+        let rpc_client = state_reader.rpc_client.clone();
 
         Box::pin(async move {
-            let fetched_statuses = join_all(signatures.iter().map(|signature| {
-                let rpc_client = rpc_client.clone();
-                async move {
-                    if let Some(signature) = signature {
-                        rpc_client
-                            .get_transaction(&signature, UiTransactionEncoding::Json)
-                            .await
-                            .ok()
-                            .map(|tx| TransactionStatus {
-                                slot: tx.slot,
-                                confirmations: Some((current_slot - tx.slot) as usize),
-                                status: tx.transaction.meta.clone().map_or(Ok(()), |m| m.status),
-                                err: tx.transaction.meta.map(|m| m.err).flatten(),
-                                confirmation_status: Some(TransactionConfirmationStatus::Confirmed),
-                            })
-                    } else {
-                        None
-                    }
-                }
-            }))
-            .await;
-
-            let combined_statuses = local_statuses
-                .iter()
-                .zip(fetched_statuses)
-                .map(|(local, fetched)| {
-                    if local.is_some() {
-                        local.clone()
-                    } else {
-                        fetched
-                    }
-                })
-                .collect::<Vec<Option<TransactionStatus>>>();
+            for (i, signature) in indices_to_fetch.iter() {
+                let response = rpc_client
+                    .get_transaction(&signature, UiTransactionEncoding::Json)
+                    .await
+                    .ok()
+                    .map(|tx| TransactionStatus {
+                        slot: tx.slot,
+                        confirmations: Some((current_slot - tx.slot) as usize),
+                        status: tx.transaction.meta.clone().map_or(Ok(()), |m| m.status),
+                        err: tx.transaction.meta.map(|m| m.err).flatten(),
+                        confirmation_status: Some(TransactionConfirmationStatus::Confirmed),
+                    });
+                responses.insert(*i, response);
+            }
             Ok(RpcResponse {
                 context: RpcResponseContext::new(0),
-                value: combined_statuses,
+                value: responses,
             })
         })
     }
@@ -339,7 +333,6 @@ impl Full for SurfpoolFullRpc {
         let signature = signatures[0];
         let _ = ctx.mempool_tx.send((ctx.id.clone(), unsanitized_tx));
 
-        // Todo I believe we're supposed to send back a signature
         Ok(signature.to_string())
     }
 
@@ -557,7 +550,7 @@ impl Full for SurfpoolFullRpc {
         let tx = state_reader
             .history
             .get(&signature)
-            .map(|tx| tx.clone().into());
+            .map(|entry| entry.expect_processed().clone().into());
 
         Box::pin(async move {
             // TODO: implement new interfaces in LiteSVM to get all the relevant info

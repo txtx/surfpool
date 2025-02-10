@@ -25,7 +25,7 @@ use std::{
     net::SocketAddr,
     sync::{Arc, RwLock},
     thread::sleep,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
@@ -147,10 +147,24 @@ impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMe
 
 pub struct GlobalState {
     pub svm: LiteSVM,
-    pub history: HashMap<Signature, TransactionWithStatusMeta>,
+    pub history: HashMap<Signature, EntryStatus>,
     pub transactions_processed: u64,
     pub epoch_info: EpochInfo,
     pub rpc_client: Arc<RpcClient>,
+}
+
+pub enum EntryStatus {
+    Received,
+    Processed(TransactionWithStatusMeta),
+}
+
+impl EntryStatus {
+    pub fn expect_processed(&self) -> &TransactionWithStatusMeta {
+        match &self {
+            EntryStatus::Received => unreachable!(),
+            EntryStatus::Processed(status) => status,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -185,6 +199,7 @@ pub enum ClockCommand {
 
 pub enum ClockEvent {
     Tick,
+    ExpireBlockHash,
 }
 
 pub async fn start(
@@ -252,6 +267,8 @@ pub async fn start(
     let mut slot_time = config.simnet.slot_time;
     let _handle = hiro_system_kit::thread_named("clock").spawn(move || {
         let mut enabled = true;
+        let mut block_hash_timeout = Instant::now();
+
         loop {
             match clock_command_rx.try_recv() {
                 Ok(ClockCommand::Pause) => {
@@ -271,6 +288,11 @@ pub async fn start(
             sleep(Duration::from_millis(slot_time));
             if enabled {
                 let _ = clock_event_tx.send(ClockEvent::Tick);
+                // Todo: the block expiration is not completely accurate.
+                if block_hash_timeout.elapsed() > Duration::from_millis(75 * slot_time) {
+                    let _ = clock_event_tx.send(ClockEvent::ExpireBlockHash);
+                    block_hash_timeout = Instant::now();
+                }
             }
         }
     });
@@ -287,6 +309,11 @@ pub async fn start(
                         ClockEvent::Tick => {
                             if runloop_trigger_mode.eq(&RunloopTriggerMode::Clock) {
                                 create_slot = true;
+                            }
+                        }
+                        ClockEvent::ExpireBlockHash => {
+                            if let Ok(mut ctx) = context.write() {
+                                ctx.svm.expire_blockhash();
                             }
                         }
                     }
@@ -316,8 +343,15 @@ pub async fn start(
                 Err(_) => {},
             },
             recv(mempool_rx) -> msg => match msg {
-                Ok(transaction) => {
-                    transactions_to_process.push(transaction);
+                Ok((key, transaction)) => {
+                    let signature = transaction.signatures[0].clone();
+                    transactions_to_process.push((key, transaction));
+                    if let Ok(mut ctx) = context.write() {
+                        ctx.history.insert(
+                            signature,
+                            EntryStatus::Received,
+                        );
+                    }
                 },
                 Err(_) => {},
             },
@@ -377,7 +411,7 @@ pub async fn start(
             let slot = ctx.epoch_info.absolute_slot;
             ctx.history.insert(
                 tx.signatures[0],
-                TransactionWithStatusMeta(slot, tx, meta, err),
+                EntryStatus::Processed(TransactionWithStatusMeta(slot, tx, meta, err)),
             );
         }
         ctx.epoch_info.slot_index += 1;
@@ -386,7 +420,6 @@ pub async fn start(
             ctx.epoch_info.slot_index = 0;
             ctx.epoch_info.epoch += 1;
         }
-        ctx.svm.expire_blockhash();
         let clock: Clock = Clock {
             slot: ctx.epoch_info.slot_index,
             epoch: ctx.epoch_info.epoch,
