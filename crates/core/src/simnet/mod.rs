@@ -15,9 +15,10 @@ use solana_sdk::{
 };
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
-    EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction,
-    UiInnerInstructions, UiInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding,
-    UiTransaction, UiTransactionReturnData, UiTransactionStatusMeta,
+    EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionConfirmationStatus,
+    TransactionStatus, UiCompiledInstruction, UiInnerInstructions, UiInstruction, UiMessage,
+    UiRawMessage, UiReturnDataEncoding, UiTransaction, UiTransactionReturnData,
+    UiTransactionStatusMeta,
 };
 use std::{
     collections::HashMap,
@@ -43,6 +44,21 @@ pub struct TransactionWithStatusMeta(
     TransactionMetadata,
     Option<TransactionError>,
 );
+
+impl TransactionWithStatusMeta {
+    pub fn into_status(&self, current_slot: u64) -> TransactionStatus {
+        TransactionStatus {
+            slot: self.0,
+            confirmations: Some((current_slot - self.0) as usize),
+            status: match self.3.clone() {
+                Some(err) => Err(err),
+                None => Ok(()),
+            },
+            err: self.3.clone(),
+            confirmation_status: Some(TransactionConfirmationStatus::Finalized),
+        }
+    }
+}
 
 impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMeta {
     fn into(self) -> EncodedConfirmedTransactionWithStatusMeta {

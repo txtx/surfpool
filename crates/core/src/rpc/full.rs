@@ -235,17 +235,11 @@ impl Full for SurfpoolFullRpc {
             .map(|signature| {
                 signature
                     .map(|signature| {
-                        state_reader.svm.get_transaction(&signature).map(|tx| {
-                            tx.clone().ok().map(|_tx| TransactionStatus {
-                                slot: 0,
-                                confirmations: Some(5),
-                                status: Ok(()),
-                                err: None,
-                                confirmation_status: Some(TransactionConfirmationStatus::Finalized),
-                            })
+                        state_reader.history.get(&signature).map(|tx| {
+                            tx.clone()
+                                .into_status(state_reader.epoch_info.absolute_slot)
                         })
                     })
-                    .flatten()
                     .flatten()
             })
             .collect::<Vec<Option<TransactionStatus>>>();
