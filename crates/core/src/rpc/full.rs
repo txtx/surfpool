@@ -25,11 +25,9 @@ use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
 use solana_sdk::transaction::{Transaction, VersionedTransaction};
 use solana_sdk::{account::Account, clock::UnixTimestamp};
-use solana_transaction_status::option_serializer::OptionSerializer;
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction,
-    EncodedTransactionWithStatusMeta, TransactionConfirmationStatus, TransactionStatus,
-    UiConfirmedBlock, UiMessage, UiParsedMessage, UiTransaction, UiTransactionStatusMeta,
+    EncodedConfirmedTransactionWithStatusMeta, TransactionConfirmationStatus, TransactionStatus,
+    UiConfirmedBlock,
 };
 use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
 use std::str::FromStr;
@@ -523,9 +521,9 @@ impl Full for SurfpoolFullRpc {
 
     fn get_transaction(
         &self,
-        _meta: Self::Metadata,
-        _signature_str: String,
-        _config: Option<RpcEncodingConfigWrapper<RpcTransactionConfig>>,
+        meta: Self::Metadata,
+        signature_str: String,
+        config: Option<RpcEncodingConfigWrapper<RpcTransactionConfig>>,
     ) -> BoxFuture<Result<Option<EncodedConfirmedTransactionWithStatusMeta>>> {
         let config = config
             .map(|c| match c {

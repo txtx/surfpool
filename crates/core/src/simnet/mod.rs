@@ -365,13 +365,13 @@ pub async fn start(
                 }
             }
             let (meta, err) = match ctx.svm.send_transaction(tx.clone()) {
-                Ok(_) => (res, None),
+                Ok(res) => (res, None),
                 Err(e) => {
                     let _ = simnet_events_tx.send(SimnetEvent::ErrorLog(
                         Local::now(),
                         format!("Error processing transaction: {}", e.err.to_string()),
                     ));
-                    (e.meta, Some(e.err)),
+                    (e.meta, Some(e.err))
                 }
             };
             let slot = ctx.epoch_info.absolute_slot;
