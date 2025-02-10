@@ -23,7 +23,6 @@ use solana_transaction_status::{
 use std::{
     collections::HashMap,
     net::SocketAddr,
-    str::FromStr,
     sync::{Arc, RwLock},
     thread::sleep,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -193,13 +192,18 @@ pub async fn start(
     simnet_events_tx: Sender<SimnetEvent>,
     simnet_commands_rx: Receiver<SimnetCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // let path = PathBuf::from("~/.config/solana/id.json");
-    // let pubkey = Keypair::read_from_file(path).unwrap().pubkey(); // todo: make this configurable
-    let pubkey = Pubkey::from_str("zbBjhHwuqyKMmz8ber5oUtJJ3ZV4B6ePmANfGyKzVGV").unwrap();
-    let lamports = 10000000000000;
-
     let mut svm = LiteSVM::new();
-    let _res = svm.airdrop(&pubkey, lamports);
+    for recipient in config.simnet.airdrop_addresses.iter() {
+        let _ = svm.airdrop(&recipient, config.simnet.airdrop_token_amount);
+        let _ = simnet_events_tx.send(SimnetEvent::InfoLog(
+            Local::now(),
+            format!(
+                "Genesis airdrop successful {}: {}",
+                recipient.to_string(),
+                config.simnet.airdrop_token_amount
+            ),
+        ));
+    }
 
     // Todo: should check config first
     let rpc_client = Arc::new(RpcClient::new(config.simnet.remote_rpc_url.clone()));
@@ -224,8 +228,7 @@ pub async fn start(
     };
 
     let simnet_events_tx_copy = simnet_events_tx.clone();
-    let server_bind: SocketAddr =
-        format!("{}:{}", config.rpc.bind_address, config.rpc.bind_port).parse()?;
+    let server_bind: SocketAddr = config.rpc.get_socket_address().parse()?;
 
     let mut io = MetaIoHandler::with_middleware(middleware);
     io.extend_with(rpc::minimal::SurfpoolMinimalRpc.to_delegate());
@@ -327,8 +330,7 @@ pub async fn start(
 
         // We will create a slot!
         let unix_timestamp: i64 = Utc::now().timestamp();
-        let Ok(mut ctx) = context.try_write() else {
-            println!("unable to lock svm");
+        let Ok(mut ctx) = context.write() else {
             continue;
         };
 
@@ -362,10 +364,15 @@ pub async fn start(
                     let _ = simnet_events_tx.send(event);
                 }
             }
-
             let (meta, err) = match ctx.svm.send_transaction(tx.clone()) {
                 Ok(res) => (res, None),
-                Err(e) => (e.meta, Some(e.err)),
+                Err(e) => {
+                    let _ = simnet_events_tx.send(SimnetEvent::ErrorLog(
+                        Local::now(),
+                        format!("Error processing transaction: {}", e.err.to_string()),
+                    ));
+                    (e.meta, Some(e.err))
+                }
             };
             let slot = ctx.epoch_info.absolute_slot;
             ctx.history.insert(

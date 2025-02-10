@@ -1,4 +1,4 @@
-use dialoguer::{console::Style, theme::ColorfulTheme, Confirm, Input, Select};
+use dialoguer::{console::Style, theme::ColorfulTheme, Confirm, Input, MultiSelect};
 use std::{
     env,
     fs::{self, File},
@@ -17,7 +17,7 @@ use txtx_core::{
     templates::{build_manifest_data, TXTX_MANIFEST_TEMPLATE, TXTX_README_TEMPLATE},
 };
 
-use crate::{runbook::execute_runbook, types::Framework};
+use crate::types::Framework;
 
 mod anchor;
 mod native;
@@ -52,18 +52,26 @@ pub async fn detect_program_frameworks(
     Ok(None)
 }
 
-pub fn scaffold_runbooks_layout(
-    selected_programs: Vec<String>,
-    manifest_path: &str,
+pub fn scaffold_iac_layout(
+    programs: Vec<String>,
+    base_location: &FileLocation,
 ) -> Result<(), String> {
-    let manifest_location = FileLocation::from_path_string(manifest_path)?;
-    let base_location = manifest_location.get_parent_location()?;
-
     let theme = ColorfulTheme {
         values_style: Style::new().green(),
         hint_style: Style::new().cyan(),
         ..ColorfulTheme::default()
     };
+
+    let selection = MultiSelect::with_theme(&theme)
+        .with_prompt("Programs to deploy:")
+        .items(&programs)
+        .interact()
+        .unwrap();
+
+    let selected_programs = selection
+        .iter()
+        .map(|i| programs[*i].clone())
+        .collect::<Vec<_>>();
 
     let mut target_location = base_location.clone();
     target_location.append_path("target")?;

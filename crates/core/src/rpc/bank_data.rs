@@ -65,7 +65,7 @@ impl BankData for SurfpoolBankDataRpc {
         &self,
         meta: Self::Metadata,
         data_len: usize,
-        commitment: Option<CommitmentConfig>,
+        _commitment: Option<CommitmentConfig>,
     ) -> Result<u64> {
         let ctx = meta.get_state()?;
 
@@ -74,41 +74,41 @@ impl BankData for SurfpoolBankDataRpc {
 
     fn get_inflation_governor(
         &self,
-        meta: Self::Metadata,
-        commitment: Option<CommitmentConfig>,
+        _meta: Self::Metadata,
+        _commitment: Option<CommitmentConfig>,
     ) -> Result<RpcInflationGovernor> {
         unimplemented!()
     }
 
-    fn get_inflation_rate(&self, meta: Self::Metadata) -> Result<RpcInflationRate> {
+    fn get_inflation_rate(&self, _meta: Self::Metadata) -> Result<RpcInflationRate> {
         unimplemented!()
     }
 
-    fn get_epoch_schedule(&self, meta: Self::Metadata) -> Result<EpochSchedule> {
+    fn get_epoch_schedule(&self, _meta: Self::Metadata) -> Result<EpochSchedule> {
         unimplemented!()
     }
 
     fn get_slot_leader(
         &self,
-        meta: Self::Metadata,
-        config: Option<RpcContextConfig>,
+        _meta: Self::Metadata,
+        _config: Option<RpcContextConfig>,
     ) -> Result<String> {
         unimplemented!()
     }
 
     fn get_slot_leaders(
         &self,
-        meta: Self::Metadata,
-        start_slot: Slot,
-        limit: u64,
+        _meta: Self::Metadata,
+        _start_slot: Slot,
+        _limit: u64,
     ) -> Result<Vec<String>> {
         unimplemented!()
     }
 
     fn get_block_production(
         &self,
-        meta: Self::Metadata,
-        config: Option<RpcBlockProductionConfig>,
+        _meta: Self::Metadata,
+        _config: Option<RpcBlockProductionConfig>,
     ) -> Result<RpcResponse<RpcBlockProduction>> {
         unimplemented!()
     }
