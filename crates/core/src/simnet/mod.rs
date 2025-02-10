@@ -293,7 +293,9 @@ pub async fn start(
             if enabled {
                 let _ = clock_event_tx.send(ClockEvent::Tick);
                 // Todo: the block expiration is not completely accurate.
-                if block_hash_timeout.elapsed() > Duration::from_millis(BLOCKHASH_SLOT_TTL * slot_time) {
+                if block_hash_timeout.elapsed()
+                    > Duration::from_millis(BLOCKHASH_SLOT_TTL * slot_time)
+                {
                     let _ = clock_event_tx.send(ClockEvent::ExpireBlockHash);
                     block_hash_timeout = Instant::now();
                 }
