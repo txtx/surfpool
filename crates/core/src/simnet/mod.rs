@@ -6,10 +6,7 @@ use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
-    clock::Clock,
-    epoch_info::EpochInfo,
-    pubkey::Pubkey,
-    transaction::VersionedTransaction,
+    clock::Clock, epoch_info::EpochInfo, pubkey::Pubkey, transaction::VersionedTransaction,
 };
 use std::{
     net::SocketAddr,
@@ -72,9 +69,6 @@ pub async fn start(
     simnet_events_tx: Sender<SimnetEvent>,
     simnet_commands_rx: Receiver<SimnetCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // let path = PathBuf::from("~/.config/solana/id.json");
-    // let pubkey = Keypair::read_from_file(path).unwrap().pubkey(); // todo: make this configurable
-
     let mut svm = LiteSVM::new();
     for recipient in config.simnet.airdrop_addresses.iter() {
         let _ = svm.airdrop(&recipient, config.simnet.airdrop_token_amount);
@@ -212,8 +206,7 @@ pub async fn start(
 
         // We will create a slot!
         let unix_timestamp: i64 = Utc::now().timestamp();
-        let Ok(mut ctx) = context.try_write() else {
-            println!("unable to lock svm");
+        let Ok(mut ctx) = context.write() else {
             continue;
         };
 
@@ -251,7 +244,12 @@ pub async fn start(
             }
             match ctx.svm.send_transaction(tx.clone()) {
                 Ok(_) => {}
-                Err(e) => println!("transaction error: {:?}\nfor tx: {:?}", e, tx),
+                Err(e) => {
+                    let _ = simnet_events_tx.send(SimnetEvent::ErrorLog(
+                        Local::now(),
+                        format!("Error processing transaction: {}", e.err.to_string()),
+                    ));
+                }
             }
         }
         ctx.epoch_info.slot_index += 1;

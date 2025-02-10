@@ -584,11 +584,15 @@ impl Full for SurfpoolFullRpc {
 
     fn is_blockhash_valid(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         _blockhash: String,
         _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<bool>> {
-        unimplemented!()
+        let state_reader = meta.get_state()?;
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(state_reader.epoch_info.absolute_slot),
+            value: true,
+        })
     }
 
     fn get_fee_for_message(

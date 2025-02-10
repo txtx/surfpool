@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr, thread::sleep, time::Duration};
 
 use crate::{
     runbook::execute_runbook,
@@ -10,17 +10,40 @@ use super::{Context, StartSimnet};
 use crossbeam::channel::Select;
 use surfpool_core::{
     simnet::SimnetEvent,
-    solana_sdk::pubkey::Pubkey,
+    solana_sdk::{
+        pubkey::Pubkey,
+        signature::Keypair,
+        signer::{EncodableKey, Signer},
+    },
     start_simnet,
     types::{RpcConfig, RunloopTriggerMode, SimnetConfig, SurfpoolConfig},
 };
-use txtx_core::kit::{channel::Receiver, helpers::fs::FileLocation, types::frontend::BlockEvent};
+use txtx_core::kit::{
+    channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
+    types::frontend::BlockEvent,
+};
 
 pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Result<(), String> {
     // Check aidrop addresses
     let mut airdrop_addresses = vec![];
     for address in cmd.airdrop_addresses.iter() {
         let pubkey = Pubkey::from_str(&address).map_err(|e| e.to_string())?;
+        airdrop_addresses.push(pubkey);
+    }
+    for keypair_path in cmd.airdrop_keypair_path.iter() {
+        let resolved = if keypair_path.starts_with("~") {
+            format!(
+                "{}{}",
+                dirs::home_dir().unwrap().display(),
+                keypair_path[1..].to_string()
+            )
+        } else {
+            keypair_path.clone()
+        };
+        let path = PathBuf::from(resolved);
+        let pubkey = Keypair::read_from_file(&path)
+            .map_err(|e| format!("unable to read {}: {}", path.display(), e.to_string()))?
+            .pubkey();
         airdrop_addresses.push(pubkey);
     }
 
@@ -42,7 +65,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     let remote_rpc_url = config.rpc.remote_rpc_url.clone();
     let local_rpc_url = config.rpc.get_socket_address();
 
-    // Start backend - background task
+    // We start the simnet as soon as possible, as it needs to be ready for deployments
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
     let (simnet_events_tx, simnet_events_rx) = crossbeam::channel::unbounded();
     let ctx_cloned = ctx.clone();
@@ -89,11 +112,23 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
                 scaffold_iac_layout(programs, &base_location)?;
             }
 
+            let mut futures = vec![];
             for runbook_id in cmd.runbooks.iter() {
                 let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-                execute_runbook(runbook_id, progress_tx, &txtx_manifest_location).await?;
+                futures.push(execute_runbook(
+                    runbook_id.clone(),
+                    progress_tx,
+                    txtx_manifest_location.clone(),
+                ));
                 deploy_progress_rx.push(progress_rx);
             }
+
+            let _handle = hiro_system_kit::thread_named("simnet")
+                .spawn(move || {
+                    let _ = hiro_system_kit::nestable_block_on(join_all(futures));
+                    Ok::<(), String>(())
+                })
+                .map_err(|e| format!("{}", e))?;
         }
     };
 
@@ -120,16 +155,24 @@ fn log_events(
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     ctx: &Context,
 ) -> Result<(), String> {
+    let mut deployment_completed = false;
     loop {
         let mut selector = Select::new();
         let mut handles = vec![];
 
         selector.recv(&simnet_events_rx);
-        for rx in deploy_progress_rx.iter() {
-            handles.push(selector.recv(rx));
+
+        if !deployment_completed {
+            for rx in deploy_progress_rx.iter() {
+                handles.push(selector.recv(rx));
+            }
         }
 
-        let oper = selector.select();
+        let Ok(oper) = selector.try_select() else {
+            sleep(Duration::from_millis(10));
+            continue;
+        };
+
         match oper.index() {
             0 => match oper.recv(&simnet_events_rx) {
                 Ok(event) => match event {
@@ -156,28 +199,30 @@ fn log_events(
                         }
                     }
                     SimnetEvent::ErrorLog(_dt, log) => {
-                        error!(ctx.expect_logger(), "{} ", log);
+                        error!(ctx.expect_logger(), "{}", log);
                     }
                     SimnetEvent::InfoLog(_dt, log) => {
-                        info!(ctx.expect_logger(), "{} ", log);
+                        info!(ctx.expect_logger(), "{}", log);
                     }
                     SimnetEvent::DebugLog(_dt, log) => {
                         if include_debug_logs {
-                            info!(ctx.expect_logger(), "{} ", log);
+                            info!(ctx.expect_logger(), "{}", log);
                         }
                     }
                     SimnetEvent::WarnLog(_dt, log) => {
-                        warn!(ctx.expect_logger(), "{} ", log);
+                        warn!(ctx.expect_logger(), "{}", log);
                     }
                     SimnetEvent::TransactionReceived(_dt, transaction) => {
-                        info!(
-                            ctx.expect_logger(),
-                            "Transaction received {}", transaction.signatures[0]
-                        );
+                        if deployment_completed {
+                            info!(
+                                ctx.expect_logger(),
+                                "Transaction received {}", transaction.signatures[0]
+                            );    
+                        }
                     }
                     SimnetEvent::BlockHashExpired => {}
                     SimnetEvent::Aborted(error) => {
-                        error!(ctx.expect_logger(), "{} ", error);
+                        error!(ctx.expect_logger(), "{}", error);
                         return Err(error);
                     }
                     SimnetEvent::Ready => {}
@@ -185,8 +230,7 @@ fn log_events(
                         break;
                     }
                 },
-                Err(e) => {
-                    error!(ctx.expect_logger(), "{}", e.to_string());
+                Err(_e) => {
                     break;
                 }
             },
@@ -204,9 +248,8 @@ fn log_events(
                     }
                     _ => {}
                 },
-                Err(e) => {
-                    error!(ctx.expect_logger(), "{}", e.to_string());
-                    break;
+                Err(_e) => {
+                    deployment_completed = true;
                 }
             },
         }

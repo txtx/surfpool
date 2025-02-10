@@ -10,7 +10,7 @@ use ratatui::{
     style::palette::{self, tailwind},
     widgets::*,
 };
-use std::{collections::VecDeque, error::Error, io, time::Duration};
+use std::{collections::VecDeque, error::Error, io, thread::sleep, time::Duration};
 use surfpool_core::{
     simnet::{ClockCommand, SimnetCommand, SimnetEvent},
     solana_sdk::{clock::Clock, epoch_info::EpochInfo},
@@ -188,16 +188,23 @@ pub fn start_app(
 }
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
+    let mut deployment_completed = false;
     loop {
         let mut selector = Select::new();
         let mut handles = vec![];
 
         selector.recv(&app.simnet_events_rx);
-        for rx in app.deploy_progress_rx.iter() {
-            handles.push(selector.recv(rx));
+        if !deployment_completed {
+            for rx in app.deploy_progress_rx.iter() {
+                handles.push(selector.recv(rx));
+            }
         }
 
-        let oper = selector.select();
+        let Ok(oper) = selector.try_select() else {
+            sleep(Duration::from_millis(10));
+            continue;
+        };
+
         match oper.index() {
             0 => match oper.recv(&app.simnet_events_rx) {
                 Ok(event) => match event {
@@ -298,7 +305,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     }
                     _ => {}
                 },
-                Err(_) => break,
+                Err(_) => {
+                    deployment_completed = true;
+                }
             },
         }
 

@@ -17,6 +17,7 @@ pub const DEFAULT_BINDING_ADDRESS: &str = "127.0.0.1";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
 pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
+pub const DEFAULT_AIRDROPPED_KEYPAIR_PATH: &str = "~/.config/solana/id.json";
 
 #[allow(dead_code)]
 impl Context {
@@ -97,6 +98,9 @@ pub struct StartSimnet {
     /// Quantity of tokens to airdrop
     #[arg(long = "airdrop-amount", short = 'q', default_value = DEFAULT_AIRDROP_AMOUNT)]
     pub airdrop_token_amount: u64,
+    /// List runbooks to run  
+    #[arg(long = "airdrop-keypair-path", short = 'k', default_value = DEFAULT_AIRDROPPED_KEYPAIR_PATH)]
+    pub airdrop_keypair_path: Vec<String>,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
