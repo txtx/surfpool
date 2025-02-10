@@ -89,16 +89,16 @@ pub struct StartSimnet {
     /// Disable auto deployments (default: false)
     #[clap(long = "no-deploy")]
     pub no_deploy: bool,
-    /// List runbooks to run  
+    /// List of runbooks-id to run  
     #[arg(long = "runbook", short = 'r', default_value = DEFAULT_RUNBOOK)]
     pub runbooks: Vec<String>,
-    /// List addresses to airdrop
+    /// List of pubkeys to airdrop
     #[arg(long = "airdrop", short = 'a')]
     pub airdrop_addresses: Vec<String>,
     /// Quantity of tokens to airdrop
     #[arg(long = "airdrop-amount", short = 'q', default_value = DEFAULT_AIRDROP_AMOUNT)]
     pub airdrop_token_amount: u64,
-    /// List runbooks to run  
+    /// List of keypair paths to airdrop
     #[arg(long = "airdrop-keypair-path", short = 'k', default_value = DEFAULT_AIRDROPPED_KEYPAIR_PATH)]
     pub airdrop_keypair_path: Vec<String>,
 }
