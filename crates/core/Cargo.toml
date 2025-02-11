@@ -40,7 +40,7 @@ litesvm = { version = "0.5.0", features = ["nodejs-internal"] }
 crossbeam = "0.8.4"
 # litesvm = { path = "../../../litesvm/crates/litesvm" }
 
-solana-sdk = "2.1.10"
+solana-sdk = "=2.1.10"
 solana-program-test = "2.1.10"
 solana-rpc-client = "2.1.10"
 solana-account = "2.1.10"

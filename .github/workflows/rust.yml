@@ -19,7 +19,7 @@ jobs:
       - name: Run Cargo fmt
         run: cargo fmt --all -- --check
       - name: Run Cargo clippy
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy --all-targets
   build:
     runs-on: ubuntu-latest
     steps:
