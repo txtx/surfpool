@@ -3,16 +3,13 @@ use std::{
     env,
     fs::{self, File},
 };
-use txtx_addon_network_svm::{
-    templates::{
-        get_interpolated_addon_template, get_interpolated_anchor_program_deployment_template,
-        get_interpolated_header_template, get_interpolated_mainnet_signer_template,
-        get_interpolated_signer_template,
-    },
-    SvmNetworkAddon,
+use txtx_addon_network_svm::templates::{
+    get_interpolated_addon_template, get_interpolated_anchor_program_deployment_template,
+    get_interpolated_header_template, get_interpolated_mainnet_signer_template,
+    get_interpolated_signer_template,
 };
 use txtx_core::{
-    kit::{helpers::fs::FileLocation, indexmap::indexmap, types::AuthorizationContext},
+    kit::{helpers::fs::FileLocation, indexmap::indexmap},
     manifest::{RunbookMetadata, WorkspaceManifest},
     templates::{build_manifest_data, TXTX_MANIFEST_TEMPLATE, TXTX_README_TEMPLATE},
 };
@@ -75,9 +72,6 @@ pub fn scaffold_iac_layout(
 
     let mut target_location = base_location.clone();
     target_location.append_path("target")?;
-    let addon = SvmNetworkAddon::new();
-    let _function_spec = &addon.get_deploy_action_spec();
-    let _context = AuthorizationContext::empty();
 
     let mut txtx_manifest_location = base_location.clone();
     txtx_manifest_location.append_path("txtx.yml")?;
@@ -107,7 +101,7 @@ pub fn scaffold_iac_layout(
 
     let mut runbook_src: String = String::new();
     runbook_src.push_str(&get_interpolated_header_template(&format!(
-        "{} deployment",
+        "Manage {} deployment through Crypto Infrasctructure as Code",
         manifest.name
     )));
     runbook_src.push_str(&get_interpolated_addon_template("input.rpc_api_url"));

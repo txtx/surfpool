@@ -85,7 +85,13 @@ impl BankData for SurfpoolBankDataRpc {
     }
 
     fn get_epoch_schedule(&self, _meta: Self::Metadata) -> Result<EpochSchedule> {
-        unimplemented!()
+        Ok(EpochSchedule {
+            slots_per_epoch: 0,
+            leader_schedule_slot_offset: 0,
+            warmup: false,
+            first_normal_epoch: 0,
+            first_normal_slot: 0,
+        })
     }
 
     fn get_slot_leader(

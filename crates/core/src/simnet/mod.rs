@@ -5,7 +5,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::{types::TransactionMetadata, LiteSVM};
-use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_sdk::{
     clock::Clock,
     epoch_info::EpochInfo,
@@ -21,7 +21,7 @@ use solana_transaction_status::{
     UiTransactionStatusMeta,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     net::SocketAddr,
     sync::{Arc, RwLock},
     thread::sleep,
@@ -30,8 +30,8 @@ use std::{
 
 use crate::{
     rpc::{
-        self, accounts_data::AccountsData, bank_data::BankData, full::Full, minimal::Minimal,
-        SurfpoolMiddleware,
+        self, accounts_data::AccountsData, accounts_scan::AccountsScan, bank_data::BankData,
+        full::Full, minimal::Minimal, SurfpoolMiddleware,
     },
     types::{RunloopTriggerMode, SurfpoolConfig},
 };
@@ -149,7 +149,8 @@ impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMe
 
 pub struct GlobalState {
     pub svm: LiteSVM,
-    pub history: HashMap<Signature, EntryStatus>,
+    pub transactions: HashMap<Signature, EntryStatus>,
+    pub perf_samples: VecDeque<RpcPerfSample>,
     pub transactions_processed: u64,
     pub epoch_info: EpochInfo,
     pub rpc_client: Arc<RpcClient>,
@@ -230,7 +231,8 @@ pub async fn start(
 
     let context = GlobalState {
         svm,
-        history: HashMap::new(),
+        transactions: HashMap::new(),
+        perf_samples: VecDeque::new(),
         transactions_processed: 0,
         epoch_info: epoch_info.clone(),
         rpc_client: rpc_client.clone(),
@@ -251,6 +253,7 @@ pub async fn start(
     io.extend_with(rpc::minimal::SurfpoolMinimalRpc.to_delegate());
     io.extend_with(rpc::full::SurfpoolFullRpc.to_delegate());
     io.extend_with(rpc::accounts_data::SurfpoolAccountsDataRpc.to_delegate());
+    io.extend_with(rpc::accounts_scan::SurfpoolAccountsScanRpc.to_delegate());
     io.extend_with(rpc::bank_data::SurfpoolBankDataRpc.to_delegate());
 
     let _handle = hiro_system_kit::thread_named("rpc handler").spawn(move || {
@@ -305,8 +308,11 @@ pub async fn start(
 
     let mut runloop_trigger_mode = config.simnet.runloop_trigger_mode.clone();
     let mut transactions_to_process = vec![];
+    let mut num_transactions = 0;
     loop {
+        let mut transactions_processed = vec![];
         let mut create_slot = false;
+
         select! {
             recv(clock_event_rx) -> msg => match msg {
                 Ok(event) => {
@@ -348,11 +354,11 @@ pub async fn start(
                 Err(_) => {},
             },
             recv(mempool_rx) -> msg => match msg {
-                Ok((key, transaction)) => {
+                Ok((key, transaction, status_tx)) => {
                     let signature = transaction.signatures[0].clone();
-                    transactions_to_process.push((key, transaction));
+                    transactions_to_process.push((key, transaction, status_tx));
                     if let Ok(mut ctx) = context.write() {
-                        ctx.history.insert(
+                        ctx.transactions.insert(
                             signature,
                             EntryStatus::Received,
                         );
@@ -363,9 +369,6 @@ pub async fn start(
             default => {},
         }
 
-        if !create_slot {
-            continue;
-        }
 
         // We will create a slot!
         let unix_timestamp: i64 = Utc::now().timestamp();
@@ -374,13 +377,14 @@ pub async fn start(
         };
 
         // Handle the transactions accumulated
-        for (_key, tx) in transactions_to_process.drain(..) {
+        for (key, transaction, status_tx) in transactions_to_process.drain(..) {
             let _ =
-                simnet_events_tx.send(SimnetEvent::TransactionReceived(Local::now(), tx.clone()));
+                simnet_events_tx.try_send(SimnetEvent::TransactionReceived(Local::now(), transaction.clone()));
 
-            tx.verify_with_results();
-            let tx = tx.into_legacy_transaction().unwrap();
-            let message = &tx.message;
+            transaction.verify_with_results();
+            let transaction = transaction.into_legacy_transaction().unwrap();
+            let message = &transaction.message;
+
 
             for instruction in &message.instructions {
                 // The Transaction may not be sanitized at this point
@@ -400,13 +404,14 @@ pub async fn start(
                             format!("unable to retrieve account: {}", e),
                         ),
                     };
-                    let _ = simnet_events_tx.send(event);
+                    let _ = simnet_events_tx.try_send(event);
                 }
             }
-            let (meta, err) = match ctx.svm.send_transaction(tx.clone()) {
+
+            let (meta, err) = match ctx.svm.send_transaction(transaction.clone()) {
                 Ok(res) => (res, None),
                 Err(e) => {
-                    let _ = simnet_events_tx.send(SimnetEvent::ErrorLog(
+                    let _ = simnet_events_tx.try_send(SimnetEvent::ErrorLog(
                         Local::now(),
                         format!("Error processing transaction: {}", e.err.to_string()),
                     ));
@@ -414,13 +419,40 @@ pub async fn start(
                 }
             };
             let slot = ctx.epoch_info.absolute_slot;
-            ctx.history.insert(
-                tx.signatures[0],
-                EntryStatus::Processed(TransactionWithStatusMeta(slot, tx, meta, err)),
+
+            ctx.transactions.insert(
+                transaction.signatures[0],
+                EntryStatus::Processed(TransactionWithStatusMeta(slot, transaction.clone(), meta, err)),
             );
+            let _ = status_tx.try_send(TransactionConfirmationStatus::Processed);
+            transactions_processed.push((key, transaction, status_tx));
+            num_transactions += 1;
         }
+
+        if !create_slot {
+            continue;
+        }
+
+        for (_key, _transaction, status_tx) in transactions_processed.iter() {
+            let _ = status_tx.try_send(TransactionConfirmationStatus::Confirmed);
+        }
+
         ctx.epoch_info.slot_index += 1;
         ctx.epoch_info.absolute_slot += 1;
+        let slot = ctx.epoch_info.slot_index;
+
+        if ctx.perf_samples.len() > 30 {
+            ctx.perf_samples.pop_back();
+        }
+        ctx.perf_samples.push_front(RpcPerfSample {
+            slot,
+            num_slots: 1,
+            sample_period_secs: 1,
+            num_transactions,
+            num_non_vote_transactions: None,
+        });
+        num_transactions = 0;
+
         if ctx.epoch_info.slot_index > slots_in_epoch {
             ctx.epoch_info.slot_index = 0;
             ctx.epoch_info.epoch += 1;

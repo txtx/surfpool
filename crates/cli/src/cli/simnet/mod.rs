@@ -1,12 +1,13 @@
 use std::{path::PathBuf, str::FromStr, thread::sleep, time::Duration};
 
 use crate::{
+    http::start_server,
     runbook::execute_runbook,
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
     tui,
 };
 
-use super::{Context, StartSimnet};
+use super::{Context, StartSimnet, DEFAULT_EXPLORER_PORT};
 use crossbeam::channel::Select;
 use surfpool_core::{
     simnet::SimnetEvent,
@@ -30,6 +31,14 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         let pubkey = Pubkey::from_str(&address).map_err(|e| e.to_string())?;
         airdrop_addresses.push(pubkey);
     }
+    let breaker = if cmd.no_tui {
+        None
+    } else {
+        let keypair = Keypair::new();
+        airdrop_addresses.push(keypair.pubkey());
+        Some(keypair)
+    };
+
     for keypair_path in cmd.airdrop_keypair_path.iter() {
         let resolved = if keypair_path.starts_with("~") {
             format!(
@@ -51,8 +60,8 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     let config = SurfpoolConfig {
         rpc: RpcConfig {
             remote_rpc_url: cmd.rpc_url.clone(),
-            bind_port: cmd.network_binding_port,
-            bind_address: cmd.network_binding_ip_address.clone(),
+            bind_port: cmd.simnet_port,
+            bind_host: cmd.network_host.clone(),
         },
         simnet: SimnetConfig {
             remote_rpc_url: cmd.rpc_url.clone(),
@@ -74,7 +83,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             let future = start_simnet(&config, simnet_events_tx, simnet_commands_rx);
             if let Err(e) = hiro_system_kit::nestable_block_on(future) {
                 error!(ctx_cloned.expect_logger(), "{e}");
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                sleep(Duration::from_millis(500));
                 std::process::exit(1);
             }
             Ok::<(), String>(())
@@ -89,6 +98,19 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             _other => continue,
         }
     }
+
+    let explorer_handle = if !cmd.no_explorer {
+        let ctx_cloned = ctx.clone();
+        let network_binding = format!(
+            "{}:{}",
+            cmd.network_host, DEFAULT_EXPLORER_PORT
+        );
+        let future = start_server(&network_binding, &ctx_cloned).await
+            .map_err(|e| format!("{}", e.to_string()))?;
+        Some(future)
+    } else {
+        None
+    };
 
     let mut deploy_progress_rx = vec![];
     if !cmd.no_deploy {
@@ -143,8 +165,12 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             deploy_progress_rx,
             &remote_rpc_url,
             &local_rpc_url,
+            breaker
         )
         .map_err(|e| format!("{}", e))?;
+    }
+    if let Some(explorer_handle) = explorer_handle {
+        let _ = explorer_handle.stop(true);
     }
     Ok(())
 }
@@ -168,10 +194,7 @@ fn log_events(
             }
         }
 
-        let Ok(oper) = selector.try_select() else {
-            sleep(Duration::from_millis(10));
-            continue;
-        };
+        let oper = selector.select();
 
         match oper.index() {
             0 => match oper.recv(&simnet_events_rx) {

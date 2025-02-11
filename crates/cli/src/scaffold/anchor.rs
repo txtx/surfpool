@@ -3,9 +3,7 @@
 use anyhow::{anyhow, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, str::FromStr};
-use txtx_addon_network_svm::SvmNetworkAddon;
 use txtx_core::kit::helpers::fs::FileLocation;
-use txtx_core::kit::types::AuthorizationContext;
 use url::Url;
 
 use crate::types::Framework;
@@ -25,10 +23,6 @@ pub fn try_get_programs_from_project(
 
         let mut target_location = base_location.clone();
         target_location.append_path("target")?;
-        let addon = SvmNetworkAddon::new();
-        let _function_spec = &addon.get_deploy_action_spec();
-        let _context = AuthorizationContext::empty();
-
         if let Some((_, deployments)) = manifest.programs.iter().next() {
             for (program_name, _deployment) in deployments.iter() {
                 programs.push(program_name.clone());

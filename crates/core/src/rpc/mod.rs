@@ -6,8 +6,10 @@ use jsonrpc_core::{
 };
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_sdk::{blake3::Hash, clock::Slot, transaction::VersionedTransaction};
+use solana_transaction_status::TransactionConfirmationStatus;
 
 pub mod accounts_data;
+pub mod accounts_scan;
 pub mod bank_data;
 pub mod full;
 pub mod minimal;
@@ -26,7 +28,7 @@ pub struct SurfpoolRpc;
 pub struct RunloopContext {
     pub id: Hash,
     pub state: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: Sender<(Hash, VersionedTransaction)>,
+    pub mempool_tx: Sender<(Hash, VersionedTransaction, Sender<TransactionConfirmationStatus>)>,
 }
 
 trait State {
@@ -77,7 +79,7 @@ use std::future::Future;
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
     pub context: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: Sender<(Hash, VersionedTransaction)>,
+    pub mempool_tx: Sender<(Hash, VersionedTransaction, Sender<TransactionConfirmationStatus>)>,
     pub config: RpcConfig,
 }
 
@@ -100,8 +102,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             state: self.context.clone(),
             mempool_tx: self.mempool_tx.clone(),
         });
-        // println!("Processing request {}: {:?}, {:?}", request_number, request, meta);
-
+        // println!("Processing request {:?}", request);
         Either::Left(Box::pin(next(request, meta).map(move |res| {
             // println!("Processing took: {:?}", start.elapsed());
             res

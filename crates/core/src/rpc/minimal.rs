@@ -202,12 +202,11 @@ impl Minimal for SurfpoolMinimalRpc {
 
     fn get_transaction_count(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<u64> {
-        println!("get_transaction_count rpc request received");
-        // meta.get_transaction_count(config.unwrap_or_default())
-        unimplemented!()
+        let state_reader = meta.get_state()?;
+        Ok(state_reader.transactions.iter().count() as u64)
     }
 
     fn get_version(&self, _: Self::Metadata) -> Result<RpcVersionInfo> {
@@ -227,9 +226,10 @@ impl Minimal for SurfpoolMinimalRpc {
         _meta: Self::Metadata,
         _config: Option<RpcGetVoteAccountsConfig>,
     ) -> Result<RpcVoteAccountStatus> {
-        println!("get_vote_accounts rpc request received");
-        // meta.get_vote_accounts(config)
-        unimplemented!()
+        Ok(RpcVoteAccountStatus {
+            current: vec![],
+            delinquent: vec![],
+        })
     }
 
     // TODO: Refactor `agave-validator wait-for-restart-window` to not require this method, so
