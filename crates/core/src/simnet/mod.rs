@@ -369,7 +369,6 @@ pub async fn start(
             default => {},
         }
 
-
         // We will create a slot!
         let unix_timestamp: i64 = Utc::now().timestamp();
         let Ok(mut ctx) = context.write() else {
@@ -378,13 +377,14 @@ pub async fn start(
 
         // Handle the transactions accumulated
         for (key, transaction, status_tx) in transactions_to_process.drain(..) {
-            let _ =
-                simnet_events_tx.try_send(SimnetEvent::TransactionReceived(Local::now(), transaction.clone()));
+            let _ = simnet_events_tx.try_send(SimnetEvent::TransactionReceived(
+                Local::now(),
+                transaction.clone(),
+            ));
 
             transaction.verify_with_results();
             let transaction = transaction.into_legacy_transaction().unwrap();
             let message = &transaction.message;
-
 
             for instruction in &message.instructions {
                 // The Transaction may not be sanitized at this point
@@ -422,7 +422,12 @@ pub async fn start(
 
             ctx.transactions.insert(
                 transaction.signatures[0],
-                EntryStatus::Processed(TransactionWithStatusMeta(slot, transaction.clone(), meta, err)),
+                EntryStatus::Processed(TransactionWithStatusMeta(
+                    slot,
+                    transaction.clone(),
+                    meta,
+                    err,
+                )),
             );
             let _ = status_tx.try_send(TransactionConfirmationStatus::Processed);
             transactions_processed.push((key, transaction, status_tx));

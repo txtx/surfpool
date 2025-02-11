@@ -214,7 +214,11 @@ impl Full for SurfpoolFullRpc {
         _limit: Option<usize>,
     ) -> Result<Vec<RpcPerfSample>> {
         let state_reader = meta.get_state()?;
-        let samples = state_reader.perf_samples.iter().map(|e| e.clone()).collect::<Vec<_>>();
+        let samples = state_reader
+            .perf_samples
+            .iter()
+            .map(|e| e.clone())
+            .collect::<Vec<_>>();
         Ok(samples)
     }
 
@@ -335,12 +339,23 @@ impl Full for SurfpoolFullRpc {
         let signatures = unsanitized_tx.signatures.clone();
         let signature = signatures[0];
         let (status_update_tx, status_uptate_rx) = crossbeam_channel::bounded(1);
-        let _ = ctx.mempool_tx.send((ctx.id.clone(), unsanitized_tx, status_update_tx));
+        let _ = ctx
+            .mempool_tx
+            .send((ctx.id.clone(), unsanitized_tx, status_update_tx));
         loop {
             match (status_uptate_rx.recv(), config.preflight_commitment) {
-                (Ok(TransactionConfirmationStatus::Confirmed), Some(CommitmentLevel::Confirmed)) => break,
-                (Ok(TransactionConfirmationStatus::Processed), Some(CommitmentLevel::Processed)) => break,
-                (Ok(TransactionConfirmationStatus::Finalized), Some(CommitmentLevel::Finalized)) => break,
+                (
+                    Ok(TransactionConfirmationStatus::Confirmed),
+                    Some(CommitmentLevel::Confirmed),
+                ) => break,
+                (
+                    Ok(TransactionConfirmationStatus::Processed),
+                    Some(CommitmentLevel::Processed),
+                ) => break,
+                (
+                    Ok(TransactionConfirmationStatus::Finalized),
+                    Some(CommitmentLevel::Finalized),
+                ) => break,
                 (Err(_), _) => break,
                 (_, _) => continue,
             }

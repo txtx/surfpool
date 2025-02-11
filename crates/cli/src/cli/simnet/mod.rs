@@ -101,11 +101,9 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
 
     let explorer_handle = if !cmd.no_explorer {
         let ctx_cloned = ctx.clone();
-        let network_binding = format!(
-            "{}:{}",
-            cmd.network_host, DEFAULT_EXPLORER_PORT
-        );
-        let future = start_server(&network_binding, &ctx_cloned).await
+        let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);
+        let future = start_server(&network_binding, &ctx_cloned)
+            .await
             .map_err(|e| format!("{}", e.to_string()))?;
         Some(future)
     } else {
@@ -165,7 +163,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             deploy_progress_rx,
             &remote_rpc_url,
             &local_rpc_url,
-            breaker
+            breaker,
         )
         .map_err(|e| format!("{}", e))?;
     }

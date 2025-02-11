@@ -12,7 +12,14 @@ use ratatui::{
 };
 use std::{collections::VecDeque, error::Error, io, time::Duration};
 use surfpool_core::{
-    simnet::{ClockCommand, SimnetCommand, SimnetEvent}, solana_rpc_client::rpc_client::RpcClient, solana_sdk::{clock::Clock, commitment_config::CommitmentConfig, epoch_info::EpochInfo, message::Message, pubkey::Pubkey, signature::Keypair, signer::Signer, system_instruction, transaction::Transaction}, types::RunloopTriggerMode
+    simnet::{ClockCommand, SimnetCommand, SimnetEvent},
+    solana_rpc_client::rpc_client::RpcClient,
+    solana_sdk::{
+        clock::Clock, commitment_config::CommitmentConfig, epoch_info::EpochInfo, message::Message,
+        pubkey::Pubkey, signature::Keypair, signer::Signer, system_instruction,
+        transaction::Transaction,
+    },
+    types::RunloopTriggerMode,
 };
 use txtx_core::kit::types::frontend::BlockEvent;
 use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};
@@ -75,7 +82,7 @@ struct App {
     status_bar_message: Option<String>,
     remote_rpc_url: String,
     local_rpc_url: String,
-    breaker: Option<Keypair>
+    breaker: Option<Keypair>,
 }
 
 impl App {
@@ -86,7 +93,7 @@ impl App {
         deploy_progress_rx: Vec<Receiver<BlockEvent>>,
         remote_rpc_url: &str,
         local_rpc_url: &str,
-        breaker: Option<Keypair>
+        breaker: Option<Keypair>,
     ) -> App {
         App {
             state: TableState::default().with_selected(0),
@@ -157,7 +164,7 @@ pub fn start_app(
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     remote_rpc_url: &str,
     local_rpc_url: &str,
-    breaker: Option<Keypair>
+    breaker: Option<Keypair>,
 ) -> Result<(), Box<dyn Error>> {
     // setup terminal
     enable_raw_mode()?;
@@ -174,7 +181,7 @@ pub fn start_app(
         deploy_progress_rx,
         remote_rpc_url,
         local_rpc_url,
-        breaker
+        breaker,
     );
     let res = run_app(&mut terminal, app);
 
@@ -191,12 +198,12 @@ pub fn start_app(
 }
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
-
     let (tx, rx) = unbounded();
     let rpc_api_url = app.local_rpc_url.clone();
     let _ = hiro_system_kit::thread_named("break solana").spawn(move || {
         while let Ok((message, keypair)) = rx.recv() {
-            let client = RpcClient::new_with_commitment(&rpc_api_url, CommitmentConfig::processed());
+            let client =
+                RpcClient::new_with_commitment(&rpc_api_url, CommitmentConfig::processed());
             let blockhash = client.get_latest_blockhash().unwrap();
             let transaction = Transaction::new(&[keypair], message, blockhash);
             let _ = client.send_transaction(&transaction).unwrap();
@@ -339,8 +346,11 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         Char('f') | Char('j') => {
                             // Break Solana
                             let sender = app.breaker.as_ref().unwrap();
-                            let instruction =
-                                system_instruction::transfer(&sender.pubkey(), &Pubkey::new_unique(), 100);
+                            let instruction = system_instruction::transfer(
+                                &sender.pubkey(),
+                                &Pubkey::new_unique(),
+                                100,
+                            );
                             let message = Message::new(&vec![instruction], Some(&sender.pubkey()));
                             let _ = tx.send((message, sender.insecure_clone()));
                         }
@@ -349,7 +359,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 .simnet_commands_tx
                                 .send(SimnetCommand::UpdateClock(ClockCommand::Toggle));
                         }
-                        
+
                         Tab => {
                             let _ = app.simnet_commands_tx.send(SimnetCommand::SlotForward);
                         }

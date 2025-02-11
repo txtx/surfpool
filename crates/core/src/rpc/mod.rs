@@ -28,7 +28,11 @@ pub struct SurfpoolRpc;
 pub struct RunloopContext {
     pub id: Hash,
     pub state: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: Sender<(Hash, VersionedTransaction, Sender<TransactionConfirmationStatus>)>,
+    pub mempool_tx: Sender<(
+        Hash,
+        VersionedTransaction,
+        Sender<TransactionConfirmationStatus>,
+    )>,
 }
 
 trait State {
@@ -79,7 +83,11 @@ use std::future::Future;
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
     pub context: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: Sender<(Hash, VersionedTransaction, Sender<TransactionConfirmationStatus>)>,
+    pub mempool_tx: Sender<(
+        Hash,
+        VersionedTransaction,
+        Sender<TransactionConfirmationStatus>,
+    )>,
     pub config: RpcConfig,
 }
 
