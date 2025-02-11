@@ -24,7 +24,7 @@ pub use solana_sdk;
 use types::SurfpoolConfig;
 
 pub async fn start_simnet(
-    config: &SurfpoolConfig,
+    config: SurfpoolConfig,
     simnet_events_tx: Sender<SimnetEvent>,
     simnet_commands_rx: Receiver<SimnetCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {

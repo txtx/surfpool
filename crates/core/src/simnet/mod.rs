@@ -1,3 +1,6 @@
+use agave_geyser_plugin_interface::geyser_plugin_interface::{
+    GeyserPlugin, ReplicaTransactionInfoV2, ReplicaTransactionInfoVersions,
+};
 use base64::prelude::{Engine, BASE64_STANDARD};
 use chrono::{DateTime, Local, Utc};
 use crossbeam::select;
@@ -6,22 +9,29 @@ use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
+use solana_geyser_plugin_manager::geyser_plugin_manager::{
+    GeyserPluginManager, GeyserPluginManagerError, LoadedGeyserPlugin,
+};
 use solana_sdk::{
     clock::Clock,
     epoch_info::EpochInfo,
+    message::v0::LoadedAddresses,
     pubkey::Pubkey,
     signature::Signature,
-    transaction::{Transaction, TransactionError, TransactionVersion, VersionedTransaction},
+    transaction::{
+        SanitizedTransaction, Transaction, TransactionError, TransactionVersion,
+        VersionedTransaction,
+    },
 };
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionConfirmationStatus,
-    TransactionStatus, UiCompiledInstruction, UiInnerInstructions, UiInstruction, UiMessage,
-    UiRawMessage, UiReturnDataEncoding, UiTransaction, UiTransactionReturnData,
-    UiTransactionStatusMeta,
+    TransactionStatus, TransactionStatusMeta, UiCompiledInstruction, UiInnerInstructions,
+    UiInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
+    UiTransactionReturnData, UiTransactionStatusMeta,
 };
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     net::SocketAddr,
     sync::{Arc, RwLock},
     thread::sleep,
@@ -205,8 +215,12 @@ pub enum ClockEvent {
     ExpireBlockHash,
 }
 
+use std::{fs::File, io::Read, path::PathBuf};
+type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
+use libloading::{Library, Symbol};
+
 pub async fn start(
-    config: &SurfpoolConfig,
+    config: SurfpoolConfig,
     simnet_events_tx: Sender<SimnetEvent>,
     simnet_commands_rx: Receiver<SimnetCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -268,10 +282,111 @@ pub async fn start(
         let _ = simnet_events_tx_copy.send(SimnetEvent::Shutdown);
     });
 
+    let simnet_config = config.simnet.clone();
+    let (plugins_data_tx, plugins_data_rx) = unbounded::<(Transaction, TransactionMetadata)>();
+    if !config.plugin_config_path.is_empty() {
+        let _handle = hiro_system_kit::thread_named("geyser plugins handler").spawn(move || {
+            let mut plugin_manager = GeyserPluginManager::new();
+
+            for geyser_plugin_config_file in config.plugin_config_path.iter() {
+                let mut file = match File::open(geyser_plugin_config_file) {
+                    Ok(file) => file,
+                    Err(err) => {
+                        return Err(GeyserPluginManagerError::CannotOpenConfigFile(format!(
+                            "Failed to open the plugin config file {geyser_plugin_config_file:?}, error: {err:?}"
+                        )));
+                    }
+                };
+
+                let mut contents = String::new();
+                if let Err(err) = file.read_to_string(&mut contents) {
+                    return Err(GeyserPluginManagerError::CannotReadConfigFile(format!(
+                        "Failed to read the plugin config file {geyser_plugin_config_file:?}, error: {err:?}"
+                    )));
+                }
+
+                let result: serde_json::Value = match json5::from_str(&contents) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        return Err(GeyserPluginManagerError::InvalidConfigFileFormat(format!(
+                            "The config file {geyser_plugin_config_file:?} is not in a valid Json5 format, error: {err:?}"
+                        )));
+                    }
+                };
+
+                let libpath = result["libpath"]
+                    .as_str()
+                    .ok_or(GeyserPluginManagerError::LibPathNotSet)?;
+                let mut libpath = PathBuf::from(libpath);
+                if libpath.is_relative() {
+                    let config_dir = geyser_plugin_config_file.parent().ok_or_else(|| {
+                        GeyserPluginManagerError::CannotOpenConfigFile(format!(
+                            "Failed to resolve parent of {geyser_plugin_config_file:?}",
+                        ))
+                    })?;
+                    libpath = config_dir.join(libpath);
+                }
+
+                let plugin_name = result["name"].as_str().map(|s| s.to_owned());
+
+                let config_file = geyser_plugin_config_file
+                    .as_os_str()
+                    .to_str()
+                    .ok_or(GeyserPluginManagerError::InvalidPluginPath)?;
+
+                let (plugin, lib) = unsafe {
+                    let lib = Library::new(libpath)
+                        .map_err(|e| GeyserPluginManagerError::PluginLoadError(e.to_string()))?;
+                    let constructor: Symbol<PluginConstructor> = lib
+                        .get(b"_create_plugin")
+                        .map_err(|e| GeyserPluginManagerError::PluginLoadError(e.to_string()))?;
+                    let plugin_raw = constructor();
+                    (Box::from_raw(plugin_raw), lib)
+                };
+                plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, plugin_name));
+            }
+
+            while let Ok((transaction, transaction_metadata)) = plugins_data_rx.recv() {
+                let transaction_status_meta = TransactionStatusMeta {
+                    status: Ok(()),
+                    fee: 0,
+                    pre_balances: vec![],
+                    post_balances: vec![],
+                    inner_instructions: None,
+                    log_messages: Some(transaction_metadata.logs.clone()),
+                    pre_token_balances: None,
+                    post_token_balances: None,
+                    rewards: None,
+                    loaded_addresses: LoadedAddresses {
+                        writable: vec![],
+                        readonly: vec![],
+                    },
+                    return_data: Some(transaction_metadata.return_data.clone()),
+                    compute_units_consumed: Some(transaction_metadata.compute_units_consumed),
+                };
+
+                let transaction = SanitizedTransaction::try_from_legacy_transaction(transaction, &HashSet::new())
+                    .unwrap();
+
+                let transaction_replica = ReplicaTransactionInfoV2 {
+                    signature: &transaction_metadata.signature,
+                    is_vote: false,
+                    transaction: &transaction,
+                    transaction_status_meta: &transaction_status_meta,
+                    index: 0
+                };
+                for plugin in plugin_manager.plugins.iter() {
+                    plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), 0).unwrap();
+                }
+            }
+            Ok(())
+        });
+    }
+
     let (clock_event_tx, clock_event_rx) = unbounded::<ClockEvent>();
     let (clock_command_tx, clock_command_rx) = unbounded::<ClockCommand>();
 
-    let mut slot_time = config.simnet.slot_time;
+    let mut slot_time = simnet_config.slot_time;
     let _handle = hiro_system_kit::thread_named("clock").spawn(move || {
         let mut enabled = true;
         let mut block_hash_timeout = Instant::now();
@@ -409,7 +524,10 @@ pub async fn start(
             }
 
             let (meta, err) = match ctx.svm.send_transaction(transaction.clone()) {
-                Ok(res) => (res, None),
+                Ok(res) => {
+                    let _ = plugins_data_tx.try_send((transaction.clone(), res.clone()));
+                    (res, None)
+                }
                 Err(e) => {
                     let _ = simnet_events_tx.try_send(SimnetEvent::ErrorLog(
                         Local::now(),
