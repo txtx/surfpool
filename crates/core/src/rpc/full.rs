@@ -22,6 +22,7 @@ use solana_client::{
     },
 };
 use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_sdk::commitment_config::CommitmentLevel;
 use solana_sdk::message::VersionedMessage;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
@@ -209,10 +210,16 @@ impl Full for SurfpoolFullRpc {
 
     fn get_recent_performance_samples(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         _limit: Option<usize>,
     ) -> Result<Vec<RpcPerfSample>> {
-        unimplemented!()
+        let state_reader = meta.get_state()?;
+        let samples = state_reader
+            .perf_samples
+            .iter()
+            .map(|e| e.clone())
+            .collect::<Vec<_>>();
+        Ok(samples)
     }
 
     fn get_signature_statuses(
@@ -234,7 +241,7 @@ impl Full for SurfpoolFullRpc {
                 continue;
             };
             let entry = state_reader
-                .history
+                .transactions
                 .get(&signature)
                 .map(|entry| match entry {
                     EntryStatus::Received => TransactionStatus {
@@ -331,8 +338,28 @@ impl Full for SurfpoolFullRpc {
 
         let signatures = unsanitized_tx.signatures.clone();
         let signature = signatures[0];
-        let _ = ctx.mempool_tx.send((ctx.id.clone(), unsanitized_tx));
-
+        let (status_update_tx, status_uptate_rx) = crossbeam_channel::bounded(1);
+        let _ = ctx
+            .mempool_tx
+            .send((ctx.id.clone(), unsanitized_tx, status_update_tx));
+        loop {
+            match (status_uptate_rx.recv(), config.preflight_commitment) {
+                (
+                    Ok(TransactionConfirmationStatus::Confirmed),
+                    Some(CommitmentLevel::Confirmed),
+                ) => break,
+                (
+                    Ok(TransactionConfirmationStatus::Processed),
+                    Some(CommitmentLevel::Processed),
+                ) => break,
+                (
+                    Ok(TransactionConfirmationStatus::Finalized),
+                    Some(CommitmentLevel::Finalized),
+                ) => break,
+                (Err(_), _) => break,
+                (_, _) => continue,
+            }
+        }
         Ok(signature.to_string())
     }
 
@@ -481,7 +508,7 @@ impl Full for SurfpoolFullRpc {
         _slot: Slot,
         _config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
-        unimplemented!()
+        Box::pin(async { Ok(None) })
     }
 
     fn get_block_time(
@@ -489,7 +516,7 @@ impl Full for SurfpoolFullRpc {
         _meta: Self::Metadata,
         _slot: Slot,
     ) -> BoxFuture<Result<Option<UnixTimestamp>>> {
-        unimplemented!()
+        Box::pin(async { Ok(None) })
     }
 
     fn get_blocks(
@@ -548,7 +575,7 @@ impl Full for SurfpoolFullRpc {
         };
         let rpc_client = state_reader.rpc_client.clone();
         let tx = state_reader
-            .history
+            .transactions
             .get(&signature)
             .map(|entry| entry.expect_processed().clone().into());
 
@@ -582,7 +609,7 @@ impl Full for SurfpoolFullRpc {
     }
 
     fn get_first_available_block(&self, _meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
-        unimplemented!()
+        Box::pin(async move { Ok(1) })
     }
 
     fn get_latest_blockhash(

@@ -8,7 +8,7 @@
 
 ### TL;DR
 
-`surfpool` is to Solana what `anvil` is to Ethereum: a blazing fast in-memory testnet that has the ability to point-fork Solana mainnet instantly.
+`surfpool` is to Solana what `anvil` is to Ethereum: a blazing fast ⚡️ in-memory testnet that has the ability to point-fork Solana mainnet instantly.
 
 ## Introduction
 

@@ -5,6 +5,7 @@ use std::{fs::File, process};
 
 mod simnet;
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct Context {
     pub logger: Option<Logger>,
@@ -12,8 +13,9 @@ pub struct Context {
 }
 
 pub const DEFAULT_SLOT_TIME_MS: &str = "400";
-pub const DEFAULT_BINDING_PORT: &str = "8899";
-pub const DEFAULT_BINDING_ADDRESS: &str = "127.0.0.1";
+pub const DEFAULT_EXPLORER_PORT: &str = "8900";
+pub const DEFAULT_SIMNET_PORT: &str = "8899";
+pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
 pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
@@ -68,12 +70,12 @@ pub struct StartSimnet {
         default_value = "./Surfpool.toml"
     )]
     pub manifest_path: String,
-    /// Set the port
-    #[arg(long = "port", short = 'p', default_value = DEFAULT_BINDING_PORT)]
-    pub network_binding_port: u16,
-    /// Set the ip
-    #[arg(long = "ip", short = 'i', default_value = DEFAULT_BINDING_ADDRESS)]
-    pub network_binding_ip_address: String,
+    /// Set the Simnet RPC port
+    #[arg(long = "port", short = 'p', default_value = DEFAULT_SIMNET_PORT)]
+    pub simnet_port: u16,
+    /// Set the Simnet host address
+    #[arg(long = "host", short = 'h', default_value = DEFAULT_NETWORK_HOST)]
+    pub network_host: String,
     /// Set the slot time
     #[arg(long = "slot-time", short = 's', default_value = DEFAULT_SLOT_TIME_MS)]
     pub slot_time: u64,
@@ -101,6 +103,9 @@ pub struct StartSimnet {
     /// List of keypair paths to airdrop
     #[arg(long = "airdrop-keypair-path", short = 'k', default_value = DEFAULT_AIRDROPPED_KEYPAIR_PATH)]
     pub airdrop_keypair_path: Vec<String>,
+    /// Disable explorer (default: false)
+    #[clap(long = "no-explorer")]
+    pub no_explorer: bool,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
