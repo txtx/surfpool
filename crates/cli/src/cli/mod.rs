@@ -106,6 +106,9 @@ pub struct StartSimnet {
     /// Disable explorer (default: false)
     #[clap(long = "no-explorer")]
     pub no_explorer: bool,
+    /// List of geyser plugins to load
+    #[arg(long = "geyser-plugin-config", short = 'g')]
+    pub plugin_config_path: Vec<String>,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
