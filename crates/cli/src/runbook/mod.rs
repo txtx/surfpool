@@ -9,6 +9,7 @@ use txtx_core::{
     manifest::{file::read_runbooks_from_manifest, WorkspaceManifest},
     start_unsupervised_runbook_runloop,
     std::StdAddon,
+    types::RunbookSnapshotContext,
 };
 
 pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
@@ -21,7 +22,7 @@ pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
     }
     None
 }
-
+pub const DEFAULT_ENVIRONMENT: &str = "localnet";
 pub async fn execute_runbook(
     runbook_id: String,
     progress_tx: Sender<BlockEvent>,
@@ -29,12 +30,16 @@ pub async fn execute_runbook(
 ) -> Result<(), String> {
     let manifest = WorkspaceManifest::from_location(&txtx_manifest_location)?;
     let runbook_selector = vec![runbook_id.to_string()];
-    let mut runbooks =
-        read_runbooks_from_manifest(&manifest, &Some("localnet".into()), Some(&runbook_selector))?;
+    let mut runbooks = read_runbooks_from_manifest(
+        &manifest,
+        &Some(DEFAULT_ENVIRONMENT.into()),
+        Some(&runbook_selector),
+    )?;
     let top_level_inputs_map =
-        manifest.get_runbook_inputs(&Some("localnet".into()), &vec![], None)?;
+        manifest.get_runbook_inputs(&Some(DEFAULT_ENVIRONMENT.into()), &vec![], None)?;
 
-    let Some((mut runbook, runbook_sources, _state, _smt)) = runbooks.swap_remove(&runbook_id)
+    let Some((mut runbook, runbook_sources, _state, runbook_state_location)) =
+        runbooks.swap_remove(&runbook_id)
     else {
         return Err(format!("Deployment {} not found", runbook_id));
     };
@@ -54,6 +59,32 @@ pub async fn execute_runbook(
 
     runbook.enable_full_execution_mode();
 
+    if let Some(state_file_location) = runbook_state_location.clone() {
+        match state_file_location.load_execution_snapshot(
+            true,
+            &runbook.runbook_id.name,
+            &runbook.top_level_inputs_map.current_top_level_input_name(),
+        ) {
+            Ok(old_snapshot) => {
+                let ctx = RunbookSnapshotContext::new();
+                let execution_context_backups = runbook.backup_execution_contexts();
+                let new = runbook.simulate_and_snapshot_flows(&old_snapshot).await?;
+                let consolidated_changes = ctx.diff(old_snapshot, new);
+
+                runbook.prepare_flows_for_new_plans(
+                    &consolidated_changes.new_plans_to_add,
+                    execution_context_backups,
+                );
+
+                let _ =
+                    runbook.prepared_flows_for_updated_plans(&consolidated_changes.plans_to_update);
+            }
+            Err(e) => {
+                println!("{} {}", red!("x"), e);
+            }
+        }
+    }
+
     let res = start_unsupervised_runbook_runloop(&mut runbook, &progress_tx).await;
     if let Err(diags) = res {
         println!("{} Execution aborted", red!("x"));
@@ -64,12 +95,7 @@ pub async fn execute_runbook(
         return Ok(());
     }
 
-    if let Err(diags) = res {
-        for diag in diags.iter() {
-            println!("{} {}", red!("x"), diag);
-        }
-        std::process::exit(1);
-    }
+    let _ = runbook.write_runbook_state(runbook_state_location)?;
 
     Ok(())
 }

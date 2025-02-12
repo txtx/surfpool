@@ -8634,6 +8634,21 @@ dependencies = [
 
 [[package]]
 name = "spl-token"
+version = "4.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e9e171cbcb4b1f72f6d78ed1e975cb467f56825c27d09b8dd2608e4e7fc8b3b"
+dependencies = [
+ "arrayref",
+ "bytemuck",
+ "num-derive",
+ "num-traits",
+ "num_enum",
+ "solana-program",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "spl-token"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70a0f06ac7f23dc0984931b1fe309468f14ea58e32660439c1cef19456f5d0e3"
@@ -9796,9 +9811,7 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "349567e68d1724bec1eec4ccf766232be8cdfd257f5453063e766b5b978eb90e"
+version = "0.2.1"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -9829,9 +9842,7 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ce3a54125dcded77c3e27cc3891cffbdd12aa1f1340dfc289d6c9d31e1d5353"
+version = "0.1.2"
 dependencies = [
  "anchor-lang-idl",
  "async-recursion",
@@ -9845,16 +9856,14 @@ dependencies = [
  "solana-sdk",
  "solana_idl",
  "spl-associated-token-account 6.0.0",
- "spl-token 7.0.0",
+ "spl-token 4.0.2",
  "tiny-bip39",
  "txtx-addon-kit",
 ]
 
 [[package]]
 name = "txtx-core"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db49fab87668ddb4b4af2e0661566c23bbba269d3b36f4cc067dfc2863bfe1a0"
+version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
  "better-debug",

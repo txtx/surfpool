@@ -16,10 +16,10 @@ path = "src/main.rs"
 [dependencies]
 surfpool-core = { workspace = true }
 # surfpool-core = { version = "0.1" }
-# txtx-core = { path = "../../../txtx/crates/txtx-core" }
-# txtx-addon-network-svm = { package = "txtx-addon-network-svm", path = "../../../txtx/addons/svm" }
-txtx-core = { version = "0.2.2" }
-txtx-addon-network-svm = { version = "0.1.3" }
+txtx-core = { path = "../../../txtx/crates/txtx-core" }
+txtx-addon-network-svm = { package = "txtx-addon-network-svm", path = "../../../txtx/addons/svm" }
+# txtx-core = { version = "0.2.2" }
+# txtx-addon-network-svm = { version = "0.1.3" }
 hiro-system-kit = "0.3.1"
 atty = "0.2.13"
 ansi_term = "0.12.1"
