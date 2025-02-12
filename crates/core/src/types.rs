@@ -1,13 +1,14 @@
 use solana_sdk::pubkey::Pubkey;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum RunloopTriggerMode {
+    #[default]
     Clock,
     Manual,
     Transaction,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SurfpoolConfig {
     pub simnet: SimnetConfig,
     pub rpc: RpcConfig,
@@ -22,6 +23,18 @@ pub struct SimnetConfig {
     pub airdrop_token_amount: u64,
 }
 
+impl Default for SimnetConfig {
+    fn default() -> Self {
+        Self {
+            remote_rpc_url: "https://api.mainnet-beta.solana.com".to_string(),
+            slot_time: 0,
+            runloop_trigger_mode: RunloopTriggerMode::Clock,
+            airdrop_addresses: vec![],
+            airdrop_token_amount: 0,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RpcConfig {
     pub bind_host: String,
@@ -32,5 +45,15 @@ pub struct RpcConfig {
 impl RpcConfig {
     pub fn get_socket_address(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
+    }
+}
+
+impl Default for RpcConfig {
+    fn default() -> Self {
+        Self {
+            remote_rpc_url: "https://api.mainnet-beta.solana.com".to_string(),
+            bind_host: "127.0.0.1".to_string(),
+            bind_port: 8899,
+        }
     }
 }

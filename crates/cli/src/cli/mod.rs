@@ -54,7 +54,7 @@ struct Opts {
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum Command {
     /// Start Simnet
-    #[clap(name = "run", bin_name = "run", aliases = &["run", "start", "simnet"])]
+    #[clap(name = "run", bin_name = "run", aliases = &["start", "simnet"])]
     Simnet(StartSimnet),
     /// Generate shell completions scripts
     #[clap(name = "completions", bin_name = "completions", aliases = &["completion"])]
@@ -74,7 +74,7 @@ pub struct StartSimnet {
     #[arg(long = "port", short = 'p', default_value = DEFAULT_SIMNET_PORT)]
     pub simnet_port: u16,
     /// Set the Simnet host address
-    #[arg(long = "host", short = 'h', default_value = DEFAULT_NETWORK_HOST)]
+    #[arg(long = "host", short = 'o', default_value = DEFAULT_NETWORK_HOST)]
     pub network_host: String,
     /// Set the slot time
     #[arg(long = "slot-time", short = 's', default_value = DEFAULT_SLOT_TIME_MS)]
