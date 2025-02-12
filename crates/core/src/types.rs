@@ -1,4 +1,5 @@
 use solana_sdk::pubkey::Pubkey;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RunloopTriggerMode {
@@ -7,10 +8,11 @@ pub enum RunloopTriggerMode {
     Transaction,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SurfpoolConfig {
     pub simnet: SimnetConfig,
     pub rpc: RpcConfig,
+    pub plugin_config_path: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
