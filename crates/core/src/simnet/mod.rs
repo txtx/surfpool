@@ -481,7 +481,6 @@ pub async fn start(
                 },
                 Err(_) => {},
             },
-            default => {},
         }
 
         // We will create a slot!
