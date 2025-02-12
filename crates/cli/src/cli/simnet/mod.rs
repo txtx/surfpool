@@ -1,4 +1,13 @@
-use std::{path::PathBuf, str::FromStr, thread::sleep, time::Duration};
+use std::{
+    path::PathBuf,
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::sleep,
+    time::Duration,
+};
 
 use crate::{
     http::start_server,
@@ -185,7 +194,17 @@ fn log_events(
     ctx: &Context,
 ) -> Result<(), String> {
     let mut deployment_completed = false;
+    let stop_loop = Arc::new(AtomicBool::new(false));
+    let do_stop_loop = stop_loop.clone();
+    ctrlc::set_handler(move || {
+        stop_loop.store(true, Ordering::Relaxed);
+    })
+    .expect("Error setting Ctrl-C handler");
+
     loop {
+        if do_stop_loop.load(Ordering::Relaxed) {
+            break;
+        }
         let mut selector = Select::new();
         let mut handles = vec![];
 
