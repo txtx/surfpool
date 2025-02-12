@@ -345,12 +345,12 @@ impl Full for SurfpoolFullRpc {
         loop {
             match (status_uptate_rx.recv(), config.preflight_commitment) {
                 (
-                    Ok(TransactionConfirmationStatus::Confirmed),
-                    Some(CommitmentLevel::Confirmed),
-                ) => break,
-                (
                     Ok(TransactionConfirmationStatus::Processed),
                     Some(CommitmentLevel::Processed),
+                ) => break,
+                (
+                    Ok(TransactionConfirmationStatus::Confirmed),
+                    None | Some(CommitmentLevel::Confirmed),
                 ) => break,
                 (
                     Ok(TransactionConfirmationStatus::Finalized),

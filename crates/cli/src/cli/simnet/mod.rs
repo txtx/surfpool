@@ -70,6 +70,11 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             airdrop_addresses,
             airdrop_token_amount: cmd.airdrop_token_amount,
         },
+        plugin_config_path: cmd
+            .plugin_config_path
+            .iter()
+            .map(|f| PathBuf::from(f))
+            .collect::<Vec<_>>(),
     };
     let remote_rpc_url = config.rpc.remote_rpc_url.clone();
     let local_rpc_url = config.rpc.get_socket_address();
@@ -80,7 +85,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     let ctx_cloned = ctx.clone();
     let _handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
-            let future = start_simnet(&config, simnet_events_tx, simnet_commands_rx);
+            let future = start_simnet(config, simnet_events_tx, simnet_commands_rx);
             if let Err(e) = hiro_system_kit::nestable_block_on(future) {
                 error!(ctx_cloned.expect_logger(), "{e}");
                 sleep(Duration::from_millis(500));

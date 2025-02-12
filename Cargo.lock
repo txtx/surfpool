@@ -262,6 +262,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "agave-geyser-plugin-interface"
+version = "2.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "458574532922e0c82a2ec189319d2076be44c2a32f5524c7c23867a311ceff57"
+dependencies = [
+ "log 0.4.25",
+ "solana-sdk",
+ "solana-transaction-status",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "agave-transaction-view"
 version = "2.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1298,7 +1310,7 @@ checksum = "0b023947811758c97c59bf9d1c188fd619ad4718dcaa767947df1cadb14f39f4"
 dependencies = [
  "glob",
  "libc",
- "libloading",
+ "libloading 0.8.6",
 ]
 
 [[package]]
@@ -3495,6 +3507,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "json5"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96b0db21af676c1ce64250b5f40f3ce2cf27e4e47cb91ed91eb6fe9350b430c1"
+dependencies = [
+ "pest",
+ "pest_derive",
+ "serde",
+]
+
+[[package]]
 name = "jsonrpc-client-transports"
 version = "18.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3657,6 +3680,16 @@ name = "libc"
 version = "0.2.169"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5aba8db14291edd000dfcc4d620c7ebfb122c613afb886ca8803fa4e128a20a"
+
+[[package]]
+name = "libloading"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b67380fd3b2fbe7527a606e18729d21c6f3951633d0500574c4dc22d2d638b9f"
+dependencies = [
+ "cfg-if 1.0.0",
+ "winapi 0.3.9",
+]
 
 [[package]]
 name = "libloading"
@@ -4584,6 +4617,51 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2fd23b938276f14057220b707937bcb42fa76dda7560e57a2da30cb52d557937"
 dependencies = [
  "num",
+]
+
+[[package]]
+name = "pest"
+version = "2.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b7cafe60d6cf8e62e1b9b2ea516a089c008945bb5a275416789e7db0bc199dc"
+dependencies = [
+ "memchr",
+ "thiserror 2.0.11",
+ "ucd-trie",
+]
+
+[[package]]
+name = "pest_derive"
+version = "2.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "816518421cfc6887a0d62bf441b6ffb4536fcc926395a69e1a85852d4363f57e"
+dependencies = [
+ "pest",
+ "pest_generator",
+]
+
+[[package]]
+name = "pest_generator"
+version = "2.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d1396fd3a870fc7838768d171b4616d5c91f6cc25e377b673d714567d99377b"
+dependencies = [
+ "pest",
+ "pest_meta",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.96",
+]
+
+[[package]]
+name = "pest_meta"
+version = "2.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1e58089ea25d717bfd31fb534e4f3afcc2cc569c70de3e239778991ea3b7dea"
+dependencies = [
+ "once_cell",
+ "pest",
+ "sha2 0.10.8",
 ]
 
 [[package]]
@@ -6605,6 +6683,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-geyser-plugin-manager"
+version = "2.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c43363b5026b258dfd6d2b396138997605c7b6b75c3ad426c1f76e4445e932aa"
+dependencies = [
+ "agave-geyser-plugin-interface",
+ "bs58",
+ "crossbeam-channel",
+ "json5",
+ "jsonrpc-core",
+ "libloading 0.7.4",
+ "log 0.4.25",
+ "serde_json",
+ "solana-accounts-db",
+ "solana-entry",
+ "solana-ledger",
+ "solana-measure",
+ "solana-metrics",
+ "solana-rpc",
+ "solana-runtime",
+ "solana-sdk",
+ "solana-transaction-status",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "solana-gossip"
 version = "2.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8529,21 +8634,6 @@ dependencies = [
 
 [[package]]
 name = "spl-token"
-version = "4.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e9e171cbcb4b1f72f6d78ed1e975cb467f56825c27d09b8dd2608e4e7fc8b3b"
-dependencies = [
- "arrayref",
- "bytemuck",
- "num-derive",
- "num-traits",
- "num_enum",
- "solana-program",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "spl-token"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70a0f06ac7f23dc0984931b1fe309468f14ea58e32660439c1cef19456f5d0e3"
@@ -8928,21 +9018,23 @@ dependencies = [
 name = "surfpool-core"
 version = "0.1.7"
 dependencies = [
+ "agave-geyser-plugin-interface",
  "base64 0.22.1",
  "bincode",
  "bs58",
  "chrono",
- "clap 4.5.27",
  "crossbeam",
  "crossbeam-channel",
  "hiro-system-kit",
  "indexmap 2.7.1",
  "itertools 0.14.0",
+ "json5",
  "jsonrpc-core",
  "jsonrpc-core-client",
  "jsonrpc-derive",
  "jsonrpc-http-server",
  "libc",
+ "libloading 0.7.4",
  "litesvm",
  "log 0.4.25",
  "regex",
@@ -8956,6 +9048,7 @@ dependencies = [
  "solana-entry",
  "solana-faucet",
  "solana-feature-set",
+ "solana-geyser-plugin-manager",
  "solana-gossip",
  "solana-inline-spl",
  "solana-ledger",
@@ -8979,7 +9072,7 @@ dependencies = [
  "solana-version",
  "solana-vote-program",
  "spl-token 7.0.0",
- "spl-token-2022 4.0.0",
+ "spl-token-2022 6.0.0",
  "symlink",
  "tokio",
  "tokio-util 0.7.13",
@@ -9703,9 +9796,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "827085dc9ece10a5beb18c3502284b87fb0cc2d526902f693253062d50ab8053"
+checksum = "349567e68d1724bec1eec4ccf766232be8cdfd257f5453063e766b5b978eb90e"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -9736,9 +9829,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5124beb89312ba23432735a6a5b710d03f3fc32bf8ef02f00e4522fe1c9fabc5"
+checksum = "2ce3a54125dcded77c3e27cc3891cffbdd12aa1f1340dfc289d6c9d31e1d5353"
 dependencies = [
  "anchor-lang-idl",
  "async-recursion",
@@ -9752,16 +9845,16 @@ dependencies = [
  "solana-sdk",
  "solana_idl",
  "spl-associated-token-account 6.0.0",
- "spl-token 4.0.2",
+ "spl-token 7.0.0",
  "tiny-bip39",
  "txtx-addon-kit",
 ]
 
 [[package]]
 name = "txtx-core"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c29cf07256ce4a516b9b64ad79a1e871fa166252d2e3fb4784b3e7998aff87f8"
+checksum = "db49fab87668ddb4b4af2e0661566c23bbba269d3b36f4cc067dfc2863bfe1a0"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
@@ -9791,6 +9884,12 @@ name = "typenum"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
+
+[[package]]
+name = "ucd-trie"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2896d95c02a80c6d6a5d6e953d479f5ddf2dfdb6a244441010e373ac0fb88971"
 
 [[package]]
 name = "uint"
