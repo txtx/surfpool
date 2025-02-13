@@ -21,7 +21,7 @@ use surfpool_core::{
     simnet::{start, SimnetEvent},
     types::{RpcConfig, RunloopTriggerMode, SimnetConfig, SurfpoolConfig},
 };
-use tokio::time::sleep;
+use tokio::{task, time::sleep};
 
 mod helpers;
 
@@ -195,18 +195,21 @@ async fn test_simnet_some_sol_transfers() {
     .expect("Transfers failed");
 
     // Wait for all transactions to be received
-    // let mut processed = 0;
-    // loop {
-    //     match simnet_events_rx.recv() {
-    //         Ok(SimnetEvent::TransactionProcessed(..)) => processed += 1,
-    //         _ => (),
-    //     }
+    let expected = airdrop_addresses.len();
+    let _ = task::spawn_blocking(move || {
+        let mut processed = 0;
+        loop {
+            match simnet_events_rx.recv() {
+                Ok(SimnetEvent::TransactionProcessed(..)) => processed += 1,
+                _ => (),
+            }
 
-    //     if processed == airdrop_addresses.len() {
-    //         break;
-    //     }
-    // }
-    sleep(Duration::from_secs(2)).await; // TODO: solve flakyness
+            if processed == expected {
+                break;
+            }
+        }
+    })
+    .await;
 
     let final_balances = join_all(
         airdrop_addresses
