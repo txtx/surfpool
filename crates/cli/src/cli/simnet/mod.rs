@@ -265,11 +265,11 @@ fn log_events(
                             );
                         }
                     }
-                    SimnetEvent::TransactionProcessed(_dt, transaction) => {
+                    SimnetEvent::TransactionProcessed(_dt, _meta, _err) => {
                         if deployment_completed {
                             info!(
                                 ctx.expect_logger(),
-                                "Transaction processed {}", transaction.signatures[0]
+                                "Transaction processed {}", _meta.signature
                             );
                         }
                     }
