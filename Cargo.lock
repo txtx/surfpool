@@ -9155,6 +9155,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "surfpool-subgraph"
+version = "0.1.7"
+dependencies = [
+ "agave-geyser-plugin-interface",
+ "solana-program",
+]
+
+[[package]]
 name = "symlink"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
