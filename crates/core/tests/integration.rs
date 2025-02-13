@@ -1,4 +1,5 @@
 use crossbeam_channel::unbounded;
+use helpers::get_free_port;
 use jsonrpc_core::{
     futures::future::{self, join_all},
     Error,
@@ -21,6 +22,8 @@ use surfpool_core::{
     types::{RpcConfig, RunloopTriggerMode, SimnetConfig, SurfpoolConfig},
 };
 use tokio::time::sleep;
+
+mod helpers;
 
 #[tokio::test]
 async fn test_simnet_ready() {
@@ -91,11 +94,12 @@ async fn test_simnet_ticks() {
 
 #[tokio::test]
 async fn test_simnet_some_sol_transfers() {
-    let airdrop_keypairs = (0..10).map(|_| Keypair::new()).collect::<Vec<_>>();
+    let n_addresses = 10;
+    let airdrop_keypairs = (0..n_addresses).map(|_| Keypair::new()).collect::<Vec<_>>();
     let airdrop_addresses: Vec<Pubkey> = airdrop_keypairs.iter().map(|kp| kp.pubkey()).collect();
     let airdrop_token_amount = LAMPORTS_PER_SOL;
     let bind_host = "127.0.0.1";
-    let bind_port = 8899;
+    let bind_port = get_free_port().unwrap();
     let config = SurfpoolConfig {
         simnet: SimnetConfig {
             slot_time: 1,
