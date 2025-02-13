@@ -110,10 +110,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             state: self.context.clone(),
             mempool_tx: self.mempool_tx.clone(),
         });
-        // println!("Processing request {:?}", request);
-        Either::Left(Box::pin(next(request, meta).map(move |res| {
-            // println!("Processing took: {:?}", start.elapsed());
-            res
-        })))
+        println!("Processing request {:?}", request);
+        Either::Left(Box::pin(next(request, meta).map(move |res| res)))
     }
 }
