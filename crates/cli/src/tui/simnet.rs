@@ -234,6 +234,13 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             format!("Account {} retrieved from Mainnet", account),
                         ));
                     }
+                    SimnetEvent::PluginLoaded(plugin_name) => {
+                        app.events.push_front((
+                            EventType::Success,
+                            Local::now(),
+                            format!("Plugin {} successfully loaded", plugin_name),
+                        ));
+                    }
                     SimnetEvent::EpochInfoUpdate(epoch_info) => {
                         app.epoch_info = epoch_info;
                         app.events.push_front((

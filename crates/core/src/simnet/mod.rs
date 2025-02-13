@@ -192,6 +192,7 @@ pub enum SimnetEvent {
     ErrorLog(DateTime<Local>, String),
     WarnLog(DateTime<Local>, String),
     DebugLog(DateTime<Local>, String),
+    PluginLoaded(String),
     TransactionReceived(DateTime<Local>, VersionedTransaction),
     AccountUpdate(DateTime<Local>, Pubkey),
 }
@@ -283,12 +284,13 @@ pub async fn start(
     });
 
     let simnet_config = config.simnet.clone();
+    let simnet_events_tx_copy = simnet_events_tx.clone();
     let (plugins_data_tx, plugins_data_rx) = unbounded::<(Transaction, TransactionMetadata)>();
     if !config.plugin_config_path.is_empty() {
         let _handle = hiro_system_kit::thread_named("geyser plugins handler").spawn(move || {
             let mut plugin_manager = GeyserPluginManager::new();
 
-            for geyser_plugin_config_file in config.plugin_config_path.iter() {
+            for (i, geyser_plugin_config_file) in config.plugin_config_path.iter().enumerate() {
                 let mut file = match File::open(geyser_plugin_config_file) {
                     Ok(file) => file,
                     Err(err) => {
@@ -297,7 +299,6 @@ pub async fn start(
                         )));
                     }
                 };
-
                 let mut contents = String::new();
                 if let Err(err) = file.read_to_string(&mut contents) {
                     return Err(GeyserPluginManagerError::CannotReadConfigFile(format!(
@@ -327,25 +328,31 @@ pub async fn start(
                     libpath = config_dir.join(libpath);
                 }
 
-                let plugin_name = result["name"].as_str().map(|s| s.to_owned());
+                let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or(format!("plugin-{}", i));
 
                 let _config_file = geyser_plugin_config_file
                     .as_os_str()
                     .to_str()
                     .ok_or(GeyserPluginManagerError::InvalidPluginPath)?;
 
-                let (plugin, lib) = unsafe {
-                    let lib = Library::new(libpath)
-                        .map_err(|e| GeyserPluginManagerError::PluginLoadError(e.to_string()))?;
+                let (mut plugin, lib) = unsafe {
+                    let lib = match Library::new(libpath) {
+                        Ok(lib) => lib,
+                        Err(e) => {
+                            let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
+                            continue;
+                        }
+                    };
                     let constructor: Symbol<PluginConstructor> = lib
                         .get(b"_create_plugin")
                         .map_err(|e| GeyserPluginManagerError::PluginLoadError(e.to_string()))?;
                     let plugin_raw = constructor();
                     (Box::from_raw(plugin_raw), lib)
                 };
-                plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, plugin_name));
+                let _res = plugin.on_load("", false);
+                plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.clone())));
+                let _ = simnet_events_tx_copy.send(SimnetEvent::PluginLoaded(plugin_name));
             }
-
             while let Ok((transaction, transaction_metadata)) = plugins_data_rx.recv() {
                 let transaction_status_meta = TransactionStatusMeta {
                     status: Ok(()),

@@ -298,6 +298,12 @@ fn log_events(
                             "Account {} retrieved from Mainnet", account
                         );
                     }
+                    SimnetEvent::PluginLoaded(plugin_name) => {
+                        info!(
+                            ctx.expect_logger(),
+                            "Plugin {} successfully loaded", plugin_name
+                        );
+                    }
                     SimnetEvent::EpochInfoUpdate(epoch_info) => {
                         info!(
                             ctx.expect_logger(),
