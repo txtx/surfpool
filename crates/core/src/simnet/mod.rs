@@ -329,7 +329,7 @@ pub async fn start(
 
                 let plugin_name = result["name"].as_str().map(|s| s.to_owned());
 
-                let config_file = geyser_plugin_config_file
+                let _config_file = geyser_plugin_config_file
                     .as_os_str()
                     .to_str()
                     .ok_or(GeyserPluginManagerError::InvalidPluginPath)?;

@@ -44,6 +44,7 @@ actix-web = "4"
 actix-cors = "0.7.0"
 rust-embed="8.2.0"
 mime_guess = "2.0.4"
+notify = { version = "8.0.0" }
 
 [features]
 default = ["cli"]

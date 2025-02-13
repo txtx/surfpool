@@ -1,9 +1,9 @@
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc, Arc,
     },
     thread::sleep,
     time::Duration,
@@ -18,6 +18,10 @@ use crate::{
 
 use super::{Context, StartSimnet, DEFAULT_EXPLORER_PORT};
 use crossbeam::channel::Select;
+use notify::{
+    event::{CreateKind, DataChange, ModifyKind},
+    Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
+};
 use surfpool_core::{
     simnet::SimnetEvent,
     solana_sdk::{
@@ -135,6 +139,9 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             Ok(deployment) => deployment,
         };
 
+        let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
+        deploy_progress_rx.push(progress_rx);
+
         if let Some((_framework, programs)) = deployment {
             // Is infrastructure-as-code (IaC) already setup?
             let base_location =
@@ -147,14 +154,13 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             }
 
             let mut futures = vec![];
-            for runbook_id in cmd.runbooks.iter() {
-                let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
+            let runbooks_ids_to_execute = cmd.runbooks.clone();
+            for runbook_id in runbooks_ids_to_execute.iter() {
                 futures.push(execute_runbook(
                     runbook_id.clone(),
-                    progress_tx,
+                    progress_tx.clone(),
                     txtx_manifest_location.clone(),
                 ));
-                deploy_progress_rx.push(progress_rx);
             }
 
             let _handle = hiro_system_kit::thread_named("simnet")
@@ -163,7 +169,72 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
                     Ok::<(), String>(())
                 })
                 .map_err(|e| format!("{}", e))?;
+
+            if cmd.watch {
+                let _handle = hiro_system_kit::thread_named("watch filesystem")
+                    .spawn(move || {
+                        let mut target_path = base_location.clone();
+                        let _ = target_path.append_path("target");
+                        let _ = target_path.append_path("deploy");
+                        let (tx, rx) = mpsc::channel::<NotifyResult<Event>>();
+                        let mut watcher =
+                            notify::recommended_watcher(tx).map_err(|e| e.to_string())?;
+                        watcher
+                            .watch(
+                                Path::new(&target_path.to_string()),
+                                RecursiveMode::NonRecursive,
+                            )
+                            .map_err(|e| e.to_string())?;
+                        let _ = watcher.configure(
+                            Config::default()
+                                .with_poll_interval(Duration::from_secs(1))
+                                .with_compare_contents(true),
+                        );
+                        for res in rx {
+                            // Disregard any event that would not create or modify a .so file
+                            let mut found_candidates = false;
+                            match res {
+                                Ok(Event {
+                                    kind: EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+                                    paths,
+                                    attrs: _,
+                                })
+                                | Ok(Event {
+                                    kind: EventKind::Create(CreateKind::File),
+                                    paths,
+                                    attrs: _,
+                                }) => {
+                                    for path in paths.iter() {
+                                        if path.to_string_lossy().ends_with(".so") {
+                                            found_candidates = true;
+                                        }
+                                    }
+                                }
+                                _ => continue,
+                            }
+
+                            if !found_candidates {
+                                continue;
+                            }
+
+                            let mut futures = vec![];
+                            for runbook_id in runbooks_ids_to_execute.iter() {
+                                futures.push(execute_runbook(
+                                    runbook_id.clone(),
+                                    progress_tx.clone(),
+                                    txtx_manifest_location.clone(),
+                                ));
+                            }
+                            let _ = hiro_system_kit::nestable_block_on(join_all(futures));
+                        }
+                        Ok::<(), String>(())
+                    })
+                    .map_err(|e| format!("{}", e))
+                    .unwrap();
+            }
         }
+
+        // clean-up state
     };
 
     // Start frontend - kept on main thread
@@ -282,7 +353,7 @@ fn log_events(
             i => match oper.recv(&deploy_progress_rx[i - 1]) {
                 Ok(event) => match event {
                     BlockEvent::UpdateProgressBarStatus(update) => {
-                        info!(
+                        debug!(
                             ctx.expect_logger(),
                             "{}",
                             format!(
@@ -290,6 +361,9 @@ fn log_events(
                                 update.new_status.status, update.new_status.message
                             )
                         );
+                    }
+                    BlockEvent::RunbookCompleted => {
+                        info!(ctx.expect_logger(), "{}", format!("Deployment executed",));
                     }
                     _ => {}
                 },
