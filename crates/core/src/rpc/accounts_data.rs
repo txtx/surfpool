@@ -1,9 +1,7 @@
-use std::sync::Arc;
-
 use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
 
-use jsonrpc_core::futures::future::{self, join_all};
+use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
@@ -136,7 +134,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
     fn get_multiple_accounts(
         &self,
         meta: Self::Metadata,
-        pubkeys: Vec<String>,
+        pubkeys_str: Vec<String>,
         config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<Option<UiAccount>>>>> {
         let config = config.unwrap_or_default();
@@ -145,12 +143,19 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return Box::pin(future::err(e.into())),
         };
 
-        let accounts = match pubkeys
+        let pubkeys = match pubkeys_str
             .iter()
-            .map(|s| {
-                let pk = verify_pubkey(s)?;
-                Ok((pk, state_reader.svm.get_account(&pk)))
-            })
+            .map(|s| verify_pubkey(s))
+            .collect::<Result<Vec<_>>>()
+        {
+            Ok(p) => p,
+            Err(e) => return Box::pin(future::err(e.into())),
+        };
+
+        let accounts = match pubkeys
+            .clone()
+            .iter()
+            .map(|pk| Ok((pk.clone(), state_reader.svm.get_account(&pk))))
             .collect::<Result<Vec<_>>>()
         {
             Ok(accs) => accs,
@@ -165,37 +170,31 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         drop(state_reader);
 
         Box::pin(async move {
-            // Fetch all accounts at once and then only use those that are missing
-            let fetched_accounts = join_all(accounts.iter().map(|(pk, _)| {
-                let rpc_client = Arc::clone(&rpc_client);
-
-                async move { (pk, rpc_client.get_account(&pk).await.ok()) }
-            }))
-            .await;
-
-            // Save missing fetched accounts
+            let fetched_account =
+                rpc_client
+                    .get_multiple_accounts(&pubkeys)
+                    .await
+                    .map_err(|err| {
+                        Error::invalid_params(format!("failed to fetch accounts: {err:?}"))
+                    })?;
             let mut state_reader = meta.get_state_mut()?;
-            let combined_accounts = accounts
-                .iter()
-                .zip(fetched_accounts)
-                .map(|((pk, local), (_, fetched_account))| {
-                    if local.is_some() {
-                        Ok((pk, local.clone()))
-                    } else if let Some(account) = fetched_account {
-                        state_reader
-                            .svm
-                            .set_account(*pk, account.clone())
-                            .map_err(|err| {
-                                Error::invalid_params(format!(
-                                    "failed to save fetched account {pk:?}: {err:?}"
-                                ))
-                            })?;
-                        Ok((pk, Some(account)))
+            let mut combined_accounts = vec![];
+            for (i, (pk, acc)) in pubkeys.iter().zip(fetched_account).enumerate() {
+                if let Some(fetched) = acc.clone() {
+                    if let Some((_, local)) = accounts.get(i) {
+                        combined_accounts.push((pk.clone(), local.clone()));
                     } else {
-                        Ok((pk, None))
+                        combined_accounts.push((pk.clone(), acc));
+                        state_reader.svm.set_account(*pk, fetched).map_err(|err| {
+                            Error::invalid_params(format!(
+                                "failed to save fetched account {pk:?}: {err:?}"
+                            ))
+                        })?;
                     }
-                })
-                .collect::<Result<Vec<_>>>()?;
+                } else {
+                    combined_accounts.push((*pk, None));
+                }
+            }
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(absolute_slot),
