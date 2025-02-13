@@ -183,12 +183,11 @@ impl Minimal for SurfpoolMinimalRpc {
 
     fn get_block_height(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<u64> {
-        println!("get_block_height rpc request received");
-        // meta.get_block_height(config.unwrap_or_default())
-        unimplemented!()
+        let state_reader = meta.get_state()?;
+        Ok(state_reader.epoch_info.block_height)
     }
 
     fn get_highest_snapshot_slot(&self, _meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
