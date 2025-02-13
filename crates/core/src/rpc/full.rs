@@ -617,20 +617,8 @@ impl Full for SurfpoolFullRpc {
         meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<RpcBlockhash>> {
-        // Retrieve svm state
-        let Some(ctx) = meta else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
-        // Lock read access
-        let Ok(state_reader) = ctx.state.read() else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
+        let state_reader = meta.get_state()?;
+
         // Todo: are we returning the right block height?
         let last_valid_block_height = state_reader.epoch_info.block_height;
         let value = RpcBlockhash {

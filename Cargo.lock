@@ -3525,11 +3525,13 @@ checksum = "d2b99d4207e2a04fb4581746903c2bb7eb376f88de9c699d0f3e10feeac0cd3a"
 dependencies = [
  "derive_more",
  "futures 0.3.31",
+ "hyper 0.14.32",
  "jsonrpc-core",
  "jsonrpc-pubsub",
  "log 0.4.25",
  "serde",
  "serde_json",
+ "tokio",
  "url 1.7.2",
 ]
 

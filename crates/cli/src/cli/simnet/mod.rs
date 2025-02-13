@@ -265,6 +265,14 @@ fn log_events(
                             );
                         }
                     }
+                    SimnetEvent::TransactionProcessed(_dt, _meta, _err) => {
+                        if deployment_completed {
+                            info!(
+                                ctx.expect_logger(),
+                                "Transaction processed {}", _meta.signature
+                            );
+                        }
+                    }
                     SimnetEvent::BlockHashExpired => {}
                     SimnetEvent::Aborted(error) => {
                         error!(ctx.expect_logger(), "{}", error);
