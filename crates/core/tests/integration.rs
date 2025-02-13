@@ -46,7 +46,7 @@ async fn test_simnet_ready() {
     });
 
     match simnet_events_rx.recv() {
-        Ok(SimnetEvent::Ready) => println!("Simnet is ready"),
+        Ok(SimnetEvent::Ready) => (),
         e => panic!("Expected Ready event: {e:?}"),
     }
 }
@@ -223,7 +223,6 @@ async fn test_simnet_some_sol_transfers() {
 
     assert!(
         final_balances.iter().enumerate().all(|(i, b)| {
-            println!("{}", b.value);
             if i == 0 {
                 b.value > airdrop_token_amount
             } else {
