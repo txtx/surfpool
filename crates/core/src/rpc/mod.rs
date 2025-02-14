@@ -1,13 +1,11 @@
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crossbeam_channel::Sender;
-use ipc_channel::ipc::IpcSender;
 use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
 use solana_client::rpc_custom_error::RpcCustomError;
-use solana_sdk::{blake3::Hash, clock::Slot, transaction::VersionedTransaction};
-use solana_transaction_status::TransactionConfirmationStatus;
+use solana_sdk::{blake3::Hash, clock::Slot};
 
 pub mod accounts_data;
 pub mod accounts_scan;
@@ -77,7 +75,7 @@ impl Metadata for RunloopContext {}
 
 use crate::{
     simnet::GlobalState,
-    types::{PluginManagerCommand, RpcConfig, SimnetCommand, SubgraphCommand},
+    types::{PluginManagerCommand, RpcConfig, SimnetCommand},
 };
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;

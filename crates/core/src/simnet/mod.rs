@@ -5,7 +5,10 @@ use base64::prelude::{Engine, BASE64_STANDARD};
 use chrono::{Local, Utc};
 use crossbeam::select;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use ipc_channel::ipc::{IpcOneShotServer, IpcReceiver};
+use ipc_channel::{
+    ipc::{IpcOneShotServer, IpcReceiver},
+    router::RouterProxy,
+};
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::{types::TransactionMetadata, LiteSVM};
@@ -305,10 +308,12 @@ pub async fn start(
                     .to_str()
                     .ok_or(GeyserPluginManagerError::InvalidPluginPath)?;
 
+                let ipc_router = RouterProxy::new();
+
                 while let Ok(command) = plugin_manager_commands_rx.recv() {
                     match command {
                         PluginManagerCommand::LoadConfig(config, notifier) => {
-                            let _ = subgraph_commands_tx.send(SubgraphCommand::CreateEndpoint(config.data.clone(), notifier));
+                            let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(config.data.clone(), notifier));
 
                             let (mut plugin, lib) = unsafe {
                                 let lib = match Library::new(&libpath) {
@@ -332,10 +337,10 @@ pub async fn start(
                             };
                             let config_file = serde_json::to_string(&subgraph_plugin_config).unwrap();
                             let _res = plugin.on_load(&config_file, false);
-                            if let Ok(rx) = server.accept() {
-                                println!("Game on: {:?}", rx);
+                            if let Ok((_, rx)) = server.accept() {
+                                let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver(rx);
+                                let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveSubgraph(subgraph_rx));
                             };
-
                             plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.clone())));
                             let _ = simnet_events_tx_copy.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
                         }

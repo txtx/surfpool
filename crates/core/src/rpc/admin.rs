@@ -1,23 +1,16 @@
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
-use std::time::SystemTime;
-
-use crossbeam_channel::unbounded;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_client::rpc_config::RpcAccountIndex;
 use solana_sdk::pubkey::Pubkey;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::time::Duration;
+use std::time::SystemTime;
 use txtx_addon_network_svm::codec::subgraph::PluginConfig;
-use txtx_addon_network_svm::codec::subgraph::SubgraphRequest;
-
-use crate::types::PluginManagerCommand;
-use crate::types::SubgraphCommand;
-use crate::types::SubgraphPluginConfig;
 
 use super::RunloopContext;
+use crate::types::PluginManagerCommand;
 
 #[rpc]
 pub trait AdminRpc {

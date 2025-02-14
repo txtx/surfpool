@@ -6,8 +6,7 @@ use actix_web::web::{self, Data};
 use actix_web::HttpRequest;
 use actix_web::{middleware, App, HttpResponse, HttpServer};
 use actix_web::{Error, Responder};
-use crossbeam::channel::{Receiver, Sender};
-use ipc_channel::ipc::IpcReceiver;
+use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, playground_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
 use std::error::Error as StdError;
@@ -39,34 +38,54 @@ pub async fn start_server(
     let gql_context_copy = gql_context.clone();
     let _handle = hiro_system_kit::thread_named("subgraph")
         .spawn(move || {
+            let mut observers = vec![];
             loop {
-                match subgraph_commands_rx.recv() {
-                    Err(_e) => {
-                        // todo
-                    }
-                    Ok(cmd) => match cmd {
-                        SubgraphCommand::CreateEndpoint(config, sender) => {
-                            println!("Here: {:?}", config);
-                            let gql_context = gql_context_copy.write().unwrap();
-                            let mut collections = gql_context.collections_store.write().unwrap();
-                            let collection_uuid = Uuid::new_v4();
+                let mut selector = Select::new();
+                let mut handles = vec![];
+                selector.recv(&subgraph_commands_rx);
+                for rx in observers.iter() {
+                    handles.push(selector.recv(rx));
+                }
+                let oper = selector.select();
+                match oper.index() {
+                    0 => match oper.recv(&subgraph_commands_rx) {
+                        Err(_e) => {
+                            // todo
+                        }
+                        Ok(cmd) => match cmd {
+                            SubgraphCommand::CreateSubgraph(config, sender) => {
+                                let gql_context = gql_context_copy.write().unwrap();
+                                let mut collections =
+                                    gql_context.collections_store.write().unwrap();
+                                let collection_uuid = Uuid::new_v4();
 
-                            collections.insert(
-                                collection_uuid.clone(),
-                                CollectionData {
-                                    collection: Collection {
-                                        uuid: collection_uuid,
-                                        name: config.subgraph_name.clone(),
-                                        entries: vec![],
+                                collections.insert(
+                                    collection_uuid.clone(),
+                                    CollectionData {
+                                        collection: Collection {
+                                            uuid: collection_uuid,
+                                            name: config.subgraph_name.clone(),
+                                            entries: vec![],
+                                        },
                                     },
-                                },
-                            );
-                            println!("{:?}", collections);
-                            let _ = sender.send("http://127.0.0.1:8900/graphql".into());
+                                );
+                                println!("{:?}", collections);
+                                let _ = sender.send("http://127.0.0.1:8900/graphql".into());
+                            }
+                            SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
+                                println!("Observing new graph");
+                                observers.push(subgraph_observer_rx);
+                            }
+                            SubgraphCommand::Shutdown => {
+                                let _ = subgraph_events_tx.send(SubgraphEvent::Shutdown);
+                            }
+                        },
+                    },
+                    i => match oper.recv(&observers[i - 1]) {
+                        Ok(value) => {
+                            println!("Inject {} in store", value);
                         }
-                        SubgraphCommand::Shutdown => {
-                            let _ = subgraph_events_tx.send(SubgraphEvent::Shutdown);
-                        }
+                        Err(_e) => {}
                     },
                 }
             }

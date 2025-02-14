@@ -1,5 +1,5 @@
 use chrono::{DateTime, Local};
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Receiver, Sender};
 use litesvm::types::TransactionMetadata;
 use solana_client::rpc_config::RpcSendTransactionConfig;
 use solana_sdk::{
@@ -51,7 +51,8 @@ pub enum SubgraphIndexingEvent {
 
 #[derive(Debug, Clone)]
 pub enum SubgraphCommand {
-    CreateEndpoint(SubgraphRequest, Sender<String>),
+    CreateSubgraph(SubgraphRequest, Sender<String>),
+    ObserveSubgraph(Receiver<String>),
     Shutdown,
 }
 
