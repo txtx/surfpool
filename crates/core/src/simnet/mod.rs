@@ -263,124 +263,139 @@ pub async fn start(
         let _handle = hiro_system_kit::thread_named("geyser plugins handler").spawn(move || {
             let mut plugin_manager = GeyserPluginManager::new();
 
-            for (i, geyser_plugin_config_file) in config.plugin_config_path.iter().enumerate() {
-                let mut file = match File::open(geyser_plugin_config_file) {
-                    Ok(file) => file,
-                    Err(err) => {
-                        return Err(GeyserPluginManagerError::CannotOpenConfigFile(format!(
-                            "Failed to open the plugin config file {geyser_plugin_config_file:?}, error: {err:?}"
-                        )));
-                    }
-                };
-                let mut contents = String::new();
-                if let Err(err) = file.read_to_string(&mut contents) {
-                    return Err(GeyserPluginManagerError::CannotReadConfigFile(format!(
-                        "Failed to read the plugin config file {geyser_plugin_config_file:?}, error: {err:?}"
-                    )));
-                }
+            // for (i, geyser_plugin_config_file) in config.plugin_config_path.iter().enumerate() {
+                // let mut file = match File::open(geyser_plugin_config_file) {
+                //     Ok(file) => file,
+                //     Err(err) => {
+                //         return Err(GeyserPluginManagerError::CannotOpenConfigFile(format!(
+                //             "Failed to open the plugin config file {geyser_plugin_config_file:?}, error: {err:?}"
+                //         )));
+                //     }
+                // };
+                // let mut contents = String::new();
+                // if let Err(err) = file.read_to_string(&mut contents) {
+                //     return Err(GeyserPluginManagerError::CannotReadConfigFile(format!(
+                //         "Failed to read the plugin config file {geyser_plugin_config_file:?}, error: {err:?}"
+                //     )));
+                // }
+                // let result: serde_json::Value = match json5::from_str(&contents) {
+                //     Ok(value) => value,
+                //     Err(err) => {
+                //         return Err(GeyserPluginManagerError::InvalidConfigFileFormat(format!(
+                //             "The config file {geyser_plugin_config_file:?} is not in a valid Json5 format, error: {err:?}"
+                //         )));
+                //     }
+                // };
 
-                let result: serde_json::Value = match json5::from_str(&contents) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        return Err(GeyserPluginManagerError::InvalidConfigFileFormat(format!(
-                            "The config file {geyser_plugin_config_file:?} is not in a valid Json5 format, error: {err:?}"
-                        )));
-                    }
-                };
+                // let _config_file = geyser_plugin_config_file
+                //     .as_os_str()
+                //     .to_str()
+                //     .ok_or(GeyserPluginManagerError::InvalidPluginPath)?;
+
+
+                let geyser_plugin_config_file = PathBuf::from("../../surfpool_subgraph_plugin.json");
+
+                let contents = "{\"name\": \"surfpool-subgraph\", \"libpath\": \"target/release/libsurfpool_subgraph.dylib\"}";
+                let result: serde_json::Value = json5::from_str(&contents).unwrap();
 
                 let libpath = result["libpath"]
                     .as_str()
-                    .ok_or(GeyserPluginManagerError::LibPathNotSet)?;
+                    .unwrap();
                 let mut libpath = PathBuf::from(libpath);
                 if libpath.is_relative() {
                     let config_dir = geyser_plugin_config_file.parent().ok_or_else(|| {
                         GeyserPluginManagerError::CannotOpenConfigFile(format!(
                             "Failed to resolve parent of {geyser_plugin_config_file:?}",
                         ))
-                    })?;
+                    }).unwrap();
                     libpath = config_dir.join(libpath);
                 }
 
-                let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or(format!("plugin-{}", i));
-
-                let _config_file = geyser_plugin_config_file
-                    .as_os_str()
-                    .to_str()
-                    .ok_or(GeyserPluginManagerError::InvalidPluginPath)?;
+                let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or(format!("surfpool-subgraph"));
 
                 let ipc_router = RouterProxy::new();
 
-                while let Ok(command) = plugin_manager_commands_rx.recv() {
-                    match command {
-                        PluginManagerCommand::LoadConfig(config, notifier) => {
-                            let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(config.data.clone(), notifier));
-
-                            let (mut plugin, lib) = unsafe {
-                                let lib = match Library::new(&libpath) {
-                                    Ok(lib) => lib,
-                                    Err(e) => {
-                                        let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
-                                        continue;
+                loop {
+                    select! {
+                        recv(plugin_manager_commands_rx) -> msg => match msg {
+                            Ok(event) => {
+                                match event {
+                                    PluginManagerCommand::LoadConfig(config, notifier) => {
+                                        let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(config.data.clone(), notifier));
+            
+                                        let (mut plugin, lib) = unsafe {
+                                            let lib = match Library::new(&libpath) {
+                                                Ok(lib) => lib,
+                                                Err(e) => {
+                                                    let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
+                                                    continue;
+                                                }
+                                            };
+                                            let constructor: Symbol<PluginConstructor> = lib
+                                                .get(b"_create_plugin")
+                                                .map_err(|e| format!("{}", e.to_string()))?;
+                                            let plugin_raw = constructor();
+                                            (Box::from_raw(plugin_raw), lib)
+                                        };
+            
+                                        let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<String>>::new().expect("Failed to create IPC one-shot server.");
+                                        let subgraph_plugin_config = SubgraphPluginConfig {
+                                            ipc_token,
+                                            subgraph_request: Some(config.data.clone())
+                                        };
+                                        let config_file = serde_json::to_string(&subgraph_plugin_config).unwrap();
+                                        let _res = plugin.on_load(&config_file, false);
+                                        if let Ok((_, rx)) = server.accept() {
+                                            let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver(rx);
+                                            let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveSubgraph(subgraph_rx));
+                                        };
+                                        plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.clone())));
+                                        let _ = simnet_events_tx_copy.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
                                     }
+                                }
+                            },
+                            Err(_) => {},
+                        },
+                        recv(plugins_data_rx) -> msg => match msg {
+                            Err(_) => unreachable!(),
+                            Ok((transaction, transaction_metadata)) => {
+                                let transaction_status_meta = TransactionStatusMeta {
+                                    status: Ok(()),
+                                    fee: 0,
+                                    pre_balances: vec![],
+                                    post_balances: vec![],
+                                    inner_instructions: None,
+                                    log_messages: Some(transaction_metadata.logs.clone()),
+                                    pre_token_balances: None,
+                                    post_token_balances: None,
+                                    rewards: None,
+                                    loaded_addresses: LoadedAddresses {
+                                        writable: vec![],
+                                        readonly: vec![],
+                                    },
+                                    return_data: Some(transaction_metadata.return_data.clone()),
+                                    compute_units_consumed: Some(transaction_metadata.compute_units_consumed),
                                 };
-                                let constructor: Symbol<PluginConstructor> = lib
-                                    .get(b"_create_plugin")
-                                    .map_err(|e| GeyserPluginManagerError::PluginLoadError(e.to_string()))?;
-                                let plugin_raw = constructor();
-                                (Box::from_raw(plugin_raw), lib)
-                            };
-
-                            let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<String>>::new().expect("Failed to create IPC one-shot server.");
-                            let subgraph_plugin_config = SubgraphPluginConfig {
-                                ipc_token,
-                                subgraph_request: Some(config.data.clone())
-                            };
-                            let config_file = serde_json::to_string(&subgraph_plugin_config).unwrap();
-                            let _res = plugin.on_load(&config_file, false);
-                            if let Ok((_, rx)) = server.accept() {
-                                let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver(rx);
-                                let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveSubgraph(subgraph_rx));
-                            };
-                            plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.clone())));
-                            let _ = simnet_events_tx_copy.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
+                
+                                let transaction = SanitizedTransaction::try_from_legacy_transaction(transaction, &HashSet::new())
+                                    .unwrap();
+                
+                                let transaction_replica = ReplicaTransactionInfoV2 {
+                                    signature: &transaction_metadata.signature,
+                                    is_vote: false,
+                                    transaction: &transaction,
+                                    transaction_status_meta: &transaction_status_meta,
+                                    index: 0
+                                };
+                                for plugin in plugin_manager.plugins.iter() {
+                                    plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), 0).unwrap();
+                                }
+                            }
                         }
+
                     }
                 }
-            }
-            while let Ok((transaction, transaction_metadata)) = plugins_data_rx.recv() {
-                let transaction_status_meta = TransactionStatusMeta {
-                    status: Ok(()),
-                    fee: 0,
-                    pre_balances: vec![],
-                    post_balances: vec![],
-                    inner_instructions: None,
-                    log_messages: Some(transaction_metadata.logs.clone()),
-                    pre_token_balances: None,
-                    post_token_balances: None,
-                    rewards: None,
-                    loaded_addresses: LoadedAddresses {
-                        writable: vec![],
-                        readonly: vec![],
-                    },
-                    return_data: Some(transaction_metadata.return_data.clone()),
-                    compute_units_consumed: Some(transaction_metadata.compute_units_consumed),
-                };
-
-                let transaction = SanitizedTransaction::try_from_legacy_transaction(transaction, &HashSet::new())
-                    .unwrap();
-
-                let transaction_replica = ReplicaTransactionInfoV2 {
-                    signature: &transaction_metadata.signature,
-                    is_vote: false,
-                    transaction: &transaction,
-                    transaction_status_meta: &transaction_status_meta,
-                    index: 0
-                };
-                for plugin in plugin_manager.plugins.iter() {
-                    plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), 0).unwrap();
-                }
-            }
-            Ok(())
+            Ok::<(), String>(())
         });
     }
 

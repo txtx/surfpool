@@ -71,8 +71,13 @@ impl GeyserPlugin for SurfpoolSubgraph {
         transaction: ReplicaTransactionInfoVersions,
         _slot: Slot,
     ) -> PluginResult<()> {
+        let Ok(tx) = self.subgraph_indexing_event_tx.lock() else {
+            return Ok(());
+        };
+        let tx = tx.as_ref().unwrap();
         match transaction {
             ReplicaTransactionInfoVersions::V0_0_2(data) => {
+                let _ = tx.send(SubgraphIndexingEvent::Entry(format!("{}", data.signature)));
                 if data.is_vote {
                     return Ok(());
                 }
