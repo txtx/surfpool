@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::time::Duration;
 use std::time::SystemTime;
 
 use jsonrpc_core::BoxFuture;
@@ -7,6 +8,10 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_client::rpc_config::RpcAccountIndex;
 use solana_sdk::pubkey::Pubkey;
+use txtx_addon_network_svm::codec::subgraph::PluginConfig;
+use txtx_addon_network_svm::codec::subgraph::SubgraphRequest;
+
+use crate::types::SubgraphCommand;
 
 use super::RunloopContext;
 
@@ -136,8 +141,17 @@ impl AdminRpc for SurfpoolAdminRpc {
         unimplemented!()
     }
 
-    fn load_plugin(&self, _meta: Self::Metadata, _config_file: String) -> BoxFuture<Result<String>> {
-        unimplemented!()
+    fn load_plugin(&self, meta: Self::Metadata, config_file: String) -> BoxFuture<Result<String>> {
+        let config = serde_json::from_str::<PluginConfig>(&config_file).unwrap();
+        let ctx = meta.unwrap();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let _ = ctx
+            .subgraph_commands_tx
+            .send(SubgraphCommand::CreateEndpoint(config.data.clone(), tx));
+        let Ok(endpoint_url) = rx.recv_timeout(Duration::from_secs(10)) else {
+            unimplemented!()
+        };
+        Box::pin(async move { Ok(endpoint_url) })
     }
 
     fn list_plugins(&self, _meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>> {
@@ -160,10 +174,13 @@ impl AdminRpc for SurfpoolAdminRpc {
         unimplemented!()
     }
 
-    fn add_authorized_voter_from_bytes(&self, _meta: Self::Metadata, _keypair: Vec<u8>)
-        -> Result<()> {
-            unimplemented!()
-        }
+    fn add_authorized_voter_from_bytes(
+        &self,
+        _meta: Self::Metadata,
+        _keypair: Vec<u8>,
+    ) -> Result<()> {
+        unimplemented!()
+    }
 
     fn remove_all_authorized_voters(&self, _meta: Self::Metadata) -> Result<()> {
         unimplemented!()
@@ -200,7 +217,7 @@ impl AdminRpc for SurfpoolAdminRpc {
     ) -> Result<()> {
         unimplemented!()
     }
-    
+
     fn set_repair_whitelist(&self, _meta: Self::Metadata, _whitelist: Vec<Pubkey>) -> Result<()> {
         unimplemented!()
     }

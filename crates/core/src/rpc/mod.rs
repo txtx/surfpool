@@ -29,11 +29,8 @@ pub struct SurfpoolRpc;
 pub struct RunloopContext {
     pub id: Hash,
     pub state: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: Sender<(
-        Hash,
-        VersionedTransaction,
-        Sender<TransactionConfirmationStatus>,
-    )>,
+    pub simnet_commands_tx: Sender<SimnetCommand>,
+    pub subgraph_commands_tx: Sender<SubgraphCommand>,
 }
 
 trait State {
@@ -77,18 +74,18 @@ impl State for Option<RunloopContext> {
 
 impl Metadata for RunloopContext {}
 
-use crate::{simnet::GlobalState, types::RpcConfig};
+use crate::{
+    simnet::GlobalState,
+    types::{RpcConfig, SimnetCommand, SubgraphCommand},
+};
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
 
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
     pub context: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: Sender<(
-        Hash,
-        VersionedTransaction,
-        Sender<TransactionConfirmationStatus>,
-    )>,
+    pub simnet_commands_tx: Sender<SimnetCommand>,
+    pub subgraph_commands_tx: Sender<SubgraphCommand>,
     pub config: RpcConfig,
 }
 
@@ -109,7 +106,8 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
         let meta = Some(RunloopContext {
             id: Hash::new_unique(),
             state: self.context.clone(),
-            mempool_tx: self.mempool_tx.clone(),
+            simnet_commands_tx: self.simnet_commands_tx.clone(),
+            subgraph_commands_tx: self.subgraph_commands_tx.clone(),
         });
         // println!("Processing request {:?}", request);
         Either::Left(Box::pin(next(request, meta).map(move |res| {

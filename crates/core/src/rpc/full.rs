@@ -6,8 +6,10 @@ use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcContextConfig;
 use solana_client::rpc_custom_error::RpcCustomError;
+use solana_client::rpc_request::RpcRequest;
 use solana_client::rpc_response::RpcApiVersion;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_client::{
@@ -340,8 +342,12 @@ impl Full for SurfpoolFullRpc {
         let signature = signatures[0];
         let (status_update_tx, status_uptate_rx) = crossbeam_channel::bounded(1);
         let _ = ctx
-            .mempool_tx
-            .send((ctx.id.clone(), unsanitized_tx, status_update_tx));
+            .simnet_commands_tx
+            .send(SimnetCommand::TransactionReceived(
+                ctx.id.clone(),
+                unsanitized_tx,
+                status_update_tx,
+            ));
         loop {
             match (status_uptate_rx.recv(), config.preflight_commitment) {
                 (

@@ -18,16 +18,24 @@ use crossbeam_channel::{Receiver, Sender};
 pub use jsonrpc_core;
 pub use jsonrpc_http_server;
 pub use litesvm;
-use simnet::{SimnetCommand, SimnetEvent};
 pub use solana_rpc_client;
 pub use solana_sdk;
-use types::SurfpoolConfig;
+use types::{SimnetCommand, SimnetEvent, SubgraphCommand, SubgraphEvent, SurfpoolConfig};
 
 pub async fn start_simnet(
     config: SurfpoolConfig,
+    subgraph_commands_tx: Sender<SubgraphCommand>,
     simnet_events_tx: Sender<SimnetEvent>,
+    simnet_commands_tx: Sender<SimnetCommand>,
     simnet_commands_rx: Receiver<SimnetCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    simnet::start(config, simnet_events_tx, simnet_commands_rx).await?;
+    simnet::start(
+        config,
+        subgraph_commands_tx,
+        simnet_events_tx,
+        simnet_commands_tx,
+        simnet_commands_rx,
+    )
+    .await?;
     Ok(())
 }

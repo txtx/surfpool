@@ -211,6 +211,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "actix-ws"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "535aec173810be3ca6f25dd5b4d431ae7125d62000aa3cbae1ec739921b02cf3"
+dependencies = [
+ "actix-codec",
+ "actix-http",
+ "actix-web",
+ "futures-core",
+ "tokio",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -722,6 +735,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c59bdb34bc650a32731b31bd8f0829cc15d24a708ee31559e0bb34f2bc320cba"
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -730,6 +749,18 @@ dependencies = [
  "hermit-abi 0.1.19",
  "libc",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "auto_enums"
+version = "0.8.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c170965892137a3a9aeb000b4524aa3cc022a310e709d848b6e1cdce4ab4781"
+dependencies = [
+ "derive_utils 0.15.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.96",
 ]
 
 [[package]]
@@ -1869,6 +1900,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_utils"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "532b4c15dccee12c7044f1fcad956e98410860b22231e44a3b827464797ca7bf"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "derive_utils"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccfae181bab5ab6c5478b2ccb69e4c68a02f8c3ec72f6616bfec9dbc599d2ee0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.96",
+]
+
+[[package]]
 name = "dialoguer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2416,6 +2469,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f29059c0c2090612e8d742178b0580d2dc940c837851ad723096f87af6663e"
 
 [[package]]
+name = "futures-enum"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3422d14de7903a52e9dbc10ae05a7e14445ec61890100e098754e120b2bd7b1e"
+dependencies = [
+ "derive_utils 0.11.2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "futures-executor"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2677,7 +2741,7 @@ dependencies = [
  "fnv",
  "hcl-primitives",
  "vecmap-rs",
- "winnow 0.7.1",
+ "winnow 0.7.2",
 ]
 
 [[package]]
@@ -3646,6 +3710,74 @@ dependencies = [
  "tokio-stream",
  "tokio-util 0.6.10",
  "unicase",
+]
+
+[[package]]
+name = "juniper"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "943306315b1a7a03d27af9dfb0c288d9f4da8830c17df4bceb7d50a47da0982c"
+dependencies = [
+ "async-trait",
+ "auto_enums",
+ "fnv",
+ "futures 0.3.31",
+ "indexmap 2.7.1",
+ "juniper_codegen",
+ "serde",
+ "smartstring",
+ "static_assertions",
+]
+
+[[package]]
+name = "juniper_actix"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2eafd05a9b03395e4c032e5d903109a5fceaf89bb7ae6731e416bc2088f9e556"
+dependencies = [
+ "actix-http",
+ "actix-web",
+ "actix-ws",
+ "anyhow",
+ "futures 0.3.31",
+ "juniper",
+ "juniper_graphql_ws",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "juniper_codegen"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "760dbe46660494d469023d661e8d268f413b2cb68c999975dcc237407096a693"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.96",
+ "url 2.5.4",
+]
+
+[[package]]
+name = "juniper_graphql_ws"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "709eb11c716072f5c9fcbfa705dd684bd3c070943102f9fc56ccb812a36ba017"
+dependencies = [
+ "juniper",
+ "juniper_subscriptions",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "juniper_subscriptions"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6208a839bd4ca2131924a238311d088d6604ea267c0917903392bad7b70a92c"
+dependencies = [
+ "futures 0.3.31",
+ "juniper",
 ]
 
 [[package]]
@@ -6104,6 +6236,17 @@ name = "smallvec"
 version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
+
+[[package]]
+name = "smartstring"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fb72c633efbaa2dd666986505016c32c3044395ceaf881518399d2f4127ee29"
+dependencies = [
+ "autocfg",
+ "static_assertions",
+ "version_check",
+]
 
 [[package]]
 name = "smpl_jwt"
@@ -9074,6 +9217,8 @@ dependencies = [
  "dialoguer 0.11.0",
  "dirs 6.0.0",
  "hiro-system-kit",
+ "juniper_actix",
+ "juniper_graphql_ws",
  "mime_guess",
  "mustache",
  "notify",
@@ -9082,6 +9227,7 @@ dependencies = [
  "serde",
  "serde_json",
  "surfpool-core",
+ "surfpool-gql",
  "tokio",
  "toml 0.8.19",
  "txtx-addon-network-svm",
@@ -9151,7 +9297,23 @@ dependencies = [
  "symlink",
  "tokio",
  "tokio-util 0.7.13",
+ "txtx-addon-network-svm",
+ "uuid",
  "zstd",
+]
+
+[[package]]
+name = "surfpool-gql"
+version = "0.1.7"
+dependencies = [
+ "async-stream",
+ "futures 0.3.31",
+ "futures-enum",
+ "juniper",
+ "juniper_codegen",
+ "surfpool-core",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -9160,6 +9322,7 @@ version = "0.1.7"
 dependencies = [
  "agave-geyser-plugin-interface",
  "solana-program",
+ "txtx-addon-network-svm",
 ]
 
 [[package]]
@@ -9879,9 +10042,7 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "349567e68d1724bec1eec4ccf766232be8cdfd257f5453063e766b5b978eb90e"
+version = "0.2.3"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -9913,8 +10074,6 @@ dependencies = [
 [[package]]
 name = "txtx-addon-network-svm"
 version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ce3a54125dcded77c3e27cc3891cffbdd12aa1f1340dfc289d6c9d31e1d5353"
 dependencies = [
  "anchor-lang-idl",
  "async-recursion",
@@ -9935,9 +10094,7 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db49fab87668ddb4b4af2e0661566c23bbba269d3b36f4cc067dfc2863bfe1a0"
+version = "0.2.3"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
@@ -10142,6 +10299,7 @@ version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f00cc9702ca12d3c81455259621e676d0f7251cec66a21e98fe2e9a37db93b2a"
 dependencies = [
+ "atomic",
  "getrandom 0.2.15",
  "serde",
 ]
@@ -10590,9 +10748,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86e376c75f4f43f44db463cf729e0d3acbf954d13e22c51e26e4c264b4ab545f"
+checksum = "59690dea168f2198d1a3b0cac23b8063efcd11012f10ae4698f284808c8ef603"
 dependencies = [
  "memchr",
 ]

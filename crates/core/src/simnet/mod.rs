@@ -2,7 +2,7 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, ReplicaTransactionInfoV2, ReplicaTransactionInfoVersions,
 };
 use base64::prelude::{Engine, BASE64_STANDARD};
-use chrono::{DateTime, Local, Utc};
+use chrono::{Local, Utc};
 use crossbeam::select;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use jsonrpc_core::MetaIoHandler;
@@ -16,12 +16,8 @@ use solana_sdk::{
     clock::Clock,
     epoch_info::EpochInfo,
     message::v0::LoadedAddresses,
-    pubkey::Pubkey,
     signature::Signature,
-    transaction::{
-        SanitizedTransaction, Transaction, TransactionError, TransactionVersion,
-        VersionedTransaction,
-    },
+    transaction::{SanitizedTransaction, Transaction, TransactionError, TransactionVersion},
 };
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
@@ -40,10 +36,13 @@ use std::{
 
 use crate::{
     rpc::{
-        self, accounts_data::AccountsData, accounts_scan::AccountsScan, bank_data::BankData,
-        full::Full, minimal::Minimal, SurfpoolMiddleware,
+        self, accounts_data::AccountsData, accounts_scan::AccountsScan, admin::AdminRpc,
+        bank_data::BankData, full::Full, minimal::Minimal, SurfpoolMiddleware,
     },
-    types::{RunloopTriggerMode, SurfpoolConfig},
+    types::{
+        ClockCommand, ClockEvent, RunloopTriggerMode, SimnetCommand, SimnetEvent, SubgraphCommand,
+        SubgraphEvent, SurfpoolConfig,
+    },
 };
 
 const BLOCKHASH_SLOT_TTL: u64 = 75;
@@ -180,49 +179,15 @@ impl EntryStatus {
     }
 }
 
-#[derive(Debug)]
-pub enum SimnetEvent {
-    Ready,
-    Aborted(String),
-    Shutdown,
-    ClockUpdate(Clock),
-    EpochInfoUpdate(EpochInfo),
-    BlockHashExpired,
-    InfoLog(DateTime<Local>, String),
-    ErrorLog(DateTime<Local>, String),
-    WarnLog(DateTime<Local>, String),
-    DebugLog(DateTime<Local>, String),
-    PluginLoaded(String),
-    TransactionReceived(DateTime<Local>, VersionedTransaction),
-    AccountUpdate(DateTime<Local>, Pubkey),
-}
-
-pub enum SimnetCommand {
-    SlotForward,
-    SlotBackward,
-    UpdateClock(ClockCommand),
-    UpdateRunloopMode(RunloopTriggerMode),
-}
-
-pub enum ClockCommand {
-    Pause,
-    Resume,
-    Toggle,
-    UpdateSlotInterval(u64),
-}
-
-pub enum ClockEvent {
-    Tick,
-    ExpireBlockHash,
-}
-
 use std::{fs::File, io::Read, path::PathBuf};
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use libloading::{Library, Symbol};
 
 pub async fn start(
     config: SurfpoolConfig,
+    subgraph_commands_tx: Sender<SubgraphCommand>,
     simnet_events_tx: Sender<SimnetEvent>,
+    simnet_commands_tx: Sender<SimnetCommand>,
     simnet_commands_rx: Receiver<SimnetCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut svm = LiteSVM::new();
@@ -254,10 +219,10 @@ pub async fn start(
     };
 
     let context = Arc::new(RwLock::new(context));
-    let (mempool_tx, mempool_rx) = unbounded();
     let middleware = SurfpoolMiddleware {
         context: context.clone(),
-        mempool_tx,
+        simnet_commands_tx: simnet_commands_tx.clone(),
+        subgraph_commands_tx: subgraph_commands_tx.clone(),
         config: config.rpc.clone(),
     };
 
@@ -270,6 +235,7 @@ pub async fn start(
     io.extend_with(rpc::accounts_data::SurfpoolAccountsDataRpc.to_delegate());
     io.extend_with(rpc::accounts_scan::SurfpoolAccountsScanRpc.to_delegate());
     io.extend_with(rpc::bank_data::SurfpoolBankDataRpc.to_delegate());
+    io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());
 
     let _handle = hiro_system_kit::thread_named("rpc handler").spawn(move || {
         let server = ServerBuilder::new(io)
@@ -471,19 +437,16 @@ pub async fn start(
                             runloop_trigger_mode = update;
                             continue
                         }
-                    }
-                },
-                Err(_) => {},
-            },
-            recv(mempool_rx) -> msg => match msg {
-                Ok((key, transaction, status_tx)) => {
-                    let signature = transaction.signatures[0].clone();
-                    transactions_to_process.push((key, transaction, status_tx));
-                    if let Ok(mut ctx) = context.write() {
-                        ctx.transactions.insert(
-                            signature,
-                            EntryStatus::Received,
-                        );
+                        SimnetCommand::TransactionReceived(key, transaction, status_tx) => {
+                            let signature = transaction.signatures[0].clone();
+                            transactions_to_process.push((key, transaction, status_tx));
+                            if let Ok(mut ctx) = context.write() {
+                                ctx.transactions.insert(
+                                    signature,
+                                    EntryStatus::Received,
+                                );
+                            }
+                        }
                     }
                 },
                 Err(_) => {},
@@ -498,7 +461,7 @@ pub async fn start(
 
         // Handle the transactions accumulated
         for (key, transaction, status_tx) in transactions_to_process.drain(..) {
-            let _ = simnet_events_tx.try_send(SimnetEvent::TransactionReceived(
+            let _ = simnet_events_tx.try_send(SimnetEvent::TransactionSimulated(
                 Local::now(),
                 transaction.clone(),
             ));

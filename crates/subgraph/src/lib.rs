@@ -1,19 +1,23 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::{
-        GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions, ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus
+        GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
+        ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult,
+        SlotStatus,
     },
     solana_program::clock::Slot,
 };
 
 #[derive(Default, Debug)]
-pub struct SurfpoolSubgraph {}
+pub struct SurfpoolSubgraph {
+    pub id: String,
+}
 
 impl GeyserPlugin for SurfpoolSubgraph {
     fn name(&self) -> &'static str {
         "surfpool-subgraph"
     }
 
-    fn on_load(&mut self, _config_file: &str, _is_reload: bool) -> PluginResult<()> {
+    fn on_load(&mut self, config_file: &str, _is_reload: bool) -> PluginResult<()> {
         Ok(())
     }
 
@@ -61,16 +65,15 @@ impl GeyserPlugin for SurfpoolSubgraph {
         match transaction {
             ReplicaTransactionInfoVersions::V0_0_2(data) => {
                 if data.is_vote {
-                    return Ok(())
+                    return Ok(());
                 }
-
-                let Some(inner_instructions) = data.transaction_status_meta.inner_instructions else {
-                    return Ok(())
+                let Some(ref inner_instructions) = data.transaction_status_meta.inner_instructions
+                else {
+                    return Ok(());
                 };
-
                 for inner_instructions in inner_instructions.iter() {
                     for instruction in inner_instructions.instructions.iter() {
-                        
+                        println!("{:?}", instruction);
                     }
                 }
             }

@@ -12,14 +12,13 @@ use ratatui::{
 };
 use std::{collections::VecDeque, error::Error, io, time::Duration};
 use surfpool_core::{
-    simnet::{ClockCommand, SimnetCommand, SimnetEvent},
     solana_rpc_client::rpc_client::RpcClient,
     solana_sdk::{
         clock::Clock, commitment_config::CommitmentConfig, epoch_info::EpochInfo, message::Message,
         pubkey::Pubkey, signature::Keypair, signer::Signer, system_instruction,
         transaction::Transaction,
     },
-    types::RunloopTriggerMode,
+    types::{ClockCommand, RunloopTriggerMode, SimnetCommand, SimnetEvent},
 };
 use txtx_core::kit::types::frontend::BlockEvent;
 use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};
@@ -279,7 +278,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     SimnetEvent::WarnLog(dt, log) => {
                         app.events.push_front((EventType::Warning, dt, log));
                     }
-                    SimnetEvent::TransactionReceived(_dt, _transaction) => {
+                    SimnetEvent::TransactionSimulated(_dt, _transaction) => {
                         app.successful_transactions += 1;
                     }
                     SimnetEvent::BlockHashExpired => {}

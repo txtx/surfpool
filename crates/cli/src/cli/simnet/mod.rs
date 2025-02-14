@@ -23,14 +23,16 @@ use notify::{
     Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
 };
 use surfpool_core::{
-    simnet::SimnetEvent,
     solana_sdk::{
         pubkey::Pubkey,
         signature::Keypair,
         signer::{EncodableKey, Signer},
     },
     start_simnet,
-    types::{RpcConfig, RunloopTriggerMode, SimnetConfig, SurfpoolConfig},
+    types::{
+        RpcConfig, RunloopTriggerMode, SimnetConfig, SimnetEvent, SubgraphConfig, SubgraphEvent,
+        SurfpoolConfig,
+    },
 };
 use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
@@ -83,6 +85,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             airdrop_addresses,
             airdrop_token_amount: cmd.airdrop_token_amount,
         },
+        subgraph: SubgraphConfig {},
         plugin_config_path: cmd
             .plugin_config_path
             .iter()
@@ -95,12 +98,23 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     // We start the simnet as soon as possible, as it needs to be ready for deployments
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
     let (simnet_events_tx, simnet_events_rx) = crossbeam::channel::unbounded();
-    let ctx_cloned = ctx.clone();
+    let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
+    let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
+
+    let ctx_copy = ctx.clone();
+    let simnet_commands_tx_copy = simnet_commands_tx.clone();
+    let config_copy = config.clone();
     let _handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
-            let future = start_simnet(config, simnet_events_tx, simnet_commands_rx);
+            let future = start_simnet(
+                config_copy,
+                subgraph_commands_tx,
+                simnet_events_tx,
+                simnet_commands_tx_copy,
+                simnet_commands_rx,
+            );
             if let Err(e) = hiro_system_kit::nestable_block_on(future) {
-                error!(ctx_cloned.expect_logger(), "{e}");
+                error!(ctx_copy.expect_logger(), "{e}");
                 sleep(Duration::from_millis(500));
                 std::process::exit(1);
             }
@@ -108,6 +122,8 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         })
         .map_err(|e| format!("{}", e))?;
 
+    let ctx_copy = ctx.clone();
+    let subgraph_events_tx_copy = subgraph_events_tx.clone();
     loop {
         match simnet_events_rx.recv() {
             Ok(SimnetEvent::Aborted(error)) => return Err(error),
@@ -117,16 +133,16 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         }
     }
 
-    let explorer_handle = if !cmd.no_explorer {
-        let ctx_cloned = ctx.clone();
-        let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);
-        let future = start_server(&network_binding, &ctx_cloned)
-            .await
-            .map_err(|e| format!("{}", e.to_string()))?;
-        Some(future)
-    } else {
-        None
-    };
+    let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);
+    let explorer_handle = start_server(
+        network_binding,
+        config,
+        subgraph_events_tx_copy,
+        subgraph_commands_rx,
+        &ctx_copy,
+    )
+    .await
+    .map_err(|e| format!("{}", e.to_string()))?;
 
     let mut deploy_progress_rx = vec![];
     if !cmd.no_deploy {
@@ -239,7 +255,13 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
 
     // Start frontend - kept on main thread
     if cmd.no_tui {
-        log_events(simnet_events_rx, cmd.debug, deploy_progress_rx, ctx)?;
+        log_events(
+            simnet_events_rx,
+            subgraph_events_rx,
+            cmd.debug,
+            deploy_progress_rx,
+            ctx,
+        )?;
     } else {
         tui::simnet::start_app(
             simnet_events_rx,
@@ -252,14 +274,13 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         )
         .map_err(|e| format!("{}", e))?;
     }
-    if let Some(explorer_handle) = explorer_handle {
-        let _ = explorer_handle.stop(true);
-    }
+    let _ = explorer_handle.stop(true);
     Ok(())
 }
 
 fn log_events(
     simnet_events_rx: Receiver<SimnetEvent>,
+    subgraph_events_rx: Receiver<SubgraphEvent>,
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     ctx: &Context,
@@ -280,6 +301,7 @@ fn log_events(
         let mut handles = vec![];
 
         selector.recv(&simnet_events_rx);
+        selector.recv(&subgraph_events_rx);
 
         if !deployment_completed {
             for rx in deploy_progress_rx.iter() {
@@ -334,7 +356,7 @@ fn log_events(
                     SimnetEvent::WarnLog(_dt, log) => {
                         warn!(ctx.expect_logger(), "{}", log);
                     }
-                    SimnetEvent::TransactionReceived(_dt, transaction) => {
+                    SimnetEvent::TransactionSimulated(_dt, transaction) => {
                         if deployment_completed {
                             info!(
                                 ctx.expect_logger(),
@@ -356,7 +378,32 @@ fn log_events(
                     break;
                 }
             },
-            i => match oper.recv(&deploy_progress_rx[i - 1]) {
+            1 => match oper.recv(&subgraph_events_rx) {
+                Ok(event) => match event {
+                    SubgraphEvent::ErrorLog(_dt, log) => {
+                        error!(ctx.expect_logger(), "{}", log);
+                    }
+                    SubgraphEvent::InfoLog(_dt, log) => {
+                        info!(ctx.expect_logger(), "{}", log);
+                    }
+                    SubgraphEvent::DebugLog(_dt, log) => {
+                        if include_debug_logs {
+                            info!(ctx.expect_logger(), "{}", log);
+                        }
+                    }
+                    SubgraphEvent::WarnLog(_dt, log) => {
+                        warn!(ctx.expect_logger(), "{}", log);
+                    }
+                    SubgraphEvent::EndpointReady => {}
+                    SubgraphEvent::Shutdown => {
+                        break;
+                    }
+                },
+                Err(_e) => {
+                    break;
+                }
+            },
+            i => match oper.recv(&deploy_progress_rx[i - 2]) {
                 Ok(event) => match event {
                     BlockEvent::UpdateProgressBarStatus(update) => {
                         debug!(

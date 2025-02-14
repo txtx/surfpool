@@ -14,3 +14,4 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 agave-geyser-plugin-interface = { workspace = true }
 solana-program = { workspace = true }
+txtx-addon-network-svm = { workspace = true }
