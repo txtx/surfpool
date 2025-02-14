@@ -5,14 +5,10 @@ use base64::prelude::{Engine, BASE64_STANDARD};
 use chrono::{Local, Utc};
 use crossbeam::select;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use ipc_channel::{
-    ipc::{IpcOneShotServer, IpcReceiver, IpcSender},
-    router::RouterProxy,
-};
+use ipc_channel::ipc::{IpcOneShotServer, IpcReceiver};
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::{types::TransactionMetadata, LiteSVM};
-use serde::Serialize;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_geyser_plugin_manager::geyser_plugin_manager::{
     GeyserPluginManager, GeyserPluginManagerError, LoadedGeyserPlugin,
@@ -46,7 +42,7 @@ use crate::{
     },
     types::{
         ClockCommand, ClockEvent, PluginManagerCommand, RunloopTriggerMode, SimnetCommand,
-        SimnetEvent, SubgraphCommand, SubgraphEvent, SubgraphPluginConfig, SurfpoolConfig,
+        SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig, TransactionStatusEvent,
     },
 };
 
@@ -464,9 +460,9 @@ pub async fn start(
                             runloop_trigger_mode = update;
                             continue
                         }
-                        SimnetCommand::TransactionReceived(key, transaction, status_tx) => {
+                        SimnetCommand::TransactionReceived(key, transaction, status_tx, config) => {
                             let signature = transaction.signatures[0].clone();
-                            transactions_to_process.push((key, transaction, status_tx));
+                            transactions_to_process.push((key, transaction, status_tx, config));
                             if let Ok(mut ctx) = context.write() {
                                 ctx.transactions.insert(
                                     signature,
@@ -487,7 +483,7 @@ pub async fn start(
         };
 
         // Handle the transactions accumulated
-        for (key, transaction, status_tx) in transactions_to_process.drain(..) {
+        for (key, transaction, status_tx, tx_config) in transactions_to_process.drain(..) {
             let _ = simnet_events_tx.try_send(SimnetEvent::TransactionSimulated(
                 Local::now(),
                 transaction.clone(),
@@ -519,6 +515,25 @@ pub async fn start(
                 }
             }
 
+            if !tx_config.skip_preflight {
+                let (meta, err) = match ctx.svm.simulate_transaction(transaction.clone()) {
+                    Ok(res) => (res.meta, None),
+                    Err(e) => {
+                        let _ = simnet_events_tx.try_send(SimnetEvent::ErrorLog(
+                            Local::now(),
+                            format!("Transaction simulation failed: {}", e.err.to_string()),
+                        ));
+                        (e.meta, Some(e.err))
+                    }
+                };
+
+                if let Some(e) = &err {
+                    let _ = status_tx
+                        .try_send(TransactionStatusEvent::SimulationFailure((e.clone(), meta)));
+                    continue;
+                }
+            }
+
             let (meta, err) = match ctx.svm.send_transaction(transaction.clone()) {
                 Ok(res) => {
                     let _ = plugins_data_tx.try_send((transaction.clone(), res.clone()));
@@ -527,7 +542,7 @@ pub async fn start(
                 Err(e) => {
                     let _ = simnet_events_tx.try_send(SimnetEvent::ErrorLog(
                         Local::now(),
-                        format!("Error processing transaction: {}", e.err.to_string()),
+                        format!("Transaction execution failed: {}", e.err.to_string()),
                     ));
                     (e.meta, Some(e.err))
                 }
@@ -539,11 +554,18 @@ pub async fn start(
                 EntryStatus::Processed(TransactionWithStatusMeta(
                     slot,
                     transaction.clone(),
-                    meta,
-                    err,
+                    meta.clone(),
+                    err.clone(),
                 )),
             );
-            let _ = status_tx.try_send(TransactionConfirmationStatus::Processed);
+            if let Some(e) = &err {
+                let _ =
+                    status_tx.try_send(TransactionStatusEvent::ExecutionFailure((e.clone(), meta)));
+            } else {
+                let _ = status_tx.try_send(TransactionStatusEvent::Success(
+                    TransactionConfirmationStatus::Processed,
+                ));
+            }
             transactions_processed.push((key, transaction, status_tx));
             num_transactions += 1;
         }
@@ -553,7 +575,9 @@ pub async fn start(
         }
 
         for (_key, _transaction, status_tx) in transactions_processed.iter() {
-            let _ = status_tx.try_send(TransactionConfirmationStatus::Confirmed);
+            let _ = status_tx.try_send(TransactionStatusEvent::Success(
+                TransactionConfirmationStatus::Confirmed,
+            ));
         }
 
         ctx.epoch_info.slot_index += 1;
