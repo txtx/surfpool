@@ -167,7 +167,6 @@ async fn post_graphql(
     schema: Data<GqlSchema>,
     context: Data<RwLock<GqlContext>>,
 ) -> Result<HttpResponse, Error> {
-    println!("POST /graphql");
     let context = context
         .read()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read context"))?;
@@ -180,7 +179,6 @@ async fn get_graphql(
     schema: Data<GqlSchema>,
     context: Data<RwLock<GqlContext>>,
 ) -> Result<HttpResponse, Error> {
-    println!("GET /graphql");
     let context = context
         .read()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read context"))?;
@@ -206,9 +204,9 @@ async fn subscriptions(
 }
 
 async fn playground() -> Result<HttpResponse, Error> {
-    playground_handler("/graphql", Some("/subscriptions")).await
+    playground_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
 }
 
 async fn graphiql() -> Result<HttpResponse, Error> {
-    graphiql_handler("/graphql", Some("/subscriptions")).await
+    graphiql_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
 }

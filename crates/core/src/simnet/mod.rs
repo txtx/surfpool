@@ -312,7 +312,8 @@ pub async fn start(
 
                 let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or(format!("surfpool-subgraph"));
 
-
+                let ipc_router = RouterProxy::new();
+                
                 loop {
                     select! {
                         recv(plugin_manager_commands_rx) -> msg => match msg {
