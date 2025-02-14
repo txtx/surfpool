@@ -141,8 +141,8 @@ impl RpcConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SubgraphPluginConfig {
     pub ipc_token: String,
-    pub subgraph_request: Option<SubgraphRequest>,
+    pub subgraph_request: SubgraphRequest,
 }
