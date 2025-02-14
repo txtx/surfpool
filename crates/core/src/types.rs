@@ -1,8 +1,13 @@
 use chrono::{DateTime, Local};
 use crossbeam_channel::Sender;
+use litesvm::types::TransactionMetadata;
+use solana_client::rpc_config::RpcSendTransactionConfig;
 use solana_sdk::{
-    blake3::Hash, clock::Clock, epoch_info::EpochInfo, pubkey::Pubkey,
-    transaction::VersionedTransaction,
+    blake3::Hash,
+    clock::Clock,
+    epoch_info::EpochInfo,
+    pubkey::Pubkey,
+    transaction::{TransactionError, VersionedTransaction},
 };
 use solana_transaction_status::TransactionConfirmationStatus;
 use std::path::PathBuf;
@@ -61,6 +66,12 @@ pub enum SimnetEvent {
     AccountUpdate(DateTime<Local>, Pubkey),
 }
 
+pub enum TransactionStatusEvent {
+    Success(TransactionConfirmationStatus),
+    SimulationFailure((TransactionError, TransactionMetadata)),
+    ExecutionFailure((TransactionError, TransactionMetadata)),
+}
+
 pub enum SimnetCommand {
     SlotForward,
     SlotBackward,
@@ -69,7 +80,8 @@ pub enum SimnetCommand {
     TransactionReceived(
         Hash,
         VersionedTransaction,
-        Sender<TransactionConfirmationStatus>,
+        Sender<TransactionStatusEvent>,
+        RpcSendTransactionConfig,
     ),
 }
 
