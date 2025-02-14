@@ -1,15 +1,15 @@
 use crate::simnet::EntryStatus;
+use crate::types::TransactionStatusEvent;
 
 use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts};
+use itertools::Itertools;
 use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
-use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcContextConfig;
 use solana_client::rpc_custom_error::RpcCustomError;
-use solana_client::rpc_request::RpcRequest;
 use solana_client::rpc_response::RpcApiVersion;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_client::{
@@ -347,19 +347,44 @@ impl Full for SurfpoolFullRpc {
                 ctx.id.clone(),
                 unsanitized_tx,
                 status_update_tx,
+                config,
             ));
         loop {
             match (status_uptate_rx.recv(), config.preflight_commitment) {
+                (Ok(TransactionStatusEvent::SimulationFailure(e)), _) => {
+                    return Err(Error {
+                        data: None,
+                        message: format!(
+                            "Transaction simulation failed: {}: {} log messages:\n{}",
+                            e.0.to_string(),
+                            e.1.logs.len(),
+                            e.1.logs.iter().map(|l| l.to_string()).join("\n")
+                        ),
+                        code: jsonrpc_core::ErrorCode::ServerError(-32002),
+                    })
+                }
+                (Ok(TransactionStatusEvent::ExecutionFailure(e)), _) => {
+                    return Err(Error {
+                        data: None,
+                        message: format!(
+                            "Transaction execution failed: {}: {} log messages:\n{}",
+                            e.0.to_string(),
+                            e.1.logs.len(),
+                            e.1.logs.iter().map(|l| l.to_string()).join("\n")
+                        ),
+                        code: jsonrpc_core::ErrorCode::ServerError(-32002),
+                    })
+                }
                 (
-                    Ok(TransactionConfirmationStatus::Processed),
+                    Ok(TransactionStatusEvent::Success(TransactionConfirmationStatus::Processed)),
                     Some(CommitmentLevel::Processed),
                 ) => break,
                 (
-                    Ok(TransactionConfirmationStatus::Confirmed),
+                    Ok(TransactionStatusEvent::Success(TransactionConfirmationStatus::Confirmed)),
                     None | Some(CommitmentLevel::Confirmed),
                 ) => break,
                 (
-                    Ok(TransactionConfirmationStatus::Finalized),
+                    Ok(TransactionStatusEvent::Success(TransactionConfirmationStatus::Finalized)),
                     Some(CommitmentLevel::Finalized),
                 ) => break,
                 (Err(_), _) => break,
