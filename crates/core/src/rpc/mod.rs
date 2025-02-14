@@ -1,6 +1,7 @@
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crossbeam_channel::Sender;
+use ipc_channel::ipc::IpcSender;
 use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
@@ -30,7 +31,7 @@ pub struct RunloopContext {
     pub id: Hash,
     pub state: Arc<RwLock<GlobalState>>,
     pub simnet_commands_tx: Sender<SimnetCommand>,
-    pub subgraph_commands_tx: Sender<SubgraphCommand>,
+    pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
 }
 
 trait State {
@@ -76,7 +77,7 @@ impl Metadata for RunloopContext {}
 
 use crate::{
     simnet::GlobalState,
-    types::{RpcConfig, SimnetCommand, SubgraphCommand},
+    types::{PluginManagerCommand, RpcConfig, SimnetCommand, SubgraphCommand},
 };
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
@@ -85,7 +86,7 @@ use std::future::Future;
 pub struct SurfpoolMiddleware {
     pub context: Arc<RwLock<GlobalState>>,
     pub simnet_commands_tx: Sender<SimnetCommand>,
-    pub subgraph_commands_tx: Sender<SubgraphCommand>,
+    pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub config: RpcConfig,
 }
 
@@ -107,7 +108,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             id: Hash::new_unique(),
             state: self.context.clone(),
             simnet_commands_tx: self.simnet_commands_tx.clone(),
-            subgraph_commands_tx: self.subgraph_commands_tx.clone(),
+            plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
         });
         // println!("Processing request {:?}", request);
         Either::Left(Box::pin(next(request, meta).map(move |res| {

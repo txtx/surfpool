@@ -20,7 +20,7 @@ pub use jsonrpc_http_server;
 pub use litesvm;
 pub use solana_rpc_client;
 pub use solana_sdk;
-use types::{SimnetCommand, SimnetEvent, SubgraphCommand, SubgraphEvent, SurfpoolConfig};
+use types::{SimnetCommand, SimnetEvent, SubgraphCommand, SurfpoolConfig};
 
 pub async fn start_simnet(
     config: SurfpoolConfig,

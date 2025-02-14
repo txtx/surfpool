@@ -101,6 +101,17 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
 
+    let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);
+    let explorer_handle = start_server(
+        network_binding,
+        config.clone(),
+        subgraph_events_tx.clone(),
+        subgraph_commands_rx,
+        &ctx.clone(),
+    )
+    .await
+    .map_err(|e| format!("{}", e.to_string()))?;
+
     let ctx_copy = ctx.clone();
     let simnet_commands_tx_copy = simnet_commands_tx.clone();
     let config_copy = config.clone();
@@ -122,8 +133,6 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         })
         .map_err(|e| format!("{}", e))?;
 
-    let ctx_copy = ctx.clone();
-    let subgraph_events_tx_copy = subgraph_events_tx.clone();
     loop {
         match simnet_events_rx.recv() {
             Ok(SimnetEvent::Aborted(error)) => return Err(error),
@@ -132,17 +141,6 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             _other => continue,
         }
     }
-
-    let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);
-    let explorer_handle = start_server(
-        network_binding,
-        config,
-        subgraph_events_tx_copy,
-        subgraph_commands_rx,
-        &ctx_copy,
-    )
-    .await
-    .map_err(|e| format!("{}", e.to_string()))?;
 
     let mut deploy_progress_rx = vec![];
     if !cmd.no_deploy {

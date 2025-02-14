@@ -6,7 +6,7 @@ use solana_sdk::{
 };
 use solana_transaction_status::TransactionConfirmationStatus;
 use std::path::PathBuf;
-use txtx_addon_network_svm::codec::subgraph::SubgraphRequest;
+use txtx_addon_network_svm::codec::subgraph::{PluginConfig, SubgraphRequest};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +39,12 @@ pub enum SubgraphEvent {
     Shutdown,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum SubgraphIndexingEvent {
+    Entry(String),
+}
+
+#[derive(Debug, Clone)]
 pub enum SubgraphCommand {
     CreateEndpoint(SubgraphRequest, Sender<String>),
     Shutdown,
@@ -71,6 +77,10 @@ pub enum SimnetCommand {
         VersionedTransaction,
         Sender<TransactionConfirmationStatus>,
     ),
+}
+
+pub enum PluginManagerCommand {
+    LoadConfig(PluginConfig, Sender<String>),
 }
 
 pub enum ClockCommand {
@@ -116,4 +126,10 @@ impl RpcConfig {
     pub fn get_socket_address(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SubgraphPluginConfig {
+    pub ipc_token: String,
+    pub subgraph_request: Option<SubgraphRequest>,
 }

@@ -46,6 +46,8 @@ mime_guess = "2.0.4"
 notify = { version = "8.0.0" }
 juniper_actix = {version = "0.5.0", features = ["subscriptions"] }
 juniper_graphql_ws = { version = "0.4.0", features = ["graphql-transport-ws"] }
+ipc-channel = { workspace = true }
+bincode = { workspace = true }
 
 [features]
 default = ["cli"]

@@ -5,9 +5,14 @@ use base64::prelude::{Engine, BASE64_STANDARD};
 use chrono::{Local, Utc};
 use crossbeam::select;
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use ipc_channel::{
+    ipc::{IpcOneShotServer, IpcReceiver, IpcSender},
+    router::RouterProxy,
+};
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::{types::TransactionMetadata, LiteSVM};
+use serde::Serialize;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_geyser_plugin_manager::geyser_plugin_manager::{
     GeyserPluginManager, GeyserPluginManagerError, LoadedGeyserPlugin,
@@ -40,8 +45,8 @@ use crate::{
         bank_data::BankData, full::Full, minimal::Minimal, SurfpoolMiddleware,
     },
     types::{
-        ClockCommand, ClockEvent, RunloopTriggerMode, SimnetCommand, SimnetEvent, SubgraphCommand,
-        SubgraphEvent, SurfpoolConfig,
+        ClockCommand, ClockEvent, PluginManagerCommand, RunloopTriggerMode, SimnetCommand,
+        SimnetEvent, SubgraphCommand, SubgraphEvent, SubgraphPluginConfig, SurfpoolConfig,
     },
 };
 
@@ -218,11 +223,13 @@ pub async fn start(
         rpc_client: rpc_client.clone(),
     };
 
+    let (plugin_manager_commands_tx, plugin_manager_commands_rx) = unbounded();
+
     let context = Arc::new(RwLock::new(context));
     let middleware = SurfpoolMiddleware {
         context: context.clone(),
         simnet_commands_tx: simnet_commands_tx.clone(),
-        subgraph_commands_tx: subgraph_commands_tx.clone(),
+        plugin_manager_commands_tx,
         config: config.rpc.clone(),
     };
 
@@ -252,6 +259,7 @@ pub async fn start(
     let simnet_config = config.simnet.clone();
     let simnet_events_tx_copy = simnet_events_tx.clone();
     let (plugins_data_tx, plugins_data_rx) = unbounded::<(Transaction, TransactionMetadata)>();
+
     if !config.plugin_config_path.is_empty() {
         let _handle = hiro_system_kit::thread_named("geyser plugins handler").spawn(move || {
             let mut plugin_manager = GeyserPluginManager::new();
@@ -301,23 +309,42 @@ pub async fn start(
                     .to_str()
                     .ok_or(GeyserPluginManagerError::InvalidPluginPath)?;
 
-                let (mut plugin, lib) = unsafe {
-                    let lib = match Library::new(libpath) {
-                        Ok(lib) => lib,
-                        Err(e) => {
-                            let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
-                            continue;
+                while let Ok(command) = plugin_manager_commands_rx.recv() {
+                    match command {
+                        PluginManagerCommand::LoadConfig(config, notifier) => {
+                            let _ = subgraph_commands_tx.send(SubgraphCommand::CreateEndpoint(config.data.clone(), notifier));
+
+                            let (mut plugin, lib) = unsafe {
+                                let lib = match Library::new(&libpath) {
+                                    Ok(lib) => lib,
+                                    Err(e) => {
+                                        let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
+                                        continue;
+                                    }
+                                };
+                                let constructor: Symbol<PluginConstructor> = lib
+                                    .get(b"_create_plugin")
+                                    .map_err(|e| GeyserPluginManagerError::PluginLoadError(e.to_string()))?;
+                                let plugin_raw = constructor();
+                                (Box::from_raw(plugin_raw), lib)
+                            };
+
+                            let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<String>>::new().expect("Failed to create IPC one-shot server.");
+                            let subgraph_plugin_config = SubgraphPluginConfig {
+                                ipc_token,
+                                subgraph_request: Some(config.data.clone())
+                            };
+                            let config_file = serde_json::to_string(&subgraph_plugin_config).unwrap();
+                            let _res = plugin.on_load(&config_file, false);
+                            if let Ok(rx) = server.accept() {
+                                println!("Game on: {:?}", rx);
+                            };
+
+                            plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.clone())));
+                            let _ = simnet_events_tx_copy.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
                         }
-                    };
-                    let constructor: Symbol<PluginConstructor> = lib
-                        .get(b"_create_plugin")
-                        .map_err(|e| GeyserPluginManagerError::PluginLoadError(e.to_string()))?;
-                    let plugin_raw = constructor();
-                    (Box::from_raw(plugin_raw), lib)
-                };
-                let _res = plugin.on_load("", false);
-                plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.clone())));
-                let _ = simnet_events_tx_copy.send(SimnetEvent::PluginLoaded(plugin_name));
+                    }
+                }
             }
             while let Ok((transaction, transaction_metadata)) = plugins_data_rx.recv() {
                 let transaction_status_meta = TransactionStatusMeta {

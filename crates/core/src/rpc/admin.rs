@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 
+use crossbeam_channel::unbounded;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -11,7 +13,9 @@ use solana_sdk::pubkey::Pubkey;
 use txtx_addon_network_svm::codec::subgraph::PluginConfig;
 use txtx_addon_network_svm::codec::subgraph::SubgraphRequest;
 
+use crate::types::PluginManagerCommand;
 use crate::types::SubgraphCommand;
+use crate::types::SubgraphPluginConfig;
 
 use super::RunloopContext;
 
@@ -146,8 +150,8 @@ impl AdminRpc for SurfpoolAdminRpc {
         let ctx = meta.unwrap();
         let (tx, rx) = crossbeam_channel::bounded(1);
         let _ = ctx
-            .subgraph_commands_tx
-            .send(SubgraphCommand::CreateEndpoint(config.data.clone(), tx));
+            .plugin_manager_commands_tx
+            .send(PluginManagerCommand::LoadConfig(config, tx));
         let Ok(endpoint_url) = rx.recv_timeout(Duration::from_secs(10)) else {
             unimplemented!()
         };

@@ -1,15 +1,19 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::{
-        GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
+        GeyserPlugin, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
         ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult,
         SlotStatus,
     },
+    ipc_channel::ipc::IpcSender,
     solana_program::clock::Slot,
+    std::sync::Mutex,
+    surfpool_core::types::{SubgraphIndexingEvent, SubgraphPluginConfig},
 };
 
 #[derive(Default, Debug)]
 pub struct SurfpoolSubgraph {
     pub id: String,
+    subgraph_indexing_event_tx: Mutex<Option<IpcSender<SubgraphIndexingEvent>>>,
 }
 
 impl GeyserPlugin for SurfpoolSubgraph {
@@ -18,6 +22,11 @@ impl GeyserPlugin for SurfpoolSubgraph {
     }
 
     fn on_load(&mut self, config_file: &str, _is_reload: bool) -> PluginResult<()> {
+        let config = serde_json::from_str::<SubgraphPluginConfig>(&config_file).unwrap();
+        let oneshot_tx = IpcSender::connect(config.ipc_token).unwrap();
+        let (tx, rx) = ipc_channel::ipc::channel().unwrap();
+        let _ = oneshot_tx.send(rx);
+        self.subgraph_indexing_event_tx = Mutex::new(Some(tx));
         Ok(())
     }
 
