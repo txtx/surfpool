@@ -339,7 +339,7 @@ pub async fn start(
                                         let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SubgraphIndexingEvent>>::new().expect("Failed to create IPC one-shot server.");
                                         let subgraph_plugin_config = SubgraphPluginConfig {
                                             ipc_token,
-                                            subgraph_request: Some(config.data.clone())
+                                            subgraph_request: config.data.clone()
                                         };
                                         let config_file = serde_json::to_string(&subgraph_plugin_config).unwrap();
                                         let _res = plugin.on_load(&config_file, false);

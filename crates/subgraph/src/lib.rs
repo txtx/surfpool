@@ -1,19 +1,24 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::{
-        GeyserPlugin, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
+        GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
         ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult,
         SlotStatus,
     },
     ipc_channel::ipc::IpcSender,
     solana_program::clock::Slot,
     std::sync::Mutex,
-    surfpool_core::types::{SubgraphIndexingEvent, SubgraphPluginConfig},
+    surfpool_core::{
+        solana_sdk::{bs58, inner_instruction},
+        types::{SubgraphIndexingEvent, SubgraphPluginConfig},
+    },
+    txtx_addon_network_svm::codec::subgraph::{IndexedSubgraphSourceType, SubgraphRequest},
 };
 
 #[derive(Default, Debug)]
 pub struct SurfpoolSubgraph {
     pub id: String,
     subgraph_indexing_event_tx: Mutex<Option<IpcSender<SubgraphIndexingEvent>>>,
+    subgraph_request: Option<SubgraphRequest>,
 }
 
 impl GeyserPlugin for SurfpoolSubgraph {
@@ -27,6 +32,7 @@ impl GeyserPlugin for SurfpoolSubgraph {
         let (tx, rx) = ipc_channel::ipc::channel().unwrap();
         let _ = oneshot_tx.send(rx);
         self.subgraph_indexing_event_tx = Mutex::new(Some(tx));
+        self.subgraph_request = Some(config.subgraph_request);
         Ok(())
     }
 
@@ -75,6 +81,9 @@ impl GeyserPlugin for SurfpoolSubgraph {
             return Ok(());
         };
         let tx = tx.as_ref().unwrap();
+        let Some(subgraph_request) = self.subgraph_request else {
+            return Ok(());
+        };
         match transaction {
             ReplicaTransactionInfoVersions::V0_0_2(data) => {
                 let _ = tx.send(SubgraphIndexingEvent::Entry(format!("{}", data.signature)));
@@ -87,7 +96,47 @@ impl GeyserPlugin for SurfpoolSubgraph {
                 };
                 for inner_instructions in inner_instructions.iter() {
                     for instruction in inner_instructions.instructions.iter() {
-                        println!("{:?}", instruction);
+                        let instruction = instruction.instruction;
+                        let decoded_data = bs58::decode(instruction.data).into_vec().map_err(
+                            GeyserPluginError::TransactionUpdateError {
+                                msg: format!("failed to decode instruction data"),
+                            },
+                        )?;
+                        // it's not valid cpi event data if there isn't an 8-byte signature
+                        if decoded_data.len() < 8 {
+                            continue;
+                        }
+                        let eight_bytes = decoded_data[0..8].to_vec();
+                        let decoded_signature = bs58::decode(eight_bytes).into_vec().map_err(
+                            GeyserPluginError::TransactionUpdateError {
+                                msg: format!("failed to decode instruction data"),
+                            },
+                        )?;
+                        for field in subgraph_request.fields.iter() {
+                            match field.data_source {
+                                IndexedSubgraphSourceType::Instruction(
+                                    instruction_subgraph_source,
+                                ) => {
+                                    continue;
+                                }
+                                IndexedSubgraphSourceType::Event(event_subgraph_source) => {
+                                    if event_subgraph_source
+                                        .event
+                                        .discriminator
+                                        .eq(decoded_signature.as_slice())
+                                    {
+                                        println!(
+                                            "found event with match!!!: {:?}",
+                                            event_subgraph_source.event.name
+                                        );
+                                        let _ = tx.send(SubgraphIndexingEvent::IndexSubgraph {
+                                            subgraph_request: subgraph_request.clone(),
+                                            transaction,
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
