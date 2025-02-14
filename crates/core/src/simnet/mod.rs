@@ -44,8 +44,7 @@ use crate::{
         bank_data::BankData, full::Full, minimal::Minimal, SurfpoolMiddleware,
     },
     types::{
-        ClockCommand, ClockEvent, PluginManagerCommand, RunloopTriggerMode, SimnetCommand,
-        SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig, TransactionStatusEvent,
+        ClockCommand, ClockEvent, PluginManagerCommand, RunloopTriggerMode, SimnetCommand, SimnetEvent, SubgraphCommand, SubgraphIndexingEvent, SubgraphPluginConfig, SurfpoolConfig, TransactionStatusEvent
     },
 };
 
@@ -183,7 +182,7 @@ impl EntryStatus {
     }
 }
 
-use std::{fs::File, io::Read, path::PathBuf};
+use std::path::PathBuf;
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use libloading::{Library, Symbol};
 
@@ -313,7 +312,6 @@ pub async fn start(
 
                 let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or(format!("surfpool-subgraph"));
 
-                let ipc_router = RouterProxy::new();
 
                 loop {
                     select! {
@@ -338,7 +336,7 @@ pub async fn start(
                                             (Box::from_raw(plugin_raw), lib)
                                         };
             
-                                        let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<String>>::new().expect("Failed to create IPC one-shot server.");
+                                        let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SubgraphIndexingEvent>>::new().expect("Failed to create IPC one-shot server.");
                                         let subgraph_plugin_config = SubgraphPluginConfig {
                                             ipc_token,
                                             subgraph_request: Some(config.data.clone())

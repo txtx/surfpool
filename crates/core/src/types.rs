@@ -52,7 +52,7 @@ pub enum SubgraphIndexingEvent {
 #[derive(Debug, Clone)]
 pub enum SubgraphCommand {
     CreateSubgraph(SubgraphRequest, Sender<String>),
-    ObserveSubgraph(Receiver<String>),
+    ObserveSubgraph(Receiver<SubgraphIndexingEvent>),
     Shutdown,
 }
 

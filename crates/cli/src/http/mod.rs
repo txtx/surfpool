@@ -12,7 +12,7 @@ use juniper_graphql_ws::ConnectionConfig;
 use std::error::Error as StdError;
 use std::sync::RwLock;
 use std::time::Duration;
-use surfpool_core::types::{Collection, SubgraphCommand, SubgraphEvent, SurfpoolConfig};
+use surfpool_core::types::{Collection, SubgraphCommand, SubgraphEvent, SubgraphIndexingEvent, SurfpoolConfig};
 use surfpool_gql::types::collection::CollectionData;
 use surfpool_gql::{new_graphql_schema, Context as GqlContext, GqlSchema};
 use txtx_core::kit::uuid::Uuid;
@@ -82,8 +82,10 @@ pub async fn start_server(
                         },
                     },
                     i => match oper.recv(&observers[i - 1]) {
-                        Ok(value) => {
-                            println!("Inject {} in store", value);
+                        Ok(cmd) => match cmd {
+                            SubgraphIndexingEvent::Entry(value) => {
+                                println!("Inject {} in store", value);
+                            }
                         }
                         Err(_e) => {}
                     },
