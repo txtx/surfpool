@@ -1,13 +1,14 @@
+use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoVersions;
 use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver, Sender};
 use litesvm::types::TransactionMetadata;
 use solana_client::rpc_config::RpcSendTransactionConfig;
 use solana_sdk::{
     blake3::Hash,
-    clock::Clock,
+    clock::{Clock, Slot},
     epoch_info::EpochInfo,
     pubkey::Pubkey,
-    transaction::{TransactionError, VersionedTransaction},
+    transaction::{SanitizedTransaction, TransactionError, VersionedTransaction},
 };
 use solana_transaction_status::TransactionConfirmationStatus;
 use std::path::PathBuf;
@@ -46,12 +47,13 @@ pub enum SubgraphEvent {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum SubgraphIndexingEvent {
-    Entry(String),
+    Rountrip(Uuid),
+    ApplyEntry(Uuid, String), //, SubgraphRequest, u64),
 }
 
 #[derive(Debug, Clone)]
 pub enum SubgraphCommand {
-    CreateSubgraph(SubgraphRequest, Sender<String>),
+    CreateSubgraph(Uuid, SubgraphRequest, Sender<String>),
     ObserveSubgraph(Receiver<SubgraphIndexingEvent>),
     Shutdown,
 }
@@ -93,7 +95,7 @@ pub enum SimnetCommand {
 }
 
 pub enum PluginManagerCommand {
-    LoadConfig(PluginConfig, Sender<String>),
+    LoadConfig(Uuid, PluginConfig, Sender<String>),
 }
 
 pub enum ClockCommand {
@@ -143,6 +145,7 @@ impl RpcConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SubgraphPluginConfig {
+    pub uuid: Uuid,
     pub ipc_token: String,
     pub subgraph_request: SubgraphRequest,
 }

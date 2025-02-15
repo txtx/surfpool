@@ -9350,6 +9350,7 @@ dependencies = [
  "solana-program",
  "surfpool-core",
  "txtx-addon-network-svm",
+ "uuid",
 ]
 
 [[package]]

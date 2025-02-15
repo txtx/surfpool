@@ -20,3 +20,4 @@ surfpool-core = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 bincode = { workspace = true }
+uuid = { workspace = true }

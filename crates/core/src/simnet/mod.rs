@@ -44,7 +44,9 @@ use crate::{
         bank_data::BankData, full::Full, minimal::Minimal, SurfpoolMiddleware,
     },
     types::{
-        ClockCommand, ClockEvent, PluginManagerCommand, RunloopTriggerMode, SimnetCommand, SimnetEvent, SubgraphCommand, SubgraphIndexingEvent, SubgraphPluginConfig, SurfpoolConfig, TransactionStatusEvent
+        ClockCommand, ClockEvent, PluginManagerCommand, RunloopTriggerMode, SimnetCommand,
+        SimnetEvent, SubgraphCommand, SubgraphIndexingEvent, SubgraphPluginConfig, SurfpoolConfig,
+        TransactionStatusEvent,
     },
 };
 
@@ -258,6 +260,8 @@ pub async fn start(
     let simnet_events_tx_copy = simnet_events_tx.clone();
     let (plugins_data_tx, plugins_data_rx) = unbounded::<(Transaction, TransactionMetadata)>();
 
+    let ipc_router = RouterProxy::new();
+
     if !config.plugin_config_path.is_empty() {
         let _handle = hiro_system_kit::thread_named("geyser plugins handler").spawn(move || {
             let mut plugin_manager = GeyserPluginManager::new();
@@ -312,15 +316,13 @@ pub async fn start(
 
                 let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or(format!("surfpool-subgraph"));
 
-                let ipc_router = RouterProxy::new();
-                
                 loop {
                     select! {
                         recv(plugin_manager_commands_rx) -> msg => match msg {
                             Ok(event) => {
                                 match event {
-                                    PluginManagerCommand::LoadConfig(config, notifier) => {
-                                        let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(config.data.clone(), notifier));
+                                    PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
+                                        let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(uuid.clone(), config.data.clone(), notifier));
             
                                         let (mut plugin, lib) = unsafe {
                                             let lib = match Library::new(&libpath) {
@@ -339,6 +341,7 @@ pub async fn start(
             
                                         let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SubgraphIndexingEvent>>::new().expect("Failed to create IPC one-shot server.");
                                         let subgraph_plugin_config = SubgraphPluginConfig {
+                                            uuid,
                                             ipc_token,
                                             subgraph_request: config.data.clone()
                                         };
@@ -375,10 +378,10 @@ pub async fn start(
                                     return_data: Some(transaction_metadata.return_data.clone()),
                                     compute_units_consumed: Some(transaction_metadata.compute_units_consumed),
                                 };
-                
+
                                 let transaction = SanitizedTransaction::try_from_legacy_transaction(transaction, &HashSet::new())
                                     .unwrap();
-                
+
                                 let transaction_replica = ReplicaTransactionInfoV2 {
                                     signature: &transaction_metadata.signature,
                                     is_vote: false,

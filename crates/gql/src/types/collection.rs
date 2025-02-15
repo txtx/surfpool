@@ -1,7 +1,7 @@
 use super::entry::EntryData;
 use crate::Context;
 use juniper_codegen::graphql_object;
-use surfpool_core::types::Collection;
+use surfpool_core::types::{Collection, Entry};
 
 #[derive(Debug, Clone)]
 pub struct CollectionData {

@@ -11,12 +11,12 @@ use {
         solana_sdk::{bs58, inner_instruction},
         types::{SubgraphIndexingEvent, SubgraphPluginConfig},
     },
-    txtx_addon_network_svm::codec::subgraph::{IndexedSubgraphSourceType, SubgraphRequest},
+    txtx_addon_network_svm::codec::subgraph::{IndexedSubgraphSourceType, SubgraphRequest}, uuid::Uuid,
 };
 
 #[derive(Default, Debug)]
 pub struct SurfpoolSubgraph {
-    pub id: String,
+    pub uuid: Uuid,
     subgraph_indexing_event_tx: Mutex<Option<IpcSender<SubgraphIndexingEvent>>>,
     subgraph_request: Option<SubgraphRequest>,
 }
@@ -30,7 +30,9 @@ impl GeyserPlugin for SurfpoolSubgraph {
         let config = serde_json::from_str::<SubgraphPluginConfig>(&config_file).unwrap();
         let oneshot_tx = IpcSender::connect(config.ipc_token).unwrap();
         let (tx, rx) = ipc_channel::ipc::channel().unwrap();
+        let _ = tx.send(SubgraphIndexingEvent::Rountrip(config.uuid.clone()));
         let _ = oneshot_tx.send(rx);
+        self.uuid = config.uuid.clone();
         self.subgraph_indexing_event_tx = Mutex::new(Some(tx));
         self.subgraph_request = Some(config.subgraph_request);
         Ok(())
@@ -75,18 +77,23 @@ impl GeyserPlugin for SurfpoolSubgraph {
     fn notify_transaction(
         &self,
         transaction: ReplicaTransactionInfoVersions,
-        _slot: Slot,
+        slot: Slot,
     ) -> PluginResult<()> {
         let Ok(tx) = self.subgraph_indexing_event_tx.lock() else {
             return Ok(());
         };
         let tx = tx.as_ref().unwrap();
-        let Some(subgraph_request) = self.subgraph_request else {
+        let Some(ref subgraph_request) = self.subgraph_request else {
             return Ok(());
         };
         match transaction {
             ReplicaTransactionInfoVersions::V0_0_2(data) => {
-                let _ = tx.send(SubgraphIndexingEvent::Entry(format!("{}", data.signature)));
+                let _ = tx.send(SubgraphIndexingEvent::ApplyEntry(
+                    self.uuid,
+                    data.signature.to_string(),
+                    // subgraph_request.clone(),
+                    // slot,
+                ));
                 if data.is_vote {
                     return Ok(());
                 }
@@ -96,24 +103,20 @@ impl GeyserPlugin for SurfpoolSubgraph {
                 };
                 for inner_instructions in inner_instructions.iter() {
                     for instruction in inner_instructions.instructions.iter() {
-                        let instruction = instruction.instruction;
-                        let decoded_data = bs58::decode(instruction.data).into_vec().map_err(
-                            GeyserPluginError::TransactionUpdateError {
-                                msg: format!("failed to decode instruction data"),
-                            },
-                        )?;
+                        let instruction = &instruction.instruction;
+                        let decoded_data = bs58::decode(&instruction.data)
+                            .into_vec()
+                            .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
                         // it's not valid cpi event data if there isn't an 8-byte signature
                         if decoded_data.len() < 8 {
                             continue;
                         }
                         let eight_bytes = decoded_data[0..8].to_vec();
-                        let decoded_signature = bs58::decode(eight_bytes).into_vec().map_err(
-                            GeyserPluginError::TransactionUpdateError {
-                                msg: format!("failed to decode instruction data"),
-                            },
-                        )?;
+                        let decoded_signature = bs58::decode(eight_bytes)
+                            .into_vec()
+                            .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
                         for field in subgraph_request.fields.iter() {
-                            match field.data_source {
+                            match &field.data_source {
                                 IndexedSubgraphSourceType::Instruction(
                                     instruction_subgraph_source,
                                 ) => {
@@ -129,10 +132,12 @@ impl GeyserPlugin for SurfpoolSubgraph {
                                             "found event with match!!!: {:?}",
                                             event_subgraph_source.event.name
                                         );
-                                        let _ = tx.send(SubgraphIndexingEvent::IndexSubgraph {
-                                            subgraph_request: subgraph_request.clone(),
-                                            transaction,
-                                        });
+                                        let _ = tx.send(SubgraphIndexingEvent::ApplyEntry(
+                                            self.uuid,
+                                            data.signature.to_string(),
+                                            // subgraph_request.clone(),
+                                            // slot,
+                                        ));
                                     }
                                 }
                             }

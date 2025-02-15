@@ -3,6 +3,7 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_client::rpc_config::RpcAccountIndex;
 use solana_sdk::pubkey::Pubkey;
+use uuid::Uuid;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -141,10 +142,11 @@ impl AdminRpc for SurfpoolAdminRpc {
     fn load_plugin(&self, meta: Self::Metadata, config_file: String) -> BoxFuture<Result<String>> {
         let config = serde_json::from_str::<PluginConfig>(&config_file).unwrap();
         let ctx = meta.unwrap();
+        let uuid = Uuid::new_v4();
         let (tx, rx) = crossbeam_channel::bounded(1);
         let _ = ctx
             .plugin_manager_commands_tx
-            .send(PluginManagerCommand::LoadConfig(config, tx));
+            .send(PluginManagerCommand::LoadConfig(uuid, config, tx));
         let Ok(endpoint_url) = rx.recv_timeout(Duration::from_secs(10)) else {
             unimplemented!()
         };

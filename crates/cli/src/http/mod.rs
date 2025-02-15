@@ -12,7 +12,9 @@ use juniper_graphql_ws::ConnectionConfig;
 use std::error::Error as StdError;
 use std::sync::RwLock;
 use std::time::Duration;
-use surfpool_core::types::{Collection, SubgraphCommand, SubgraphEvent, SubgraphIndexingEvent, SurfpoolConfig};
+use surfpool_core::types::{
+    Collection, Entry, SubgraphCommand, SubgraphEvent, SubgraphIndexingEvent, SurfpoolConfig
+};
 use surfpool_gql::types::collection::CollectionData;
 use surfpool_gql::{new_graphql_schema, Context as GqlContext, GqlSchema};
 use txtx_core::kit::uuid::Uuid;
@@ -53,11 +55,11 @@ pub async fn start_server(
                             // todo
                         }
                         Ok(cmd) => match cmd {
-                            SubgraphCommand::CreateSubgraph(config, sender) => {
+                            SubgraphCommand::CreateSubgraph(uuid, config, sender) => {
                                 let gql_context = gql_context_copy.write().unwrap();
                                 let mut collections =
                                     gql_context.collections_store.write().unwrap();
-                                let collection_uuid = Uuid::new_v4();
+                                let collection_uuid = uuid;
 
                                 collections.insert(
                                     collection_uuid.clone(),
@@ -83,10 +85,20 @@ pub async fn start_server(
                     },
                     i => match oper.recv(&observers[i - 1]) {
                         Ok(cmd) => match cmd {
-                            SubgraphIndexingEvent::Entry(value) => {
-                                println!("Inject {} in store", value);
+                            SubgraphIndexingEvent::ApplyEntry(uuid, value/* , request, slot*/) => {
+                                let gql_context = gql_context_copy.write().unwrap();
+                                let mut collections =
+                                    gql_context.collections_store.write().unwrap();
+                                let collection_data = collections.get_mut(&uuid).unwrap();
+                                collection_data.collection.entries.push(Entry {
+                                    uuid: Uuid::new_v4(),
+                                    value
+                                });
                             }
-                        }
+                            SubgraphIndexingEvent::Rountrip(uuid) => {
+                                println!("Subgraph components initialized {}", uuid);
+                            }
+                        },
                         Err(_e) => {}
                     },
                 }
