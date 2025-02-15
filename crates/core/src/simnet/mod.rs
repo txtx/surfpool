@@ -323,7 +323,7 @@ pub async fn start(
                                 match event {
                                     PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
                                         let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(uuid.clone(), config.data.clone(), notifier));
-            
+
                                         let (mut plugin, lib) = unsafe {
                                             let lib = match Library::new(&libpath) {
                                                 Ok(lib) => lib,
@@ -338,7 +338,7 @@ pub async fn start(
                                             let plugin_raw = constructor();
                                             (Box::from_raw(plugin_raw), lib)
                                         };
-            
+
                                         let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SchemaDatasourceingEvent>>::new().expect("Failed to create IPC one-shot server.");
                                         let subgraph_plugin_config = SubgraphPluginConfig {
                                             uuid,

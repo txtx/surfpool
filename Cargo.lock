@@ -9253,6 +9253,7 @@ dependencies = [
  "clap 4.5.27",
  "clap_complete 4.5.44",
  "clap_generate",
+ "convert_case 0.7.1",
  "crossbeam",
  "crossterm",
  "ctrlc",

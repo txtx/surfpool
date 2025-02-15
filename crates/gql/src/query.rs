@@ -1,23 +1,14 @@
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashMap},
-};
+use std::collections::HashMap;
 
-use crate::{
-    types::{collection::CollectionData, subgraph::Subgraph},
-    Context,
-};
+use crate::Context;
 use convert_case::{Case, Casing};
 use juniper::{
-    meta::{Field, MetaType, ObjectMeta},
-    Arguments, DefaultScalarValue, ExecutionResult, Executor, GraphQLType, GraphQLTypeAsync,
-    GraphQLValue, GraphQLValueAsync, Registry,
+    meta::{Field, MetaType}, Arguments, BoxFuture, DefaultScalarValue, ExecutionResult, Executor, GraphQLType, GraphQLValue, GraphQLValueAsync, Registry
 };
 use uuid::Uuid;
 
 #[derive(Debug)]
-pub struct DynamicQuery {
-    pub subgraphs: HashMap<Uuid, Subgraph>,
+pub struct Query {
 }
 
 #[derive(Clone, Debug)]
@@ -40,14 +31,16 @@ impl SchemaDatasource {
 #[derive(Clone, Debug)]
 pub struct SchemaDatasourceEntry {
     pub name: String,
+    pub subgraph_uuid: Uuid,
     pub description: Option<String>,
     pub fields: Vec<String>,
 }
 
 impl SchemaDatasourceEntry {
-    pub fn new(name: &str) -> Self {
+    pub fn new(uuid: &Uuid, name: &str) -> Self {
         Self {
             name: name.to_case(Case::Pascal),
+            subgraph_uuid: uuid.clone(),
             description: None,
             fields: vec![],
         }
@@ -75,7 +68,7 @@ impl GraphQLType<DefaultScalarValue> for SchemaDatasourceEntry {
 }
 
 impl GraphQLValue<DefaultScalarValue> for SchemaDatasourceEntry {
-    type Context = ();
+    type Context = Context;
     type TypeInfo = SchemaDatasourceEntry;
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
@@ -87,43 +80,54 @@ impl GraphQLValue<DefaultScalarValue> for SchemaDatasourceEntry {
         info: &SchemaDatasourceEntry,
         field_name: &str,
         args: &Arguments,
-        executor: &Executor<()>,
+        executor: &Executor<Context>,
     ) -> ExecutionResult {
         // Next, we need to match the queried field name. All arms of this match statement
         // return `ExecutionResult`, which makes it hard to statically verify that the type you
         // pass on to `executor.resolve*` actually matches the one that you defined in `meta()`
         // above.
-        let database = executor.context();
-        match field_name {
-            // Because scalars are defined with another `Context` associated type, you must use
-            // `resolve_with_ctx` here to make the `executor` perform automatic type conversion
-            // of its argument.
-            // You pass a vector of `User` objects to `executor.resolve`, and it will determine
-            // which fields of the sub-objects to actually resolve based on the query.
-            // The `executor` instance keeps track of its current position in the query.
-            // "friends" => executor.resolve(info,
-            //     &self.friend_ids.iter()
-            //         .filter_map(|id| database.users.get(id))
-            //         .collect::<Vec<_>>()
-            // ),
-            // We can only reach this panic in two cases: either a mismatch between the defined
-            // schema in `meta()` above, or a validation failed because of a this library bug.
-            //
-            // In either of those two cases, the only reasonable way out is to panic the thread.
-            _ => panic!("Field {field_name} not found on type User"),
-        }
+        // let database = executor.context();
+        // let subgraph_db = database.entries_store.read().unwrap();
+        // let entries = subgraph_db.get(&self.subgraph_uuid).unwrap();
+
+        // match args.get::<String>("uuid")? {
+        //     Some(uuid) => unimplemented!(),
+        //     None => {
+        //         let results = entries
+        //             .iter()
+        //             .filter_map(|(_, e)| e.values.get(field_name).map(|e| e.to_string()))
+        //             .collect::<Vec<_>>();
+        //         println!("{:?}", results);
+        //         unimplemented!()
+        //         // executor.resolve(&info, &results)
+        //     }
+        // }
+        unimplemented!()
     }
 }
 
-impl DynamicQuery {
+// impl GraphQLValueAsync<DefaultScalarValue> for SchemaDatasourceEntry {
+//     fn resolve_field_async(
+//         &self,
+//         _info: &SchemaDatasourceEntry,
+//         _field_name: &str,
+//         _arguments: &Arguments,
+//         _executor: &Executor<Context>,
+//     ) -> BoxFuture<ExecutionResult> {
+//         panic!(
+//             "?",
+//         );
+//     }
+// }
+
+impl Query {
     pub fn new() -> Self {
         Self {
-            subgraphs: HashMap::new(),
         }
     }
 }
 
-impl GraphQLType<DefaultScalarValue> for DynamicQuery {
+impl GraphQLType<DefaultScalarValue> for Query {
     fn name(_spec: &SchemaDatasource) -> Option<&str> {
         Some("Query")
     }
@@ -145,35 +149,62 @@ impl GraphQLType<DefaultScalarValue> for DynamicQuery {
             fields.push(registry.field::<&SchemaDatasourceEntry>(name, &entry));
         }
         registry
-            .build_object_type::<DynamicQuery>(&spec, &fields)
+            .build_object_type::<Query>(&spec, &fields)
             .into_meta()
     }
 }
 
-impl GraphQLValue<DefaultScalarValue> for DynamicQuery {
+impl GraphQLValue<DefaultScalarValue> for Query {
     type Context = Context;
     type TypeInfo = SchemaDatasource;
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
-        <DynamicQuery as GraphQLType>::name(&info)
+        <Query as GraphQLType>::name(&info)
     }
 
     fn resolve_field(
         &self,
         info: &SchemaDatasource,
-        field_name: &str,
+        subgraph_name: &str,
         args: &Arguments,
         executor: &Executor<Self::Context>,
     ) -> ExecutionResult {
+
         // Next, we need to match the queried field name. All arms of this match statement
         // return `ExecutionResult`, which makes it hard to statically verify that the type you
         // pass on to `executor.resolve*` actually matches the one that you defined in `meta()`
         // above.
-        match field_name {
+        // let database = executor.context();
+        // let subgraph_db = database.entries_store.read().unwrap();
+        // let entries = subgraph_db.get(&self.subgraph_uuid).unwrap();
+
+        // match args.get::<String>("uuid")? {
+        //     Some(uuid) => {
+        //         let results = entries
+        //             .iter()
+        //             .filter_map(|(_, e)| e.values.get(field_name).map(|e| e.to_string()))
+        //             .collect::<Vec<_>>();
+        //         println!("{:?}", results);
+        //         unimplemented!()
+        //         executor.resolve(&info, &results)
+        //     },
+        //     None => unimplemented!()
+        // }
+
+
+        unimplemented!();
+
+        // Next, we need to match the queried field name. All arms of this match statement
+        // return `ExecutionResult`, which makes it hard to statically verify that the type you
+        // pass on to `executor.resolve*` actually matches the one that you defined in `meta()`
+        // above.
+        let database = executor.context();
+
+        // match subgraph_name {
             // Because scalars are defined with another `Context` associated type, you must use
             // `resolve_with_ctx` here to make the `executor` perform automatic type conversion
             // of its argument.
-            "api_version" => executor.resolve_with_ctx(&(), "1.0"),
+            // "api_version" => executor.resolve_with_ctx(&(), "1.0"),
             // subgraph => executor.resolve_with_ctx(&(), &self.name),
             // You pass a vector of `User` objects to `executor.resolve`, and it will determine
             // which fields of the sub-objects to actually resolve based on the query.
@@ -187,31 +218,45 @@ impl GraphQLValue<DefaultScalarValue> for DynamicQuery {
             // schema in `meta()` above, or a validation failed because of a this library bug.
             //
             // In either of those two cases, the only reasonable way out is to panic the thread.
-            _ => panic!("Field {field_name} not found on type DynamicQuery"),
-        }
+            // _ => {
+            //     for (name, entry) in info.entries.iter() {
+            //         if name.eq(subgraph_name) {
+            //             return executor.resolve(database, entry)
+            //         }
+            //     }
+            //     panic!("unable to resolve")
+
+            // }
+        // }
     }
 }
 
-impl GraphQLValueAsync<DefaultScalarValue> for DynamicQuery {}
+// impl GraphQLValueAsync<DefaultScalarValue> for Query {}
 
-use juniper_codegen::graphql_object;
+impl GraphQLValueAsync<DefaultScalarValue> for Query {
+    fn resolve_field_async(
+        &self,
+        _info: &SchemaDatasource,
+        field_name: &str,
+        _arguments: &Arguments,
+        executor: &Executor<Context>,
+    ) -> BoxFuture<ExecutionResult> {
 
-pub struct Query;
+        println!("{}", field_name);
+        println!("{:?}", _arguments);
 
-#[graphql_object(
-    context = Context,
-)]
-impl Query {
-    fn api_version() -> &'static str {
-        "1.0"
-    }
+        let res = match field_name {
+            "apiVersion" => executor.resolve_with_ctx(&(), "1.0"),
+            subgraph_name => {
+                let database = executor.context();
+                let subgraph_db = database.entries_store.read().unwrap();
+                let (_, entries) = subgraph_db.get(subgraph_name).unwrap();
+                executor.resolve_with_ctx(&(), entries)
+            }
+        };
 
-    async fn collections(context: &Context) -> Vec<CollectionData> {
-        let collections_store = context.collections_store.read().unwrap();
-        collections_store
-            .values()
-            .into_iter()
-            .map(|c| c.clone())
-            .collect()
+        Box::pin(async {
+            res
+        })
     }
 }

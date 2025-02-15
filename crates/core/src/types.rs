@@ -11,7 +11,7 @@ use solana_sdk::{
     transaction::{SanitizedTransaction, TransactionError, VersionedTransaction},
 };
 use solana_transaction_status::TransactionConfirmationStatus;
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 use txtx_addon_network_svm::codec::subgraph::{PluginConfig, SubgraphRequest};
 use uuid::Uuid;
 
@@ -32,7 +32,7 @@ pub struct Collection {
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub uuid: Uuid,
-    pub value: String,
+    pub values: HashMap<String, String>,
 }
 
 #[derive(Debug)]

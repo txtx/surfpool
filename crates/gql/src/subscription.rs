@@ -1,8 +1,34 @@
 use std::pin::Pin;
 
-use crate::{types::entry::EntryData, Context};
+use crate::Context;
 use futures::Stream;
 use juniper::{graphql_subscription, FieldError};
+use juniper_codegen::graphql_object;
+use surfpool_core::types::Entry;
+
+#[derive(Debug, Clone)]
+pub struct EntryData {
+    pub entry: Entry,
+}
+
+impl EntryData {
+    pub fn new(entry: &Entry) -> Self {
+        Self {
+            entry: entry.clone(),
+        }
+    }
+}
+
+#[graphql_object(context = Context)]
+impl EntryData {
+    pub fn uuid(&self) -> String {
+        self.entry.uuid.to_string()
+    }
+
+    pub fn values(&self) -> String {
+      "values".to_string()
+    }
+}
 
 pub struct Subscription;
 
@@ -30,6 +56,7 @@ pub struct DynamicSubscription;
 
 #[graphql_subscription(
   context = Context,
+
 )]
 impl DynamicSubscription {
     async fn entries_event(context: &Context) -> GqlEntriesStream {
