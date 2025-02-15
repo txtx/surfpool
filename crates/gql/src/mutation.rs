@@ -11,3 +11,14 @@ impl Mutation {
         "1.0"
     }
 }
+
+pub struct DynamicMutation;
+
+#[graphql_object(
+    context = Context,
+)]
+impl DynamicMutation {
+    fn api_version() -> &'static str {
+        "1.0"
+    }
+}

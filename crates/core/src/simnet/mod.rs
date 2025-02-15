@@ -44,9 +44,9 @@ use crate::{
         bank_data::BankData, full::Full, minimal::Minimal, SurfpoolMiddleware,
     },
     types::{
-        ClockCommand, ClockEvent, PluginManagerCommand, RunloopTriggerMode, SimnetCommand,
-        SimnetEvent, SubgraphCommand, SubgraphIndexingEvent, SubgraphPluginConfig, SurfpoolConfig,
-        TransactionStatusEvent,
+        ClockCommand, ClockEvent, PluginManagerCommand, RunloopTriggerMode,
+        SchemaDatasourceingEvent, SimnetCommand, SimnetEvent, SubgraphCommand,
+        SubgraphPluginConfig, SurfpoolConfig, TransactionStatusEvent,
     },
 };
 
@@ -339,7 +339,7 @@ pub async fn start(
                                             (Box::from_raw(plugin_raw), lib)
                                         };
             
-                                        let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SubgraphIndexingEvent>>::new().expect("Failed to create IPC one-shot server.");
+                                        let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SchemaDatasourceingEvent>>::new().expect("Failed to create IPC one-shot server.");
                                         let subgraph_plugin_config = SubgraphPluginConfig {
                                             uuid,
                                             ipc_token,

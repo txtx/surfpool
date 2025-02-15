@@ -21,3 +21,4 @@ juniper_codegen = { version = "0.16.0" }
 async-stream = "0.3.5"
 tokio = "1.37.0"
 surfpool-core = { workspace = true }
+convert_case = "0.7.1"

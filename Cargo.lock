@@ -212,13 +212,14 @@ dependencies = [
 
 [[package]]
 name = "actix-ws"
-version = "0.2.5"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "535aec173810be3ca6f25dd5b4d431ae7125d62000aa3cbae1ec739921b02cf3"
+checksum = "a3a1fb4f9f2794b0aadaf2ba5f14a6f034c7e86957b458c506a8cb75953f2d99"
 dependencies = [
  "actix-codec",
  "actix-http",
  "actix-web",
+ "bytestring",
  "futures-core",
  "tokio",
 ]
@@ -1546,6 +1547,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
 
 [[package]]
+name = "convert_case"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb402b8d4c85569410425650ce3eddc7d698ed96d39a73f941b08fb63082f1e7"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cookie"
 version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1892,7 +1902,7 @@ version = "0.99.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f33878137e4dafd7fa914ad4e259e18a4e8e532b9617a2d0150262bf53abfce"
 dependencies = [
- "convert_case",
+ "convert_case 0.4.0",
  "proc-macro2",
  "quote",
  "rustc_version",
@@ -2663,6 +2673,16 @@ dependencies = [
  "rand 0.8.5",
  "smallvec",
  "spinning_top",
+]
+
+[[package]]
+name = "graphql-parser"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a818c0d883d7c0801df27be910917750932be279c7bc82dc541b8769425f409"
+dependencies = [
+ "combine 4.6.7",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -3741,18 +3761,20 @@ dependencies = [
  "auto_enums",
  "fnv",
  "futures 0.3.31",
+ "graphql-parser",
  "indexmap 2.7.1",
  "juniper_codegen",
  "serde",
  "smartstring",
  "static_assertions",
+ "void",
 ]
 
 [[package]]
 name = "juniper_actix"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2eafd05a9b03395e4c032e5d903109a5fceaf89bb7ae6731e416bc2088f9e556"
+checksum = "457190a70f2a8d7c6d9ae8a5cfc134909c498c335dbb751a147eec7a513faced"
 dependencies = [
  "actix-http",
  "actix-web",
@@ -9238,6 +9260,7 @@ dependencies = [
  "dirs 6.0.0",
  "hiro-system-kit",
  "ipc-channel",
+ "juniper",
  "juniper_actix",
  "juniper_graphql_ws",
  "mime_guess",
@@ -9329,6 +9352,7 @@ name = "surfpool-gql"
 version = "0.1.7"
 dependencies = [
  "async-stream",
+ "convert_case 0.7.1",
  "futures 0.3.31",
  "futures-enum",
  "juniper",

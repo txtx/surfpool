@@ -9,15 +9,16 @@ use {
     std::sync::Mutex,
     surfpool_core::{
         solana_sdk::{bs58, inner_instruction},
-        types::{SubgraphIndexingEvent, SubgraphPluginConfig},
+        types::{SchemaDatasourceingEvent, SubgraphPluginConfig},
     },
-    txtx_addon_network_svm::codec::subgraph::{IndexedSubgraphSourceType, SubgraphRequest}, uuid::Uuid,
+    txtx_addon_network_svm::codec::subgraph::{IndexedSubgraphSourceType, SubgraphRequest},
+    uuid::Uuid,
 };
 
 #[derive(Default, Debug)]
 pub struct SurfpoolSubgraph {
     pub uuid: Uuid,
-    subgraph_indexing_event_tx: Mutex<Option<IpcSender<SubgraphIndexingEvent>>>,
+    subgraph_indexing_event_tx: Mutex<Option<IpcSender<SchemaDatasourceingEvent>>>,
     subgraph_request: Option<SubgraphRequest>,
 }
 
@@ -30,7 +31,7 @@ impl GeyserPlugin for SurfpoolSubgraph {
         let config = serde_json::from_str::<SubgraphPluginConfig>(&config_file).unwrap();
         let oneshot_tx = IpcSender::connect(config.ipc_token).unwrap();
         let (tx, rx) = ipc_channel::ipc::channel().unwrap();
-        let _ = tx.send(SubgraphIndexingEvent::Rountrip(config.uuid.clone()));
+        let _ = tx.send(SchemaDatasourceingEvent::Rountrip(config.uuid.clone()));
         let _ = oneshot_tx.send(rx);
         self.uuid = config.uuid.clone();
         self.subgraph_indexing_event_tx = Mutex::new(Some(tx));
@@ -88,7 +89,7 @@ impl GeyserPlugin for SurfpoolSubgraph {
         };
         match transaction {
             ReplicaTransactionInfoVersions::V0_0_2(data) => {
-                let _ = tx.send(SubgraphIndexingEvent::ApplyEntry(
+                let _ = tx.send(SchemaDatasourceingEvent::ApplyEntry(
                     self.uuid,
                     data.signature.to_string(),
                     // subgraph_request.clone(),
@@ -132,7 +133,7 @@ impl GeyserPlugin for SurfpoolSubgraph {
                                             "found event with match!!!: {:?}",
                                             event_subgraph_source.event.name
                                         );
-                                        let _ = tx.send(SubgraphIndexingEvent::ApplyEntry(
+                                        let _ = tx.send(SchemaDatasourceingEvent::ApplyEntry(
                                             self.uuid,
                                             data.signature.to_string(),
                                             // subgraph_request.clone(),

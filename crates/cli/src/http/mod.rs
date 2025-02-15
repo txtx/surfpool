@@ -9,14 +9,16 @@ use actix_web::{Error, Responder};
 use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, playground_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
+use std::collections::BTreeMap;
 use std::error::Error as StdError;
 use std::sync::RwLock;
 use std::time::Duration;
 use surfpool_core::types::{
-    Collection, Entry, SubgraphCommand, SubgraphEvent, SubgraphIndexingEvent, SurfpoolConfig
+    Collection, Entry, SchemaDatasourceingEvent, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
 };
+use surfpool_gql::query::{SchemaDatasource, SchemaDatasourceEntry};
 use surfpool_gql::types::collection::CollectionData;
-use surfpool_gql::{new_graphql_schema, Context as GqlContext, GqlSchema};
+use surfpool_gql::{new_dynamic_schema, Context as GqlContext, GqlDynamicSchema as GqlSchema};
 use txtx_core::kit::uuid::Uuid;
 
 #[cfg(feature = "explorer")]
@@ -34,10 +36,15 @@ pub async fn start_server(
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     _ctx: &Context,
 ) -> Result<ServerHandle, Box<dyn StdError>> {
-    let gql_schema = Data::new(new_graphql_schema());
-    let gql_context: Data<RwLock<GqlContext>> = Data::new(RwLock::new(GqlContext::new()));
+    let context = GqlContext::new();
+    let mut schema_datasource = SchemaDatasource::new();
+    let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
+    let schema_wrapped = Data::new(schema);
+    let context_wrapped = Data::new(RwLock::new(context));
 
-    let gql_context_copy = gql_context.clone();
+    let gql_context_copy = context_wrapped.clone();
+    let gql_schema_copy = schema_wrapped.clone();
+
     let _handle = hiro_system_kit::thread_named("subgraph")
         .spawn(move || {
             let mut observers = vec![];
@@ -56,6 +63,15 @@ pub async fn start_server(
                         }
                         Ok(cmd) => match cmd {
                             SubgraphCommand::CreateSubgraph(uuid, config, sender) => {
+                                let mut gql_schema = gql_schema_copy.write().unwrap();
+                                let subgraph_name = config.subgraph_name.clone();
+                                let mut schema = SchemaDatasourceEntry::new(&subgraph_name);
+                                for fields in config.fields.iter() {
+                                    schema.fields.push(fields.display_name.clone());
+                                }
+                                schema_datasource.add_entry(schema);
+                                gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
+
                                 let gql_context = gql_context_copy.write().unwrap();
                                 let mut collections =
                                     gql_context.collections_store.write().unwrap();
@@ -71,7 +87,6 @@ pub async fn start_server(
                                         },
                                     },
                                 );
-                                println!("{:?}", collections);
                                 let _ = sender.send("http://127.0.0.1:8900/graphql".into());
                             }
                             SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
@@ -85,17 +100,20 @@ pub async fn start_server(
                     },
                     i => match oper.recv(&observers[i - 1]) {
                         Ok(cmd) => match cmd {
-                            SubgraphIndexingEvent::ApplyEntry(uuid, value/* , request, slot*/) => {
+                            SchemaDatasourceingEvent::ApplyEntry(
+                                uuid,
+                                value, /* , request, slot*/
+                            ) => {
                                 let gql_context = gql_context_copy.write().unwrap();
                                 let mut collections =
                                     gql_context.collections_store.write().unwrap();
                                 let collection_data = collections.get_mut(&uuid).unwrap();
                                 collection_data.collection.entries.push(Entry {
                                     uuid: Uuid::new_v4(),
-                                    value
+                                    value,
                                 });
                             }
-                            SubgraphIndexingEvent::Rountrip(uuid) => {
+                            SchemaDatasourceingEvent::Rountrip(uuid) => {
                                 println!("Subgraph components initialized {}", uuid);
                             }
                         },
@@ -109,8 +127,8 @@ pub async fn start_server(
 
     let server = HttpServer::new(move || {
         App::new()
-            .app_data(gql_schema.clone())
-            .app_data(gql_context.clone())
+            .app_data(schema_wrapped.clone())
+            .app_data(context_wrapped.clone())
             .wrap(
                 Cors::default()
                     .allow_any_origin()
@@ -176,25 +194,31 @@ async fn dist(path: web::Path<String>) -> impl Responder {
 async fn post_graphql(
     req: HttpRequest,
     payload: web::Payload,
-    schema: Data<GqlSchema>,
+    schema: Data<RwLock<Option<GqlSchema>>>,
     context: Data<RwLock<GqlContext>>,
 ) -> Result<HttpResponse, Error> {
     let context = context
         .read()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read context"))?;
-    graphql_handler(&schema, &context, req, payload).await
+    let schema = schema
+        .read()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read context"))?;
+    graphql_handler(&(schema.as_ref().unwrap()), &context, req, payload).await
 }
 
 async fn get_graphql(
     req: HttpRequest,
     payload: web::Payload,
-    schema: Data<GqlSchema>,
+    schema: Data<RwLock<Option<GqlSchema>>>,
     context: Data<RwLock<GqlContext>>,
 ) -> Result<HttpResponse, Error> {
     let context = context
         .read()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read context"))?;
-    graphql_handler(&schema, &context, req, payload).await
+    let schema = schema
+        .read()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read context"))?;
+    graphql_handler(&(schema.as_ref().unwrap()), &context, req, payload).await
 }
 
 async fn subscriptions(

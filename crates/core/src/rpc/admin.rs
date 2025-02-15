@@ -3,12 +3,12 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_client::rpc_config::RpcAccountIndex;
 use solana_sdk::pubkey::Pubkey;
-use uuid::Uuid;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 use std::time::SystemTime;
 use txtx_addon_network_svm::codec::subgraph::PluginConfig;
+use uuid::Uuid;
 
 use super::RunloopContext;
 use crate::types::PluginManagerCommand;

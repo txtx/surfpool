@@ -1,9 +1,9 @@
 use juniper::RootNode;
-use mutation::Mutation;
-use query::Query;
+use mutation::{DynamicMutation, Mutation};
+use query::{DynamicQuery, Query, SchemaDatasource};
 use std::sync::RwLock;
 use std::{collections::BTreeMap, sync::Arc};
-use subscription::Subscription;
+use subscription::{DynamicSubscription, Subscription};
 use types::{collection::CollectionData, entry::EntryData};
 use uuid::Uuid;
 
@@ -30,8 +30,20 @@ impl Context {
 
 impl juniper::Context for Context {}
 
-pub type GqlSchema = RootNode<'static, Query, Mutation, Subscription>;
+pub type GqlStaticSchema = RootNode<'static, Query, Mutation, Subscription>;
+pub type GqlDynamicSchema = RootNode<'static, DynamicQuery, Mutation, DynamicSubscription>;
 
-pub fn new_graphql_schema() -> GqlSchema {
-    GqlSchema::new(Query, Mutation, Subscription)
+pub fn new_static_schema() -> GqlStaticSchema {
+    GqlStaticSchema::new(Query, Mutation, Subscription)
+}
+
+pub fn new_dynamic_schema(subgraph_index: SchemaDatasource) -> GqlDynamicSchema {
+    GqlDynamicSchema::new_with_info(
+        DynamicQuery::new(),
+        Mutation,
+        DynamicSubscription,
+        subgraph_index,
+        (),
+        (),
+    )
 }
