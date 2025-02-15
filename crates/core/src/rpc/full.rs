@@ -211,13 +211,19 @@ impl Full for SurfpoolFullRpc {
     fn get_recent_performance_samples(
         &self,
         meta: Self::Metadata,
-        _limit: Option<usize>,
+        limit: Option<usize>,
     ) -> Result<Vec<RpcPerfSample>> {
+        let limit = limit.unwrap_or(720);
+        if limit > 720 {
+            return Err(Error::invalid_params("Invalid limit; max 720").into());
+        }
+
         let state_reader = meta.get_state()?;
         let samples = state_reader
             .perf_samples
             .iter()
             .map(|e| e.clone())
+            .take(limit)
             .collect::<Vec<_>>();
         Ok(samples)
     }
@@ -691,5 +697,177 @@ impl Full for SurfpoolFullRpc {
         _pubkey_strs: Option<Vec<String>>,
     ) -> Result<Vec<RpcPrioritizationFee>> {
         unimplemented!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::TestSetup;
+    use solana_sdk::{
+        hash::Hash, message::Message, native_token::LAMPORTS_PER_SOL, signature::Keypair,
+        signer::Signer, system_instruction, system_program,
+    };
+    use test_case::test_case;
+
+    #[test_case(None, false ; "when limit is None")]
+    #[test_case(Some(1), false ; "when limit is ok")]
+    #[test_case(Some(1000), true ; "when limit is above max spec")]
+    fn test_get_recent_performance_samples(limit: Option<usize>, fails: bool) {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .get_recent_performance_samples(Some(setup.context), limit);
+
+        if fails {
+            assert!(res.is_err());
+        } else {
+            assert!(res.is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_signature_statuses() {
+        let pks = (0..10).map(|_| Pubkey::new_unique());
+        let valid_txs = pks.len();
+        let invalid_txs = pks.len();
+        let payer = Keypair::new();
+        let recent_blockhash = Hash::default();
+        let valid = pks
+            .clone()
+            .map(|pk| {
+                Transaction::new_signed_with_payer(
+                    &[system_instruction::transfer(
+                        &payer.pubkey(),
+                        &pk,
+                        LAMPORTS_PER_SOL,
+                    )],
+                    Some(&payer.pubkey()),
+                    &[payer.insecure_clone()],
+                    recent_blockhash,
+                )
+            })
+            .collect::<Vec<_>>();
+        let invalid = pks
+            .map(|pk| {
+                Transaction::new_unsigned(Message::new(
+                    &[system_instruction::transfer(
+                        &pk,
+                        &payer.pubkey(),
+                        LAMPORTS_PER_SOL,
+                    )],
+                    Some(&payer.pubkey()),
+                ))
+            })
+            .collect::<Vec<_>>();
+        let txs = valid
+            .into_iter()
+            .chain(invalid.into_iter())
+            .collect::<Vec<_>>();
+        let mut setup = TestSetup::new_without_blockhash(SurfpoolFullRpc);
+        let _ = setup.context.state.write().unwrap().svm.airdrop(
+            &payer.pubkey(),
+            (valid_txs + invalid_txs) as u64 * 2 * LAMPORTS_PER_SOL,
+        );
+        setup.process_txs(txs.clone());
+
+        let res = setup
+            .rpc
+            .get_signature_statuses(
+                Some(setup.context),
+                txs.iter().map(|tx| tx.signatures[0].to_string()).collect(),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            res.value
+                .iter()
+                .filter(|status| {
+                    if let Some(s) = status {
+                        s.status.is_ok()
+                    } else {
+                        false
+                    }
+                })
+                .count(),
+            valid_txs,
+            "incorrect number of valid txs"
+        );
+        assert_eq!(
+            res.value
+                .iter()
+                .filter(|status| if let Some(s) = status {
+                    s.status.is_err()
+                } else {
+                    true
+                })
+                .count(),
+            invalid_txs,
+            "incorrect number of invalid txs"
+        );
+    }
+
+    #[test]
+    fn test_request_airdrop() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .request_airdrop(Some(setup.context), "".to_string(), 1000, None);
+    }
+
+    #[test]
+    fn test_send_transaction() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .send_transaction(Some(setup.context), "limit".to_string(), None);
+    }
+
+    #[test]
+    fn test_simulate_transaction() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .simulate_transaction(Some(setup.context), "".to_string(), None);
+    }
+
+    #[test]
+    fn test_get_block() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup.rpc.get_block(Some(setup.context), 0, None);
+    }
+
+    #[test]
+    fn test_get_block_time() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup.rpc.get_block_time(Some(setup.context), 0);
+    }
+
+    #[test]
+    fn test_get_blocks() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup.rpc.get_blocks(Some(setup.context), 0, None, None);
+    }
+
+    #[test]
+    fn test_get_transaction() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .get_transaction(Some(setup.context), "sig".to_string(), None);
+    }
+
+    #[test]
+    fn test_get_first_available_block() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup.rpc.get_first_available_block(Some(setup.context));
+    }
+
+    #[test]
+    fn test_get_latest_blockhash() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup.rpc.get_latest_blockhash(Some(setup.context), None);
     }
 }

@@ -271,86 +271,19 @@ impl Minimal for SurfpoolMinimalRpc {
 
 #[cfg(test)]
 mod tests {
-    use crossbeam_channel::Sender;
-    use litesvm::LiteSVM;
-    use solana_client::nonblocking::rpc_client::RpcClient;
-    use solana_sdk::{blake3::Hash, transaction::VersionedTransaction};
-    use solana_transaction_status::TransactionConfirmationStatus;
-
-    use crate::simnet::GlobalState;
-
     use super::*;
-    use std::{
-        collections::{HashMap, VecDeque},
-        sync::{Arc, RwLock},
-    };
-
-    struct TestSetup {
-        context: RunloopContext,
-        rpc: SurfpoolMinimalRpc,
-    }
-
-    impl TestSetup {
-        fn new(
-            mempool_tx: Option<
-                Sender<(
-                    Hash,
-                    VersionedTransaction,
-                    Sender<TransactionConfirmationStatus>,
-                )>,
-            >,
-        ) -> Self {
-            let mempool_tx = mempool_tx.unwrap_or_else(|| {
-                let (tx, _rx) = crossbeam_channel::unbounded();
-                tx
-            });
-
-            let mut svm = LiteSVM::new();
-            let clock = Clock {
-                slot: 123,
-                epoch_start_timestamp: 123,
-                epoch: 1,
-                leader_schedule_epoch: 1,
-                unix_timestamp: 123,
-            };
-            svm.set_sysvar::<Clock>(&clock);
-
-            TestSetup {
-                context: RunloopContext {
-                    mempool_tx,
-                    id: Hash::new_unique(),
-                    state: Arc::new(RwLock::new(GlobalState {
-                        svm,
-                        transactions: HashMap::new(),
-                        epoch_info: EpochInfo {
-                            epoch: 1,
-                            slot_index: 0,
-                            slots_in_epoch: 100,
-                            absolute_slot: 50,
-                            block_height: 42,
-                            transaction_count: Some(2),
-                        },
-                        rpc_client: Arc::new(RpcClient::new("http://localhost:8899".to_string())),
-                        perf_samples: VecDeque::new(),
-                        transactions_processed: 69,
-                    })),
-                },
-                rpc: SurfpoolMinimalRpc,
-            }
-        }
-    }
+    use crate::test_helpers::TestSetup;
 
     #[test]
     fn test_get_health() {
-        let setup = TestSetup::new(None);
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup.rpc.get_health(Some(setup.context));
         assert_eq!(result.unwrap(), "ok");
     }
 
     #[test]
     fn test_get_transaction_count() {
-        let (mempool_tx, _mempool_rx) = crossbeam_channel::unbounded();
-        let setup = TestSetup::new(Some(mempool_tx));
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
         let transactions_processed = setup
             .context
             .state
@@ -363,22 +296,29 @@ mod tests {
 
     #[test]
     fn test_get_epoch_info() {
-        let setup = TestSetup::new(None);
+        let info = EpochInfo {
+            epoch: 1,
+            slot_index: 1,
+            slots_in_epoch: 1,
+            absolute_slot: 1,
+            block_height: 1,
+            transaction_count: Some(1),
+        };
+        let setup = TestSetup::new_with_epoch_info(SurfpoolMinimalRpc, info.clone());
         let result = setup.rpc.get_epoch_info(Some(setup.context), None).unwrap();
-        assert_eq!(result.absolute_slot, 50);
-        assert_eq!(result.block_height, 42);
+        assert_eq!(result, info);
     }
 
     #[test]
     fn test_get_slot() {
-        let setup = TestSetup::new(None);
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup.rpc.get_slot(Some(setup.context), None).unwrap();
         assert_eq!(result, 123);
     }
 
     #[test]
     fn test_get_version() {
-        let setup = TestSetup::new(None);
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup.rpc.get_version(Some(setup.context)).unwrap();
         assert!(!result.solana_core.is_empty());
         assert!(result.feature_set.is_some());
@@ -386,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_get_vote_accounts() {
-        let setup = TestSetup::new(None);
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup
             .rpc
             .get_vote_accounts(Some(setup.context), None)
