@@ -448,7 +448,9 @@ impl Full for SurfpoolFullRpc {
 
             let mut state_writer = meta.get_state_mut()?;
             state_writer.svm.set_sigverify(config.sig_verify);
-            // // TODO: LiteSVM does not enable replacing the current blockhash
+            state_writer
+                .svm
+                .set_blockhash_check(config.replace_recent_blockhash);
 
             // Update missing local accounts
             tx.message
@@ -732,9 +734,13 @@ impl Full for SurfpoolFullRpc {
 mod tests {
     use super::*;
     use crate::test_helpers::TestSetup;
+    use base64::{prelude::BASE64_STANDARD, Engine};
+    use solana_account_decoder::{UiAccount, UiAccountData};
+    use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
     use solana_sdk::{
-        hash::Hash, message::Message, native_token::LAMPORTS_PER_SOL, signature::Keypair,
-        signer::Signer, system_instruction,
+        commitment_config::CommitmentConfig, hash::Hash, message::Message,
+        native_token::LAMPORTS_PER_SOL, signature::Keypair, signer::Signer, system_instruction,
+        system_program,
     };
     use test_case::test_case;
 
@@ -919,12 +925,64 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_simulate_transaction() {
+    #[tokio::test]
+    async fn test_simulate_transaction() {
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let lamports = LAMPORTS_PER_SOL;
         let setup = TestSetup::new(SurfpoolFullRpc);
-        let res = setup
+        let _ = setup
             .rpc
-            .simulate_transaction(Some(setup.context), "".to_string(), None);
+            .request_airdrop(
+                Some(setup.context.clone()),
+                payer.pubkey().to_string(),
+                2 * lamports,
+                None,
+            )
+            .unwrap();
+        let tx = Transaction::new_signed_with_payer(
+            &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+            Some(&payer.pubkey()),
+            &[payer.insecure_clone()],
+            Hash::default(),
+        );
+        let simulation_res = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(RpcSimulateTransactionConfig {
+                    sig_verify: true,
+                    replace_recent_blockhash: false,
+                    commitment: Some(CommitmentConfig::finalized()),
+                    encoding: None,
+                    accounts: Some(RpcSimulateTransactionAccountsConfig {
+                        encoding: None,
+                        addresses: vec![pk.to_string()],
+                    }),
+                    min_context_slot: None,
+                    inner_instructions: false,
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            simulation_res.value.err, None,
+            "Unexpected simulation error"
+        );
+        assert_eq!(
+            simulation_res.value.accounts,
+            Some(vec![Some(UiAccount {
+                lamports,
+                data: UiAccountData::Binary(BASE64_STANDARD.encode(""), UiAccountEncoding::Base64),
+                owner: system_program::id().to_string(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(0),
+            })]),
+            "Wrong account content"
+        );
     }
 
     #[test]
