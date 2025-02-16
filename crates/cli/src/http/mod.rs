@@ -89,7 +89,6 @@ pub async fn start_server(
                                 let _ = sender.send("http://127.0.0.1:8900/graphql".into());
                             }
                             SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
-                                println!("Observing new graph");
                                 observers.push(subgraph_observer_rx);
                             }
                             SubgraphCommand::Shutdown => {
@@ -120,9 +119,7 @@ pub async fn start_server(
                                     },
                                 });
                             }
-                            SchemaDatasourceingEvent::Rountrip(uuid) => {
-                                println!("Subgraph components initialized {}", uuid);
-                            }
+                            SchemaDatasourceingEvent::Rountrip(_uuid) => {}
                         },
                         Err(_e) => {}
                     },
