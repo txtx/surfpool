@@ -74,3 +74,6 @@ agave-geyser-plugin-interface = "2.1.10"
 solana-geyser-plugin-manager = "2.1.10"
 libloading = "0.7.4"
 json5 = "0.4.1"
+
+[dev-dependencies]
+test-case = "^3.3.1"
