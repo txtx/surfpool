@@ -653,20 +653,8 @@ impl Full for SurfpoolFullRpc {
         meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<RpcBlockhash>> {
-        // Retrieve svm state
-        let Some(ctx) = meta else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
-        // Lock read access
-        let Ok(state_reader) = ctx.state.read() else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
+        let state_reader = meta.get_state()?;
+
         // Todo: are we returning the right block height?
         let last_valid_block_height = state_reader.epoch_info.block_height;
         let value = RpcBlockhash {
@@ -738,9 +726,19 @@ mod tests {
     use solana_account_decoder::{UiAccount, UiAccountData};
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
     use solana_sdk::{
-        commitment_config::CommitmentConfig, hash::Hash, message::Message,
-        native_token::LAMPORTS_PER_SOL, signature::Keypair, signer::Signer, system_instruction,
-        system_program,
+        commitment_config::CommitmentConfig,
+        hash::Hash,
+        message::{Message, MessageHeader},
+        native_token::LAMPORTS_PER_SOL,
+        signature::Keypair,
+        signer::Signer,
+        system_instruction, system_program,
+        transaction::{Legacy, TransactionVersion},
+    };
+    use solana_transaction_status::{
+        option_serializer::OptionSerializer, EncodedTransaction, EncodedTransactionWithStatusMeta,
+        UiCompiledInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
+        UiTransactionReturnData, UiTransactionStatusMeta,
     };
     use test_case::test_case;
 
@@ -985,41 +983,127 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_get_block() {
-        let setup = TestSetup::new(SurfpoolFullRpc);
-        let res = setup.rpc.get_block(Some(setup.context), 0, None);
-    }
-
-    #[test]
-    fn test_get_block_time() {
-        let setup = TestSetup::new(SurfpoolFullRpc);
-        let res = setup.rpc.get_block_time(Some(setup.context), 0);
-    }
-
-    #[test]
-    fn test_get_blocks() {
-        let setup = TestSetup::new(SurfpoolFullRpc);
-        let res = setup.rpc.get_blocks(Some(setup.context), 0, None, None);
-    }
-
-    #[test]
-    fn test_get_transaction() {
+    #[tokio::test]
+    async fn test_get_block() {
         let setup = TestSetup::new(SurfpoolFullRpc);
         let res = setup
             .rpc
-            .get_transaction(Some(setup.context), "sig".to_string(), None);
+            .get_block(Some(setup.context), 0, None)
+            .await
+            .unwrap();
+
+        assert_eq!(res, None);
     }
 
-    #[test]
-    fn test_get_first_available_block() {
+    #[tokio::test]
+    async fn test_get_block_time() {
         let setup = TestSetup::new(SurfpoolFullRpc);
-        let res = setup.rpc.get_first_available_block(Some(setup.context));
+        let res = setup
+            .rpc
+            .get_block_time(Some(setup.context), 0)
+            .await
+            .unwrap();
+
+        assert_eq!(res, None);
+    }
+
+    #[tokio::test]
+    async fn test_get_transaction() {
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let lamports = LAMPORTS_PER_SOL;
+        let mut setup = TestSetup::new_without_blockhash(SurfpoolFullRpc);
+        let _ = setup
+            .rpc
+            .request_airdrop(
+                Some(setup.context.clone()),
+                payer.pubkey().to_string(),
+                2 * lamports,
+                None,
+            )
+            .unwrap();
+        let tx = Transaction::new_signed_with_payer(
+            &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+            Some(&payer.pubkey()),
+            &[payer.insecure_clone()],
+            Hash::default(),
+        );
+        setup.process_txs(vec![tx.clone()]);
+        let res = setup
+            .rpc
+            .get_transaction(
+                Some(setup.context.clone()),
+                tx.signatures[0].to_string(),
+                None,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            res,
+            EncodedConfirmedTransactionWithStatusMeta {
+                slot: 0,
+                transaction: EncodedTransactionWithStatusMeta {
+                    transaction: EncodedTransaction::Json(UiTransaction {
+                        signatures: vec![tx.signatures[0].to_string()],
+                        message: UiMessage::Raw(UiRawMessage {
+                            header: MessageHeader {
+                                num_required_signatures: 1,
+                                num_readonly_signed_accounts: 0,
+                                num_readonly_unsigned_accounts: 1
+                            },
+                            account_keys: vec![
+                                payer.pubkey().to_string(),
+                                pk.to_string(),
+                                system_program::id().to_string()
+                            ],
+                            recent_blockhash: Hash::default().to_string(),
+                            instructions: vec![UiCompiledInstruction::from(
+                                &tx.message.instructions[0],
+                                None
+                            )],
+                            address_table_lookups: None
+                        })
+                    }),
+                    meta: res.transaction.clone().meta, // Using the same values to avoid reintroducing processing logic errors
+                    version: Some(TransactionVersion::Legacy(Legacy::Legacy))
+                },
+                block_time: res.block_time // Using the same values to avoid flakyness
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_first_available_block() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .get_first_available_block(Some(setup.context))
+            .await
+            .unwrap();
+
+        assert_eq!(res, 1);
     }
 
     #[test]
     fn test_get_latest_blockhash() {
         let setup = TestSetup::new(SurfpoolFullRpc);
-        let res = setup.rpc.get_latest_blockhash(Some(setup.context), None);
+        let res = setup
+            .rpc
+            .get_latest_blockhash(Some(setup.context.clone()), None)
+            .unwrap();
+
+        assert_eq!(
+            res.value.blockhash,
+            setup
+                .context
+                .state
+                .read()
+                .unwrap()
+                .svm
+                .latest_blockhash()
+                .to_string()
+        );
     }
 }
