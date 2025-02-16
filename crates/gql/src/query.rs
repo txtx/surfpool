@@ -3,13 +3,14 @@ use std::collections::HashMap;
 use crate::Context;
 use convert_case::{Case, Casing};
 use juniper::{
-    meta::{Field, MetaType}, Arguments, BoxFuture, DefaultScalarValue, ExecutionResult, Executor, GraphQLType, GraphQLValue, GraphQLValueAsync, Registry
+    meta::{Field, MetaType},
+    Arguments, BoxFuture, DefaultScalarValue, ExecutionResult, Executor, GraphQLType, GraphQLValue,
+    GraphQLValueAsync, Registry,
 };
 use uuid::Uuid;
 
 #[derive(Debug)]
-pub struct Query {
-}
+pub struct Query {}
 
 #[derive(Clone, Debug)]
 pub struct SchemaDatasource {
@@ -122,8 +123,7 @@ impl GraphQLValue<DefaultScalarValue> for SchemaDatasourceEntry {
 
 impl Query {
     pub fn new() -> Self {
-        Self {
-        }
+        Self {}
     }
 }
 
@@ -146,7 +146,7 @@ impl GraphQLType<DefaultScalarValue> for Query {
         fields.push(registry.field::<&String>("apiVersion", &()));
 
         for (name, entry) in spec.entries.iter() {
-            fields.push(registry.field::<&SchemaDatasourceEntry>(name, &entry));
+            fields.push(registry.field::<&[SchemaDatasourceEntry]>(name, &entry));
         }
         registry
             .build_object_type::<Query>(&spec, &fields)
@@ -169,7 +169,6 @@ impl GraphQLValue<DefaultScalarValue> for Query {
         args: &Arguments,
         executor: &Executor<Self::Context>,
     ) -> ExecutionResult {
-
         // Next, we need to match the queried field name. All arms of this match statement
         // return `ExecutionResult`, which makes it hard to statically verify that the type you
         // pass on to `executor.resolve*` actually matches the one that you defined in `meta()`
@@ -191,7 +190,6 @@ impl GraphQLValue<DefaultScalarValue> for Query {
         //     None => unimplemented!()
         // }
 
-
         unimplemented!();
 
         // Next, we need to match the queried field name. All arms of this match statement
@@ -201,32 +199,32 @@ impl GraphQLValue<DefaultScalarValue> for Query {
         let database = executor.context();
 
         // match subgraph_name {
-            // Because scalars are defined with another `Context` associated type, you must use
-            // `resolve_with_ctx` here to make the `executor` perform automatic type conversion
-            // of its argument.
-            // "api_version" => executor.resolve_with_ctx(&(), "1.0"),
-            // subgraph => executor.resolve_with_ctx(&(), &self.name),
-            // You pass a vector of `User` objects to `executor.resolve`, and it will determine
-            // which fields of the sub-objects to actually resolve based on the query.
-            // The `executor` instance keeps track of its current position in the query.
-            // "friends" => executor.resolve(info,
-            //     &self.friend_ids.iter()
-            //         .filter_map(|id| database.users.get(id))
-            //         .collect::<Vec<_>>()
-            // ),
-            // We can only reach this panic in two cases: either a mismatch between the defined
-            // schema in `meta()` above, or a validation failed because of a this library bug.
-            //
-            // In either of those two cases, the only reasonable way out is to panic the thread.
-            // _ => {
-            //     for (name, entry) in info.entries.iter() {
-            //         if name.eq(subgraph_name) {
-            //             return executor.resolve(database, entry)
-            //         }
-            //     }
-            //     panic!("unable to resolve")
+        // Because scalars are defined with another `Context` associated type, you must use
+        // `resolve_with_ctx` here to make the `executor` perform automatic type conversion
+        // of its argument.
+        // "api_version" => executor.resolve_with_ctx(&(), "1.0"),
+        // subgraph => executor.resolve_with_ctx(&(), &self.name),
+        // You pass a vector of `User` objects to `executor.resolve`, and it will determine
+        // which fields of the sub-objects to actually resolve based on the query.
+        // The `executor` instance keeps track of its current position in the query.
+        // "friends" => executor.resolve(info,
+        //     &self.friend_ids.iter()
+        //         .filter_map(|id| database.users.get(id))
+        //         .collect::<Vec<_>>()
+        // ),
+        // We can only reach this panic in two cases: either a mismatch between the defined
+        // schema in `meta()` above, or a validation failed because of a this library bug.
+        //
+        // In either of those two cases, the only reasonable way out is to panic the thread.
+        // _ => {
+        //     for (name, entry) in info.entries.iter() {
+        //         if name.eq(subgraph_name) {
+        //             return executor.resolve(database, entry)
+        //         }
+        //     }
+        //     panic!("unable to resolve")
 
-            // }
+        // }
         // }
     }
 }
@@ -236,12 +234,11 @@ impl GraphQLValue<DefaultScalarValue> for Query {
 impl GraphQLValueAsync<DefaultScalarValue> for Query {
     fn resolve_field_async(
         &self,
-        _info: &SchemaDatasource,
+        info: &SchemaDatasource,
         field_name: &str,
         _arguments: &Arguments,
         executor: &Executor<Context>,
     ) -> BoxFuture<ExecutionResult> {
-
         println!("{}", field_name);
         println!("{:?}", _arguments);
 
@@ -250,13 +247,12 @@ impl GraphQLValueAsync<DefaultScalarValue> for Query {
             subgraph_name => {
                 let database = executor.context();
                 let subgraph_db = database.entries_store.read().unwrap();
+                let entry = info.entries.get(subgraph_name).unwrap();
                 let (_, entries) = subgraph_db.get(subgraph_name).unwrap();
-                executor.resolve_with_ctx(&(), entries)
+                executor.resolve_with_ctx(entry, &entries[..])
             }
         };
 
-        Box::pin(async {
-            res
-        })
+        Box::pin(async { res })
     }
 }

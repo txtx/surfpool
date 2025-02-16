@@ -1,10 +1,9 @@
 use juniper::RootNode;
-use mutation::{DynamicMutation, Mutation};
+use mutation::Mutation;
 use query::{Query, SchemaDatasource};
 use std::sync::RwLock;
 use std::{collections::BTreeMap, sync::Arc};
-use subscription::{DynamicSubscription, EntryData, Subscription};
-use surfpool_core::types::Entry;
+use subscription::{DynamicSubscription, EntryData, EntryUpdate};
 use uuid::Uuid;
 
 pub mod mutation;
@@ -16,7 +15,7 @@ pub mod subscription;
 pub struct Context {
     pub uuid_lookup: Arc<RwLock<BTreeMap<Uuid, String>>>,
     pub entries_store: Arc<RwLock<BTreeMap<String, (Uuid, Vec<EntryData>)>>>,
-    pub entries_broadcaster: tokio::sync::broadcast::Sender<EntryData>,
+    pub entries_broadcaster: tokio::sync::broadcast::Sender<EntryUpdate>,
 }
 
 impl Context {
