@@ -865,10 +865,58 @@ mod tests {
 
     #[test]
     fn test_send_transaction() {
-        let setup = TestSetup::new(SurfpoolFullRpc);
-        let res = setup
-            .rpc
-            .send_transaction(Some(setup.context), "limit".to_string(), None);
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let (mempool_tx, mempool_rx) = crossbeam_channel::unbounded();
+        let setup = TestSetup::new_with_mempool(SurfpoolFullRpc, mempool_tx);
+        let tx = Transaction::new_signed_with_payer(
+            &[system_instruction::transfer(
+                &payer.pubkey(),
+                &pk,
+                LAMPORTS_PER_SOL,
+            )],
+            Some(&payer.pubkey()),
+            &[payer.insecure_clone()],
+            Hash::default(),
+        );
+        let _ = setup
+            .context
+            .state
+            .write()
+            .unwrap()
+            .svm
+            .airdrop(&payer.pubkey(), 2 * LAMPORTS_PER_SOL);
+
+        let cloned_tx = tx.clone();
+        let handle = hiro_system_kit::thread_named("send_tx")
+            .spawn(move || {
+                let res = setup
+                    .rpc
+                    .send_transaction(
+                        Some(setup.context),
+                        bs58::encode(bincode::serialize(&cloned_tx).unwrap()).into_string(),
+                        None,
+                    )
+                    .unwrap();
+
+                res
+            })
+            .unwrap();
+
+        match mempool_rx.recv() {
+            Ok((_hash, _tx, status_tx)) => {
+                status_tx
+                    .send(TransactionConfirmationStatus::Confirmed)
+                    .unwrap();
+            }
+            Err(_) => panic!("failed to receive transaction from mempool"),
+        }
+
+        assert_eq!(
+            handle.join().unwrap(),
+            tx.signatures[0].to_string(),
+            "incorrect signature"
+        );
     }
 
     #[test]

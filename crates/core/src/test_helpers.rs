@@ -3,9 +3,16 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crossbeam_channel::Sender;
 use litesvm::LiteSVM;
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::{blake3::Hash, clock::Clock, epoch_info::EpochInfo, transaction::Transaction};
+use solana_sdk::{
+    blake3::Hash,
+    clock::Clock,
+    epoch_info::EpochInfo,
+    transaction::{Transaction, VersionedTransaction},
+};
+use solana_transaction_status::TransactionConfirmationStatus;
 
 use crate::{
     rpc::RunloopContext,
@@ -64,6 +71,19 @@ impl<T> TestSetup<T> {
     pub fn new_with_svm(rpc: T, svm: LiteSVM) -> Self {
         let setup = TestSetup::new(rpc);
         setup.context.state.write().unwrap().svm = svm;
+        setup
+    }
+
+    pub fn new_with_mempool(
+        rpc: T,
+        mempool_tx: Sender<(
+            Hash,
+            VersionedTransaction,
+            Sender<TransactionConfirmationStatus>,
+        )>,
+    ) -> Self {
+        let mut setup = TestSetup::new(rpc);
+        setup.context.mempool_tx = mempool_tx;
         setup
     }
 
