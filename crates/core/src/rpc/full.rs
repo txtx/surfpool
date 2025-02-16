@@ -1,4 +1,4 @@
-use crate::simnet::EntryStatus;
+use crate::simnet::{EntryStatus, TransactionWithStatusMeta};
 
 use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts};
 use jsonrpc_core::futures::future::{self, join_all};
@@ -23,9 +23,11 @@ use solana_client::{
 };
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::commitment_config::CommitmentLevel;
-use solana_sdk::message::VersionedMessage;
+use solana_sdk::message::{Message, VersionedMessage};
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::Signature;
+use solana_sdk::signature::{Keypair, Signature};
+use solana_sdk::signer::Signer;
+use solana_sdk::system_instruction;
 use solana_sdk::transaction::{Transaction, VersionedTransaction};
 use solana_sdk::{account::Account, clock::UnixTimestamp};
 use solana_transaction_status::{
@@ -309,12 +311,38 @@ impl Full for SurfpoolFullRpc {
         _config: Option<RpcRequestAirdropConfig>,
     ) -> Result<String> {
         let pk = Pubkey::from_str_const(&pubkey_str);
-        let mut state_reader = meta.get_state_mut()?;
+        let mut state_writer = meta.get_state_mut()?;
 
-        let tx_result = state_reader
+        let tx_result = state_writer
             .svm
             .airdrop(&pk, lamports)
             .map_err(|err| Error::invalid_params(format!("failed to send transaction: {err:?}")))?;
+
+        // TODO: this is a workaround until LiteSVM records full transactions
+        let airdrop_kp = Keypair::new(); // TODO: use the private keypair from LiteSVM
+        let slot = state_writer.epoch_info.absolute_slot;
+        state_writer.transactions.insert(
+            tx_result.signature,
+            EntryStatus::Processed(TransactionWithStatusMeta(
+                slot,
+                VersionedTransaction::try_new(
+                    VersionedMessage::Legacy(Message::new(
+                        &[system_instruction::transfer(
+                            &airdrop_kp.pubkey(),
+                            &pk,
+                            lamports,
+                        )],
+                        Some(&airdrop_kp.pubkey()),
+                    )),
+                    &[airdrop_kp],
+                )
+                .unwrap()
+                .into_legacy_transaction()
+                .unwrap(),
+                tx_result.clone(),
+                None,
+            )),
+        );
 
         Ok(tx_result.signature.to_string())
     }
@@ -706,7 +734,7 @@ mod tests {
     use crate::test_helpers::TestSetup;
     use solana_sdk::{
         hash::Hash, message::Message, native_token::LAMPORTS_PER_SOL, signature::Keypair,
-        signer::Signer, system_instruction, system_program,
+        signer::Signer, system_instruction,
     };
     use test_case::test_case;
 
@@ -811,10 +839,28 @@ mod tests {
 
     #[test]
     fn test_request_airdrop() {
+        let pk = Pubkey::new_unique();
+        let lamports = 1000;
         let setup = TestSetup::new(SurfpoolFullRpc);
         let res = setup
             .rpc
-            .request_airdrop(Some(setup.context), "".to_string(), 1000, None);
+            .request_airdrop(Some(setup.context.clone()), pk.to_string(), lamports, None)
+            .unwrap();
+        let sig = Signature::from_str(res.as_str()).unwrap();
+        let state_reader = setup.context.state.read().unwrap();
+        assert_eq!(
+            state_reader.svm.get_account(&pk).unwrap().lamports,
+            lamports,
+            "airdropped amount is incorrect"
+        );
+        assert!(
+            state_reader.svm.get_transaction(&sig).is_some(),
+            "transaction is not found in the SVM"
+        );
+        assert!(
+            state_reader.transactions.get(&sig).is_some(),
+            "transaction is not found in the history"
+        );
     }
 
     #[test]
