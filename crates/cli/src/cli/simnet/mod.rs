@@ -29,10 +29,10 @@ use surfpool_core::{
         signer::{EncodableKey, Signer},
     },
     start_simnet,
-    types::{
-        RpcConfig, RunloopTriggerMode, SimnetConfig, SimnetEvent, SubgraphConfig, SubgraphEvent,
-        SurfpoolConfig,
-    },
+};
+use surfpool_types::{
+    RpcConfig, RunloopTriggerMode, SimnetConfig, SimnetEvent, SubgraphConfig, SubgraphEvent,
+    SurfpoolConfig,
 };
 use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,

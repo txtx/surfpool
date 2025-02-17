@@ -7,10 +7,7 @@ use {
     ipc_channel::ipc::IpcSender,
     solana_program::clock::Slot,
     std::sync::Mutex,
-    surfpool_core::{
-        solana_sdk::bs58,
-        types::{SchemaDatasourceingEvent, SubgraphPluginConfig},
-    },
+    surfpool_types::{SchemaDatasourceingEvent, SubgraphPluginConfig},
     txtx_addon_network_svm::codec::subgraph::{IndexedSubgraphSourceType, SubgraphRequest},
     uuid::Uuid,
 };

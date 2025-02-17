@@ -13,12 +13,12 @@ use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::sync::RwLock;
 use std::time::Duration;
-use surfpool_core::types::{
-    Entry, SchemaDatasourceingEvent, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
-};
 use surfpool_gql::query::{SchemaDatasource, SchemaDatasourceEntry};
 use surfpool_gql::subscription::EntryData;
 use surfpool_gql::{new_dynamic_schema, Context as GqlContext, GqlDynamicSchema as GqlSchema};
+use surfpool_types::{
+    Entry, SchemaDatasourceingEvent, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
+};
 use txtx_core::kit::uuid::Uuid;
 
 #[cfg(feature = "explorer")]

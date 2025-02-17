@@ -7,11 +7,11 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 use std::time::SystemTime;
+use surfpool_types::PluginManagerCommand;
 use txtx_addon_network_svm::codec::subgraph::PluginConfig;
 use uuid::Uuid;
 
 use super::RunloopContext;
-use crate::types::PluginManagerCommand;
 
 #[rpc]
 pub trait AdminRpc {

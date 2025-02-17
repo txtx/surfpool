@@ -1,5 +1,5 @@
 [package]
-name = "surfpool-core"
+name = "surfpool-types"
 description = "Where you train before surfing Solana"
 version = { workspace = true }
 readme = { workspace = true }
@@ -13,7 +13,6 @@ categories = { workspace = true }
 path = "src/lib.rs"
 
 [dependencies]
-surfpool-types = { workspace = true }
 base64 = "0.22.1"
 bincode = { workspace = true }
 crossbeam-channel = "0.5.14"
@@ -80,6 +79,3 @@ ipc-channel = { workspace = true }
 
 [dev-dependencies]
 test-case = "^3.3.1"
-
-[build-dependencies]
-surfpool-subgraph = { workspace = true }
