@@ -56,6 +56,13 @@ const BLOCKHASH_SLOT_TTL: u64 = 75;
 const SUBGRAPH_PLUGIN_BYTES: &[u8] =
     include_bytes!("../../../../target/release/libsurfpool_subgraph.dylib");
 
+#[cfg(clippy)]
+const SUBGRAPH_PLUGIN_BYTES: &[u8] = &[0];
+
+#[cfg(not(clippy))]
+const SUBGRAPH_PLUGIN_BYTES: &[u8] =
+    include_bytes!("../../../../target/release/libsurfpool_subgraph.dylib");
+
 #[derive(Debug, Clone)]
 pub struct TransactionWithStatusMeta(
     pub u64,
