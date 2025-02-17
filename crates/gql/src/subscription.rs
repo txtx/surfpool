@@ -56,9 +56,9 @@ impl GraphQLValue<DefaultScalarValue> for EntryData {
 
     fn resolve_field(
         &self,
-        info: &SchemaDatasourceEntry,
+        _info: &SchemaDatasourceEntry,
         field_name: &str,
-        args: &Arguments,
+        _args: &Arguments,
         executor: &Executor<Context>,
     ) -> ExecutionResult {
         match field_name {

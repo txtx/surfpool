@@ -9,7 +9,7 @@ use actix_web::{Error, Responder};
 use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, playground_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::sync::RwLock;
 use std::time::Duration;
@@ -31,7 +31,7 @@ pub struct Asset;
 
 pub async fn start_server(
     network_binding: String,
-    config: SurfpoolConfig,
+    _config: SurfpoolConfig,
     subgraph_events_tx: Sender<SubgraphEvent>,
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     _ctx: &Context,
@@ -125,6 +125,7 @@ pub async fn start_server(
                     },
                 }
             }
+            #[allow(unreachable_code)]
             Ok::<(), String>(())
         })
         .map_err(|e| format!("{}", e))?;

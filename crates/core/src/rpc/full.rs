@@ -766,9 +766,8 @@ mod tests {
         transaction::{Legacy, TransactionVersion},
     };
     use solana_transaction_status::{
-        option_serializer::OptionSerializer, EncodedTransaction, EncodedTransactionWithStatusMeta,
-        UiCompiledInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
-        UiTransactionReturnData, UiTransactionStatusMeta,
+        EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
+        UiRawMessage, UiTransaction,
     };
     use test_case::test_case;
 

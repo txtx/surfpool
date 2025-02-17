@@ -1,14 +1,13 @@
-use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoVersions;
 use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver, Sender};
 use litesvm::types::TransactionMetadata;
 use solana_client::rpc_config::RpcSendTransactionConfig;
 use solana_sdk::{
     blake3::Hash,
-    clock::{Clock, Slot},
+    clock::Clock,
     epoch_info::EpochInfo,
     pubkey::Pubkey,
-    transaction::{SanitizedTransaction, TransactionError, VersionedTransaction},
+    transaction::{TransactionError, VersionedTransaction},
 };
 use solana_transaction_status::TransactionConfirmationStatus;
 use std::{collections::HashMap, path::PathBuf};

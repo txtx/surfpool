@@ -30,6 +30,7 @@ use solana_transaction_status::{
     UiInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
     UiTransactionReturnData, UiTransactionStatusMeta,
 };
+use std::path::PathBuf;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     net::SocketAddr,
@@ -37,7 +38,6 @@ use std::{
     thread::sleep,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use std::{fs::File, io::Read, path::PathBuf};
 
 use crate::{
     rpc::{
@@ -406,6 +406,7 @@ pub async fn start(
                         }
                     }
                 }
+            #[allow(unreachable_code)]
             Ok::<(), String>(())
         });
     }

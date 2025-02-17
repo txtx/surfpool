@@ -12,7 +12,6 @@ extern crate serde_json;
 
 pub mod rpc;
 pub mod simnet;
-mod test_helpers;
 pub mod types;
 
 use crossbeam_channel::{Receiver, Sender};
@@ -39,3 +38,6 @@ pub async fn start_simnet(
     )
     .await
 }
+
+#[cfg(test)]
+mod test_helpers;

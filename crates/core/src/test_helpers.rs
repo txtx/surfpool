@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, RwLock},
@@ -6,13 +8,7 @@ use std::{
 use crossbeam_channel::Sender;
 use litesvm::LiteSVM;
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::{
-    blake3::Hash,
-    clock::Clock,
-    epoch_info::EpochInfo,
-    transaction::{Transaction, VersionedTransaction},
-};
-use solana_transaction_status::TransactionConfirmationStatus;
+use solana_sdk::{blake3::Hash, clock::Clock, epoch_info::EpochInfo, transaction::Transaction};
 
 use crate::{
     rpc::RunloopContext,

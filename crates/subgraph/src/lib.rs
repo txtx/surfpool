@@ -8,7 +8,7 @@ use {
     solana_program::clock::Slot,
     std::sync::Mutex,
     surfpool_core::{
-        solana_sdk::{bs58, inner_instruction},
+        solana_sdk::bs58,
         types::{SchemaDatasourceingEvent, SubgraphPluginConfig},
     },
     txtx_addon_network_svm::codec::subgraph::{IndexedSubgraphSourceType, SubgraphRequest},
@@ -78,7 +78,7 @@ impl GeyserPlugin for SurfpoolSubgraph {
     fn notify_transaction(
         &self,
         transaction: ReplicaTransactionInfoVersions,
-        slot: Slot,
+        _slot: Slot,
     ) -> PluginResult<()> {
         let Ok(tx) = self.subgraph_indexing_event_tx.lock() else {
             return Ok(());
@@ -119,7 +119,7 @@ impl GeyserPlugin for SurfpoolSubgraph {
                         for field in subgraph_request.fields.iter() {
                             match &field.data_source {
                                 IndexedSubgraphSourceType::Instruction(
-                                    instruction_subgraph_source,
+                                    _instruction_subgraph_source,
                                 ) => {
                                     continue;
                                 }
