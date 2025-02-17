@@ -272,7 +272,7 @@ impl Minimal for SurfpoolMinimalRpc {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::TestSetup;
+    use crate::tests::helpers::TestSetup;
 
     #[test]
     fn test_get_health() {

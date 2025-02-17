@@ -9,7 +9,7 @@ use juniper::{
     GraphQLValue, Registry,
 };
 use juniper_codegen::graphql_object;
-use surfpool_core::types::Entry;
+use surfpool_types::Entry;
 
 #[derive(Debug, Clone)]
 pub struct EntryData {

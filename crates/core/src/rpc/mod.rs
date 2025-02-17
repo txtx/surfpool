@@ -73,12 +73,13 @@ impl State for Option<RunloopContext> {
 
 impl Metadata for RunloopContext {}
 
-use crate::{
-    simnet::GlobalState,
-    types::{PluginManagerCommand, RpcConfig, SimnetCommand},
-};
+use crate::simnet::GlobalState;
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
+use surfpool_types::{
+    types::{PluginManagerCommand, RpcConfig},
+    SimnetCommand,
+};
 
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {

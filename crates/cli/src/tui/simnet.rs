@@ -18,8 +18,8 @@ use surfpool_core::{
         pubkey::Pubkey, signature::Keypair, signer::Signer, system_instruction,
         transaction::Transaction,
     },
-    types::{ClockCommand, RunloopTriggerMode, SimnetCommand, SimnetEvent},
 };
+use surfpool_types::{ClockCommand, RunloopTriggerMode, SimnetCommand, SimnetEvent};
 use txtx_core::kit::types::frontend::BlockEvent;
 use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};
 
