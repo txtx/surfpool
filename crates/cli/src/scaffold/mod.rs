@@ -101,7 +101,7 @@ pub fn scaffold_iac_layout(
 
     let mut runbook_src: String = String::new();
     runbook_src.push_str(&get_interpolated_header_template(&format!(
-        "Manage {} deployment through Crypto Infrasctructure as Code",
+        "Manage {} deployment through Crypto Infrastructure as Code",
         manifest.name
     )));
     runbook_src.push_str(&get_interpolated_addon_template("input.rpc_api_url"));
