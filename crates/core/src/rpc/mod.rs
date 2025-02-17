@@ -5,11 +5,11 @@ use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
 use solana_client::rpc_custom_error::RpcCustomError;
-use solana_sdk::{blake3::Hash, clock::Slot, transaction::VersionedTransaction};
-use solana_transaction_status::TransactionConfirmationStatus;
+use solana_sdk::{blake3::Hash, clock::Slot};
 
 pub mod accounts_data;
 pub mod accounts_scan;
+pub mod admin;
 pub mod bank_data;
 pub mod full;
 pub mod minimal;
@@ -28,11 +28,8 @@ pub struct SurfpoolRpc;
 pub struct RunloopContext {
     pub id: Hash,
     pub state: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: Sender<(
-        Hash,
-        VersionedTransaction,
-        Sender<TransactionConfirmationStatus>,
-    )>,
+    pub simnet_commands_tx: Sender<SimnetCommand>,
+    pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
 }
 
 trait State {
@@ -76,18 +73,18 @@ impl State for Option<RunloopContext> {
 
 impl Metadata for RunloopContext {}
 
-use crate::{simnet::GlobalState, types::RpcConfig};
+use crate::{
+    simnet::GlobalState,
+    types::{PluginManagerCommand, RpcConfig, SimnetCommand},
+};
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
 
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
     pub context: Arc<RwLock<GlobalState>>,
-    pub mempool_tx: Sender<(
-        Hash,
-        VersionedTransaction,
-        Sender<TransactionConfirmationStatus>,
-    )>,
+    pub simnet_commands_tx: Sender<SimnetCommand>,
+    pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub config: RpcConfig,
 }
 
@@ -108,7 +105,8 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
         let meta = Some(RunloopContext {
             id: Hash::new_unique(),
             state: self.context.clone(),
-            mempool_tx: self.mempool_tx.clone(),
+            simnet_commands_tx: self.simnet_commands_tx.clone(),
+            plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
         });
         // println!("Processing request {:?}", request);
         Either::Left(Box::pin(next(request, meta).map(move |res| {

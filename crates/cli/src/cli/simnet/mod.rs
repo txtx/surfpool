@@ -1,9 +1,9 @@
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc, Arc,
     },
     thread::sleep,
     time::Duration,
@@ -18,15 +18,21 @@ use crate::{
 
 use super::{Context, StartSimnet, DEFAULT_EXPLORER_PORT};
 use crossbeam::channel::Select;
+use notify::{
+    event::{CreateKind, DataChange, ModifyKind},
+    Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
+};
 use surfpool_core::{
-    simnet::SimnetEvent,
     solana_sdk::{
         pubkey::Pubkey,
         signature::Keypair,
         signer::{EncodableKey, Signer},
     },
     start_simnet,
-    types::{RpcConfig, RunloopTriggerMode, SimnetConfig, SurfpoolConfig},
+    types::{
+        RpcConfig, RunloopTriggerMode, SimnetConfig, SimnetEvent, SubgraphConfig, SubgraphEvent,
+        SurfpoolConfig,
+    },
 };
 use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
@@ -79,6 +85,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             airdrop_addresses,
             airdrop_token_amount: cmd.airdrop_token_amount,
         },
+        subgraph: SubgraphConfig {},
         plugin_config_path: cmd
             .plugin_config_path
             .iter()
@@ -91,12 +98,34 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     // We start the simnet as soon as possible, as it needs to be ready for deployments
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
     let (simnet_events_tx, simnet_events_rx) = crossbeam::channel::unbounded();
-    let ctx_cloned = ctx.clone();
+    let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
+    let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
+
+    let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);
+    let explorer_handle = start_server(
+        network_binding,
+        config.clone(),
+        subgraph_events_tx.clone(),
+        subgraph_commands_rx,
+        &ctx.clone(),
+    )
+    .await
+    .map_err(|e| format!("{}", e.to_string()))?;
+
+    let ctx_copy = ctx.clone();
+    let simnet_commands_tx_copy = simnet_commands_tx.clone();
+    let config_copy = config.clone();
     let _handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
-            let future = start_simnet(config, simnet_events_tx, simnet_commands_rx);
+            let future = start_simnet(
+                config_copy,
+                subgraph_commands_tx,
+                simnet_events_tx,
+                simnet_commands_tx_copy,
+                simnet_commands_rx,
+            );
             if let Err(e) = hiro_system_kit::nestable_block_on(future) {
-                error!(ctx_cloned.expect_logger(), "{e}");
+                error!(ctx_copy.expect_logger(), "{e}");
                 sleep(Duration::from_millis(500));
                 std::process::exit(1);
             }
@@ -113,17 +142,6 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         }
     }
 
-    let explorer_handle = if !cmd.no_explorer {
-        let ctx_cloned = ctx.clone();
-        let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);
-        let future = start_server(&network_binding, &ctx_cloned)
-            .await
-            .map_err(|e| format!("{}", e.to_string()))?;
-        Some(future)
-    } else {
-        None
-    };
-
     let mut deploy_progress_rx = vec![];
     if !cmd.no_deploy {
         // Are we in a project directory?
@@ -134,6 +152,9 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             }
             Ok(deployment) => deployment,
         };
+
+        let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
+        deploy_progress_rx.push(progress_rx);
 
         if let Some((_framework, programs)) = deployment {
             // Is infrastructure-as-code (IaC) already setup?
@@ -147,14 +168,13 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             }
 
             let mut futures = vec![];
-            for runbook_id in cmd.runbooks.iter() {
-                let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
+            let runbooks_ids_to_execute = cmd.runbooks.clone();
+            for runbook_id in runbooks_ids_to_execute.iter() {
                 futures.push(execute_runbook(
                     runbook_id.clone(),
-                    progress_tx,
+                    progress_tx.clone(),
                     txtx_manifest_location.clone(),
                 ));
-                deploy_progress_rx.push(progress_rx);
             }
 
             let _handle = hiro_system_kit::thread_named("simnet")
@@ -163,12 +183,83 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
                     Ok::<(), String>(())
                 })
                 .map_err(|e| format!("{}", e))?;
+
+            if cmd.watch {
+                let _handle = hiro_system_kit::thread_named("watch filesystem")
+                    .spawn(move || {
+                        let mut target_path = base_location.clone();
+                        let _ = target_path.append_path("target");
+                        let _ = target_path.append_path("deploy");
+                        let (tx, rx) = mpsc::channel::<NotifyResult<Event>>();
+                        let mut watcher =
+                            notify::recommended_watcher(tx).map_err(|e| e.to_string())?;
+                        watcher
+                            .watch(
+                                Path::new(&target_path.to_string()),
+                                RecursiveMode::NonRecursive,
+                            )
+                            .map_err(|e| e.to_string())?;
+                        let _ = watcher.configure(
+                            Config::default()
+                                .with_poll_interval(Duration::from_secs(1))
+                                .with_compare_contents(true),
+                        );
+                        for res in rx {
+                            // Disregard any event that would not create or modify a .so file
+                            let mut found_candidates = false;
+                            match res {
+                                Ok(Event {
+                                    kind: EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+                                    paths,
+                                    attrs: _,
+                                })
+                                | Ok(Event {
+                                    kind: EventKind::Create(CreateKind::File),
+                                    paths,
+                                    attrs: _,
+                                }) => {
+                                    for path in paths.iter() {
+                                        if path.to_string_lossy().ends_with(".so") {
+                                            found_candidates = true;
+                                        }
+                                    }
+                                }
+                                _ => continue,
+                            }
+
+                            if !found_candidates {
+                                continue;
+                            }
+
+                            let mut futures = vec![];
+                            for runbook_id in runbooks_ids_to_execute.iter() {
+                                futures.push(execute_runbook(
+                                    runbook_id.clone(),
+                                    progress_tx.clone(),
+                                    txtx_manifest_location.clone(),
+                                ));
+                            }
+                            let _ = hiro_system_kit::nestable_block_on(join_all(futures));
+                        }
+                        Ok::<(), String>(())
+                    })
+                    .map_err(|e| format!("{}", e))
+                    .unwrap();
+            }
         }
+
+        // clean-up state
     };
 
     // Start frontend - kept on main thread
     if cmd.no_tui {
-        log_events(simnet_events_rx, cmd.debug, deploy_progress_rx, ctx)?;
+        log_events(
+            simnet_events_rx,
+            subgraph_events_rx,
+            cmd.debug,
+            deploy_progress_rx,
+            ctx,
+        )?;
     } else {
         tui::simnet::start_app(
             simnet_events_rx,
@@ -181,14 +272,13 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         )
         .map_err(|e| format!("{}", e))?;
     }
-    if let Some(explorer_handle) = explorer_handle {
-        let _ = explorer_handle.stop(true);
-    }
+    let _ = explorer_handle.stop(true);
     Ok(())
 }
 
 fn log_events(
     simnet_events_rx: Receiver<SimnetEvent>,
+    subgraph_events_rx: Receiver<SubgraphEvent>,
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     ctx: &Context,
@@ -209,6 +299,7 @@ fn log_events(
         let mut handles = vec![];
 
         selector.recv(&simnet_events_rx);
+        selector.recv(&subgraph_events_rx);
 
         if !deployment_completed {
             for rx in deploy_progress_rx.iter() {
@@ -225,6 +316,12 @@ fn log_events(
                         info!(
                             ctx.expect_logger(),
                             "Account {} retrieved from Mainnet", account
+                        );
+                    }
+                    SimnetEvent::PluginLoaded(plugin_name) => {
+                        info!(
+                            ctx.expect_logger(),
+                            "Plugin {} successfully loaded", plugin_name
                         );
                     }
                     SimnetEvent::EpochInfoUpdate(epoch_info) => {
@@ -287,10 +384,35 @@ fn log_events(
                     break;
                 }
             },
-            i => match oper.recv(&deploy_progress_rx[i - 1]) {
+            1 => match oper.recv(&subgraph_events_rx) {
+                Ok(event) => match event {
+                    SubgraphEvent::ErrorLog(_dt, log) => {
+                        error!(ctx.expect_logger(), "{}", log);
+                    }
+                    SubgraphEvent::InfoLog(_dt, log) => {
+                        info!(ctx.expect_logger(), "{}", log);
+                    }
+                    SubgraphEvent::DebugLog(_dt, log) => {
+                        if include_debug_logs {
+                            info!(ctx.expect_logger(), "{}", log);
+                        }
+                    }
+                    SubgraphEvent::WarnLog(_dt, log) => {
+                        warn!(ctx.expect_logger(), "{}", log);
+                    }
+                    SubgraphEvent::EndpointReady => {}
+                    SubgraphEvent::Shutdown => {
+                        break;
+                    }
+                },
+                Err(_e) => {
+                    break;
+                }
+            },
+            i => match oper.recv(&deploy_progress_rx[i - 2]) {
                 Ok(event) => match event {
                     BlockEvent::UpdateProgressBarStatus(update) => {
-                        info!(
+                        debug!(
                             ctx.expect_logger(),
                             "{}",
                             format!(
@@ -298,6 +420,9 @@ fn log_events(
                                 update.new_status.status, update.new_status.message
                             )
                         );
+                    }
+                    BlockEvent::RunbookCompleted => {
+                        info!(ctx.expect_logger(), "{}", format!("Deployment executed",));
                     }
                     _ => {}
                 },

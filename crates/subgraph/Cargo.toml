@@ -1,0 +1,23 @@
+[package]
+name = "surfpool-subgraph"
+version = { workspace = true }
+readme = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+agave-geyser-plugin-interface = { workspace = true }
+solana-program = { workspace = true }
+txtx-addon-network-svm = { workspace = true }
+ipc-channel = { workspace = true }
+surfpool-core = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+bincode = { workspace = true }
+uuid = { workspace = true }

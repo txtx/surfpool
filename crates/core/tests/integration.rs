@@ -18,10 +18,10 @@ use solana_sdk::{
 use std::{str::FromStr, time::Duration};
 use surfpool_core::{
     rpc::{full::FullClient, minimal::MinimalClient},
-    simnet::{start, SimnetEvent},
-    types::{RpcConfig, RunloopTriggerMode, SimnetConfig, SurfpoolConfig},
+    simnet::start,
+    types::{RpcConfig, RunloopTriggerMode, SimnetConfig, SimnetEvent, SurfpoolConfig},
 };
-use tokio::{task, time::sleep};
+use tokio::task;
 
 mod helpers;
 
@@ -36,10 +36,17 @@ async fn test_simnet_ready() {
     };
 
     let (simnet_events_tx, simnet_events_rx) = unbounded();
-    let (_simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
-        let future = start(config, simnet_events_tx, simnet_commands_rx);
+        let future = start(
+            config,
+            subgraph_commands_tx,
+            simnet_events_tx,
+            simnet_commands_tx,
+            simnet_commands_rx,
+        );
         if let Err(e) = hiro_system_kit::nestable_block_on(future) {
             panic!("{e:?}");
         }
@@ -62,11 +69,18 @@ async fn test_simnet_ticks() {
     };
 
     let (simnet_events_tx, simnet_events_rx) = unbounded();
-    let (_simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let (test_tx, test_rx) = unbounded();
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
-        let future = start(config, simnet_events_tx, simnet_commands_rx);
+        let future = start(
+            config,
+            subgraph_commands_tx,
+            simnet_events_tx,
+            simnet_commands_tx,
+            simnet_commands_rx,
+        );
         if let Err(e) = hiro_system_kit::nestable_block_on(future) {
             panic!("{e:?}");
         }
@@ -116,10 +130,17 @@ async fn test_simnet_some_sol_transfers() {
     };
 
     let (simnet_events_tx, simnet_events_rx) = unbounded();
-    let (_simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
-        let future = start(config, simnet_events_tx, simnet_commands_rx);
+        let future = start(
+            config,
+            subgraph_commands_tx,
+            simnet_events_tx,
+            simnet_commands_tx,
+            simnet_commands_rx,
+        );
         if let Err(e) = hiro_system_kit::nestable_block_on(future) {
             panic!("{e:?}");
         }
