@@ -29,6 +29,5 @@ pub async fn start_simnet(
     simnet_events_tx: Sender<SimnetEvent>,
     simnet_commands_rx: Receiver<SimnetCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    simnet::start(config, simnet_events_tx, simnet_commands_rx).await?;
-    Ok(())
+    simnet::start(config, simnet_events_tx, simnet_commands_rx).await
 }

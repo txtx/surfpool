@@ -194,6 +194,11 @@ pub enum SimnetEvent {
     WarnLog(DateTime<Local>, String),
     DebugLog(DateTime<Local>, String),
     TransactionReceived(DateTime<Local>, VersionedTransaction),
+    TransactionProcessed(
+        DateTime<Local>,
+        TransactionMetadata,
+        Option<TransactionError>,
+    ),
     AccountUpdate(DateTime<Local>, Pubkey),
 }
 
@@ -330,7 +335,7 @@ pub async fn start(
 
                 let plugin_name = result["name"].as_str().map(|s| s.to_owned());
 
-                let config_file = geyser_plugin_config_file
+                let _config_file = geyser_plugin_config_file
                     .as_os_str()
                     .to_str()
                     .ok_or(GeyserPluginManagerError::InvalidPluginPath)?;
@@ -543,11 +548,16 @@ pub async fn start(
                 EntryStatus::Processed(TransactionWithStatusMeta(
                     slot,
                     transaction.clone(),
-                    meta,
-                    err,
+                    meta.clone(),
+                    err.clone(),
                 )),
             );
             let _ = status_tx.try_send(TransactionConfirmationStatus::Processed);
+            let _ = simnet_events_tx.try_send(SimnetEvent::TransactionProcessed(
+                Local::now(),
+                meta,
+                err,
+            ));
             transactions_processed.push((key, transaction, status_tx));
             num_transactions += 1;
         }
