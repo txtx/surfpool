@@ -77,3 +77,6 @@ json5 = "0.4.1"
 txtx-addon-network-svm = { workspace = true }
 uuid = "1.7.0"
 ipc-channel = { workspace = true }
+
+[dev-dependencies]
+test-case = "^3.3.1"

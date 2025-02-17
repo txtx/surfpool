@@ -54,10 +54,10 @@ const BLOCKHASH_SLOT_TTL: u64 = 75;
 
 #[derive(Debug, Clone)]
 pub struct TransactionWithStatusMeta(
-    u64,
-    Transaction,
-    TransactionMetadata,
-    Option<TransactionError>,
+    pub u64,
+    pub Transaction,
+    pub TransactionMetadata,
+    pub Option<TransactionError>,
 );
 
 impl TransactionWithStatusMeta {
@@ -170,6 +170,7 @@ pub struct GlobalState {
     pub rpc_client: Arc<RpcClient>,
 }
 
+#[derive(Debug, Clone)]
 pub enum EntryStatus {
     Received,
     Processed(TransactionWithStatusMeta),

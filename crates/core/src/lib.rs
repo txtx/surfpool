@@ -12,6 +12,7 @@ extern crate serde_json;
 
 pub mod rpc;
 pub mod simnet;
+mod test_helpers;
 pub mod types;
 
 use crossbeam_channel::{Receiver, Sender};
