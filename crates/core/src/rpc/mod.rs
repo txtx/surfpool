@@ -109,10 +109,6 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             simnet_commands_tx: self.simnet_commands_tx.clone(),
             plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
         });
-        // println!("Processing request {:?}", request);
-        Either::Left(Box::pin(next(request, meta).map(move |res| {
-            // println!("Processing took: {:?}", start.elapsed());
-            res
-        })))
+        Either::Left(Box::pin(next(request, meta).map(move |res| res)))
     }
 }
