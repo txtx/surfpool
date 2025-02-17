@@ -12,7 +12,6 @@ use solana_client::{
         RpcVoteAccountStatus,
     },
 };
-use solana_program_runtime::loaded_programs::{BlockRelation, ForkGraph};
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{
     clock::{Clock, Slot},
@@ -206,7 +205,7 @@ impl Minimal for SurfpoolMinimalRpc {
         _config: Option<RpcContextConfig>,
     ) -> Result<u64> {
         let state_reader = meta.get_state()?;
-        Ok(state_reader.transactions.iter().count() as u64)
+        Ok(state_reader.transactions_processed as u64)
     }
 
     fn get_version(&self, _: Self::Metadata) -> Result<RpcVersionInfo> {
@@ -270,14 +269,69 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 }
 
-pub struct MockForkGraph {}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::TestSetup;
 
-impl ForkGraph for MockForkGraph {
-    fn relationship(&self, a: Slot, b: Slot) -> BlockRelation {
-        match a.cmp(&b) {
-            std::cmp::Ordering::Less => BlockRelation::Ancestor,
-            std::cmp::Ordering::Equal => BlockRelation::Equal,
-            std::cmp::Ordering::Greater => BlockRelation::Descendant,
-        }
+    #[test]
+    fn test_get_health() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+        let result = setup.rpc.get_health(Some(setup.context));
+        assert_eq!(result.unwrap(), "ok");
+    }
+
+    #[test]
+    fn test_get_transaction_count() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+        let transactions_processed = setup
+            .context
+            .state
+            .read()
+            .map(|s| s.transactions_processed)
+            .unwrap();
+        let result = setup.rpc.get_transaction_count(Some(setup.context), None);
+        assert_eq!(result.unwrap(), transactions_processed);
+    }
+
+    #[test]
+    fn test_get_epoch_info() {
+        let info = EpochInfo {
+            epoch: 1,
+            slot_index: 1,
+            slots_in_epoch: 1,
+            absolute_slot: 1,
+            block_height: 1,
+            transaction_count: Some(1),
+        };
+        let setup = TestSetup::new_with_epoch_info(SurfpoolMinimalRpc, info.clone());
+        let result = setup.rpc.get_epoch_info(Some(setup.context), None).unwrap();
+        assert_eq!(result, info);
+    }
+
+    #[test]
+    fn test_get_slot() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+        let result = setup.rpc.get_slot(Some(setup.context), None).unwrap();
+        assert_eq!(result, 123);
+    }
+
+    #[test]
+    fn test_get_version() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+        let result = setup.rpc.get_version(Some(setup.context)).unwrap();
+        assert!(!result.solana_core.is_empty());
+        assert!(result.feature_set.is_some());
+    }
+
+    #[test]
+    fn test_get_vote_accounts() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+        let result = setup
+            .rpc
+            .get_vote_accounts(Some(setup.context), None)
+            .unwrap();
+        assert!(result.current.is_empty());
+        assert!(result.delinquent.is_empty());
     }
 }

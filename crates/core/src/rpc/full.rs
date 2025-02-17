@@ -1,4 +1,4 @@
-use crate::simnet::EntryStatus;
+use crate::simnet::{EntryStatus, TransactionWithStatusMeta};
 
 use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts};
 use jsonrpc_core::futures::future::{self, join_all};
@@ -23,9 +23,11 @@ use solana_client::{
 };
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::commitment_config::CommitmentLevel;
-use solana_sdk::message::VersionedMessage;
+use solana_sdk::message::{Message, VersionedMessage};
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::Signature;
+use solana_sdk::signature::{Keypair, Signature};
+use solana_sdk::signer::Signer;
+use solana_sdk::system_instruction;
 use solana_sdk::transaction::{Transaction, VersionedTransaction};
 use solana_sdk::{account::Account, clock::UnixTimestamp};
 use solana_transaction_status::{
@@ -211,13 +213,19 @@ impl Full for SurfpoolFullRpc {
     fn get_recent_performance_samples(
         &self,
         meta: Self::Metadata,
-        _limit: Option<usize>,
+        limit: Option<usize>,
     ) -> Result<Vec<RpcPerfSample>> {
+        let limit = limit.unwrap_or(720);
+        if limit > 720 {
+            return Err(Error::invalid_params("Invalid limit; max 720").into());
+        }
+
         let state_reader = meta.get_state()?;
         let samples = state_reader
             .perf_samples
             .iter()
             .map(|e| e.clone())
+            .take(limit)
             .collect::<Vec<_>>();
         Ok(samples)
     }
@@ -303,12 +311,38 @@ impl Full for SurfpoolFullRpc {
         _config: Option<RpcRequestAirdropConfig>,
     ) -> Result<String> {
         let pk = Pubkey::from_str_const(&pubkey_str);
-        let mut state_reader = meta.get_state_mut()?;
+        let mut state_writer = meta.get_state_mut()?;
 
-        let tx_result = state_reader
+        let tx_result = state_writer
             .svm
             .airdrop(&pk, lamports)
             .map_err(|err| Error::invalid_params(format!("failed to send transaction: {err:?}")))?;
+
+        // TODO: this is a workaround until LiteSVM records full transactions
+        let airdrop_kp = Keypair::new(); // TODO: use the private keypair from LiteSVM
+        let slot = state_writer.epoch_info.absolute_slot;
+        state_writer.transactions.insert(
+            tx_result.signature,
+            EntryStatus::Processed(TransactionWithStatusMeta(
+                slot,
+                VersionedTransaction::try_new(
+                    VersionedMessage::Legacy(Message::new(
+                        &[system_instruction::transfer(
+                            &airdrop_kp.pubkey(),
+                            &pk,
+                            lamports,
+                        )],
+                        Some(&airdrop_kp.pubkey()),
+                    )),
+                    &[airdrop_kp],
+                )
+                .unwrap()
+                .into_legacy_transaction()
+                .unwrap(),
+                tx_result.clone(),
+                None,
+            )),
+        );
 
         Ok(tx_result.signature.to_string())
     }
@@ -414,7 +448,9 @@ impl Full for SurfpoolFullRpc {
 
             let mut state_writer = meta.get_state_mut()?;
             state_writer.svm.set_sigverify(config.sig_verify);
-            // // TODO: LiteSVM does not enable replacing the current blockhash
+            state_writer
+                .svm
+                .set_blockhash_check(config.replace_recent_blockhash);
 
             // Update missing local accounts
             tx.message
@@ -617,20 +653,8 @@ impl Full for SurfpoolFullRpc {
         meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<RpcBlockhash>> {
-        // Retrieve svm state
-        let Some(ctx) = meta else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
-        // Lock read access
-        let Ok(state_reader) = ctx.state.read() else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
+        let state_reader = meta.get_state()?;
+
         // Todo: are we returning the right block height?
         let last_valid_block_height = state_reader.epoch_info.block_height;
         let value = RpcBlockhash {
@@ -691,5 +715,395 @@ impl Full for SurfpoolFullRpc {
         _pubkey_strs: Option<Vec<String>>,
     ) -> Result<Vec<RpcPrioritizationFee>> {
         unimplemented!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::TestSetup;
+    use base64::{prelude::BASE64_STANDARD, Engine};
+    use solana_account_decoder::{UiAccount, UiAccountData};
+    use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
+    use solana_sdk::{
+        commitment_config::CommitmentConfig,
+        hash::Hash,
+        message::{Message, MessageHeader},
+        native_token::LAMPORTS_PER_SOL,
+        signature::Keypair,
+        signer::Signer,
+        system_instruction, system_program,
+        transaction::{Legacy, TransactionVersion},
+    };
+    use solana_transaction_status::{
+        option_serializer::OptionSerializer, EncodedTransaction, EncodedTransactionWithStatusMeta,
+        UiCompiledInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
+        UiTransactionReturnData, UiTransactionStatusMeta,
+    };
+    use test_case::test_case;
+
+    #[test_case(None, false ; "when limit is None")]
+    #[test_case(Some(1), false ; "when limit is ok")]
+    #[test_case(Some(1000), true ; "when limit is above max spec")]
+    fn test_get_recent_performance_samples(limit: Option<usize>, fails: bool) {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .get_recent_performance_samples(Some(setup.context), limit);
+
+        if fails {
+            assert!(res.is_err());
+        } else {
+            assert!(res.is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_signature_statuses() {
+        let pks = (0..10).map(|_| Pubkey::new_unique());
+        let valid_txs = pks.len();
+        let invalid_txs = pks.len();
+        let payer = Keypair::new();
+        let recent_blockhash = Hash::default();
+        let valid = pks
+            .clone()
+            .map(|pk| {
+                Transaction::new_signed_with_payer(
+                    &[system_instruction::transfer(
+                        &payer.pubkey(),
+                        &pk,
+                        LAMPORTS_PER_SOL,
+                    )],
+                    Some(&payer.pubkey()),
+                    &[payer.insecure_clone()],
+                    recent_blockhash,
+                )
+            })
+            .collect::<Vec<_>>();
+        let invalid = pks
+            .map(|pk| {
+                Transaction::new_unsigned(Message::new(
+                    &[system_instruction::transfer(
+                        &pk,
+                        &payer.pubkey(),
+                        LAMPORTS_PER_SOL,
+                    )],
+                    Some(&payer.pubkey()),
+                ))
+            })
+            .collect::<Vec<_>>();
+        let txs = valid
+            .into_iter()
+            .chain(invalid.into_iter())
+            .collect::<Vec<_>>();
+        let mut setup = TestSetup::new_without_blockhash(SurfpoolFullRpc);
+        let _ = setup.context.state.write().unwrap().svm.airdrop(
+            &payer.pubkey(),
+            (valid_txs + invalid_txs) as u64 * 2 * LAMPORTS_PER_SOL,
+        );
+        setup.process_txs(txs.clone());
+
+        let res = setup
+            .rpc
+            .get_signature_statuses(
+                Some(setup.context),
+                txs.iter().map(|tx| tx.signatures[0].to_string()).collect(),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            res.value
+                .iter()
+                .filter(|status| {
+                    if let Some(s) = status {
+                        s.status.is_ok()
+                    } else {
+                        false
+                    }
+                })
+                .count(),
+            valid_txs,
+            "incorrect number of valid txs"
+        );
+        assert_eq!(
+            res.value
+                .iter()
+                .filter(|status| if let Some(s) = status {
+                    s.status.is_err()
+                } else {
+                    true
+                })
+                .count(),
+            invalid_txs,
+            "incorrect number of invalid txs"
+        );
+    }
+
+    #[test]
+    fn test_request_airdrop() {
+        let pk = Pubkey::new_unique();
+        let lamports = 1000;
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .request_airdrop(Some(setup.context.clone()), pk.to_string(), lamports, None)
+            .unwrap();
+        let sig = Signature::from_str(res.as_str()).unwrap();
+        let state_reader = setup.context.state.read().unwrap();
+        assert_eq!(
+            state_reader.svm.get_account(&pk).unwrap().lamports,
+            lamports,
+            "airdropped amount is incorrect"
+        );
+        assert!(
+            state_reader.svm.get_transaction(&sig).is_some(),
+            "transaction is not found in the SVM"
+        );
+        assert!(
+            state_reader.transactions.get(&sig).is_some(),
+            "transaction is not found in the history"
+        );
+    }
+
+    #[test]
+    fn test_send_transaction() {
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let (mempool_tx, mempool_rx) = crossbeam_channel::unbounded();
+        let setup = TestSetup::new_with_mempool(SurfpoolFullRpc, mempool_tx);
+        let tx = Transaction::new_signed_with_payer(
+            &[system_instruction::transfer(
+                &payer.pubkey(),
+                &pk,
+                LAMPORTS_PER_SOL,
+            )],
+            Some(&payer.pubkey()),
+            &[payer.insecure_clone()],
+            Hash::default(),
+        );
+        let _ = setup
+            .context
+            .state
+            .write()
+            .unwrap()
+            .svm
+            .airdrop(&payer.pubkey(), 2 * LAMPORTS_PER_SOL);
+
+        let cloned_tx = tx.clone();
+        let handle = hiro_system_kit::thread_named("send_tx")
+            .spawn(move || {
+                let res = setup
+                    .rpc
+                    .send_transaction(
+                        Some(setup.context),
+                        bs58::encode(bincode::serialize(&cloned_tx).unwrap()).into_string(),
+                        None,
+                    )
+                    .unwrap();
+
+                res
+            })
+            .unwrap();
+
+        match mempool_rx.recv() {
+            Ok((_hash, _tx, status_tx)) => {
+                status_tx
+                    .send(TransactionConfirmationStatus::Confirmed)
+                    .unwrap();
+            }
+            Err(_) => panic!("failed to receive transaction from mempool"),
+        }
+
+        assert_eq!(
+            handle.join().unwrap(),
+            tx.signatures[0].to_string(),
+            "incorrect signature"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_simulate_transaction() {
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let lamports = LAMPORTS_PER_SOL;
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let _ = setup
+            .rpc
+            .request_airdrop(
+                Some(setup.context.clone()),
+                payer.pubkey().to_string(),
+                2 * lamports,
+                None,
+            )
+            .unwrap();
+        let tx = Transaction::new_signed_with_payer(
+            &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+            Some(&payer.pubkey()),
+            &[payer.insecure_clone()],
+            Hash::default(),
+        );
+        let simulation_res = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(RpcSimulateTransactionConfig {
+                    sig_verify: true,
+                    replace_recent_blockhash: false,
+                    commitment: Some(CommitmentConfig::finalized()),
+                    encoding: None,
+                    accounts: Some(RpcSimulateTransactionAccountsConfig {
+                        encoding: None,
+                        addresses: vec![pk.to_string()],
+                    }),
+                    min_context_slot: None,
+                    inner_instructions: false,
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            simulation_res.value.err, None,
+            "Unexpected simulation error"
+        );
+        assert_eq!(
+            simulation_res.value.accounts,
+            Some(vec![Some(UiAccount {
+                lamports,
+                data: UiAccountData::Binary(BASE64_STANDARD.encode(""), UiAccountEncoding::Base64),
+                owner: system_program::id().to_string(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(0),
+            })]),
+            "Wrong account content"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_block() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .get_block(Some(setup.context), 0, None)
+            .await
+            .unwrap();
+
+        assert_eq!(res, None);
+    }
+
+    #[tokio::test]
+    async fn test_get_block_time() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .get_block_time(Some(setup.context), 0)
+            .await
+            .unwrap();
+
+        assert_eq!(res, None);
+    }
+
+    #[tokio::test]
+    async fn test_get_transaction() {
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let lamports = LAMPORTS_PER_SOL;
+        let mut setup = TestSetup::new_without_blockhash(SurfpoolFullRpc);
+        let _ = setup
+            .rpc
+            .request_airdrop(
+                Some(setup.context.clone()),
+                payer.pubkey().to_string(),
+                2 * lamports,
+                None,
+            )
+            .unwrap();
+        let tx = Transaction::new_signed_with_payer(
+            &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+            Some(&payer.pubkey()),
+            &[payer.insecure_clone()],
+            Hash::default(),
+        );
+        setup.process_txs(vec![tx.clone()]);
+        let res = setup
+            .rpc
+            .get_transaction(
+                Some(setup.context.clone()),
+                tx.signatures[0].to_string(),
+                None,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            res,
+            EncodedConfirmedTransactionWithStatusMeta {
+                slot: 0,
+                transaction: EncodedTransactionWithStatusMeta {
+                    transaction: EncodedTransaction::Json(UiTransaction {
+                        signatures: vec![tx.signatures[0].to_string()],
+                        message: UiMessage::Raw(UiRawMessage {
+                            header: MessageHeader {
+                                num_required_signatures: 1,
+                                num_readonly_signed_accounts: 0,
+                                num_readonly_unsigned_accounts: 1
+                            },
+                            account_keys: vec![
+                                payer.pubkey().to_string(),
+                                pk.to_string(),
+                                system_program::id().to_string()
+                            ],
+                            recent_blockhash: Hash::default().to_string(),
+                            instructions: vec![UiCompiledInstruction::from(
+                                &tx.message.instructions[0],
+                                None
+                            )],
+                            address_table_lookups: None
+                        })
+                    }),
+                    meta: res.transaction.clone().meta, // Using the same values to avoid reintroducing processing logic errors
+                    version: Some(TransactionVersion::Legacy(Legacy::Legacy))
+                },
+                block_time: res.block_time // Using the same values to avoid flakyness
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_first_available_block() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .get_first_available_block(Some(setup.context))
+            .await
+            .unwrap();
+
+        assert_eq!(res, 1);
+    }
+
+    #[test]
+    fn test_get_latest_blockhash() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let res = setup
+            .rpc
+            .get_latest_blockhash(Some(setup.context.clone()), None)
+            .unwrap();
+
+        assert_eq!(
+            res.value.blockhash,
+            setup
+                .context
+                .state
+                .read()
+                .unwrap()
+                .svm
+                .latest_blockhash()
+                .to_string()
+        );
     }
 }
