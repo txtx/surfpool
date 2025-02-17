@@ -37,6 +37,5 @@ pub async fn start_simnet(
         simnet_commands_tx,
         simnet_commands_rx,
     )
-    .await?;
-    Ok(())
+    .await
 }

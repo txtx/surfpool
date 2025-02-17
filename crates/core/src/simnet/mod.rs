@@ -37,6 +37,7 @@ use std::{
     thread::sleep,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use std::{fs::File, io::Read, path::PathBuf};
 
 use crate::{
     rpc::{
@@ -185,7 +186,46 @@ impl EntryStatus {
     }
 }
 
-use std::path::PathBuf;
+#[derive(Debug)]
+pub enum SimnetEvent {
+    Ready,
+    Aborted(String),
+    Shutdown,
+    ClockUpdate(Clock),
+    EpochInfoUpdate(EpochInfo),
+    BlockHashExpired,
+    InfoLog(DateTime<Local>, String),
+    ErrorLog(DateTime<Local>, String),
+    WarnLog(DateTime<Local>, String),
+    DebugLog(DateTime<Local>, String),
+    TransactionReceived(DateTime<Local>, VersionedTransaction),
+    TransactionProcessed(
+        DateTime<Local>,
+        TransactionMetadata,
+        Option<TransactionError>,
+    ),
+    AccountUpdate(DateTime<Local>, Pubkey),
+}
+
+pub enum SimnetCommand {
+    SlotForward,
+    SlotBackward,
+    UpdateClock(ClockCommand),
+    UpdateRunloopMode(RunloopTriggerMode),
+}
+
+pub enum ClockCommand {
+    Pause,
+    Resume,
+    Toggle,
+    UpdateSlotInterval(u64),
+}
+
+pub enum ClockEvent {
+    Tick,
+    ExpireBlockHash,
+}
+
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use libloading::{Library, Symbol};
 
@@ -395,7 +435,6 @@ pub async fn start(
                                 }
                             }
                         }
-
                     }
                 }
             Ok::<(), String>(())
@@ -588,6 +627,11 @@ pub async fn start(
                 let _ = status_tx.try_send(TransactionStatusEvent::Success(
                     TransactionConfirmationStatus::Processed,
                 ));
+              let _ = simnet_events_tx.try_send(SimnetEvent::TransactionProcessed(
+                Local::now(),
+                meta,
+                err,
+            ));
             }
             transactions_processed.push((key, transaction, status_tx));
             num_transactions += 1;
