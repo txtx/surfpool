@@ -476,12 +476,6 @@ impl Full for SurfpoolFullRpc {
             )
             .await;
 
-            let mut state_writer = meta.get_state_mut()?;
-            state_writer.svm.set_sigverify(config.sig_verify);
-            state_writer
-                .svm
-                .set_blockhash_check(config.replace_recent_blockhash);
-
             // Update missing local accounts
             tx.message
                 .account_keys
@@ -490,16 +484,18 @@ impl Full for SurfpoolFullRpc {
                 .map(|(pk, (local, fetched))| {
                     if local.is_none() {
                         if let Some(account) = fetched {
-                            state_writer.svm.set_account(*pk, account).map_err(|err| {
-                                Error::invalid_params(format!(
-                                    "failed to save fetched account {pk:?}: {err:?}"
-                                ))
-                            })?;
+                            meta.insert_fetched_account(*pk, account)?;
                         }
                     }
                     Ok(())
                 })
                 .collect::<Result<()>>()?;
+
+            let mut state_writer = meta.get_state_mut()?;
+            state_writer.svm.set_sigverify(config.sig_verify);
+            state_writer
+                .svm
+                .set_blockhash_check(config.replace_recent_blockhash);
 
             match state_writer.svm.simulate_transaction(tx) {
                 Ok(tx_info) => Ok(RpcResponse {

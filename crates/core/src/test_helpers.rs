@@ -44,6 +44,7 @@ impl<T> TestSetup<T> {
                 state: Arc::new(RwLock::new(GlobalState {
                     svm,
                     transactions: HashMap::new(),
+                    account_insertion_tracker: HashMap::new(),
                     epoch_info: EpochInfo {
                         epoch: 1,
                         slot_index: 0,

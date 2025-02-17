@@ -1,6 +1,6 @@
 use super::RunloopContext;
 use crate::rpc::{utils::verify_pubkey, State};
-use jsonrpc_core::{futures::future, BoxFuture, Error, Result};
+use jsonrpc_core::{futures::future, BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_client::{
     rpc_config::{
@@ -119,15 +119,7 @@ impl Minimal for SurfpoolMinimalRpc {
             let account = if let None = account {
                 // Fetch and save the missing account
                 if let Some(fetched_account) = rpc_client.get_account(&pubkey).await.ok() {
-                    let mut state_reader = meta.get_state_mut()?;
-                    state_reader
-                        .svm
-                        .set_account(pubkey, fetched_account.clone())
-                        .map_err(|err| {
-                            Error::invalid_params(format!(
-                                "failed to save fetched account {pubkey:?}: {err:?}"
-                            ))
-                        })?;
+                    meta.insert_fetched_account(pubkey, fetched_account.clone())?;
 
                     Some(fetched_account)
                 } else {
