@@ -10096,6 +10096,8 @@ dependencies = [
 [[package]]
 name = "txtx-addon-kit"
 version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75191c35eec95ea5087cbf74ebfdbff8ebf1496083afa0392db3061f580d6fd1"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -10126,7 +10128,7 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anchor-lang-idl",
  "async-recursion",
