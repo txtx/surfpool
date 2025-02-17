@@ -1,5 +1,4 @@
 use crossbeam_channel::unbounded;
-use helpers::get_free_port;
 use jsonrpc_core::{
     futures::future::{self, join_all},
     Error,
@@ -16,14 +15,17 @@ use solana_sdk::{
     transaction::VersionedTransaction,
 };
 use std::{str::FromStr, time::Duration};
-use surfpool_core::{
-    rpc::{full::FullClient, minimal::MinimalClient},
-    simnet::start,
-    types::{RpcConfig, RunloopTriggerMode, SimnetConfig, SimnetEvent, SurfpoolConfig},
+use surfpool_types::{
+    types::{RpcConfig, RunloopTriggerMode, SimnetConfig},
+    SimnetEvent, SurfpoolConfig,
 };
 use tokio::task;
 
-mod helpers;
+use crate::{
+    rpc::{full::FullClient, minimal::MinimalClient},
+    simnet::start,
+    tests::helpers::get_free_port,
+};
 
 #[tokio::test]
 async fn test_simnet_ready() {

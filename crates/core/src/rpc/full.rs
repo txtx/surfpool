@@ -1,6 +1,5 @@
 use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts};
 use crate::simnet::{EntryStatus, TransactionWithStatusMeta};
-use crate::types::TransactionStatusEvent;
 use itertools::Itertools;
 use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
@@ -37,6 +36,7 @@ use solana_transaction_status::{
 };
 use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
 use std::str::FromStr;
+use surfpool_types::TransactionStatusEvent;
 
 use super::*;
 
@@ -746,8 +746,9 @@ impl Full for SurfpoolFullRpc {
 
 #[cfg(test)]
 mod tests {
+    use crate::tests::helpers::TestSetup;
+
     use super::*;
-    use crate::test_helpers::TestSetup;
     use base64::{prelude::BASE64_STANDARD, Engine};
     use solana_account_decoder::{UiAccount, UiAccountData};
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;

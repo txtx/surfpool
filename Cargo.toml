@@ -13,7 +13,8 @@ members = [
     "crates/cli",
     "crates/core",
     "crates/gql",
-    "crates/subgraph"
+    "crates/subgraph",
+    "crates/types"
 ]
 default-members = ["crates/cli"]
 resolver = "2"
@@ -21,6 +22,8 @@ resolver = "2"
 [workspace.dependencies]
 surfpool-core = { path = "crates/core", default-features = false }
 surfpool-gql = { path = "crates/gql", default-features = false }
+surfpool-subgraph = { path = "crates/subgraph", default-features = false }
+surfpool-types = { path = "crates/types", default-features = false }
 agave-geyser-plugin-interface = "2.1.10"
 solana-sdk = "=2.1.10"
 solana-program = "2.1.10"

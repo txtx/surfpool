@@ -1,4 +1,0 @@
-{
-    "name": "surfpool-subgraph",
-    "libpath": "target/release/libsurfpool_subgraph.dylib"
-}

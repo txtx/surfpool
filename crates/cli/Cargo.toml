@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 surfpool-core = { workspace = true }
+surfpool-types = { workspace = true }
 surfpool-gql = { workspace = true }
 # surfpool-core = { version = "0.1" }
 txtx-core = { workspace = true }
