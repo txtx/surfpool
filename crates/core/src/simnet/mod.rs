@@ -186,46 +186,6 @@ impl EntryStatus {
     }
 }
 
-#[derive(Debug)]
-pub enum SimnetEvent {
-    Ready,
-    Aborted(String),
-    Shutdown,
-    ClockUpdate(Clock),
-    EpochInfoUpdate(EpochInfo),
-    BlockHashExpired,
-    InfoLog(DateTime<Local>, String),
-    ErrorLog(DateTime<Local>, String),
-    WarnLog(DateTime<Local>, String),
-    DebugLog(DateTime<Local>, String),
-    TransactionReceived(DateTime<Local>, VersionedTransaction),
-    TransactionProcessed(
-        DateTime<Local>,
-        TransactionMetadata,
-        Option<TransactionError>,
-    ),
-    AccountUpdate(DateTime<Local>, Pubkey),
-}
-
-pub enum SimnetCommand {
-    SlotForward,
-    SlotBackward,
-    UpdateClock(ClockCommand),
-    UpdateRunloopMode(RunloopTriggerMode),
-}
-
-pub enum ClockCommand {
-    Pause,
-    Resume,
-    Toggle,
-    UpdateSlotInterval(u64),
-}
-
-pub enum ClockEvent {
-    Tick,
-    ExpireBlockHash,
-}
-
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use libloading::{Library, Symbol};
 
@@ -252,6 +212,15 @@ pub async fn start(
     // Todo: should check config first
     let rpc_client = Arc::new(RpcClient::new(config.simnet.remote_rpc_url.clone()));
     let epoch_info = rpc_client.get_epoch_info().await?;
+    // let epoch_info = EpochInfo {
+    //     epoch: 0,
+    //     slot_index: 0,
+    //     slots_in_epoch: 0,
+    //     absolute_slot: 0,
+    //     block_height: 0,
+    //     transaction_count: None,
+    // };
+
     // Question: can the value `slots_in_epoch` fluctuate over time?
     let slots_in_epoch = epoch_info.slots_in_epoch;
 
@@ -546,11 +515,6 @@ pub async fn start(
 
         // Handle the transactions accumulated
         for (key, transaction, status_tx, tx_config) in transactions_to_process.drain(..) {
-            let _ = simnet_events_tx.try_send(SimnetEvent::TransactionSimulated(
-                Local::now(),
-                transaction.clone(),
-            ));
-
             transaction.verify_with_results();
             let transaction = transaction.into_legacy_transaction().unwrap();
             let message = &transaction.message;
@@ -627,11 +591,11 @@ pub async fn start(
                 let _ = status_tx.try_send(TransactionStatusEvent::Success(
                     TransactionConfirmationStatus::Processed,
                 ));
-              let _ = simnet_events_tx.try_send(SimnetEvent::TransactionProcessed(
-                Local::now(),
-                meta,
-                err,
-            ));
+                let _ = simnet_events_tx.try_send(SimnetEvent::TransactionProcessed(
+                    Local::now(),
+                    meta,
+                    err,
+                ));
             }
             transactions_processed.push((key, transaction, status_tx));
             num_transactions += 1;

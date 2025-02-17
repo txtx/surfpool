@@ -15,6 +15,8 @@ use std::{collections::HashMap, path::PathBuf};
 use txtx_addon_network_svm::codec::subgraph::{PluginConfig, SubgraphRequest};
 use uuid::Uuid;
 
+pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
+
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum RunloopTriggerMode {
     #[default]
@@ -72,7 +74,12 @@ pub enum SimnetEvent {
     WarnLog(DateTime<Local>, String),
     DebugLog(DateTime<Local>, String),
     PluginLoaded(String),
-    TransactionSimulated(DateTime<Local>, VersionedTransaction),
+    TransactionReceived(DateTime<Local>, VersionedTransaction),
+    TransactionProcessed(
+        DateTime<Local>,
+        TransactionMetadata,
+        Option<TransactionError>,
+    ),
     AccountUpdate(DateTime<Local>, Pubkey),
 }
 
@@ -131,7 +138,7 @@ pub struct SimnetConfig {
 impl Default for SimnetConfig {
     fn default() -> Self {
         Self {
-            remote_rpc_url: "https://api.mainnet-beta.solana.com".to_string(),
+            remote_rpc_url: DEFAULT_RPC_URL.to_string(),
             slot_time: 0,
             runloop_trigger_mode: RunloopTriggerMode::Clock,
             airdrop_addresses: vec![],
@@ -140,7 +147,7 @@ impl Default for SimnetConfig {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SubgraphConfig {}
 
 #[derive(Clone, Debug)]
@@ -163,11 +170,10 @@ pub struct SubgraphPluginConfig {
     pub subgraph_request: SubgraphRequest,
 }
 
-  
-  impl Default for RpcConfig {
+impl Default for RpcConfig {
     fn default() -> Self {
         Self {
-            remote_rpc_url: "https://api.mainnet-beta.solana.com".to_string(),
+            remote_rpc_url: DEFAULT_RPC_URL.to_string(),
             bind_host: "127.0.0.1".to_string(),
             bind_port: 8899,
         }

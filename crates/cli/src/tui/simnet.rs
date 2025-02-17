@@ -278,9 +278,6 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     SimnetEvent::WarnLog(dt, log) => {
                         app.events.push_front((EventType::Warning, dt, log));
                     }
-                    SimnetEvent::TransactionSimulated(_dt, _transaction) => {
-                        app.successful_transactions += 1;
-                    }
                     SimnetEvent::TransactionReceived(_dt, _transaction) => {}
                     SimnetEvent::TransactionProcessed(_dt, _meta, _err) => {
                         app.successful_transactions += 1;

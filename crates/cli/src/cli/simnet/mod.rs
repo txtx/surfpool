@@ -354,7 +354,7 @@ fn log_events(
                     SimnetEvent::WarnLog(_dt, log) => {
                         warn!(ctx.expect_logger(), "{}", log);
                     }
-                    SimnetEvent::TransactionSimulated(_dt, transaction) => {
+                    SimnetEvent::TransactionReceived(_dt, transaction) => {
                         if deployment_completed {
                             info!(
                                 ctx.expect_logger(),
