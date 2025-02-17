@@ -1,6 +1,6 @@
+use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts};
 use crate::simnet::{EntryStatus, TransactionWithStatusMeta};
 use crate::types::TransactionStatusEvent;
-use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts};
 use itertools::Itertools;
 use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
@@ -938,12 +938,14 @@ mod tests {
             .unwrap();
 
         match mempool_rx.recv() {
-            Ok((_hash, _tx, status_tx)) => {
+            Ok(SimnetCommand::TransactionReceived(_, _, status_tx, _)) => {
                 status_tx
-                    .send(TransactionConfirmationStatus::Confirmed)
+                    .send(TransactionStatusEvent::Success(
+                        TransactionConfirmationStatus::Confirmed,
+                    ))
                     .unwrap();
             }
-            Err(_) => panic!("failed to receive transaction from mempool"),
+            _ => panic!("failed to receive transaction from mempool"),
         }
 
         assert_eq!(

@@ -17,6 +17,7 @@ use solana_transaction_status::TransactionConfirmationStatus;
 use crate::{
     rpc::RunloopContext,
     simnet::{EntryStatus, GlobalState, TransactionWithStatusMeta},
+    types::SimnetCommand,
 };
 
 pub struct TestSetup<T> {
@@ -26,7 +27,8 @@ pub struct TestSetup<T> {
 
 impl<T> TestSetup<T> {
     pub fn new(rpc: T) -> Self {
-        let (mempool_tx, _rx) = crossbeam_channel::unbounded();
+        let (simnet_commands_tx, _rx) = crossbeam_channel::unbounded();
+        let (plugin_manager_commands_tx, _rx) = crossbeam_channel::unbounded();
 
         let mut svm = LiteSVM::new();
         let clock = Clock {
@@ -40,7 +42,8 @@ impl<T> TestSetup<T> {
 
         TestSetup {
             context: RunloopContext {
-                mempool_tx,
+                simnet_commands_tx,
+                plugin_manager_commands_tx,
                 id: Hash::new_unique(),
                 state: Arc::new(RwLock::new(GlobalState {
                     svm,
@@ -74,16 +77,9 @@ impl<T> TestSetup<T> {
         setup
     }
 
-    pub fn new_with_mempool(
-        rpc: T,
-        mempool_tx: Sender<(
-            Hash,
-            VersionedTransaction,
-            Sender<TransactionConfirmationStatus>,
-        )>,
-    ) -> Self {
+    pub fn new_with_mempool(rpc: T, simnet_commands_tx: Sender<SimnetCommand>) -> Self {
         let mut setup = TestSetup::new(rpc);
-        setup.context.mempool_tx = mempool_tx;
+        setup.context.simnet_commands_tx = simnet_commands_tx;
         setup
     }
 
