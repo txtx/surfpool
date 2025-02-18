@@ -14,6 +14,7 @@ path = "src/lib.rs"
 
 [dependencies]
 surfpool-types = { workspace = true }
+surfpool-subgraph = { workspace = true }
 base64 = "0.22.1"
 bincode = { workspace = true }
 crossbeam-channel = "0.5.14"

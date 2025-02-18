@@ -40,6 +40,7 @@ use std::{
     thread::sleep,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use surfpool_subgraph::SurfpoolSubgraphPlugin;
 
 use crate::rpc::{
     self, accounts_data::AccountsData, accounts_scan::AccountsScan, admin::AdminRpc,
@@ -53,12 +54,12 @@ use surfpool_types::{SimnetCommand, SimnetEvent, SubgraphCommand, SurfpoolConfig
 
 const BLOCKHASH_SLOT_TTL: u64 = 75;
 
-#[cfg(clippy)]
-const SUBGRAPH_PLUGIN_BYTES: &[u8] = &[0];
+// #[cfg(clippy)]
+// const SUBGRAPH_PLUGIN_BYTES: &[u8] = &[0];
 
-#[cfg(not(clippy))]
-const SUBGRAPH_PLUGIN_BYTES: &[u8] =
-    include_bytes!("../../../../target/release/libsurfpool_subgraph.dylib");
+// #[cfg(not(clippy))]
+// const SUBGRAPH_PLUGIN_BYTES: &[u8] =
+//     include_bytes!("../../../../target/release/libsurfpool_subgraph.dylib");
 
 #[derive(Debug, Clone)]
 pub struct TransactionWithStatusMeta(
@@ -193,8 +194,7 @@ impl EntryStatus {
     }
 }
 
-type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
-use libloading::{Library, Symbol};
+use libloading::Library;
 
 pub async fn start(
     config: SurfpoolConfig,
@@ -305,13 +305,26 @@ pub async fn start(
             //     libpath = config_dir.join(libpath);
             // }
             // let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or(format!("surfpool-subgraph"));
+            // let (plugin, lib) = unsafe {
+            //     let lib = match Library::new(&surfpool_subgraph_path) {
+            //         Ok(lib) => lib,
+            //         Err(e) => {
+            //             let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
+            //             continue;
+            //         }
+            //     };
+            //     let constructor: Symbol<PluginConstructor> = lib
+            //         .get(b"_create_plugin")
+            //         .map_err(|e| format!("{}", e.to_string()))?;
+            //     let plugin_raw = constructor();
+            //     (Box::from_raw(plugin_raw), lib)
+            // };
 
             let plugin_name = "surfpool-subgraph";
-            let surfpool_subgraph_path = Path::new("/tmp/surfpool-subgraph.dylib");
-
+            // let surfpool_subgraph_path = Path::new("/tmp/surfpool-subgraph.dylib");
             // Write the bytes to the file
-            let mut surfpool_subgraph_file = File::create(surfpool_subgraph_path).unwrap();
-            surfpool_subgraph_file.write_all(SUBGRAPH_PLUGIN_BYTES).unwrap();
+            // let mut surfpool_subgraph_file = File::create(surfpool_subgraph_path).unwrap();
+            // surfpool_subgraph_file.write_all(SUBGRAPH_PLUGIN_BYTES).unwrap();
 
             loop {
                 select! {
@@ -320,21 +333,7 @@ pub async fn start(
                             match event {
                                 PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
                                     let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(uuid.clone(), config.data.clone(), notifier));
-
-                                    let (mut plugin, lib) = unsafe {
-                                        let lib = match Library::new(&surfpool_subgraph_path) {
-                                            Ok(lib) => lib,
-                                            Err(e) => {
-                                                let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
-                                                continue;
-                                            }
-                                        };
-                                        let constructor: Symbol<PluginConstructor> = lib
-                                            .get(b"_create_plugin")
-                                            .map_err(|e| format!("{}", e.to_string()))?;
-                                        let plugin_raw = constructor();
-                                        (Box::from_raw(plugin_raw), lib)
-                                    };
+                                    let mut plugin = SurfpoolSubgraphPlugin::default();
 
                                     let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SchemaDatasourceingEvent>>::new().expect("Failed to create IPC one-shot server.");
                                     let subgraph_plugin_config = SubgraphPluginConfig {
@@ -347,6 +346,20 @@ pub async fn start(
                                     if let Ok((_, rx)) = server.accept() {
                                         let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver(rx);
                                         let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveSubgraph(subgraph_rx));
+                                    };
+                                    let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
+                                    // The approach is a bit hacky, but most likely temporary.
+                                    // To reduce the friction of iterating on our Geyser plugin,
+                                    // We are importing it as a crate, instead of dynamicly linking to it.
+                                    // We know we can use subgraph as a dylib, it's just too much friction for now.
+                                    let lib = unsafe {
+                                        #[cfg(target_os = "linux")]
+                                        let libm = Library::new("libm.so.6").unwrap(); // Common on Linux
+                                        #[cfg(target_os = "macos")]
+                                        let libm = Library::new("libm.dylib").unwrap(); // Common on macOS
+                                        #[cfg(target_os = "windows")]
+                                        let libm = Library::new("msvcrt.dll").unwrap(); // Math functions are in msvcrt.dll on Windows
+                                        libm
                                     };
                                     plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.to_string())));
                                     let _ = simnet_events_tx_copy.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));

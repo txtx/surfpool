@@ -13,13 +13,13 @@ use {
 };
 
 #[derive(Default, Debug)]
-pub struct SurfpoolSubgraph {
+pub struct SurfpoolSubgraphPlugin {
     pub uuid: Uuid,
     subgraph_indexing_event_tx: Mutex<Option<IpcSender<SchemaDatasourceingEvent>>>,
     subgraph_request: Option<SubgraphRequest>,
 }
 
-impl GeyserPlugin for SurfpoolSubgraph {
+impl GeyserPlugin for SurfpoolSubgraphPlugin {
     fn name(&self) -> &'static str {
         "surfpool-subgraph"
     }
@@ -176,6 +176,6 @@ impl GeyserPlugin for SurfpoolSubgraph {
 ///
 /// This function returns the Plugin pointer as trait GeyserPlugin.
 pub unsafe extern "C" fn _create_plugin() -> *mut dyn GeyserPlugin {
-    let plugin: Box<dyn GeyserPlugin> = Box::<SurfpoolSubgraph>::default();
+    let plugin: Box<dyn GeyserPlugin> = Box::<SurfpoolSubgraphPlugin>::default();
     Box::into_raw(plugin)
 }
