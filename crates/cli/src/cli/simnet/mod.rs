@@ -65,10 +65,15 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             keypair_path.clone()
         };
         let path = PathBuf::from(resolved);
-        let pubkey = Keypair::read_from_file(&path)
-            .map_err(|e| format!("unable to read {}: {}", path.display(), e.to_string()))?
-            .pubkey();
-        airdrop_addresses.push(pubkey);
+        match Keypair::read_from_file(&path) {
+            Ok(pubkey) => {
+                airdrop_addresses.push(pubkey.pubkey());
+            }
+            Err(e) => {
+                println!("Error reading keypair file: {}: {e}", path.display());
+                continue;
+            }
+        }
     }
 
     // Build config
