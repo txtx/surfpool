@@ -17,9 +17,10 @@ use solana_geyser_plugin_manager::geyser_plugin_manager::{
     GeyserPluginManager, LoadedGeyserPlugin,
 };
 use solana_sdk::{
-    clock::Clock,
+    clock::{Clock, Slot},
     epoch_info::EpochInfo,
     message::v0::LoadedAddresses,
+    pubkey::Pubkey,
     signature::Signature,
     transaction::{SanitizedTransaction, Transaction, TransactionError, TransactionVersion},
 };
@@ -53,6 +54,8 @@ use surfpool_types::{
 use surfpool_types::{SimnetCommand, SimnetEvent, SubgraphCommand, SurfpoolConfig};
 
 const BLOCKHASH_SLOT_TTL: u64 = 75;
+const SUBGRAPH_PLUGIN_BYTES: &[u8] =
+    include_bytes!("../../../../target/release/libsurfpool_subgraph.dylib");
 
 // #[cfg(clippy)]
 // const SUBGRAPH_PLUGIN_BYTES: &[u8] = &[0];
@@ -173,6 +176,7 @@ impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMe
 pub struct GlobalState {
     pub svm: LiteSVM,
     pub transactions: HashMap<Signature, EntryStatus>,
+    pub account_insertion_tracker: HashMap<Pubkey, Slot>,
     pub perf_samples: VecDeque<RpcPerfSample>,
     pub transactions_processed: u64,
     pub epoch_info: EpochInfo,
@@ -234,6 +238,7 @@ pub async fn start(
     let context = GlobalState {
         svm,
         transactions: HashMap::new(),
+        account_insertion_tracker: HashMap::new(),
         perf_samples: VecDeque::new(),
         transactions_processed: 0,
         epoch_info: epoch_info.clone(),
