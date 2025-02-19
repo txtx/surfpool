@@ -9243,7 +9243,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "surfpool-cli"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -9285,7 +9285,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "agave-geyser-plugin-interface",
  "base64 0.22.1",
@@ -9356,7 +9356,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-gql"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "async-stream",
  "convert_case 0.7.1",
@@ -9373,7 +9373,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-subgraph"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "agave-geyser-plugin-interface",
  "bincode",
@@ -9389,7 +9389,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-types"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "agave-geyser-plugin-interface",
  "base64 0.22.1",
