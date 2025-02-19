@@ -147,8 +147,9 @@ impl AdminRpc for SurfpoolAdminRpc {
         let _ = ctx
             .plugin_manager_commands_tx
             .send(PluginManagerCommand::LoadConfig(uuid, config, tx));
+
         let Ok(endpoint_url) = rx.recv_timeout(Duration::from_secs(10)) else {
-            unimplemented!()
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
         };
         Box::pin(async move { Ok(endpoint_url) })
     }

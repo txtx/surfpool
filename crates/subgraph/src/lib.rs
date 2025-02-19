@@ -1,21 +1,24 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::{
-        GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
+        GeyserPlugin, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
         ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult,
         SlotStatus,
     },
     ipc_channel::ipc::IpcSender,
     solana_program::clock::Slot,
-    std::sync::Mutex,
-    surfpool_types::{SchemaDatasourceingEvent, SubgraphPluginConfig},
-    txtx_addon_network_svm::codec::subgraph::{IndexedSubgraphSourceType, SubgraphRequest},
+    std::{collections::HashMap, sync::Mutex},
+    surfpool_types::{SchemaDataSourcingEvent, SubgraphPluginConfig},
+    txtx_addon_network_svm::codec::{
+        idl::parse_bytes_to_value_with_expected_idl_type,
+        subgraph::{IndexedSubgraphSourceType, SubgraphRequest},
+    },
     uuid::Uuid,
 };
 
 #[derive(Default, Debug)]
 pub struct SurfpoolSubgraphPlugin {
     pub uuid: Uuid,
-    subgraph_indexing_event_tx: Mutex<Option<IpcSender<SchemaDatasourceingEvent>>>,
+    subgraph_indexing_event_tx: Mutex<Option<IpcSender<SchemaDataSourcingEvent>>>,
     subgraph_request: Option<SubgraphRequest>,
 }
 
@@ -28,7 +31,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
         let config = serde_json::from_str::<SubgraphPluginConfig>(&config_file).unwrap();
         let oneshot_tx = IpcSender::connect(config.ipc_token).unwrap();
         let (tx, rx) = ipc_channel::ipc::channel().unwrap();
-        let _ = tx.send(SchemaDatasourceingEvent::Rountrip(config.uuid.clone()));
+        let _ = tx.send(SchemaDataSourcingEvent::Rountrip(config.uuid.clone()));
         let _ = oneshot_tx.send(rx);
         self.uuid = config.uuid.clone();
         self.subgraph_indexing_event_tx = Mutex::new(Some(tx));
@@ -84,17 +87,13 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
         let Some(ref subgraph_request) = self.subgraph_request else {
             return Ok(());
         };
+        let mut entries = HashMap::new();
         match transaction {
             ReplicaTransactionInfoVersions::V0_0_2(data) => {
-                let _ = tx.send(SchemaDatasourceingEvent::ApplyEntry(
-                    self.uuid,
-                    data.signature.to_string(),
-                    // subgraph_request.clone(),
-                    // slot,
-                ));
                 if data.is_vote {
                     return Ok(());
                 }
+
                 let Some(ref inner_instructions) = data.transaction_status_meta.inner_instructions
                 else {
                     return Ok(());
@@ -102,17 +101,16 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                 for inner_instructions in inner_instructions.iter() {
                     for instruction in inner_instructions.instructions.iter() {
                         let instruction = &instruction.instruction;
-                        let decoded_data = bs58::decode(&instruction.data)
-                            .into_vec()
-                            .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
                         // it's not valid cpi event data if there isn't an 8-byte signature
-                        if decoded_data.len() < 8 {
+                        // well, that ^ is what I thought, but it looks like the _second_ 8 bytes
+                        // are matching the discriminator
+                        if instruction.data.len() < 16 {
                             continue;
                         }
-                        let eight_bytes = decoded_data[0..8].to_vec();
-                        let decoded_signature = bs58::decode(eight_bytes)
-                            .into_vec()
-                            .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
+
+                        let eight_bytes = instruction.data[8..16].to_vec();
+                        let rest = instruction.data[16..].to_vec();
+
                         for field in subgraph_request.fields.iter() {
                             match &field.data_source {
                                 IndexedSubgraphSourceType::Instruction(
@@ -124,18 +122,17 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                                     if event_subgraph_source
                                         .event
                                         .discriminator
-                                        .eq(decoded_signature.as_slice())
+                                        .eq(eight_bytes.as_slice())
                                     {
-                                        println!(
-                                            "found event with match!!!: {:?}",
-                                            event_subgraph_source.event.name
-                                        );
-                                        let _ = tx.send(SchemaDatasourceingEvent::ApplyEntry(
-                                            self.uuid,
-                                            data.signature.to_string(),
-                                            // subgraph_request.clone(),
-                                            // slot,
-                                        ));
+                                        let parsed_value =
+                                            parse_bytes_to_value_with_expected_idl_type(
+                                                &rest,
+                                                &event_subgraph_source.ty.ty,
+                                            )
+                                            .unwrap();
+                                        let obj = parsed_value.as_object().unwrap().clone();
+                                        let v = obj.get(&field.source_key).unwrap().clone();
+                                        entries.insert(field.display_name.clone(), v);
                                     }
                                 }
                             }
@@ -144,6 +141,10 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                 }
             }
             ReplicaTransactionInfoVersions::V0_0_1(_) => {}
+        }
+        if !entries.is_empty() {
+            let data = serde_json::to_vec(&entries).unwrap();
+            let _ = tx.send(SchemaDataSourcingEvent::ApplyEntry(self.uuid, data));
         }
         Ok(())
     }

@@ -25,14 +25,11 @@ use solana_sdk::{
 };
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
-    EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionConfirmationStatus,
-    TransactionStatus, TransactionStatusMeta, UiCompiledInstruction, UiInnerInstructions,
-    UiInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
-    UiTransactionReturnData, UiTransactionStatusMeta,
+    EncodedTransaction, EncodedTransactionWithStatusMeta, InnerInstruction, InnerInstructions,
+    TransactionConfirmationStatus, TransactionStatus, TransactionStatusMeta, UiCompiledInstruction,
+    UiInnerInstructions, UiInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding,
+    UiTransaction, UiTransactionReturnData, UiTransactionStatusMeta,
 };
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     net::SocketAddr,
@@ -47,7 +44,7 @@ use crate::rpc::{
     bank_data::BankData, full::Full, minimal::Minimal, SurfpoolMiddleware,
 };
 use surfpool_types::{
-    ClockCommand, ClockEvent, PluginManagerCommand, RunloopTriggerMode, SchemaDatasourceingEvent,
+    ClockCommand, ClockEvent, PluginManagerCommand, RunloopTriggerMode, SchemaDataSourcingEvent,
     SubgraphPluginConfig, TransactionStatusEvent,
 };
 use surfpool_types::{SimnetCommand, SimnetEvent, SubgraphCommand, SurfpoolConfig};
@@ -259,7 +256,10 @@ pub async fn start(
     io.extend_with(rpc::accounts_data::SurfpoolAccountsDataRpc.to_delegate());
     io.extend_with(rpc::accounts_scan::SurfpoolAccountsScanRpc.to_delegate());
     io.extend_with(rpc::bank_data::SurfpoolBankDataRpc.to_delegate());
-    io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());
+
+    if !config.plugin_config_path.is_empty() {
+        io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());
+    }
 
     let _handle = hiro_system_kit::thread_named("rpc handler").spawn(move || {
         let server = ServerBuilder::new(io)
@@ -328,14 +328,15 @@ pub async fn start(
 
             loop {
                 select! {
-                    recv(plugin_manager_commands_rx) -> msg => match msg {
+                    recv(plugin_manager_commands_rx) -> msg => {
+                        match msg {
                         Ok(event) => {
                             match event {
                                 PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
                                     let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(uuid.clone(), config.data.clone(), notifier));
                                     let mut plugin = SurfpoolSubgraphPlugin::default();
 
-                                    let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SchemaDatasourceingEvent>>::new().expect("Failed to create IPC one-shot server.");
+                                    let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SchemaDataSourcingEvent>>::new().expect("Failed to create IPC one-shot server.");
                                     let subgraph_plugin_config = SubgraphPluginConfig {
                                         uuid,
                                         ipc_token,
@@ -344,7 +345,7 @@ pub async fn start(
                                     let config_file = serde_json::to_string(&subgraph_plugin_config).unwrap();
                                     let _res = plugin.on_load(&config_file, false);
                                     if let Ok((_, rx)) = server.accept() {
-                                        let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver(rx);
+                                        let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver::<SchemaDataSourcingEvent>(rx);
                                         let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveSubgraph(subgraph_rx));
                                     };
                                     let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
@@ -366,17 +367,32 @@ pub async fn start(
                                 }
                             }
                         },
-                        Err(_) => {},
-                    },
+                        Err(e) => {
+                            println!("plugin manager command error: {:?}", e);
+                        },
+                    }},
                     recv(plugins_data_rx) -> msg => match msg {
                         Err(_) => unreachable!(),
                         Ok((transaction, transaction_metadata)) => {
+                            let mut inner_instructions = vec![];
+                            for (i,inner) in transaction_metadata.inner_instructions.iter().enumerate() {
+                                inner_instructions.push(
+                                    InnerInstructions {
+                                        index: i as u8,
+                                        instructions: inner.iter().map(|i| InnerInstruction {
+                                            instruction: i.instruction.clone(),
+                                            stack_height: Some(i.stack_height as u32)
+                                        }).collect()
+                                    }
+                                )
+                            }
+
                             let transaction_status_meta = TransactionStatusMeta {
                                 status: Ok(()),
                                 fee: 0,
                                 pre_balances: vec![],
                                 post_balances: vec![],
-                                inner_instructions: None,
+                                inner_instructions: Some(inner_instructions),
                                 log_messages: Some(transaction_metadata.logs.clone()),
                                 pre_token_balances: None,
                                 post_token_balances: None,

@@ -76,6 +76,16 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         }
     }
 
+    let mut plugin_config_path = cmd
+        .plugin_config_path
+        .iter()
+        .map(|f| PathBuf::from(f))
+        .collect::<Vec<_>>();
+
+    if plugin_config_path.is_empty() {
+        plugin_config_path.push(PathBuf::from("plugins"));
+    }
+
     // Build config
     let config = SurfpoolConfig {
         rpc: RpcConfig {
@@ -91,11 +101,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             airdrop_token_amount: cmd.airdrop_token_amount,
         },
         subgraph: SubgraphConfig {},
-        plugin_config_path: cmd
-            .plugin_config_path
-            .iter()
-            .map(|f| PathBuf::from(f))
-            .collect::<Vec<_>>(),
+        plugin_config_path,
     };
     let remote_rpc_url = config.rpc.remote_rpc_url.clone();
     let local_rpc_url = config.rpc.get_socket_address();

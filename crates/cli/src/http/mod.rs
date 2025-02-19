@@ -17,7 +17,7 @@ use surfpool_gql::query::{SchemaDatasource, SchemaDatasourceEntry};
 use surfpool_gql::subscription::EntryData;
 use surfpool_gql::{new_dynamic_schema, Context as GqlContext, GqlDynamicSchema as GqlSchema};
 use surfpool_types::{
-    Entry, SchemaDatasourceingEvent, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
+    Entry, SchemaDataSourcingEvent, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
 };
 use txtx_core::kit::uuid::Uuid;
 
@@ -86,7 +86,7 @@ pub async fn start_server(
                                     subgraph_name.to_case(Case::Camel),
                                     (subgraph_uuid.clone(), vec![]),
                                 );
-                                let _ = sender.send("http://127.0.0.1:8900/graphql".into());
+                                let _ = sender.send("http://127.0.0.1:8900/playground".into());
                             }
                             SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
                                 observers.push(subgraph_observer_rx);
@@ -98,9 +98,9 @@ pub async fn start_server(
                     },
                     i => match oper.recv(&observers[i - 1]) {
                         Ok(cmd) => match cmd {
-                            SchemaDatasourceingEvent::ApplyEntry(
+                            SchemaDataSourcingEvent::ApplyEntry(
                                 uuid,
-                                value, /* , request, slot*/
+                                values, /* , request, slot*/
                             ) => {
                                 let gql_context = gql_context_copy.write().unwrap();
                                 let uuid_lookup = gql_context.uuid_lookup.read().unwrap();
@@ -108,9 +108,9 @@ pub async fn start_server(
                                 let mut entries_store = gql_context.entries_store.write().unwrap();
                                 let (_uuid, entries) =
                                     entries_store.get_mut(subgraph_name).unwrap();
-                                let mut values = HashMap::new();
-                                values.insert("message".to_string(), value);
                                 let entry_uuid = Uuid::new_v4();
+                                let values: HashMap<String, serde_json::Value> =
+                                    serde_json::from_slice(values.as_slice()).unwrap();
                                 entries.push(EntryData {
                                     name: subgraph_name.clone(),
                                     entry: Entry {
@@ -119,7 +119,7 @@ pub async fn start_server(
                                     },
                                 });
                             }
-                            SchemaDatasourceingEvent::Rountrip(_uuid) => {}
+                            SchemaDataSourcingEvent::Rountrip(_uuid) => {}
                         },
                         Err(_e) => {}
                     },

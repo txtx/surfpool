@@ -10,6 +10,7 @@ use juniper::{
 };
 use juniper_codegen::graphql_object;
 use surfpool_types::Entry;
+use txtx_core::kit::serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub struct EntryData {
@@ -65,8 +66,44 @@ impl GraphQLValue<DefaultScalarValue> for EntryData {
             "uuid" => executor.resolve_with_ctx(&(), &self.entry.uuid.to_string()),
             field_name => {
                 let value = self.entry.values.get(field_name).unwrap();
-                executor.resolve_with_ctx(&(), value)
+                executor.resolve_with_ctx(&(), &value.to_string())
             }
+        }
+    }
+}
+
+struct GqlValue(Value);
+impl GraphQLValue<DefaultScalarValue> for GqlValue {
+    type Context = Context;
+    type TypeInfo = ();
+
+    fn type_name<'i>(&self, _info: &'i Self::TypeInfo) -> Option<&'i str> {
+        None
+    }
+
+    fn resolve_field(
+        &self,
+        _info: &Self::TypeInfo,
+        _field_name: &str,
+        _args: &Arguments,
+        executor: &Executor<Context>,
+    ) -> ExecutionResult {
+        match &self.0 {
+            Value::Null => todo!(),
+            Value::Bool(_) => todo!(),
+            Value::Number(number) => {
+                if let Some(u) = number.as_u64() {
+                    println!("u: {:?}", u);
+                    executor.resolve_with_ctx(&(), &(u as i32))
+                } else if let Some(i) = number.as_i64() {
+                    executor.resolve_with_ctx(&(), &(i as i32))
+                } else {
+                    todo!()
+                }
+            }
+            Value::String(s) => executor.resolve_with_ctx(&(), &s),
+            Value::Array(values) => todo!(),
+            Value::Object(map) => todo!(),
         }
     }
 }

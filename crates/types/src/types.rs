@@ -34,7 +34,7 @@ pub struct Collection {
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub uuid: Uuid,
-    pub values: HashMap<String, String>,
+    pub values: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug)]
@@ -48,15 +48,15 @@ pub enum SubgraphEvent {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub enum SchemaDatasourceingEvent {
+pub enum SchemaDataSourcingEvent {
     Rountrip(Uuid),
-    ApplyEntry(Uuid, String), //, SubgraphRequest, u64),
+    ApplyEntry(Uuid, Vec<u8>), //, SubgraphRequest u64),
 }
 
 #[derive(Debug, Clone)]
 pub enum SubgraphCommand {
     CreateSubgraph(Uuid, SubgraphRequest, Sender<String>),
-    ObserveSubgraph(Receiver<SchemaDatasourceingEvent>),
+    ObserveSubgraph(Receiver<SchemaDataSourcingEvent>),
     Shutdown,
 }
 
@@ -101,6 +101,7 @@ pub enum SimnetCommand {
     ),
 }
 
+#[derive(Debug)]
 pub enum PluginManagerCommand {
     LoadConfig(Uuid, PluginConfig, Sender<String>),
 }

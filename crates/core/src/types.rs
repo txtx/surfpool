@@ -48,7 +48,7 @@ pub enum SubgraphEvent {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub enum SchemaDatasourceingEvent {
+pub enum SchemaDataSourcingEvent {
     Rountrip(Uuid),
     ApplyEntry(Uuid, String), //, SubgraphRequest, u64),
 }
@@ -56,7 +56,7 @@ pub enum SchemaDatasourceingEvent {
 #[derive(Debug, Clone)]
 pub enum SubgraphCommand {
     CreateSubgraph(Uuid, SubgraphRequest, Sender<String>),
-    ObserveSubgraph(Receiver<SchemaDatasourceingEvent>),
+    ObserveSubgraph(Receiver<SchemaDataSourcingEvent>),
     Shutdown,
 }
 
