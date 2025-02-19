@@ -9366,6 +9366,8 @@ dependencies = [
  "juniper_codegen",
  "surfpool-types",
  "tokio",
+ "txtx-addon-network-svm",
+ "txtx-core",
  "uuid",
 ]
 
@@ -9450,6 +9452,7 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.13",
  "txtx-addon-network-svm",
+ "txtx-core",
  "uuid",
  "zstd",
 ]
@@ -10237,9 +10240,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0d9ba755577d4b8906d8bac43c82e072ab0aeeb19767aa6fdad8609dec5a62f"
+checksum = "3dedb775473be43b1aa18db07245aa40e013f7cc88ea340b11c988f94472f6b2"
 dependencies = [
  "anchor-lang-idl",
  "async-recursion",

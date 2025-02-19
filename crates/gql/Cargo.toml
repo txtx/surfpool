@@ -22,3 +22,5 @@ async-stream = "0.3.5"
 tokio = "1.37.0"
 surfpool-types = { workspace = true }
 convert_case = "0.7.1"
+txtx-core = { workspace = true }
+txtx-addon-network-svm = { workspace = true }
