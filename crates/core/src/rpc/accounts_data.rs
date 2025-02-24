@@ -5,7 +5,7 @@ use crate::rpc::State;
 
 use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
-use jsonrpc_core::{Error, Result};
+use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_account_decoder::parse_token::UiTokenAmount;
 use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
@@ -100,15 +100,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             let account = if let None = account {
                 // Fetch and save the missing account
                 if let Some(fetched_account) = rpc_client.get_account(&pubkey).await.ok() {
-                    // let mut state_reader = meta.get_state_mut()?;
-                    // state_reader
-                    //     .svm
-                    //     .set_account(pubkey, fetched_account.clone())
-                    //     .map_err(|err| {
-                    //         Error::invalid_params(format!(
-                    //             "failed to save fetched account {pubkey:?}: {err:?}"
-                    //         ))
-                    //     })?;
+                    meta.insert_fetched_account(pubkey, fetched_account.clone())?;
 
                     Some(fetched_account)
                 } else {
@@ -174,7 +166,6 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             .await;
 
             // Save missing fetched accounts
-            let mut state_reader = meta.get_state_mut()?;
             let combined_accounts = accounts
                 .iter()
                 .zip(fetched_accounts)
@@ -182,14 +173,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                     if local.is_some() {
                         Ok((pk, local.clone()))
                     } else if let Some(account) = fetched_account {
-                        state_reader
-                            .svm
-                            .set_account(*pk, account.clone())
-                            .map_err(|err| {
-                                Error::invalid_params(format!(
-                                    "failed to save fetched account {pk:?}: {err:?}"
-                                ))
-                            })?;
+                        meta.insert_fetched_account(*pk, account.clone())?;
                         Ok((pk, Some(account)))
                     } else {
                         Ok((pk, None))
