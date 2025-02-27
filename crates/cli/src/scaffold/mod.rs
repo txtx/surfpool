@@ -104,10 +104,7 @@ pub fn scaffold_iac_layout(
         "Manage {} deployment through Crypto Infrastructure as Code",
         manifest.name
     )));
-    runbook_src.push_str(&get_interpolated_addon_template(
-        "input.rpc_api_url",
-        "input.network_id",
-    ));
+    runbook_src.push_str(&get_interpolated_addon_template("input.rpc_api_url"));
 
     let mut signer_mainnet = String::new();
     // signer_mainnet.push_str(&get_interpolated_header_template(&format!("Runbook")));
