@@ -104,7 +104,10 @@ pub fn scaffold_iac_layout(
         "Manage {} deployment through Crypto Infrastructure as Code",
         manifest.name
     )));
-    runbook_src.push_str(&get_interpolated_addon_template("input.rpc_api_url"));
+    runbook_src.push_str(&get_interpolated_addon_template(
+        "input.rpc_api_url",
+        "input.network_id",
+    ));
 
     let mut signer_mainnet = String::new();
     // signer_mainnet.push_str(&get_interpolated_header_template(&format!("Runbook")));
@@ -281,7 +284,7 @@ pub fn scaffold_iac_layout(
                     .unwrap()
             );
             let mut base_dir = base_dir.get_parent_location().unwrap();
-            base_dir.append_path(&format!("signers.testnet.tx"))?;
+            base_dir.append_path(&format!("signers.devnet.tx"))?;
             let _ = File::create(base_dir.to_string()).expect("creation failed");
             base_dir.write_content(signer_testnet.as_bytes())?;
             println!(
