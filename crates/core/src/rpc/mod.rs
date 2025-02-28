@@ -5,7 +5,7 @@ use jsonrpc_core::{
     futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
 };
 use solana_client::rpc_custom_error::RpcCustomError;
-use solana_sdk::{blake3::Hash, clock::Slot};
+use solana_sdk::{account::Account, blake3::Hash, clock::Slot, pubkey::Pubkey};
 
 pub mod accounts_data;
 pub mod accounts_scan;
@@ -35,6 +35,8 @@ pub struct RunloopContext {
 trait State {
     fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, GlobalState>, RpcCustomError>;
     fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, GlobalState>, RpcCustomError>;
+    fn insert_fetched_account<'a>(&'a self, pk: Pubkey, acc: Account)
+        -> Result<(), RpcCustomError>;
 }
 
 impl State for Option<RunloopContext> {
@@ -68,6 +70,23 @@ impl State for Option<RunloopContext> {
             .map_err(|_| RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             })
+    }
+
+    fn insert_fetched_account<'a>(
+        &'a self,
+        pk: Pubkey,
+        acc: Account,
+    ) -> Result<(), RpcCustomError> {
+        let mut state_writer = self.get_state_mut()?;
+        let slot = state_writer.epoch_info.absolute_slot;
+        state_writer
+            .svm
+            .set_account(pk, acc)
+            .map_err(|_| RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            })?;
+        state_writer.account_insertion_tracker.insert(pk, slot);
+        Ok(())
     }
 }
 
