@@ -3769,6 +3769,7 @@ dependencies = [
  "serde",
  "smartstring",
  "static_assertions",
+ "uuid",
  "void",
 ]
 
@@ -9364,6 +9365,7 @@ dependencies = [
  "futures-enum",
  "juniper",
  "juniper_codegen",
+ "serde",
  "surfpool-types",
  "tokio",
  "txtx-addon-network-svm",
@@ -10208,8 +10210,6 @@ dependencies = [
 [[package]]
 name = "txtx-addon-kit"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75191c35eec95ea5087cbf74ebfdbff8ebf1496083afa0392db3061f580d6fd1"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -10240,9 +10240,7 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dedb775473be43b1aa18db07245aa40e013f7cc88ea340b11c988f94472f6b2"
+version = "0.1.6"
 dependencies = [
  "anchor-lang-idl",
  "async-recursion",
@@ -10264,8 +10262,6 @@ dependencies = [
 [[package]]
 name = "txtx-core"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e853497b765475d05d5bccefdf3eeda9fe87685632a415ebb842fd4764b7dd9"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
