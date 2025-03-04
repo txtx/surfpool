@@ -13,13 +13,14 @@ use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::sync::RwLock;
 use std::time::Duration;
-use surfpool_gql::query::{SchemaDatasource, SchemaDatasourceEntry};
-use surfpool_gql::subscription::EntryData;
+use surfpool_gql::query::SchemaDataSource;
+use surfpool_gql::types::schema::DynamicSchemaMetadata;
+use surfpool_gql::types::GqlSubgraphDataEntry;
 use surfpool_gql::{new_dynamic_schema, Context as GqlContext, GqlDynamicSchema as GqlSchema};
 use surfpool_types::{
-    Entry, SchemaDataSourcingEvent, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
+    SchemaDataSourcingEvent, SubgraphCommand, SubgraphDataEntry, SubgraphEvent, SurfpoolConfig,
 };
-use txtx_core::kit::uuid::Uuid;
+use txtx_core::kit::types::types::Value;
 
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
@@ -37,7 +38,7 @@ pub async fn start_server(
     _ctx: &Context,
 ) -> Result<ServerHandle, Box<dyn StdError>> {
     let context = GqlContext::new();
-    let mut schema_datasource = SchemaDatasource::new();
+    let mut schema_datasource = SchemaDataSource::new();
     let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
     let schema_wrapped = Data::new(schema);
     let context_wrapped = Data::new(RwLock::new(context));
@@ -66,18 +67,20 @@ pub async fn start_server(
                                 let mut gql_schema = gql_schema_copy.write().unwrap();
                                 let subgraph_uuid = uuid;
                                 let subgraph_name = config.subgraph_name.clone();
-                                let mut schema =
-                                    SchemaDatasourceEntry::new(&subgraph_uuid, &subgraph_name);
-                                for fields in config.fields.iter() {
-                                    schema.fields.push(fields.display_name.clone());
-                                }
+                                let schema = DynamicSchemaMetadata::new(
+                                    &subgraph_uuid,
+                                    &subgraph_name,
+                                    &config.subgraph_description,
+                                    &config.fields,
+                                );
+
                                 schema_datasource.add_entry(schema);
                                 gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
                                 use convert_case::{Case, Casing};
 
                                 let gql_context = gql_context_copy.write().unwrap();
                                 let mut entries_store = gql_context.entries_store.write().unwrap();
-                                let mut lookup = gql_context.uuid_lookup.write().unwrap();
+                                let mut lookup = gql_context.subgraph_name_lookup.write().unwrap();
                                 lookup.insert(
                                     subgraph_uuid.clone(),
                                     subgraph_name.to_case(Case::Camel),
@@ -103,21 +106,14 @@ pub async fn start_server(
                                 values, /* , request, slot*/
                             ) => {
                                 let gql_context = gql_context_copy.write().unwrap();
-                                let uuid_lookup = gql_context.uuid_lookup.read().unwrap();
+                                let uuid_lookup = gql_context.subgraph_name_lookup.read().unwrap();
                                 let subgraph_name = uuid_lookup.get(&uuid).unwrap();
                                 let mut entries_store = gql_context.entries_store.write().unwrap();
                                 let (_uuid, entries) =
                                     entries_store.get_mut(subgraph_name).unwrap();
-                                let entry_uuid = Uuid::new_v4();
-                                let values: HashMap<String, serde_json::Value> =
+                                let values: HashMap<String, Value> =
                                     serde_json::from_slice(values.as_slice()).unwrap();
-                                entries.push(EntryData {
-                                    name: subgraph_name.clone(),
-                                    entry: Entry {
-                                        uuid: entry_uuid,
-                                        values,
-                                    },
-                                });
+                                entries.push(GqlSubgraphDataEntry(SubgraphDataEntry::new(values)));
                             }
                             SchemaDataSourcingEvent::Rountrip(_uuid) => {}
                         },
@@ -236,7 +232,7 @@ async fn subscriptions(
         .read()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read context"))?;
     let ctx = GqlContext {
-        uuid_lookup: context.uuid_lookup.clone(),
+        subgraph_name_lookup: context.subgraph_name_lookup.clone(),
         entries_store: context.entries_store.clone(),
         entries_broadcaster: context.entries_broadcaster.clone(),
     };
