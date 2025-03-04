@@ -1,12 +1,13 @@
-use std::sync::Arc;
+use std::collections::HashMap;
 
 use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
 
-use jsonrpc_core::futures::future::{self, join_all};
+use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
+use solana_account::Account;
 use solana_account_decoder::parse_token::UiTokenAmount;
 use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
 use solana_client::rpc_config::RpcAccountInfoConfig;
@@ -14,6 +15,7 @@ use solana_client::rpc_response::RpcBlockCommitment;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_runtime::commitment::BlockCommitmentArray;
+use solana_sdk::pubkey::Pubkey;
 use solana_sdk::{clock::Slot, commitment_config::CommitmentConfig};
 
 use super::RunloopContext;
@@ -136,7 +138,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
     fn get_multiple_accounts(
         &self,
         meta: Self::Metadata,
-        pubkeys: Vec<String>,
+        pubkeys_str: Vec<String>,
         config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<Option<UiAccount>>>>> {
         let config = config.unwrap_or_default();
@@ -145,12 +147,19 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return Box::pin(future::err(e.into())),
         };
 
-        let accounts = match pubkeys
+        let pubkeys = match pubkeys_str
             .iter()
-            .map(|s| {
-                let pk = verify_pubkey(s)?;
-                Ok((pk, state_reader.svm.get_account(&pk)))
-            })
+            .map(|s| verify_pubkey(s))
+            .collect::<Result<Vec<_>>>()
+        {
+            Ok(p) => p,
+            Err(e) => return Box::pin(future::err(e.into())),
+        };
+
+        let accounts = match pubkeys
+            .clone()
+            .iter()
+            .map(|pk| Ok((pk.clone(), state_reader.svm.get_account(&pk))))
             .collect::<Result<Vec<_>>>()
         {
             Ok(accs) => accs,
@@ -165,37 +174,41 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         drop(state_reader);
 
         Box::pin(async move {
-            // Fetch all accounts at once and then only use those that are missing
-            let fetched_accounts = join_all(accounts.iter().map(|(pk, _)| {
-                let rpc_client = Arc::clone(&rpc_client);
-
-                async move { (pk, rpc_client.get_account(&pk).await.ok()) }
-            }))
-            .await;
-
-            // Save missing fetched accounts
-            let mut state_reader = meta.get_state_mut()?;
-            let combined_accounts = accounts
+            let missing_accounts_pks = accounts
                 .iter()
-                .zip(fetched_accounts)
-                .map(|((pk, local), (_, fetched_account))| {
-                    if local.is_some() {
-                        Ok((pk, local.clone()))
-                    } else if let Some(account) = fetched_account {
-                        state_reader
-                            .svm
-                            .set_account(*pk, account.clone())
-                            .map_err(|err| {
-                                Error::invalid_params(format!(
-                                    "failed to save fetched account {pk:?}: {err:?}"
-                                ))
-                            })?;
-                        Ok((pk, Some(account)))
-                    } else {
-                        Ok((pk, None))
-                    }
-                })
-                .collect::<Result<Vec<_>>>()?;
+                .filter_map(|(pk, acc)| if acc.is_none() { Some(*pk) } else { None })
+                .collect::<Vec<_>>();
+            let fetched_accounts = missing_accounts_pks
+                .iter()
+                .zip(
+                    rpc_client
+                        .get_multiple_accounts(&missing_accounts_pks)
+                        .await
+                        .map_err(|err| {
+                            Error::invalid_params(format!("failed to fetch accounts: {err:?}"))
+                        })?,
+                )
+                .filter_map(|(pk, acc)| acc.map(|acc| (*pk, acc)))
+                .collect::<HashMap<Pubkey, Account>>();
+            let mut state_reader = meta.get_state_mut()?;
+            let mut combined_accounts = vec![];
+            for (pk, acc) in accounts.iter() {
+                if acc.is_some() {
+                    combined_accounts.push((pk.clone(), acc.clone()));
+                } else if let Some(fetched) = fetched_accounts.get(&pk) {
+                    combined_accounts.push((pk.clone(), Some(fetched.clone())));
+                    state_reader
+                        .svm
+                        .set_account(*pk, fetched.clone())
+                        .map_err(|err| {
+                            Error::invalid_params(format!(
+                                "failed to save fetched account {pk:?}: {err:?}"
+                            ))
+                        })?;
+                } else {
+                    combined_accounts.push((pk.clone(), None));
+                }
+            }
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(absolute_slot),
