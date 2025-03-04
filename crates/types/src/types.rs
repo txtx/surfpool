@@ -12,6 +12,7 @@ use solana_sdk::{
 use solana_transaction_status::TransactionConfirmationStatus;
 use std::{collections::HashMap, path::PathBuf};
 use txtx_addon_network_svm::codec::subgraph::{PluginConfig, SubgraphRequest};
+use txtx_core::kit::types::types::Value;
 use uuid::Uuid;
 
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
@@ -28,13 +29,24 @@ pub enum RunloopTriggerMode {
 pub struct Collection {
     pub uuid: Uuid,
     pub name: String,
-    pub entries: Vec<Entry>,
+    pub entries: Vec<SubgraphDataEntry>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Entry {
+pub struct SubgraphDataEntry {
+    // The UUID of the entry
     pub uuid: Uuid,
-    pub values: HashMap<String, serde_json::Value>,
+    // A map of field names and their values
+    pub values: HashMap<String, Value>,
+}
+
+impl SubgraphDataEntry {
+    pub fn new(values: HashMap<String, Value>) -> Self {
+        Self {
+            uuid: Uuid::new_v4(),
+            values,
+        }
+    }
 }
 
 #[derive(Debug)]
