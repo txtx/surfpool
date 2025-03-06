@@ -9,14 +9,14 @@ use std::{
 };
 
 use crate::{
-    http::start_server,
+    http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
     tui,
 };
 
 use super::{Context, StartSimnet, DEFAULT_EXPLORER_PORT};
-use crossbeam::channel::Select;
+use crossbeam::channel::{Select, Sender};
 use notify::{
     event::{CreateKind, DataChange, ModifyKind},
     Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
@@ -32,8 +32,15 @@ use txtx_core::kit::{
 };
 
 pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Result<(), String> {
+    // We start the simnet as soon as possible, as it needs to be ready for deployments
+    let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
+    let (simnet_events_tx, simnet_events_rx) = crossbeam::channel::unbounded();
+    let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
+    let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
+
     // Check aidrop addresses
-    let mut airdrop_addresses = cmd.get_airdrop_addresses(ctx);
+    let (mut airdrop_addresses, airdrop_errors) = cmd.get_airdrop_addresses();
+
     let breaker = if cmd.no_tui {
         None
     } else {
@@ -46,12 +53,6 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     let config = cmd.surfpool_config(airdrop_addresses);
     let remote_rpc_url = config.rpc.remote_rpc_url.clone();
     let local_rpc_url = config.rpc.get_socket_address();
-
-    // We start the simnet as soon as possible, as it needs to be ready for deployments
-    let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
-    let (simnet_events_tx, simnet_events_rx) = crossbeam::channel::unbounded();
-    let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
-    let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
 
     let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);
 
@@ -83,17 +84,18 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     let ctx_copy = ctx.clone();
     let simnet_commands_tx_copy = simnet_commands_tx.clone();
     let config_copy = config.clone();
+    let simnet_events_tx_copy = simnet_events_tx.clone();
     let _handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
             let future = start_simnet(
                 config_copy,
                 subgraph_commands_tx,
-                simnet_events_tx,
+                simnet_events_tx_copy,
                 simnet_commands_tx_copy,
                 simnet_commands_rx,
             );
             if let Err(e) = hiro_system_kit::nestable_block_on(future) {
-                error!(ctx_copy.expect_logger(), "{e}");
+                error!(ctx_copy.expect_logger(), "Simnet exited with error: {e}");
                 sleep(Duration::from_millis(500));
                 std::process::exit(1);
             }
@@ -108,6 +110,10 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
             Ok(SimnetEvent::Ready) => break,
             _other => continue,
         }
+    }
+
+    for error in airdrop_errors {
+        let _ = simnet_events_tx.send(SimnetEvent::warn(error));
     }
 
     let mut deploy_progress_rx = vec![];
@@ -143,7 +149,9 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         )
         .map_err(|e| format!("{}", e))?;
     }
-    let _ = explorer_handle.stop(true);
+    if let Some(explorer_handle) = explorer_handle {
+        let _ = explorer_handle.stop(true);
+    }
     Ok(())
 }
 
@@ -179,7 +187,6 @@ fn log_events(
         }
 
         let oper = selector.select();
-
         match oper.index() {
             0 => match oper.recv(&simnet_events_rx) {
                 Ok(event) => match event {

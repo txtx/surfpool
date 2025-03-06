@@ -12,6 +12,7 @@ mod simnet;
 #[derive(Clone)]
 pub struct Context {
     pub logger: Option<Logger>,
+    #[allow(dead_code)]
     pub tracer: bool,
 }
 
@@ -25,6 +26,7 @@ pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
 pub const DEFAULT_AIRDROPPED_KEYPAIR_PATH: &str = "~/.config/solana/id.json";
 
 impl Context {
+    #[allow(dead_code)]
     pub fn empty() -> Context {
         Context {
             logger: None,
@@ -32,6 +34,7 @@ impl Context {
         }
     }
 
+    #[allow(dead_code)]
     pub fn try_log<F>(&self, closure: F)
     where
         F: FnOnce(&Logger),
@@ -117,18 +120,19 @@ pub struct StartSimnet {
 }
 
 impl StartSimnet {
-    pub fn get_airdrop_addresses(&self, ctx: &Context) -> Vec<Pubkey> {
+    pub fn get_airdrop_addresses(&self) -> (Vec<Pubkey>, Vec<String>) {
         let mut airdrop_addresses = vec![];
+        let mut errors = vec![];
         for address in self.airdrop_addresses.iter() {
             match Pubkey::from_str(&address).map_err(|e| e.to_string()) {
                 Ok(pubkey) => {
                     airdrop_addresses.push(pubkey);
                 }
                 Err(e) => {
-                    warn!(
-                        ctx.expect_logger(),
-                        "Unable to airdrop pubkey {}: Error parsing pubkey: {e}", address
-                    );
+                    errors.push(format!(
+                        "Unable to airdrop pubkey {}: Error parsing pubkey: {e}",
+                        address
+                    ));
                     continue;
                 }
             }
@@ -150,16 +154,15 @@ impl StartSimnet {
                     airdrop_addresses.push(pubkey.pubkey());
                 }
                 Err(e) => {
-                    warn!(
-                        ctx.expect_logger(),
+                    errors.push(format!(
                         "Unable to complete airdrop; Error reading keypair file: {}: {e}",
                         path.display()
-                    );
+                    ));
                     continue;
                 }
             }
         }
-        airdrop_addresses
+        (airdrop_addresses, errors)
     }
 
     pub fn rpc_config(&self) -> RpcConfig {
