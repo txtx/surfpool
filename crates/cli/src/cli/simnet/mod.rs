@@ -1,6 +1,5 @@
 use std::{
-    path::{Path, PathBuf},
-    str::FromStr,
+    path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc,
@@ -23,17 +22,10 @@ use notify::{
     Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
 };
 use surfpool_core::{
-    solana_sdk::{
-        pubkey::Pubkey,
-        signature::Keypair,
-        signer::{EncodableKey, Signer},
-    },
+    solana_sdk::{signature::Keypair, signer::Signer},
     start_simnet,
 };
-use surfpool_types::{
-    RpcConfig, RunloopTriggerMode, SimnetConfig, SimnetEvent, SubgraphConfig, SubgraphEvent,
-    SurfpoolConfig,
-};
+use surfpool_types::{SimnetEvent, SubgraphEvent};
 use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
     types::frontend::BlockEvent,
@@ -41,11 +33,7 @@ use txtx_core::kit::{
 
 pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Result<(), String> {
     // Check aidrop addresses
-    let mut airdrop_addresses = vec![];
-    for address in cmd.airdrop_addresses.iter() {
-        let pubkey = Pubkey::from_str(&address).map_err(|e| e.to_string())?;
-        airdrop_addresses.push(pubkey);
-    }
+    let mut airdrop_addresses = cmd.get_airdrop_addresses(ctx);
     let breaker = if cmd.no_tui {
         None
     } else {
@@ -54,55 +42,8 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         Some(keypair)
     };
 
-    for keypair_path in cmd.airdrop_keypair_path.iter() {
-        let resolved = if keypair_path.starts_with("~") {
-            format!(
-                "{}{}",
-                dirs::home_dir().unwrap().display(),
-                keypair_path[1..].to_string()
-            )
-        } else {
-            keypair_path.clone()
-        };
-        let path = PathBuf::from(resolved);
-        match Keypair::read_from_file(&path) {
-            Ok(pubkey) => {
-                airdrop_addresses.push(pubkey.pubkey());
-            }
-            Err(e) => {
-                println!("Error reading keypair file: {}: {e}", path.display());
-                continue;
-            }
-        }
-    }
-
-    let mut plugin_config_path = cmd
-        .plugin_config_path
-        .iter()
-        .map(|f| PathBuf::from(f))
-        .collect::<Vec<_>>();
-
-    if plugin_config_path.is_empty() {
-        plugin_config_path.push(PathBuf::from("plugins"));
-    }
-
     // Build config
-    let config = SurfpoolConfig {
-        rpc: RpcConfig {
-            remote_rpc_url: cmd.rpc_url.clone(),
-            bind_port: cmd.simnet_port,
-            bind_host: cmd.network_host.clone(),
-        },
-        simnet: SimnetConfig {
-            remote_rpc_url: cmd.rpc_url.clone(),
-            slot_time: cmd.slot_time,
-            runloop_trigger_mode: RunloopTriggerMode::Clock,
-            airdrop_addresses,
-            airdrop_token_amount: cmd.airdrop_token_amount,
-        },
-        subgraph: SubgraphConfig {},
-        plugin_config_path,
-    };
+    let config = cmd.surfpool_config(airdrop_addresses);
     let remote_rpc_url = config.rpc.remote_rpc_url.clone();
     let local_rpc_url = config.rpc.get_socket_address();
 
@@ -118,7 +59,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         config.clone(),
         subgraph_events_tx.clone(),
         subgraph_commands_rx,
-        &ctx.clone(),
+        &ctx,
     )
     .await
     .map_err(|e| format!("{}", e.to_string()))?;
