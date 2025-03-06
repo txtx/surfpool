@@ -27,22 +27,30 @@ pub async fn detect_program_frameworks(
     let manifest_location = FileLocation::from_path_string(manifest_path)?;
     let base_dir = manifest_location.get_parent_location()?;
     // Look for Anchor project layout
-    if let Some((framework, programs)) = anchor::try_get_programs_from_project(base_dir.clone())? {
+    if let Some((framework, programs)) = anchor::try_get_programs_from_project(base_dir.clone())
+        .map_err(|e| format!("Invalid Anchor project: {e}"))?
+    {
         return Ok(Some((framework, programs)));
     }
 
     // Look for Native project layout
-    if let Some((framework, programs)) = native::try_get_programs_from_project(base_dir.clone())? {
+    if let Some((framework, programs)) = native::try_get_programs_from_project(base_dir.clone())
+        .map_err(|e| format!("Invalid Native project: {e}"))?
+    {
         return Ok(Some((framework, programs)));
     }
 
     // Look for Steel project layout
-    if let Some((framework, programs)) = steel::try_get_programs_from_project(base_dir.clone())? {
+    if let Some((framework, programs)) = steel::try_get_programs_from_project(base_dir.clone())
+        .map_err(|e| format!("Invalid Steel project: {e}"))?
+    {
         return Ok(Some((framework, programs)));
     }
 
     // Look for Typhoon project layout
-    if let Some((framework, programs)) = typhoon::try_get_programs_from_project(base_dir.clone())? {
+    if let Some((framework, programs)) = typhoon::try_get_programs_from_project(base_dir.clone())
+        .map_err(|e| format!("Invalid Typhoon project: {e}"))?
+    {
         return Ok(Some((framework, programs)));
     }
 
