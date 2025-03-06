@@ -1,4 +1,5 @@
 use dialoguer::{console::Style, theme::ColorfulTheme, Confirm};
+use surfpool_types::SimnetEvent;
 use txtx_addon_network_svm::SvmNetworkAddon;
 use txtx_core::{
     kit::{
@@ -29,6 +30,7 @@ pub async fn execute_runbook(
     runbook_id: String,
     progress_tx: Sender<BlockEvent>,
     txtx_manifest_location: FileLocation,
+    simnet_events_tx: crossbeam::channel::Sender<SimnetEvent>,
 ) -> Result<(), String> {
     let manifest = WorkspaceManifest::from_location(&txtx_manifest_location)?;
     let runbook_selector = vec![runbook_id.to_string()];
@@ -53,7 +55,7 @@ pub async fn execute_runbook(
         )
         .await;
     if let Err(diags) = res {
-        println!("{:?}", diags);
+        let _ = simnet_events_tx.send(SimnetEvent::warn(format!("{:?}", diags)));
     }
 
     runbook.enable_full_execution_mode();
@@ -66,7 +68,7 @@ pub async fn execute_runbook(
         ) {
             Ok(snapshot) => Some(snapshot),
             Err(e) => {
-                println!("{} {}", red!("x"), e);
+                let _ = simnet_events_tx.send(SimnetEvent::warn(format!("{:?}", e)));
                 None
             }
         }
@@ -82,11 +84,10 @@ pub async fn execute_runbook(
 
         for flow_context in runbook.flow_contexts.iter() {
             if old.flows.get(&flow_context.name).is_none() {
-                println!(
-                    "{} Previous snapshot not found for flow {}",
-                    yellow!("!"),
+                let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+                    "Previous snapshot not found for flow {}",
                     flow_context.name
-                );
+                )));
             };
         }
 
@@ -109,19 +110,20 @@ pub async fn execute_runbook(
             .filter(|(_, actions)| !actions.is_empty())
             .count();
         if has_actions > 0 {
-            println!("The following actions will be re-executed:");
+            let _ = simnet_events_tx.send(SimnetEvent::info(
+                "The following actions will be re-executed:",
+            ));
             for (context, actions) in actions_to_re_execute.iter() {
                 let documentation_missing = black!("<description field empty>");
-                println!("\n{}", yellow!(format!("{}", context)));
+                let _ = simnet_events_tx.send(SimnetEvent::info(format!("{}", context)));
                 for (action_name, documentation) in actions.into_iter() {
-                    println!(
+                    let _ = simnet_events_tx.send(SimnetEvent::info(format!(
                         "- {}: {}",
                         action_name,
                         documentation.as_ref().unwrap_or(&documentation_missing)
-                    );
+                    )));
                 }
             }
-            println!("\n");
         }
 
         let has_actions = actions_to_execute
@@ -163,28 +165,27 @@ pub async fn execute_runbook(
 
     let res = start_unsupervised_runbook_runloop(&mut runbook, &progress_tx).await;
     if let Err(diags) = res {
-        println!("{} Execution aborted", red!("x"));
+        let _ = simnet_events_tx.send(SimnetEvent::warn("Runbook execution aborted"));
         for diag in diags.iter() {
-            println!("{}", format!("- {}", diag));
+            let _ = simnet_events_tx.send(SimnetEvent::warn(format!("{}", diag)));
         }
         // write_runbook_transient_state(&mut runbook, runbook_state)?;
         return Ok(());
     }
 
-    if let Err(diags) = res {
-        for diag in diags.iter() {
-            println!("{} {}", red!("x"), diag);
-        }
-        std::process::exit(1);
-    }
-
     match runbook.write_runbook_state(runbook_state_location) {
         Ok(Some(location)) => {
-            println!("\n{} Saved execution state to {}", green!("✓"), location);
+            let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+                "Saved execution state to {}",
+                location
+            )));
         }
         Ok(None) => {}
         Err(e) => {
-            println!("{} Failed to write runbook state: {}", red!("x"), e);
+            let _ = simnet_events_tx.send(SimnetEvent::warn(format!(
+                "Failed to write runbook state: {}",
+                e
+            )));
         }
     };
 
