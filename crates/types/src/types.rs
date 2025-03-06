@@ -59,6 +59,36 @@ pub enum SubgraphEvent {
     Shutdown,
 }
 
+impl SubgraphEvent {
+    pub fn info<S>(msg: S) -> Self
+    where
+        S: Into<String>,
+    {
+        Self::InfoLog(Local::now(), msg.into())
+    }
+
+    pub fn warn<S>(msg: S) -> Self
+    where
+        S: Into<String>,
+    {
+        Self::WarnLog(Local::now(), msg.into())
+    }
+
+    pub fn error<S>(msg: S) -> Self
+    where
+        S: Into<String>,
+    {
+        Self::ErrorLog(Local::now(), msg.into())
+    }
+
+    pub fn debug<S>(msg: S) -> Self
+    where
+        S: Into<String>,
+    {
+        Self::DebugLog(Local::now(), msg.into())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum SchemaDataSourcingEvent {
     Rountrip(Uuid),
@@ -92,6 +122,48 @@ pub enum SimnetEvent {
         Option<TransactionError>,
     ),
     AccountUpdate(DateTime<Local>, Pubkey),
+}
+
+impl SimnetEvent {
+    pub fn info<S>(msg: S) -> Self
+    where
+        S: Into<String>,
+    {
+        Self::InfoLog(Local::now(), msg.into())
+    }
+
+    pub fn warn<S>(msg: S) -> Self
+    where
+        S: Into<String>,
+    {
+        Self::WarnLog(Local::now(), msg.into())
+    }
+
+    pub fn error<S>(msg: S) -> Self
+    where
+        S: Into<String>,
+    {
+        Self::ErrorLog(Local::now(), msg.into())
+    }
+
+    pub fn debug<S>(msg: S) -> Self
+    where
+        S: Into<String>,
+    {
+        Self::DebugLog(Local::now(), msg.into())
+    }
+
+    pub fn transaction_processed(meta: TransactionMetadata, err: Option<TransactionError>) -> Self {
+        Self::TransactionProcessed(Local::now(), meta, err)
+    }
+
+    pub fn transaction_received(tx: VersionedTransaction) -> Self {
+        Self::TransactionReceived(Local::now(), tx)
+    }
+
+    pub fn account_update(pubkey: Pubkey) -> Self {
+        Self::AccountUpdate(Local::now(), pubkey)
+    }
 }
 
 pub enum TransactionStatusEvent {
