@@ -96,111 +96,14 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
 
     let mut deploy_progress_rx = vec![];
     if !cmd.no_deploy {
-        // Are we in a project directory?
-        let deployment = match detect_program_frameworks(&cmd.manifest_path).await {
+        match write_and_execute_iac(cmd, &simnet_events_tx).await {
+            Ok(rx) => deploy_progress_rx.push(rx),
             Err(e) => {
-                error!(ctx.expect_logger(), "{}", e);
-                None
-            }
-            Ok(deployment) => deployment,
-        };
-
-        let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-        deploy_progress_rx.push(progress_rx);
-
-        if let Some((_framework, programs)) = deployment {
-            // Is infrastructure-as-code (IaC) already setup?
-            let base_location =
-                FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
-            let mut txtx_manifest_location = base_location.clone();
-            txtx_manifest_location.append_path("txtx.yml")?;
-            if !txtx_manifest_location.exists() {
-                // Scaffold IaC
-                scaffold_iac_layout(programs, &base_location)?;
-            }
-
-            let mut futures = vec![];
-            let runbooks_ids_to_execute = cmd.runbooks.clone();
-            for runbook_id in runbooks_ids_to_execute.iter() {
-                futures.push(execute_runbook(
-                    runbook_id.clone(),
-                    progress_tx.clone(),
-                    txtx_manifest_location.clone(),
-                ));
-            }
-
-            let _handle = hiro_system_kit::thread_named("simnet")
-                .spawn(move || {
-                    let _ = hiro_system_kit::nestable_block_on(join_all(futures));
-                    Ok::<(), String>(())
-                })
-                .map_err(|e| format!("{}", e))?;
-
-            if cmd.watch {
-                let _handle = hiro_system_kit::thread_named("watch filesystem")
-                    .spawn(move || {
-                        let mut target_path = base_location.clone();
-                        let _ = target_path.append_path("target");
-                        let _ = target_path.append_path("deploy");
-                        let (tx, rx) = mpsc::channel::<NotifyResult<Event>>();
-                        let mut watcher =
-                            notify::recommended_watcher(tx).map_err(|e| e.to_string())?;
-                        watcher
-                            .watch(
-                                Path::new(&target_path.to_string()),
-                                RecursiveMode::NonRecursive,
-                            )
-                            .map_err(|e| e.to_string())?;
-                        let _ = watcher.configure(
-                            Config::default()
-                                .with_poll_interval(Duration::from_secs(1))
-                                .with_compare_contents(true),
-                        );
-                        for res in rx {
-                            // Disregard any event that would not create or modify a .so file
-                            let mut found_candidates = false;
-                            match res {
-                                Ok(Event {
-                                    kind: EventKind::Modify(ModifyKind::Data(DataChange::Content)),
-                                    paths,
-                                    attrs: _,
-                                })
-                                | Ok(Event {
-                                    kind: EventKind::Create(CreateKind::File),
-                                    paths,
-                                    attrs: _,
-                                }) => {
-                                    for path in paths.iter() {
-                                        if path.to_string_lossy().ends_with(".so") {
-                                            found_candidates = true;
-                                        }
-                                    }
-                                }
-                                _ => continue,
-                            }
-
-                            if !found_candidates {
-                                continue;
-                            }
-
-                            let mut futures = vec![];
-                            for runbook_id in runbooks_ids_to_execute.iter() {
-                                futures.push(execute_runbook(
-                                    runbook_id.clone(),
-                                    progress_tx.clone(),
-                                    txtx_manifest_location.clone(),
-                                ));
-                            }
-                            let _ = hiro_system_kit::nestable_block_on(join_all(futures));
-                        }
-                        Ok::<(), String>(())
-                    })
-                    .map_err(|e| format!("{}", e))
-                    .unwrap();
+                let _ = simnet_events_tx.send(SimnetEvent::warn(format!(
+                    "Automatic protocol deployment failed: {e}"
+                )));
             }
         }
-
-        // clean-up state
     };
 
     // Start frontend - kept on main thread
@@ -385,4 +288,111 @@ fn log_events(
         }
     }
     Ok(())
+}
+
+async fn write_and_execute_iac(
+    cmd: &StartSimnet,
+    simnet_events_tx: &Sender<SimnetEvent>,
+) -> Result<Receiver<BlockEvent>, String> {
+    // Are we in a project directory?
+    let deployment = detect_program_frameworks(&cmd.manifest_path)
+        .await
+        .map_err(|e| format!("Failed to detect project framework: {}", e))?;
+
+    let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
+
+    if let Some((_framework, programs)) = deployment {
+        // Is infrastructure-as-code (IaC) already setup?
+        let base_location =
+            FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
+        let mut txtx_manifest_location = base_location.clone();
+        txtx_manifest_location.append_path("txtx.yml")?;
+        if !txtx_manifest_location.exists() {
+            // Scaffold IaC
+            scaffold_iac_layout(programs, &base_location)?;
+        }
+
+        let mut futures = vec![];
+        let runbooks_ids_to_execute = cmd.runbooks.clone();
+        let simnet_events_tx_copy = simnet_events_tx.clone();
+        for runbook_id in runbooks_ids_to_execute.iter() {
+            futures.push(execute_runbook(
+                runbook_id.clone(),
+                progress_tx.clone(),
+                txtx_manifest_location.clone(),
+                simnet_events_tx_copy.clone(),
+            ));
+        }
+
+        let simnet_events_tx = simnet_events_tx.clone();
+        let _handle = hiro_system_kit::thread_named("Deployment Runbook Executions")
+            .spawn(move || {
+                let _ = hiro_system_kit::nestable_block_on(join_all(futures));
+                Ok::<(), String>(())
+            })
+            .map_err(|e| format!("Thread to execute runbooks exited: {}", e))?;
+
+        if cmd.watch {
+            let _handle = hiro_system_kit::thread_named("Watch Filesystem")
+                .spawn(move || {
+                    let mut target_path = base_location.clone();
+                    let _ = target_path.append_path("target");
+                    let _ = target_path.append_path("deploy");
+                    let (tx, rx) = mpsc::channel::<NotifyResult<Event>>();
+                    let mut watcher = notify::recommended_watcher(tx).map_err(|e| e.to_string())?;
+                    watcher
+                        .watch(
+                            Path::new(&target_path.to_string()),
+                            RecursiveMode::NonRecursive,
+                        )
+                        .map_err(|e| e.to_string())?;
+                    let _ = watcher.configure(
+                        Config::default()
+                            .with_poll_interval(Duration::from_secs(1))
+                            .with_compare_contents(true),
+                    );
+                    for res in rx {
+                        // Disregard any event that would not create or modify a .so file
+                        let mut found_candidates = false;
+                        match res {
+                            Ok(Event {
+                                kind: EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+                                paths,
+                                attrs: _,
+                            })
+                            | Ok(Event {
+                                kind: EventKind::Create(CreateKind::File),
+                                paths,
+                                attrs: _,
+                            }) => {
+                                for path in paths.iter() {
+                                    if path.to_string_lossy().ends_with(".so") {
+                                        found_candidates = true;
+                                    }
+                                }
+                            }
+                            _ => continue,
+                        }
+
+                        if !found_candidates {
+                            continue;
+                        }
+
+                        let mut futures = vec![];
+                        for runbook_id in runbooks_ids_to_execute.iter() {
+                            futures.push(execute_runbook(
+                                runbook_id.clone(),
+                                progress_tx.clone(),
+                                txtx_manifest_location.clone(),
+                                simnet_events_tx.clone(),
+                            ));
+                        }
+                        let _ = hiro_system_kit::nestable_block_on(join_all(futures));
+                    }
+                    Ok::<(), String>(())
+                })
+                .map_err(|e| format!("Thread to watch filesystem exited: {}", e))?;
+        }
+    }
+    Ok(progress_rx)
 }
