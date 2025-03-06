@@ -94,10 +94,9 @@ pub async fn execute_runbook(
         let consolidated_changes = match ctx.diff(old, new) {
             Ok(changes) => changes,
             Err(e) => {
-                let _ = simnet_events_tx.send(SimnetEvent::warn(format!(
-                    "Failed to process runbook snapshot: {:?}",
-                    e
-                )));
+                let _ =
+                    simnet_events_tx.send(SimnetEvent::warn("Failed to process runbook snapshot"));
+                let _ = simnet_events_tx.send(SimnetEvent::warn(e));
                 return Ok(());
             }
         };
