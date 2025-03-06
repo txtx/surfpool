@@ -12,7 +12,7 @@ use surfpool_types::SimnetCommand;
 
 use crate::{
     rpc::RunloopContext,
-    simnet::{EntryStatus, GlobalState, TransactionWithStatusMeta},
+    types::{EntryStatus, GlobalState, TransactionWithStatusMeta},
 };
 
 use std::net::TcpListener;
