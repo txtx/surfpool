@@ -12,6 +12,7 @@ use solana_client::rpc_response::{
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::commitment_config::CommitmentConfig;
 
+use super::not_implemented_err_async;
 use super::RunloopContext;
 
 #[rpc]
@@ -81,7 +82,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _program_id_str: String,
         _config: Option<RpcProgramAccountsConfig>,
     ) -> BoxFuture<Result<OptionalContext<Vec<RpcKeyedAccount>>>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 
     fn get_largest_accounts(
@@ -89,7 +90,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _meta: Self::Metadata,
         _config: Option<RpcLargestAccountsConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcAccountBalance>>>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 
     fn get_supply(
@@ -116,7 +117,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _mint_str: String,
         _commitment: Option<CommitmentConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcTokenAccountBalance>>>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 
     fn get_token_accounts_by_owner(
@@ -126,7 +127,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _token_account_filter: RpcTokenAccountsFilter,
         _config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 
     fn get_token_accounts_by_delegate(
@@ -136,6 +137,6 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _token_account_filter: RpcTokenAccountsFilter,
         _config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 }

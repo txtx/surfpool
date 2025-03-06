@@ -204,11 +204,11 @@ impl Full for SurfpoolFullRpc {
         _address_strs: Vec<String>,
         _config: Option<RpcEpochConfig>,
     ) -> BoxFuture<Result<Vec<Option<RpcInflationReward>>>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 
     fn get_cluster_nodes(&self, _meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_recent_performance_samples(
@@ -297,11 +297,11 @@ impl Full for SurfpoolFullRpc {
     }
 
     fn get_max_retransmit_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_max_shred_insert_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn request_airdrop(
@@ -565,7 +565,7 @@ impl Full for SurfpoolFullRpc {
     }
 
     fn minimum_ledger_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_block(
@@ -592,7 +592,7 @@ impl Full for SurfpoolFullRpc {
         _wrapper: Option<RpcBlocksConfigWrapper>,
         _config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 
     fn get_blocks_with_limit(
@@ -602,7 +602,7 @@ impl Full for SurfpoolFullRpc {
         _limit: usize,
         _config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 
     fn get_transaction(
@@ -671,7 +671,7 @@ impl Full for SurfpoolFullRpc {
         _address: String,
         _config: Option<RpcSignaturesForAddressConfig>,
     ) -> BoxFuture<Result<Vec<RpcConfirmedTransactionStatusWithSignature>>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 
     fn get_first_available_block(&self, _meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
@@ -736,7 +736,7 @@ impl Full for SurfpoolFullRpc {
         _meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<u64>> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_recent_prioritization_fees(
@@ -744,7 +744,7 @@ impl Full for SurfpoolFullRpc {
         _meta: Self::Metadata,
         _pubkey_strs: Option<Vec<String>>,
     ) -> Result<Vec<RpcPrioritizationFee>> {
-        unimplemented!()
+        not_implemented_err()
     }
 }
 

@@ -11,6 +11,8 @@ use surfpool_types::PluginManagerCommand;
 use txtx_addon_network_svm::codec::subgraph::PluginConfig;
 use uuid::Uuid;
 
+use super::not_implemented_err;
+use super::not_implemented_err_async;
 use super::RunloopContext;
 
 #[rpc]
@@ -123,7 +125,7 @@ impl AdminRpc for SurfpoolAdminRpc {
     type Metadata = Option<RunloopContext>;
 
     fn exit(&self, _meta: Self::Metadata) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn reload_plugin(
@@ -132,15 +134,20 @@ impl AdminRpc for SurfpoolAdminRpc {
         _name: String,
         _config_file: String,
     ) -> BoxFuture<Result<()>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 
     fn unload_plugin(&self, _meta: Self::Metadata, _name: String) -> BoxFuture<Result<()>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 
     fn load_plugin(&self, meta: Self::Metadata, config_file: String) -> BoxFuture<Result<String>> {
-        let config = serde_json::from_str::<PluginConfig>(&config_file).unwrap();
+        let config = match serde_json::from_str::<PluginConfig>(&config_file)
+            .map_err(|e| format!("failed to parse plugin config: {e}"))
+        {
+            Ok(config) => config,
+            Err(e) => return Box::pin(async move { Err(jsonrpc_core::Error::invalid_params(&e)) }),
+        };
         let ctx = meta.unwrap();
         let uuid = Uuid::new_v4();
         let (tx, rx) = crossbeam_channel::bounded(1);
@@ -155,23 +162,23 @@ impl AdminRpc for SurfpoolAdminRpc {
     }
 
     fn list_plugins(&self, _meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>> {
-        unimplemented!()
+        not_implemented_err_async()
     }
 
     fn rpc_addr(&self, _meta: Self::Metadata) -> Result<Option<SocketAddr>> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn set_log_filter(&self, _filter: String) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn start_time(&self, _meta: Self::Metadata) -> Result<SystemTime> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn add_authorized_voter(&self, _meta: Self::Metadata, _keypair_file: String) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn add_authorized_voter_from_bytes(
@@ -179,11 +186,11 @@ impl AdminRpc for SurfpoolAdminRpc {
         _meta: Self::Metadata,
         _keypair: Vec<u8>,
     ) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn remove_all_authorized_voters(&self, _meta: Self::Metadata) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn set_identity(
@@ -192,7 +199,7 @@ impl AdminRpc for SurfpoolAdminRpc {
         _keypair_file: String,
         _require_tower: bool,
     ) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn set_identity_from_bytes(
@@ -201,11 +208,11 @@ impl AdminRpc for SurfpoolAdminRpc {
         _identity_keypair: Vec<u8>,
         _require_tower: bool,
     ) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn set_staked_nodes_overrides(&self, _meta: Self::Metadata, _path: String) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn repair_shred_from_peer(
@@ -215,11 +222,11 @@ impl AdminRpc for SurfpoolAdminRpc {
         _slot: u64,
         _shred_index: u64,
     ) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn set_repair_whitelist(&self, _meta: Self::Metadata, _whitelist: Vec<Pubkey>) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_secondary_index_key_size(
@@ -227,7 +234,7 @@ impl AdminRpc for SurfpoolAdminRpc {
         _meta: Self::Metadata,
         _pubkey_str: String,
     ) -> Result<HashMap<RpcAccountIndex, usize>> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn set_public_tpu_address(
@@ -235,7 +242,7 @@ impl AdminRpc for SurfpoolAdminRpc {
         _meta: Self::Metadata,
         _public_tpu_addr: SocketAddr,
     ) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn set_public_tpu_forwards_address(
@@ -243,6 +250,6 @@ impl AdminRpc for SurfpoolAdminRpc {
         _meta: Self::Metadata,
         _public_tpu_forwards_addr: SocketAddr,
     ) -> Result<()> {
-        unimplemented!()
+        not_implemented_err()
     }
 }
