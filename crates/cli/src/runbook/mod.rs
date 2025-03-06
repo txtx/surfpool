@@ -5,7 +5,7 @@ use txtx_core::{
     kit::{
         channel::Sender,
         helpers::fs::FileLocation,
-        types::{frontend::BlockEvent, AuthorizationContext},
+        types::{diagnostics::Diagnostic, frontend::BlockEvent, AuthorizationContext},
         Addon,
     },
     manifest::{file::read_runbooks_from_manifest, WorkspaceManifest},
@@ -55,7 +55,7 @@ pub async fn execute_runbook(
         )
         .await;
     if let Err(diags) = res {
-        let _ = simnet_events_tx.send(SimnetEvent::warn(format!("{:?}", diags)));
+        log_diagnostic_lines(diags, &simnet_events_tx);
     }
 
     runbook.enable_full_execution_mode();
@@ -174,9 +174,7 @@ pub async fn execute_runbook(
     let res = start_unsupervised_runbook_runloop(&mut runbook, &progress_tx).await;
     if let Err(diags) = res {
         let _ = simnet_events_tx.send(SimnetEvent::warn("Runbook execution aborted"));
-        for diag in diags.iter() {
-            let _ = simnet_events_tx.send(SimnetEvent::warn(format!("{}", diag)));
-        }
+        log_diagnostic_lines(diags, &simnet_events_tx);
         // write_runbook_transient_state(&mut runbook, runbook_state)?;
         return Ok(());
     }
@@ -279,4 +277,13 @@ pub fn display_snapshot_diffing(
     }
 
     Some(consolidated_changes)
+}
+
+fn log_diagnostic_lines(diags: Vec<Diagnostic>, simnet_events_tx: &Sender<SimnetEvent>) {
+    for diag in diags.iter() {
+        let diag_str = diag.to_string();
+        for line in diag_str.lines() {
+            let _ = simnet_events_tx.send(SimnetEvent::warn(line));
+        }
+    }
 }
