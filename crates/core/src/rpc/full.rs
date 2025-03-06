@@ -1,5 +1,5 @@
 use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts};
-use crate::simnet::{EntryStatus, TransactionWithStatusMeta};
+use crate::types::{EntryStatus, TransactionWithStatusMeta};
 use itertools::Itertools;
 use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
