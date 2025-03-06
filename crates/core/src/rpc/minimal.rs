@@ -1,4 +1,4 @@
-use super::RunloopContext;
+use super::{not_implemented_err, RunloopContext};
 use crate::rpc::{utils::verify_pubkey, State};
 use jsonrpc_core::{futures::future, BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
@@ -154,9 +154,7 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_genesis_hash(&self, _meta: Self::Metadata) -> Result<String> {
-        println!("get_genesis_hash rpc request received");
-        // Ok(meta.genesis_hash.to_string())
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_health(&self, meta: Self::Metadata) -> Result<String> {
@@ -167,11 +165,7 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
-        println!("get_identity rpc request received");
-        // Ok(RpcIdentity {
-        //     identity: meta.cluster_info.id().to_string(),
-        // })
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_slot(&self, meta: Self::Metadata, _config: Option<RpcContextConfig>) -> Result<Slot> {
@@ -190,12 +184,7 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_highest_snapshot_slot(&self, _meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
-        println!("get_highest_snapshot_slot rpc request received");
-        // Ok(RpcSnapshotSlotInfo {
-        //     full: 0,
-        //     incremental: None,
-        // })
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_transaction_count(
@@ -208,8 +197,6 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_version(&self, _: Self::Metadata) -> Result<RpcVersionInfo> {
-        println!("get_version rpc request received");
-
         let version = solana_version::Version::default();
         Ok(RpcVersionInfo {
             solana_core: version.to_string(),
@@ -264,7 +251,7 @@ impl Minimal for SurfpoolMinimalRpc {
         //         }
         //         schedule_by_identity
         //     }))
-        unimplemented!()
+        not_implemented_err()
     }
 }
 

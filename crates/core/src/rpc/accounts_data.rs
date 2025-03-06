@@ -18,7 +18,7 @@ use solana_runtime::commitment::BlockCommitmentArray;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::{clock::Slot, commitment_config::CommitmentConfig};
 
-use super::RunloopContext;
+use super::{not_implemented_err, RunloopContext};
 
 #[rpc]
 pub trait AccountsData {
@@ -238,7 +238,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         _meta: Self::Metadata,
         _block: Slot,
     ) -> Result<RpcBlockCommitment<BlockCommitmentArray>> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     // SPL Token-specific RPC endpoints
@@ -251,7 +251,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         _pubkey_str: String,
         _commitment: Option<CommitmentConfig>,
     ) -> Result<RpcResponse<UiTokenAmount>> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_token_supply(
@@ -260,6 +260,6 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         _mint_str: String,
         _commitment: Option<CommitmentConfig>,
     ) -> Result<RpcResponse<UiTokenAmount>> {
-        unimplemented!()
+        not_implemented_err()
     }
 }

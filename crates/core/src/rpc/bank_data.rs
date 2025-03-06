@@ -7,7 +7,7 @@ use solana_sdk::clock::Slot;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::epoch_schedule::EpochSchedule;
 
-use super::{RunloopContext, State};
+use super::{not_implemented_err, RunloopContext, State};
 
 #[rpc]
 pub trait BankData {
@@ -77,11 +77,11 @@ impl BankData for SurfpoolBankDataRpc {
         _meta: Self::Metadata,
         _commitment: Option<CommitmentConfig>,
     ) -> Result<RpcInflationGovernor> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_inflation_rate(&self, _meta: Self::Metadata) -> Result<RpcInflationRate> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_epoch_schedule(&self, _meta: Self::Metadata) -> Result<EpochSchedule> {
@@ -99,7 +99,7 @@ impl BankData for SurfpoolBankDataRpc {
         _meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<String> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_slot_leaders(
@@ -108,7 +108,7 @@ impl BankData for SurfpoolBankDataRpc {
         _start_slot: Slot,
         _limit: u64,
     ) -> Result<Vec<String>> {
-        unimplemented!()
+        not_implemented_err()
     }
 
     fn get_block_production(
@@ -116,6 +116,6 @@ impl BankData for SurfpoolBankDataRpc {
         _meta: Self::Metadata,
         _config: Option<RpcBlockProductionConfig>,
     ) -> Result<RpcResponse<RpcBlockProduction>> {
-        unimplemented!()
+        not_implemented_err()
     }
 }
