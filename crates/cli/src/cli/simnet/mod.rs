@@ -54,7 +54,8 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
 
     let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);
-    let explorer_handle = start_server(
+
+    let explorer_handle = match start_subgraph_and_explorer_server(
         network_binding,
         config.clone(),
         subgraph_events_tx.clone(),
@@ -62,7 +63,22 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         &ctx,
     )
     .await
-    .map_err(|e| format!("{}", e.to_string()))?;
+    {
+        Ok((explorer_handle, _)) => Some(explorer_handle),
+        Err(e) => {
+            let _ = simnet_events_tx.send(SimnetEvent::warn(format!(
+                "Failed to start subgraph {}server: {}",
+                if !cmd.no_explorer {
+                    "and explorer "
+                } else {
+                    ""
+                },
+                e
+            )));
+            let _ = simnet_events_tx.send(SimnetEvent::info("Continuing with simnet startup..."));
+            None
+        }
+    };
 
     let ctx_copy = ctx.clone();
     let simnet_commands_tx_copy = simnet_commands_tx.clone();
