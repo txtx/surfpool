@@ -405,7 +405,8 @@ fn start_geyser_plugin_thread(
                                         ipc_token,
                                         subgraph_request: config.data.clone()
                                     };
-                                    let config_file =match  serde_json::to_string(&subgraph_plugin_config) {
+
+                                    let config_file = match serde_json::to_string(&subgraph_plugin_config) {
                                         Ok(c) => c,
                                         Err(e) => {
                                             let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to serialize subgraph plugin config: {:?}", e)));
