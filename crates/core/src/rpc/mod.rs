@@ -90,6 +90,22 @@ pub struct SurfpoolMiddleware {
     pub config: RpcConfig,
 }
 
+impl SurfpoolMiddleware {
+    pub fn new(
+        context: Arc<RwLock<GlobalState>>,
+        simnet_commands_tx: &Sender<SimnetCommand>,
+        plugin_manager_commands_tx: &Sender<PluginManagerCommand>,
+        config: &RpcConfig,
+    ) -> Self {
+        Self {
+            context,
+            simnet_commands_tx: simnet_commands_tx.clone(),
+            plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
+            config: config.clone(),
+        }
+    }
+}
+
 impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
     type Future = FutureResponse;
     type CallFuture = middleware::NoopCallFuture;
