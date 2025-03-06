@@ -2,7 +2,8 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crossbeam_channel::Sender;
 use jsonrpc_core::{
-    futures::future::Either, middleware, FutureResponse, Metadata, Middleware, Request, Response,
+    futures::future::Either, middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware,
+    Request, Response,
 };
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_sdk::{blake3::Hash, clock::Slot};
@@ -111,4 +112,25 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
         });
         Either::Left(Box::pin(next(request, meta).map(move |res| res)))
     }
+}
+
+pub const NOT_IMPLEMENTED_CODE: i64 = -32051; // -32000 to -32099 are reserved by the json-rpc spec for custom errors
+pub const NOT_IMPLEMENTED_MSG: &str = "Method not yet implemented. If this endpoint is a priority for you, please open an issue here so we can prioritize: https://github.com/txtx/surfpool/issues";
+/// Helper function to return a `NotImplemented` JSON RPC error
+pub fn not_implemented_err<T>() -> Result<T, Error> {
+    Err(Error {
+        code: jsonrpc_core::types::ErrorCode::ServerError(NOT_IMPLEMENTED_CODE),
+        message: NOT_IMPLEMENTED_MSG.to_string(),
+        data: None,
+    })
+}
+
+pub fn not_implemented_err_async<T>() -> BoxFuture<Result<T, Error>> {
+    Box::pin(async {
+        Err(Error {
+            code: jsonrpc_core::types::ErrorCode::ServerError(NOT_IMPLEMENTED_CODE),
+            message: NOT_IMPLEMENTED_MSG.to_string(),
+            data: None,
+        })
+    })
 }
