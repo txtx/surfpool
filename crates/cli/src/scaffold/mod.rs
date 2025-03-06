@@ -71,7 +71,7 @@ pub fn scaffold_iac_layout(
         .with_prompt("Programs to deploy:")
         .items(&programs)
         .interact()
-        .unwrap();
+        .map_err(|e| format!("unable to select programs to deploy: {e}"))?;
 
     let selected_programs = selection
         .iter()
@@ -102,7 +102,7 @@ pub fn scaffold_iac_layout(
                 .with_prompt("Enter the name of this workspace")
                 .default(default)
                 .interact_text()
-                .unwrap();
+                .map_err(|e| format!("unable to get workspace name: {e}"))?;
             WorkspaceManifest::new(name)
         }
     };
@@ -182,7 +182,12 @@ pub fn scaffold_iac_layout(
         let manifest_name = "txtx.yml";
         let mut manifest_location = base_location.clone();
         let _ = manifest_location.append_path(manifest_name);
-        let _ = File::create(manifest_location.to_string()).expect("creation failed");
+        let _ = File::create(manifest_location.to_string()).map_err(|e| {
+            format!(
+                "Failed to create Runbook manifest {}: {e}",
+                manifest_location.to_string()
+            )
+        })?;
         println!("{} {}", green!("Created manifest"), manifest_name);
         manifest_location
     };
@@ -206,14 +211,19 @@ pub fn scaffold_iac_layout(
         },
     );
 
-    let mut manifest_file = File::create(manifest_location.to_string()).expect("creation failed");
+    let mut manifest_file = File::create(manifest_location.to_string()).map_err(|e| {
+        format!(
+            "Failed to create Runbook manifest file {}: {e}",
+            manifest_location.to_string()
+        )
+    })?;
 
     let manifest_file_data = build_manifest_data(&manifest);
-    let template =
-        mustache::compile_str(TXTX_MANIFEST_TEMPLATE).expect("Failed to compile template");
+    let template = mustache::compile_str(TXTX_MANIFEST_TEMPLATE)
+        .map_err(|e| format!("Failed to generate Runbook manifest: {e}"))?;
     template
         .render_data(&mut manifest_file, &manifest_file_data)
-        .expect("Failed to render template");
+        .map_err(|e| format!("Failed to render Runbook manifest: {e}"))?;
 
     // Create runbooks directory
     match runbook_file_location.exists() {
@@ -234,14 +244,18 @@ pub fn scaffold_iac_layout(
     match readme_file_path.exists() {
         true => {}
         false => {
-            let mut readme_file =
-                File::create(readme_file_path.to_string()).expect("creation failed");
+            let mut readme_file = File::create(readme_file_path.to_string()).map_err(|e| {
+                format!(
+                    "Failed to create Runbook README {}: {e}",
+                    readme_file_path.to_string()
+                )
+            })?;
             let readme_file_data = build_manifest_data(&manifest);
-            let template =
-                mustache::compile_str(TXTX_README_TEMPLATE).expect("Failed to compile template");
+            let template = mustache::compile_str(TXTX_README_TEMPLATE)
+                .map_err(|e| format!("Failed to generate Runbook README: {e}"))?;
             template
                 .render_data(&mut readme_file, &readme_file_data)
-                .expect("Failed to render template");
+                .map_err(|e| format!("Failed to render Runbook README: {e}"))?;
             println!("{} runbooks/README.md", green!("Created file"));
         }
     }
@@ -271,47 +285,72 @@ pub fn scaffold_iac_layout(
             return Ok(());
         }
         false => {
-            let _ = File::create(runbook_file_location.to_string()).expect("creation failed");
-            runbook_file_location.write_content(runbook_src.as_bytes())?;
+            // write main.tx
+            let _ = File::create(runbook_file_location.to_string())
+                .map_err(|e| format!("Runbook file creation failed: {e}"))?;
+            runbook_file_location
+                .write_content(runbook_src.as_bytes())
+                .map_err(|e| format!("Failed to write data to Runbook: {e}"))?;
             println!(
                 "{} {}",
                 green!("Created file"),
                 runbook_file_location
                     .get_relative_path_from_base(&base_location)
-                    .unwrap()
+                    .map_err(|e| format!("Invalid Runbook file location: {e}"))?
             );
-            let mut base_dir = runbook_file_location.get_parent_location().unwrap();
+
+            // Create local signer
+            let mut base_dir = runbook_file_location
+                .get_parent_location()
+                .map_err(|e| format!("Invalid Runbook file location: {e}"))?;
             base_dir.append_path(&format!("signers.localnet.tx"))?;
-            let _ = File::create(base_dir.to_string()).expect("creation failed");
-            base_dir.write_content(signer_simnet.as_bytes())?;
+            let _ = File::create(base_dir.to_string())
+                .map_err(|e| format!("Failed to create Runbook signer file: {e}"))?;
+            base_dir
+                .write_content(signer_simnet.as_bytes())
+                .map_err(|e| format!("Failed to write data to Runbook signer file: {e}"))?;
             println!(
                 "{} {}",
                 green!("Created file"),
                 base_dir
                     .get_relative_path_from_base(&base_location)
-                    .unwrap()
+                    .map_err(|e| format!("Invalid Runbook file location: {e}"))?
             );
-            let mut base_dir = base_dir.get_parent_location().unwrap();
+
+            // Create devnet signer
+            let mut base_dir = base_dir
+                .get_parent_location()
+                .map_err(|e| format!("Invalid Runbook file location: {e}"))?;
             base_dir.append_path(&format!("signers.devnet.tx"))?;
-            let _ = File::create(base_dir.to_string()).expect("creation failed");
-            base_dir.write_content(signer_testnet.as_bytes())?;
+            let _ = File::create(base_dir.to_string())
+                .map_err(|e| format!("Failed to create Runbook signer file: {e}"))?;
+            base_dir
+                .write_content(signer_testnet.as_bytes())
+                .map_err(|e| format!("Failed to write data to Runbook signer file: {e}"))?;
             println!(
                 "{} {}",
                 green!("Created file"),
                 base_dir
                     .get_relative_path_from_base(&base_location)
-                    .unwrap()
+                    .map_err(|e| format!("Invalid Runbook file location: {e}"))?
             );
-            let mut base_dir = base_dir.get_parent_location().unwrap();
+
+            // Create mainnet signer
+            let mut base_dir = base_dir
+                .get_parent_location()
+                .map_err(|e| format!("Invalid Runbook file location: {e}"))?;
             base_dir.append_path(&format!("signers.mainnet.tx"))?;
-            let _ = File::create(base_dir.to_string()).expect("creation failed");
-            base_dir.write_content(signer_mainnet.as_bytes())?;
+            let _ = File::create(base_dir.to_string())
+                .map_err(|e| format!("Failed to create Runbook signer file: {e}"))?;
+            base_dir
+                .write_content(signer_mainnet.as_bytes())
+                .map_err(|e| format!("Failed to write data to Runbook signer file: {e}"))?;
             println!(
                 "{} {}",
                 green!("Created file"),
                 base_dir
                     .get_relative_path_from_base(&base_location)
-                    .unwrap()
+                    .map_err(|e| format!("Invalid Runbook file location: {e}"))?
             );
         }
     }
@@ -323,7 +362,7 @@ pub fn scaffold_iac_layout(
             "Review your deployment in 'runbooks/deployment/main.tx' and confirm to continue",
         )
         .interact()
-        .unwrap();
+        .map_err(|e| format!("Failed to confirm write to runbook: {e}"))?;
 
     if !confirmation {
         println!("Deployment canceled");
