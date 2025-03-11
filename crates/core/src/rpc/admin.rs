@@ -1,3 +1,4 @@
+use crate::PluginManagerCommand;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -7,8 +8,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 use std::time::SystemTime;
-use surfpool_types::PluginManagerCommand;
-use txtx_addon_network_svm::codec::subgraph::PluginConfig;
+use surfpool_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
 use super::not_implemented_err;

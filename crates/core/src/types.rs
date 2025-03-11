@@ -1,5 +1,5 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
-use litesvm::{types::TransactionMetadata, LiteSVM};
+use litesvm::LiteSVM;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_sdk::{
     epoch_info::EpochInfo,
@@ -18,6 +18,7 @@ use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
+use surfpool_types::TransactionMetadata;
 
 pub struct GlobalState {
     pub svm: LiteSVM,

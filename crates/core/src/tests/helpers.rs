@@ -11,7 +11,7 @@ use solana_sdk::{blake3::Hash, clock::Clock, epoch_info::EpochInfo, transaction:
 use surfpool_types::SimnetCommand;
 
 use crate::{
-    rpc::RunloopContext,
+    rpc::{utils::convert_transaction_metadata_from_canonical, RunloopContext},
     types::{EntryStatus, GlobalState, TransactionWithStatusMeta},
 };
 
@@ -103,11 +103,21 @@ impl<T> TestSetup<T> {
             match state_writer.svm.send_transaction(tx.clone()) {
                 Ok(res) => state_writer.transactions.insert(
                     tx.signatures[0],
-                    EntryStatus::Processed(TransactionWithStatusMeta(0, tx, res, None)),
+                    EntryStatus::Processed(TransactionWithStatusMeta(
+                        0,
+                        tx,
+                        convert_transaction_metadata_from_canonical(&res),
+                        None,
+                    )),
                 ),
                 Err(e) => state_writer.transactions.insert(
                     tx.signatures[0],
-                    EntryStatus::Processed(TransactionWithStatusMeta(0, tx, e.meta, Some(e.err))),
+                    EntryStatus::Processed(TransactionWithStatusMeta(
+                        0,
+                        tx,
+                        convert_transaction_metadata_from_canonical(&e.meta),
+                        Some(e.err),
+                    )),
                 ),
             };
         }

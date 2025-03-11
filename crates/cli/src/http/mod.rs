@@ -170,7 +170,7 @@ async fn subscriptions(
     let ctx = GqlContext {
         subgraph_name_lookup: context.subgraph_name_lookup.clone(),
         entries_store: context.entries_store.clone(),
-        entries_broadcaster: context.entries_broadcaster.clone(),
+        // entries_broadcaster: context.entries_broadcaster.clone(),
     };
     let config = ConnectionConfig::new(ctx);
     let config = config.with_keep_alive_interval(Duration::from_secs(15));

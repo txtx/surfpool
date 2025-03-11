@@ -20,7 +20,10 @@ pub use jsonrpc_http_server;
 pub use litesvm;
 pub use solana_rpc_client;
 pub use solana_sdk;
-use surfpool_types::{SimnetCommand, SimnetEvent, SubgraphCommand, SurfpoolConfig};
+use surfpool_types::{
+    subgraph::PluginConfig, SimnetCommand, SimnetEvent, SubgraphCommand, SurfpoolConfig,
+};
+use uuid::Uuid;
 
 pub async fn start_simnet(
     config: SurfpoolConfig,
@@ -37,6 +40,11 @@ pub async fn start_simnet(
         simnet_commands_rx,
     )
     .await
+}
+
+#[derive(Debug)]
+pub enum PluginManagerCommand {
+    LoadConfig(Uuid, PluginConfig, Sender<String>),
 }
 
 #[cfg(test)]

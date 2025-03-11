@@ -7,11 +7,11 @@ use {
     ipc_channel::ipc::IpcSender,
     solana_program::clock::Slot,
     std::{collections::HashMap, sync::Mutex},
-    surfpool_types::{SchemaDataSourcingEvent, SubgraphPluginConfig},
-    txtx_addon_network_svm::codec::{
-        idl::parse_bytes_to_value_with_expected_idl_type,
+    surfpool_types::{
         subgraph::{IndexedSubgraphSourceType, SubgraphRequest},
+        SchemaDataSourcingEvent, SubgraphPluginConfig,
     },
+    txtx_addon_network_svm::codec::idl::parse_bytes_to_value_with_expected_idl_type,
     uuid::Uuid,
 };
 

@@ -1,4 +1,7 @@
-use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts};
+use super::utils::{
+    convert_transaction_metadata_from_canonical, decode_and_deserialize,
+    transform_tx_metadata_to_ui_accounts,
+};
 use crate::types::{EntryStatus, TransactionWithStatusMeta};
 use itertools::Itertools;
 use jsonrpc_core::futures::future::{self, join_all};
@@ -31,12 +34,11 @@ use solana_sdk::system_instruction;
 use solana_sdk::transaction::{Transaction, VersionedTransaction};
 use solana_sdk::{account::Account, clock::UnixTimestamp};
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionConfirmationStatus, TransactionStatus,
-    UiConfirmedBlock,
+    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
 };
 use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
 use std::str::FromStr;
-use surfpool_types::TransactionStatusEvent;
+use surfpool_types::{TransactionConfirmationStatus, TransactionStatusEvent};
 
 use super::*;
 
@@ -285,7 +287,9 @@ impl Full for SurfpoolFullRpc {
                         confirmations: Some((current_slot - tx.slot) as usize),
                         status: tx.transaction.meta.clone().map_or(Ok(()), |m| m.status),
                         err: tx.transaction.meta.map(|m| m.err).flatten(),
-                        confirmation_status: Some(TransactionConfirmationStatus::Confirmed),
+                        confirmation_status: Some(
+                            solana_transaction_status::TransactionConfirmationStatus::Confirmed,
+                        ),
                     });
                 responses.insert(*i, response);
             }
@@ -340,7 +344,7 @@ impl Full for SurfpoolFullRpc {
                 .unwrap()
                 .into_legacy_transaction()
                 .unwrap(),
-                tx_result.clone(),
+                convert_transaction_metadata_from_canonical(&tx_result),
                 None,
             )),
         );
@@ -380,7 +384,7 @@ impl Full for SurfpoolFullRpc {
                 ctx.id.clone(),
                 unsanitized_tx,
                 status_update_tx,
-                config,
+                config.skip_preflight,
             ));
         loop {
             match (status_uptate_rx.recv(), config.preflight_commitment) {

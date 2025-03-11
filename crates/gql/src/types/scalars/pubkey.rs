@@ -2,7 +2,7 @@ use std::{fmt, ops::Deref, str::FromStr};
 
 use juniper::{GraphQLScalar, InputValue, ScalarValue, Value};
 use serde::{Deserialize, Serialize};
-use txtx_addon_network_svm::Pubkey;
+use solana_pubkey::Pubkey;
 
 #[derive(Clone, Debug, Deserialize, Eq, GraphQLScalar, PartialEq, Serialize)]
 #[graphql(
