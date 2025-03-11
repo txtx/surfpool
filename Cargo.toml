@@ -25,7 +25,6 @@ surfpool-gql = { path = "crates/gql", default-features = false }
 surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
 litesvm = { version = "0.6.0", features = ["nodejs-internal"] }
-agave-geyser-plugin-interface = "2.2.1"
 solana-sdk = "2.2.1"
 solana-program = "2.2.1"
 solana-program-test = "2.2.1"
@@ -35,9 +34,7 @@ solana-account-decoder = "2.2.1"
 solana-accounts-db = "2.2.1"
 solana-client = "2.2.1"
 solana-entry = "2.2.1"
-solana-faucet = "2.2.1"
 solana-feature-set = "2.2.1"
-solana-gossip = "2.2.1"
 solana-pubkey = { version = "2.2.1", features = ["serde"]}
 solana-transaction-context = { version = "2.2.1", features = ["serde"]}
 solana-clock = { version = "2.2.1", features = ["serde"]}
@@ -52,7 +49,6 @@ solana-ledger = "2.2.1"
 solana-metrics = "2.2.1"
 solana-perf = "2.2.1"
 solana-rpc-client-api = "2.2.1"
-solana-rpc = "2.2.1"
 solana-runtime = "2.2.1"
 solana-runtime-transaction = "2.2.1"
 solana-send-transaction-service = "2.2.1"
@@ -64,7 +60,7 @@ solana-version = "2.2.1"
 solana-poh = "2.2.1"
 solana-svm = "2.2.1"
 solana-program-runtime = "2.2.1"
-solana-geyser-plugin-manager = "2.2.1"
+agave-geyser-plugin-interface = "2.2.1"
 solana-streamer = "2.2.1"
 ipc-channel = "0.19.0"
 serde = "1.0.217"

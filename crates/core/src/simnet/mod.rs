@@ -12,9 +12,6 @@ use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
-use solana_geyser_plugin_manager::geyser_plugin_manager::{
-    GeyserPluginManager, LoadedGeyserPlugin,
-};
 use solana_sdk::{
     clock::Clock,
     epoch_info::EpochInfo,
@@ -346,7 +343,7 @@ fn start_geyser_plugin_thread(
     plugins_data_rx: Receiver<(Transaction, TransactionMetadata)>,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let handle = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
-        let mut plugin_manager = GeyserPluginManager::new();
+        let mut plugin_manager = vec![];
 
         let ipc_router = RouterProxy::new();
         // Note:
@@ -386,12 +383,6 @@ fn start_geyser_plugin_thread(
         //     (Box::from_raw(plugin_raw), lib)
         // };
 
-        let plugin_name = "surfpool-subgraph";
-        // let surfpool_subgraph_path = Path::new("/tmp/surfpool-subgraph.dylib");
-        // Write the bytes to the file
-        // let mut surfpool_subgraph_file = File::create(surfpool_subgraph_path).unwrap();
-        // surfpool_subgraph_file.write_all(SUBGRAPH_PLUGIN_BYTES).unwrap();
-
         let err = loop {
             select! {
                 recv(plugin_manager_commands_rx) -> msg => {
@@ -425,20 +416,7 @@ fn start_geyser_plugin_thread(
                                         let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveSubgraph(subgraph_rx));
                                     };
                                     let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
-                                    // The approach is a bit hacky, but most likely temporary.
-                                    // To reduce the friction of iterating on our Geyser plugin,
-                                    // We are importing it as a crate, instead of dynamicly linking to it.
-                                    // We know we can use subgraph as a dylib, it's just too much friction for now.
-                                    let lib = unsafe {
-                                        #[cfg(target_os = "linux")]
-                                        let libm = Library::new("libm.so.6").unwrap(); // Common on Linux
-                                        #[cfg(target_os = "macos")]
-                                        let libm = Library::new("libm.dylib").unwrap(); // Common on macOS
-                                        #[cfg(target_os = "windows")]
-                                        let libm = Library::new("msvcrt.dll").unwrap(); // Math functions are in msvcrt.dll on Windows
-                                        libm
-                                    };
-                                    plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.to_string())));
+                                    plugin_manager.push(plugin);
                                     let _ = simnet_events_tx.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
                                 }
                             }
@@ -499,7 +477,7 @@ fn start_geyser_plugin_thread(
                             transaction_status_meta: &transaction_status_meta,
                             index: 0
                         };
-                        for plugin in plugin_manager.plugins.iter() {
+                        for plugin in plugin_manager.iter() {
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), 0) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
                             };
