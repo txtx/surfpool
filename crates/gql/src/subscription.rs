@@ -14,16 +14,17 @@ pub struct DynamicSubscription;
 )]
 impl DynamicSubscription {
     async fn entries_event(context: &Context) -> GqlEntriesStream {
-        let entries_tx: tokio::sync::broadcast::Sender<SubgraphDataEntryUpdate> =
-            context.entries_broadcaster.clone();
-        let mut entries_tx = entries_tx.subscribe();
-        let stream = async_stream::stream! {
-            loop {
-              if let Ok(entry_event) = entries_tx.recv().await {
-                yield Ok(entry_event)
-              }
-            }
-        };
-        Box::pin(stream)
+        // let entries_tx: tokio::sync::broadcast::Sender<SubgraphDataEntryUpdate> =
+        //     context.entries_broadcaster.clone();
+        // let mut entries_tx = entries_tx.subscribe();
+        // let stream = async_stream::stream! {
+        //     loop {
+        //       if let Ok(entry_event) = entries_tx.recv().await {
+        //         yield Ok(entry_event)
+        //       }
+        //     }
+        // };
+        // Box::pin(stream)
+        unimplemented!()
     }
 }
