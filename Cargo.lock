@@ -11375,7 +11375,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.2.4"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06933efd6127c0b5a1431491abe6d304c2af6fe1c4957e467f17c6a05f50db3"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -11402,13 +11404,13 @@ dependencies = [
  "tiny-hderive",
  "url 2.5.4",
  "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
 ]
 
 [[package]]
 name = "txtx-addon-network-svm"
 version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8032c66840fb0ba90ad966b2ed3e1043462498e07c947718f3c60a76135ab219"
 dependencies = [
  "anchor-lang-idl",
  "async-recursion",
@@ -11429,7 +11431,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.2.4"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38910e64e64092a0e214ff9cc8f7fbe9be70a69eedfb7489eeef0cc55036e972"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
