@@ -18,17 +18,17 @@ pub struct Context {
     pub subgraph_name_lookup: Arc<RwLock<BTreeMap<Uuid, String>>>,
     /// A map of subgraph names to their entries
     pub entries_store: Arc<RwLock<BTreeMap<String, (Uuid, Vec<GqlSubgraphDataEntry>)>>>,
-    /// A broadcaster for entry updates
-    pub entries_broadcaster: tokio::sync::broadcast::Sender<SubgraphDataEntryUpdate>,
+    // A broadcaster for entry updates
+    // pub entries_broadcaster: tokio::sync::broadcast::Sender<SubgraphDataEntryUpdate>,
 }
 
 impl Context {
     pub fn new() -> Context {
-        let (entries_broadcaster, _) = tokio::sync::broadcast::channel(128);
+        // let (entries_broadcaster, _) = tokio::sync::broadcast::channel(128);
         Context {
             subgraph_name_lookup: Arc::new(RwLock::new(BTreeMap::new())),
             entries_store: Arc::new(RwLock::new(BTreeMap::new())),
-            entries_broadcaster,
+            // entries_broadcaster,
         }
     }
 }
