@@ -36,7 +36,7 @@ jsonrpc-core-client = { version = "18.0.0", features = ["http"] }
 jsonrpc-http-server = "18.0.0"
 libc = "0.2.169"
 regex = "1.11.1"
-litesvm = { version = "0.5.0", features = ["nodejs-internal"] }
+litesvm = { version = "0.6.0", features = ["nodejs-internal"] }
 # litesvm = { path = "../../../litesvm/crates/litesvm" }
 crossbeam = "0.8.4"
 agave-geyser-plugin-interface = { workspace = true }
