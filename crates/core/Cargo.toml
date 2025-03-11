@@ -48,15 +48,12 @@ solana-account-decoder = { workspace = true }
 solana-accounts-db = { workspace = true }
 solana-client = { workspace = true }
 solana-entry = { workspace = true }
-solana-faucet = { workspace = true }
 solana-feature-set = { workspace = true }
-solana-gossip = { workspace = true }
 solana-inline-spl = { workspace = true }
 solana-ledger = { workspace = true }
 solana-metrics = { workspace = true }
 solana-perf = { workspace = true }
 solana-rpc-client-api = { workspace = true }
-solana-rpc = { workspace = true }
 solana-runtime = { workspace = true }
 solana-runtime-transaction = { workspace = true }
 solana-send-transaction-service = { workspace = true }
@@ -68,7 +65,6 @@ solana-version = { workspace = true }
 solana-poh = { workspace = true }
 solana-svm = { workspace = true }
 solana-program-runtime = { workspace = true }
-solana-geyser-plugin-manager = { workspace = true }
 solana-streamer = { workspace = true }
 spl-token-2022 = "7.0.0"
 spl-token = "7.0.0"
