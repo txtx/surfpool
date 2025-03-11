@@ -10,7 +10,7 @@ use ipc_channel::{
 };
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
-use litesvm::{types::TransactionMetadata, LiteSVM};
+use litesvm::LiteSVM;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_geyser_plugin_manager::geyser_plugin_manager::{
     GeyserPluginManager, LoadedGeyserPlugin,
@@ -21,9 +21,7 @@ use solana_sdk::{
     message::v0::LoadedAddresses,
     transaction::{SanitizedTransaction, Transaction},
 };
-use solana_transaction_status::{
-    InnerInstruction, InnerInstructions, TransactionConfirmationStatus, TransactionStatusMeta,
-};
+use solana_transaction_status::{InnerInstruction, InnerInstructions, TransactionStatusMeta};
 use std::{
     collections::HashSet,
     net::SocketAddr,
@@ -36,13 +34,15 @@ use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use crate::{
     rpc::{
         self, accounts_data::AccountsData, accounts_scan::AccountsScan, admin::AdminRpc,
-        bank_data::BankData, full::Full, minimal::Minimal, SurfpoolMiddleware,
+        bank_data::BankData, full::Full, minimal::Minimal,
+        utils::convert_transaction_metadata_from_canonical, SurfpoolMiddleware,
     },
     types::{EntryStatus, GlobalState, TransactionWithStatusMeta},
+    PluginManagerCommand,
 };
 use surfpool_types::{
-    ClockCommand, ClockEvent, PluginManagerCommand, RunloopTriggerMode, SchemaDataSourcingEvent,
-    SubgraphPluginConfig, TransactionStatusEvent,
+    ClockCommand, ClockEvent, RunloopTriggerMode, SchemaDataSourcingEvent, SubgraphPluginConfig,
+    TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
 };
 use surfpool_types::{SimnetCommand, SimnetEvent, SubgraphCommand, SurfpoolConfig};
 
@@ -191,9 +191,9 @@ pub async fn start(
                             runloop_trigger_mode = update;
                             continue
                         }
-                        SimnetCommand::TransactionReceived(key, transaction, status_tx, config) => {
+                        SimnetCommand::TransactionReceived(key, transaction, status_tx, skip_preflight) => {
                             let signature = transaction.signatures[0].clone();
-                            transactions_to_process.push((key, transaction, status_tx, config));
+                            transactions_to_process.push((key, transaction, status_tx, skip_preflight));
                             if let Ok(mut ctx) = context.write() {
                                 ctx.transactions.insert(
                                     signature,
@@ -214,7 +214,7 @@ pub async fn start(
         };
 
         // Handle the transactions accumulated
-        for (key, transaction, status_tx, tx_config) in transactions_to_process.drain(..) {
+        for (key, transaction, status_tx, skip_preflight) in transactions_to_process.drain(..) {
             transaction.verify_with_results();
             let transaction = transaction.into_legacy_transaction().unwrap();
             let message = &transaction.message;
@@ -238,15 +238,18 @@ pub async fn start(
                 }
             }
 
-            if !tx_config.skip_preflight {
+            if !skip_preflight {
                 let (meta, err) = match ctx.svm.simulate_transaction(transaction.clone()) {
-                    Ok(res) => (res.meta, None),
-                    Err(e) => {
+                    Ok(res) => (convert_transaction_metadata_from_canonical(&res.meta), None),
+                    Err(res) => {
                         let _ = simnet_events_tx.try_send(SimnetEvent::error(format!(
                             "Transaction simulation failed: {}",
-                            e.err.to_string()
+                            res.err.to_string()
                         )));
-                        (e.meta, Some(e.err))
+                        (
+                            convert_transaction_metadata_from_canonical(&res.meta),
+                            Some(res.err),
+                        )
                     }
                 };
 
@@ -258,16 +261,16 @@ pub async fn start(
             }
 
             let (meta, err) = match ctx.svm.send_transaction(transaction.clone()) {
-                Ok(res) => {
-                    let _ = plugins_data_tx.try_send((transaction.clone(), res.clone()));
-                    (res, None)
-                }
-                Err(e) => {
+                Ok(res) => (convert_transaction_metadata_from_canonical(&res), None),
+                Err(res) => {
                     let _ = simnet_events_tx.try_send(SimnetEvent::error(format!(
                         "Transaction execution failed: {}",
-                        e.err.to_string()
+                        res.err.to_string()
                     )));
-                    (e.meta, Some(e.err))
+                    (
+                        convert_transaction_metadata_from_canonical(&res.meta),
+                        Some(res.err),
+                    )
                 }
             };
             let slot = ctx.epoch_info.absolute_slot;

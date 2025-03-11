@@ -21,6 +21,18 @@ use solana_transaction_status::{
     InnerInstruction, InnerInstructions, TransactionBinaryEncoding, UiInnerInstructions,
 };
 
+pub fn convert_transaction_metadata_from_canonical(
+    transaction_metadata: &TransactionMetadata,
+) -> surfpool_types::TransactionMetadata {
+    surfpool_types::TransactionMetadata {
+        signature: transaction_metadata.signature.clone(),
+        logs: transaction_metadata.logs.clone(),
+        inner_instructions: transaction_metadata.inner_instructions.clone(),
+        compute_units_consumed: transaction_metadata.compute_units_consumed.clone(),
+        return_data: transaction_metadata.return_data.clone(),
+    }
+}
+
 fn optimize_filters(filters: &mut [RpcFilterType]) {
     filters.iter_mut().for_each(|filter_type| {
         if let RpcFilterType::Memcmp(compare) = filter_type {
