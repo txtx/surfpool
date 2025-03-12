@@ -2,13 +2,11 @@ use std::str::FromStr;
 
 use anchor_lang_idl::types::{Idl, IdlDefinedFields, IdlType, IdlTypeDefTy};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use solana_pubkey::Pubkey;
 use txtx_addon_kit::{
     diagnosed_error, hex,
     types::{
         diagnostics::Diagnostic,
-        frontend::{ProgressBarStatus, ProgressBarStatusColor, StatusUpdater},
         types::{Type, Value},
     },
 };
@@ -156,7 +154,6 @@ impl std::fmt::Display for SubgraphPluginType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubgraphRequest {
     pub fields: Vec<IndexedSubgraphField>,
-    #[serde(with = "crate::utils::serde_with_str")]
     pub program_id: Pubkey,
     pub block_height: u64,
     pub subgraph_name: String,
