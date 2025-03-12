@@ -5,8 +5,8 @@ use std::{
 };
 use txtx_addon_network_svm::templates::{
     get_interpolated_addon_template, get_interpolated_anchor_program_deployment_template,
-    get_interpolated_header_template, get_interpolated_mainnet_signer_template,
-    get_interpolated_signer_template,
+    get_interpolated_anchor_subgraph_template, get_interpolated_header_template,
+    get_interpolated_mainnet_signer_template, get_interpolated_signer_template,
 };
 use txtx_core::{
     kit::{helpers::fs::FileLocation, indexmap::indexmap},
@@ -23,7 +23,7 @@ mod typhoon;
 
 pub async fn detect_program_frameworks(
     manifest_path: &str,
-) -> Result<Option<(Framework, Vec<String>)>, String> {
+) -> Result<Option<(Framework, Vec<ProgramMetadata>)>, String> {
     let manifest_location = FileLocation::from_path_string(manifest_path)?;
     let base_dir = manifest_location.get_parent_location()?;
     // Look for Anchor project layout
@@ -57,8 +57,23 @@ pub async fn detect_program_frameworks(
     Ok(None)
 }
 
+#[derive(Debug, Clone)]
+pub struct ProgramMetadata {
+    name: String,
+    idl: Option<String>,
+}
+
+impl ProgramMetadata {
+    pub fn new(name: &str, idl: &Option<String>) -> Self {
+        Self {
+            name: name.to_string(),
+            idl: idl.clone(),
+        }
+    }
+}
+
 pub fn scaffold_iac_layout(
-    programs: Vec<String>,
+    programs: Vec<ProgramMetadata>,
     base_location: &FileLocation,
 ) -> Result<(), String> {
     let theme = ColorfulTheme {
@@ -69,7 +84,7 @@ pub fn scaffold_iac_layout(
 
     let selection = MultiSelect::with_theme(&theme)
         .with_prompt("Programs to deploy:")
-        .items(&programs)
+        .items(&programs.iter().map(|p| p.name.as_str()).collect::<Vec<_>>())
         .interact()
         .map_err(|e| format!("unable to select programs to deploy: {e}"))?;
 
@@ -107,12 +122,13 @@ pub fn scaffold_iac_layout(
         }
     };
 
-    let mut runbook_src: String = String::new();
-    runbook_src.push_str(&get_interpolated_header_template(&format!(
+    let mut deployment_runbook_src: String = String::new();
+    let mut subgraph_runbook_src: String = String::new();
+    deployment_runbook_src.push_str(&get_interpolated_header_template(&format!(
         "Manage {} deployment through Crypto Infrastructure as Code",
         manifest.name
     )));
-    runbook_src.push_str(&get_interpolated_addon_template(
+    deployment_runbook_src.push_str(&get_interpolated_addon_template(
         "input.rpc_api_url",
         "input.network_id",
     ));
@@ -138,10 +154,19 @@ pub fn scaffold_iac_layout(
         "input.authority_keypair_json",
     ));
 
-    for program_name in selected_programs.iter() {
-        runbook_src.push_str(&get_interpolated_anchor_program_deployment_template(
-            program_name,
+    for program_metadata in selected_programs.iter() {
+        deployment_runbook_src.push_str(&get_interpolated_anchor_program_deployment_template(
+            &program_metadata.name,
         ));
+
+        subgraph_runbook_src.push_str(
+            &get_interpolated_anchor_subgraph_template(
+                &program_metadata.name,
+                &program_metadata.idl.as_ref().unwrap(),
+            )
+            .map_err(|e| format!("failed to generate subgraph infrastructure as code: {}", e))?,
+        );
+
         // Configure initialize instruction
         // let args = vec![
         //     Value::string("hellosol".into()),
@@ -275,6 +300,7 @@ pub fn scaffold_iac_layout(
     }
 
     // Create runbook
+    let runbook_folder_location = runbook_file_location.clone();
     runbook_file_location.append_path(&format!("main.tx"))?;
     match runbook_file_location.exists() {
         true => {
@@ -289,7 +315,7 @@ pub fn scaffold_iac_layout(
             let _ = File::create(runbook_file_location.to_string())
                 .map_err(|e| format!("Runbook file creation failed: {e}"))?;
             runbook_file_location
-                .write_content(runbook_src.as_bytes())
+                .write_content(deployment_runbook_src.as_bytes())
                 .map_err(|e| format!("Failed to write data to Runbook: {e}"))?;
             println!(
                 "{} {}",
@@ -299,10 +325,23 @@ pub fn scaffold_iac_layout(
                     .map_err(|e| format!("Invalid Runbook file location: {e}"))?
             );
 
+            let mut base_dir = runbook_folder_location.clone();
+            base_dir.append_path(&format!("subgraphs.tx"))?;
+            let _ = File::create(base_dir.to_string())
+                .map_err(|e| format!("Failed to create Runbook subgraph file: {e}"))?;
+            base_dir
+                .write_content(subgraph_runbook_src.as_bytes())
+                .map_err(|e| format!("Failed to write data to Runbook subgraph file: {e}"))?;
+            println!(
+                "{} {}",
+                green!("Created file"),
+                base_dir
+                    .get_relative_path_from_base(&base_location)
+                    .map_err(|e| format!("Invalid Runbook file location: {e}"))?
+            );
+
             // Create local signer
-            let mut base_dir = runbook_file_location
-                .get_parent_location()
-                .map_err(|e| format!("Invalid Runbook file location: {e}"))?;
+            let mut base_dir = runbook_folder_location.clone();
             base_dir.append_path(&format!("signers.localnet.tx"))?;
             let _ = File::create(base_dir.to_string())
                 .map_err(|e| format!("Failed to create Runbook signer file: {e}"))?;
@@ -318,9 +357,7 @@ pub fn scaffold_iac_layout(
             );
 
             // Create devnet signer
-            let mut base_dir = base_dir
-                .get_parent_location()
-                .map_err(|e| format!("Invalid Runbook file location: {e}"))?;
+            let mut base_dir = runbook_folder_location.clone();
             base_dir.append_path(&format!("signers.devnet.tx"))?;
             let _ = File::create(base_dir.to_string())
                 .map_err(|e| format!("Failed to create Runbook signer file: {e}"))?;
@@ -336,9 +373,7 @@ pub fn scaffold_iac_layout(
             );
 
             // Create mainnet signer
-            let mut base_dir = base_dir
-                .get_parent_location()
-                .map_err(|e| format!("Invalid Runbook file location: {e}"))?;
+            let mut base_dir = runbook_folder_location.clone();
             base_dir.append_path(&format!("signers.mainnet.tx"))?;
             let _ = File::create(base_dir.to_string())
                 .map_err(|e| format!("Failed to create Runbook signer file: {e}"))?;
@@ -355,12 +390,13 @@ pub fn scaffold_iac_layout(
         }
     }
 
-    println!("\n{}\n", runbook_src);
+    println!("\n{}\n", deployment_runbook_src);
 
     let confirmation = Confirm::with_theme(&theme)
         .with_prompt(
             "Review your deployment in 'runbooks/deployment/main.tx' and confirm to continue",
         )
+        .default(true)
         .interact()
         .map_err(|e| format!("Failed to confirm write to runbook: {e}"))?;
 
