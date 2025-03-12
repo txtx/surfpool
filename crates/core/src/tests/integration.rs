@@ -62,10 +62,17 @@ async fn test_simnet_ready() {
 
 #[tokio::test]
 async fn test_simnet_ticks() {
+    let bind_host = "127.0.0.1";
+    let bind_port = get_free_port().unwrap();
     let config = SurfpoolConfig {
         simnet: SimnetConfig {
             slot_time: 1,
             ..SimnetConfig::default()
+        },
+        rpc: RpcConfig {
+            bind_host: bind_host.to_string(),
+            bind_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
