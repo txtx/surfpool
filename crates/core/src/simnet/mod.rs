@@ -14,6 +14,7 @@ use litesvm::LiteSVM;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_sdk::{
     clock::Clock,
+    commitment_config::CommitmentConfig,
     epoch_info::EpochInfo,
     message::v0::LoadedAddresses,
     transaction::{SanitizedTransaction, Transaction},
@@ -223,15 +224,24 @@ pub async fn start(
                 }
                 let program_id = &message.account_keys[instruction.program_id_index as usize];
                 if ctx.svm.get_account(&program_id).is_none() {
-                    let res = rpc_client.get_account(&program_id).await;
-                    let event = match res {
-                        Ok(account) => {
-                            let _ = ctx.svm.set_account(*program_id, account);
-                            SimnetEvent::AccountUpdate(Local::now(), program_id.clone())
+                    let res = rpc_client
+                        .get_account_with_commitment(&program_id, CommitmentConfig::default())
+                        .await;
+                    if let Some(event) = match res {
+                        Ok(res) => match res.value {
+                            Some(account) => {
+                                let _ = ctx.svm.set_account(*program_id, account);
+                                Some(SimnetEvent::AccountUpdate(Local::now(), program_id.clone()))
+                            }
+                            None => None,
+                        },
+                        Err(e) => {
+                            SimnetEvent::error(format!("unable to retrieve account: {}", e));
+                            None
                         }
-                        Err(e) => SimnetEvent::error(format!("unable to retrieve account: {}", e)),
-                    };
-                    let _ = simnet_events_tx.try_send(event);
+                    } {
+                        let _ = simnet_events_tx.try_send(event);
+                    }
                 }
             }
 
