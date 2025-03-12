@@ -262,7 +262,13 @@ pub async fn start(
 
             if !skip_preflight {
                 let (meta, err) = match ctx.svm.simulate_transaction(transaction.clone()) {
-                    Ok(res) => (convert_transaction_metadata_from_canonical(&res.meta), None),
+                    Ok(res) => {
+                        let transaction_meta =
+                            convert_transaction_metadata_from_canonical(&res.meta);
+                        let _ =
+                            plugins_data_tx.send((transaction.clone(), transaction_meta.clone()));
+                        (transaction_meta, None)
+                    }
                     Err(res) => {
                         let _ = simnet_events_tx.try_send(SimnetEvent::error(format!(
                             "Transaction simulation failed: {}",
