@@ -6,7 +6,6 @@ extern crate serde_json;
 
 pub mod subgraph;
 pub mod types;
-pub mod utils;
 
 pub use crossbeam_channel as channel;
 pub use types::*;
