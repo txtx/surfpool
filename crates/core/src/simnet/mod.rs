@@ -12,6 +12,7 @@ use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
+use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
 use solana_sdk::{
     clock::Clock,
     commitment_config::CommitmentConfig,
@@ -53,7 +54,21 @@ const BLOCKHASH_SLOT_TTL: u64 = 75;
 // const SUBGRAPH_PLUGIN_BYTES: &[u8] =
 //     include_bytes!("../../../../target/release/libsurfpool_subgraph.dylib");
 
-use libloading::Library;
+fn initialize_lite_svm() -> LiteSVM {
+    let mut feature_set = FeatureSet::all_enabled();
+
+    // v2.2 of the solana_sdk deprecates the v3 loader, and enables the v4 loader by default.
+    // In order to keep the v3 deployments enabled, we need to remove the
+    // `disable_new_loader_v3_deployments` feature from the active set, and add it to the inactive set.
+    let _ = feature_set
+        .active
+        .remove(&disable_new_loader_v3_deployments::id());
+    feature_set
+        .inactive
+        .insert(disable_new_loader_v3_deployments::id());
+
+    LiteSVM::new().with_feature_set(feature_set)
+}
 
 pub async fn start(
     config: SurfpoolConfig,
@@ -62,7 +77,7 @@ pub async fn start(
     simnet_commands_tx: Sender<SimnetCommand>,
     simnet_commands_rx: Receiver<SimnetCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut svm = LiteSVM::new();
+    let mut svm = initialize_lite_svm();
     for recipient in config.simnet.airdrop_addresses.iter() {
         let _ = svm.airdrop(&recipient, config.simnet.airdrop_token_amount);
         let _ = simnet_events_tx.send(SimnetEvent::info(format!(
