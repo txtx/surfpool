@@ -143,7 +143,7 @@ impl AdminRpc for SurfpoolAdminRpc {
 
     fn load_plugin(&self, meta: Self::Metadata, config_file: String) -> BoxFuture<Result<String>> {
         let config = match serde_json::from_str::<PluginConfig>(&config_file)
-            .map_err(|e| format!("failed to parse plugin config: {e}"))
+            .map_err(|e| format!("failed to deserialize plugin config: {e}"))
         {
             Ok(config) => config,
             Err(e) => return Box::pin(async move { Err(jsonrpc_core::Error::invalid_params(&e)) }),
