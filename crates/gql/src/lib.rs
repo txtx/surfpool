@@ -39,12 +39,13 @@ pub type GqlDynamicSchema =
     RootNode<'static, Query, Mutation, DynamicSubscription, DefaultScalarValue>;
 
 pub fn new_dynamic_schema(subgraph_index: SchemaDataSource) -> GqlDynamicSchema {
-    GqlDynamicSchema::new_with_info(
+    let schema = GqlDynamicSchema::new_with_info(
         Query::new(),
         Mutation,
         DynamicSubscription,
         subgraph_index,
         (),
         (),
-    )
+    );
+    schema.enable_introspection()
 }

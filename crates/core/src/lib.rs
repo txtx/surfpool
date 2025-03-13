@@ -20,9 +20,8 @@ pub use jsonrpc_http_server;
 pub use litesvm;
 pub use solana_rpc_client;
 pub use solana_sdk;
-use surfpool_types::{
-    subgraph::PluginConfig, SimnetCommand, SimnetEvent, SubgraphCommand, SurfpoolConfig,
-};
+use surfpool_types::{SimnetCommand, SimnetEvent, SubgraphCommand, SurfpoolConfig};
+use txtx_addon_network_svm::typing::subgraph::PluginConfig;
 use uuid::Uuid;
 
 pub async fn start_simnet(

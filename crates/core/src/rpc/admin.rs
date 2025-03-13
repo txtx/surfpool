@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 use std::time::SystemTime;
-use surfpool_types::subgraph::PluginConfig;
+use txtx_addon_network_svm::typing::subgraph::PluginConfig;
 use uuid::Uuid;
 
 use super::not_implemented_err;

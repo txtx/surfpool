@@ -12,11 +12,10 @@ use juniper::GraphQLValue;
 use juniper::Registry;
 use scalars::bigint::BigInt;
 use scalars::pubkey::PublicKey;
-use surfpool_types::subgraph::SvmValue;
-use surfpool_types::subgraph::SVM_PUBKEY;
 use surfpool_types::SubgraphDataEntry;
 use txtx_addon_kit::hex;
 use txtx_addon_kit::types::types::Value;
+use txtx_addon_network_svm_types::{SvmValue, SVM_PUBKEY};
 use uuid::Uuid;
 
 pub mod scalars;

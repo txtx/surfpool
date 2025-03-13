@@ -3,8 +3,8 @@ use juniper::{
     meta::{Field, MetaType},
     DefaultScalarValue, GraphQLType, GraphQLValue, Registry,
 };
-use surfpool_types::subgraph::{IndexedSubgraphField, SVM_PUBKEY};
 use txtx_addon_kit::types::types::Type;
+use txtx_addon_network_svm_types::{subgraph::IndexedSubgraphField, SVM_PUBKEY};
 use uuid::Uuid;
 
 use crate::Context;

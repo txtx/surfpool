@@ -73,7 +73,6 @@ pub async fn start_subgraph_and_explorer_server(
                     .route("/graphql", web::post().to(post_graphql))
                     .route("/subscriptions", web::get().to(subscriptions)),
             )
-            .service(web::resource("/playground").route(web::get().to(playground)))
             .service(web::resource("/graphiql").route(web::get().to(graphiql)))
             .service(dist)
     })
@@ -175,10 +174,6 @@ async fn subscriptions(
     let config = ConnectionConfig::new(ctx);
     let config = config.with_keep_alive_interval(Duration::from_secs(15));
     subscriptions::ws_handler(req, stream, schema.into_inner(), config).await
-}
-
-async fn playground() -> Result<HttpResponse, Error> {
-    playground_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
 }
 
 async fn graphiql() -> Result<HttpResponse, Error> {

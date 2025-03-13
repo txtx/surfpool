@@ -28,8 +28,8 @@ solana-signature = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-context = { workspace = true }
 solana-transaction-error = { workspace = true }
+txtx-addon-network-svm-types = { workspace = true }
 txtx-addon-kit = { workspace = true }
-anchor-lang-idl = { workspace = true }
 uuid = { version = "1.7.0", features = ["js"] }
 
 [dev-dependencies]

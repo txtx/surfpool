@@ -10,8 +10,8 @@ use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_context::TransactionReturnData;
 use solana_transaction_error::TransactionError;
+use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 
-use crate::subgraph::SubgraphRequest;
 use std::{collections::HashMap, path::PathBuf};
 use txtx_addon_kit::types::types::Value;
 use uuid::Uuid;
