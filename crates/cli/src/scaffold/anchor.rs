@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, str::FromStr};
 use txtx_core::kit::helpers::fs::FileLocation;
@@ -8,9 +8,11 @@ use url::Url;
 
 use crate::types::Framework;
 
+use super::ProgramMetadata;
+
 pub fn try_get_programs_from_project(
     base_location: FileLocation,
-) -> Result<Option<(Framework, Vec<String>)>, String> {
+) -> Result<Option<(Framework, Vec<ProgramMetadata>)>, String> {
     let mut manifest_location = base_location.clone();
     manifest_location.append_path("Anchor.toml")?;
     if manifest_location.exists() {
@@ -18,14 +20,14 @@ pub fn try_get_programs_from_project(
 
         // Load anchor_manifest_path toml
         let manifest = manifest_location.read_content_as_utf8()?;
-        let manifest = AnchorManifest::from_str(&manifest)
+        let manifest = AnchorManifest::from_manifest_str(&manifest, &base_location)
             .map_err(|e| format!("unable to read Anchor.toml: {}", e))?;
 
         let mut target_location = base_location.clone();
         target_location.append_path("target")?;
         if let Some((_, deployments)) = manifest.programs.iter().next() {
-            for (program_name, _deployment) in deployments.iter() {
-                programs.push(program_name.clone());
+            for (program_name, deployment) in deployments.iter() {
+                programs.push(ProgramMetadata::new(&program_name, &deployment.idl));
             }
         }
 
@@ -57,18 +59,18 @@ pub struct AnchorManifestFile {
     scripts: Option<ScriptsConfig>,
 }
 
-impl FromStr for AnchorManifest {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let cfg: AnchorManifestFile =
-            toml::from_str(s).map_err(|e| anyhow!("Unable to deserialize config: {e}"))?;
+impl AnchorManifest {
+    pub fn from_manifest_str(manifest_str: &str, base_location: &FileLocation) -> Result<Self> {
+        let cfg: AnchorManifestFile = toml::from_str(manifest_str)
+            .map_err(|e| anyhow!("Unable to deserialize config: {e}"))?;
         Ok(AnchorManifest {
             toolchain: cfg.toolchain.unwrap_or_default(),
             features: cfg.features.unwrap_or_default(),
             registry: cfg.registry.unwrap_or_default(),
             scripts: cfg.scripts.unwrap_or_default(),
-            programs: cfg.programs.map_or(Ok(BTreeMap::new()), deser_programs)?,
+            programs: cfg
+                .programs
+                .map_or(Ok(BTreeMap::new()), |p| deser_programs(p, base_location))?,
             workspace: cfg.workspace.unwrap_or_default(),
         })
     }
@@ -121,10 +123,52 @@ impl Default for RegistryConfig {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub struct ProgramDeployment {
+pub struct AnchorProgramDeployment {
     pub address: String,
     pub path: Option<String>,
     pub idl: Option<String>,
+}
+
+impl AnchorProgramDeployment {
+    pub fn new(
+        program_name: &str,
+        program_id: &serde_json::Value,
+        base_location: &FileLocation,
+    ) -> Result<Self> {
+        let mut idl_location = base_location.clone();
+        let _ = idl_location.append_path(&format!("target/idl/{program_name}.json"));
+        let idl = if idl_location.exists() {
+            Some(
+                idl_location
+                    .read_content_as_utf8()
+                    .map_err(|e| anyhow!("failed to read program idl: {e}"))?,
+            )
+        } else {
+            None
+        };
+        match &program_id {
+            serde_json::Value::String(address) => Ok(AnchorProgramDeployment {
+                address: address.clone(),
+                path: None,
+                idl: idl,
+            }),
+
+            serde_json::Value::Object(_) => {
+                let dep: AnchorProgramDeployment = serde_json::from_value(program_id.clone())
+                    .map_err(|_| anyhow!("Unable to read Anchor.toml"))?;
+                Ok(AnchorProgramDeployment {
+                    address: dep.address,
+                    idl: idl,
+                    path: dep.path,
+                })
+            }
+            _ => {
+                return Err(anyhow!(
+                    "Invalid type for program definition in Anchor.toml"
+                ))
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -185,7 +229,7 @@ pub struct ProviderConfig {
 
 pub type ScriptsConfig = BTreeMap<String, String>;
 
-pub type ProgramsConfig = BTreeMap<Cluster, BTreeMap<String, ProgramDeployment>>;
+pub type ProgramsConfig = BTreeMap<Cluster, BTreeMap<String, AnchorProgramDeployment>>;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
@@ -199,7 +243,8 @@ pub struct WorkspaceConfig {
 
 fn deser_programs(
     programs: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
-) -> Result<BTreeMap<Cluster, BTreeMap<String, ProgramDeployment>>> {
+    base_location: &FileLocation,
+) -> Result<BTreeMap<Cluster, BTreeMap<String, AnchorProgramDeployment>>> {
     programs
         .iter()
         .map(|(cluster, programs)| {
@@ -209,25 +254,13 @@ fn deser_programs(
                 .map(|(name, program_id)| {
                     Ok((
                         name.clone(),
-                        ProgramDeployment::try_from(match &program_id {
-                            serde_json::Value::String(address) => ProgramDeployment {
-                                address: address.clone(),
-                                path: None,
-                                idl: None,
-                            },
-
-                            serde_json::Value::Object(_) => {
-                                serde_json::from_value(program_id.clone())
-                                    .map_err(|_| anyhow!("Unable to read toml"))?
-                            }
-                            _ => return Err(anyhow!("Invalid toml type")),
-                        })?,
+                        AnchorProgramDeployment::new(name, program_id, &base_location)?,
                     ))
                 })
-                .collect::<Result<BTreeMap<String, ProgramDeployment>>>()?;
+                .collect::<Result<BTreeMap<String, AnchorProgramDeployment>>>()?;
             Ok((cluster, programs))
         })
-        .collect::<Result<BTreeMap<Cluster, BTreeMap<String, ProgramDeployment>>>>()
+        .collect::<Result<BTreeMap<Cluster, BTreeMap<String, AnchorProgramDeployment>>>>()
 }
 
 #[derive(Debug, Clone)]
