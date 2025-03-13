@@ -4,7 +4,7 @@ use query::{Query, SchemaDataSource};
 use std::sync::RwLock;
 use std::{collections::BTreeMap, sync::Arc};
 use subscription::DynamicSubscription;
-use types::{GqlSubgraphDataEntry, SubgraphDataEntryUpdate};
+use types::GqlSubgraphDataEntry;
 use uuid::Uuid;
 
 pub mod mutation;
