@@ -7,6 +7,8 @@ use surfpool_core::solana_sdk::signature::Keypair;
 use surfpool_core::solana_sdk::signer::{EncodableKey, Signer};
 use surfpool_types::{RpcConfig, SimnetConfig, SubgraphConfig, SurfpoolConfig};
 
+use crate::runbook::handle_execute_runbook_command;
+
 mod simnet;
 
 #[derive(Clone)]
@@ -59,11 +61,14 @@ struct Opts {
 #[derive(Subcommand, PartialEq, Clone, Debug)]
 enum Command {
     /// Start Simnet
-    #[clap(name = "run", bin_name = "run", aliases = &["start", "simnet"])]
+    #[clap(name = "start", bin_name = "start", aliases = &["simnet"])]
     Simnet(StartSimnet),
     /// Generate shell completions scripts
     #[clap(name = "completions", bin_name = "completions", aliases = &["completion"])]
     Completions(Completions),
+    /// Run, runbook, run!
+    #[clap(name = "run", bin_name = "run")]
+    Run(ExecuteRunbook),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -213,6 +218,84 @@ struct Completions {
     pub shell: Shell,
 }
 
+#[derive(Parser, PartialEq, Clone, Debug)]
+#[command(group = clap::ArgGroup::new("execution_mode").multiple(false).args(["unsupervised", "web_console", "term_console"]).required(false))]
+pub struct ExecuteRunbook {
+    /// Path to the manifest
+    #[arg(long = "manifest-file-path", short = 'm', default_value = "./txtx.yml")]
+    pub manifest_path: String,
+    /// Name of the runbook as indexed in the txtx.yml, or the path of the .tx file to run
+    pub runbook: String,
+
+    /// Execute the runbook without supervision
+    #[arg(long = "unsupervised", short = 'u', action=ArgAction::SetTrue, group = "execution_mode")]
+    pub unsupervised: bool,
+    /// Execute the runbook with supervision via the browser UI (this is the default execution mode)
+    #[arg(long = "browser", short = 'b', action=ArgAction::SetTrue, group = "execution_mode")]
+    pub web_console: bool,
+    /// Execute the runbook with supervision via the terminal console (coming soon)
+    #[arg(long = "terminal", short = 't', action=ArgAction::SetTrue, group = "execution_mode")]
+    pub term_console: bool,
+    /// When running in unsupervised mode, print outputs in JSON format. If a directory is provided, the output will be written a file at the directory.
+    #[arg(long = "output-json")]
+    pub output_json: Option<Option<String>>,
+    /// Pick a specific output to stdout at the end of the execution
+    #[arg(long = "output", conflicts_with = "output_json")]
+    pub output: Option<String>,
+    /// Explain how the runbook will be executed.
+    #[arg(long = "explain", action=ArgAction::SetTrue)]
+    pub explain: bool,
+    /// Set the port for hosting the web UI
+    #[arg(long = "port", short = 'p', default_value = txtx_supervisor_ui::DEFAULT_BINDING_PORT )]
+    #[cfg(feature = "supervisor_ui")]
+    pub network_binding_port: u16,
+    /// Set the port for hosting the web UI
+    #[arg(long = "ip", short = 'i', default_value = txtx_supervisor_ui::DEFAULT_BINDING_ADDRESS )]
+    #[cfg(feature = "supervisor_ui")]
+    pub network_binding_ip_address: String,
+    /// Choose the environment variable to set from those configured in the txtx.yml
+    #[arg(long = "env")]
+    pub environment: Option<String>,
+    /// A set of inputs to use for batch processing
+    #[arg(long = "input")]
+    pub inputs: Vec<String>,
+
+    /// Execute the Runbook even if the cached state suggests this Runbook has already been executed
+    #[arg(long = "force", short = 'f')]
+    pub force_execution: bool,
+}
+
+impl ExecuteRunbook {
+    pub fn default_localnet(runbook_name: &str) -> ExecuteRunbook {
+        ExecuteRunbook {
+            manifest_path: "./txtx.yml".to_string(),
+            runbook: runbook_name.to_string(),
+            unsupervised: true,
+            web_console: false,
+            term_console: false,
+            output_json: Some(Some("runbook-outputs".to_string())),
+            output: None,
+            explain: false,
+            #[cfg(feature = "supervisor_ui")]
+            network_binding_port: u16::from_str(txtx_supervisor_ui::DEFAULT_BINDING_PORT).unwrap(),
+            #[cfg(feature = "supervisor_ui")]
+            network_binding_ip_address: txtx_supervisor_ui::DEFAULT_BINDING_ADDRESS.to_string(),
+            environment: Some("localnet".to_string()),
+            inputs: vec![],
+            force_execution: false,
+        }
+    }
+
+    pub fn with_manifest_path(mut self, manifest_path: String) -> Self {
+        self.manifest_path = manifest_path;
+        self
+    }
+
+    pub fn do_start_supervisor_ui(&self) -> bool {
+        self.web_console || (!self.unsupervised && !self.term_console)
+    }
+}
+
 pub fn main() {
     let logger = hiro_system_kit::log::setup_logger();
     let _guard = hiro_system_kit::log::setup_global_logger(logger.clone());
@@ -240,6 +323,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     match opts.command {
         Command::Simnet(cmd) => simnet::handle_start_simnet_command(&cmd, ctx).await,
         Command::Completions(cmd) => generate_completion_helpers(&cmd),
+        Command::Run(cmd) => handle_execute_runbook_command(cmd).await,
     }
 }
 

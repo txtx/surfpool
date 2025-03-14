@@ -4,6 +4,7 @@ on:
     branches:
       - main
       - ci
+      - supervised
   workflow_dispatch:
 
 concurrency:
@@ -82,6 +83,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Checkout Supervisor UI
+        uses: actions/checkout@v4
+        with:
+          repository: txtx/txtx-supervisor-ui
+          token: ${{ secrets.TXTX_ACCESS_TOKEN }} 
+          path: txtx-supervisor-ui
+          
+      - name: Build .env file for Supervisor UI
+        uses: txtx/txtx/.github/actions/setup_supervisor_env@actions-beta-1
+        with:
+          txtx_dev_npm_read_token: ${{ secrets.TXTX_DEV_NPM_READ_TOKEN }}
+          nhost_region: ${{ secrets.NHOST_REGION }}
+          nhost_subdomain: ${{ secrets.NHOST_SUBDOMAIN }}
+          working_directory: "txtx-supervisor-ui"
+
+      - name: Build Supervisor UI
+        run: |
+          cd txtx-supervisor-ui
+          npm run i
+          npm run build
+          cd ..
 
       # set up rust for all envs
       - name: Install Rust toolchain
@@ -124,7 +146,7 @@ jobs:
         
       - name: Build - Cargo
         run: 
-          cargo build --release --locked --target ${{ matrix.target }}
+          cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui
 
       # Don't compress for Windows because winget can't yet unzip files
       - name: Compress cargo artifact (not windows)

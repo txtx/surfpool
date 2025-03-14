@@ -15,7 +15,7 @@ use crate::{
     tui,
 };
 
-use super::{Context, StartSimnet, DEFAULT_EXPLORER_PORT};
+use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_EXPLORER_PORT};
 use crossbeam::channel::{Select, Sender};
 use notify::{
     event::{CreateKind, DataChange, ModifyKind},
@@ -340,10 +340,10 @@ async fn write_and_execute_iac(
         let simnet_events_tx_copy = simnet_events_tx.clone();
         for runbook_id in runbooks_ids_to_execute.iter() {
             futures.push(execute_runbook(
-                runbook_id.clone(),
                 progress_tx.clone(),
-                txtx_manifest_location.clone(),
                 simnet_events_tx_copy.clone(),
+                ExecuteRunbook::default_localnet(runbook_id)
+                    .with_manifest_path(txtx_manifest_location.to_string()),
             ));
         }
 
@@ -404,10 +404,10 @@ async fn write_and_execute_iac(
                         let mut futures = vec![];
                         for runbook_id in runbooks_ids_to_execute.iter() {
                             futures.push(execute_runbook(
-                                runbook_id.clone(),
                                 progress_tx.clone(),
-                                txtx_manifest_location.clone(),
                                 simnet_events_tx.clone(),
+                                ExecuteRunbook::default_localnet(runbook_id)
+                                    .with_manifest_path(txtx_manifest_location.to_string()),
                             ));
                         }
                         let _ = hiro_system_kit::nestable_block_on(join_all(futures));
