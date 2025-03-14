@@ -57,5 +57,5 @@ convert_case = "0.7.1"
 [features]
 default = ["cli"]
 cli = ["clap", "toml", "ctrlc", "hiro-system-kit/log"]
-supervisor_ui = ["txtx-supervisor-ui/crates_build"]
+supervisor_ui = ["txtx-supervisor-ui"]
 explorer = []

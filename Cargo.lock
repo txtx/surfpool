@@ -11090,9 +11090,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cd0b27f95c9ddda1cf8e685d082e4deb3f73eb4c516fbc47ad926dc915dccf9"
+checksum = "7971c840d33e2bf59136b3ce6777cffc5dce01fa4350fc8b585874251bea7db7"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -11125,9 +11125,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.9"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "658cc76dbc1c30ea05cc7e7abcabf284219fd3d2bf81de77f9be2e78cee22803"
+checksum = "a65e523d9a2b6b92ae0482f3fe102e0e8955d1a8564591db8da01e2afddb2e8d"
 dependencies = [
  "anchor-lang-idl",
  "async-recursion",
@@ -11149,9 +11149,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f5fff0fa531207293a38a64ca809e50b3a634f537935877b78893fb6ba4c0b3"
+checksum = "ab41c9c8d4a9bda8ccd08aa9dabe80bad07dbb7fb5bcd01e14d9f6ea12996330"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
