@@ -91,7 +91,7 @@ jobs:
           path: txtx-supervisor-ui
           
       - name: Build .env file for Supervisor UI
-        uses: txtx/txtx/actions/setup_supervisor_env@actions-beta-1
+        uses: txtx/txtx/.github/actions/setup_supervisor_env@actions-beta-1
         with:
           txtx_dev_npm_read_token: ${{ secrets.TXTX_DEV_NPM_READ_TOKEN }}
           nhost_region: ${{ secrets.NHOST_REGION }}
