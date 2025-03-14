@@ -88,7 +88,7 @@ pub async fn execute_runbook(
     let Some((mut runbook, runbook_sources, _, runbook_state_location)) =
         runbooks.swap_remove(&runbook_id)
     else {
-        return Err(format!("Deployment {} not found", runbook_id));
+        return Err(format!("Runbook {} not found", runbook_id));
     };
 
     let authorization_context = AuthorizationContext::new(manifest.location.clone().unwrap());
