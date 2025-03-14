@@ -325,7 +325,7 @@ pub fn scaffold_iac_layout(
             );
 
             let mut base_dir = runbook_folder_location.clone();
-            base_dir.append_path(&format!("subgraphs.tx"))?;
+            base_dir.append_path(&format!("subgraphs.localnet.tx"))?;
             let _ = File::create(base_dir.to_string())
                 .map_err(|e| format!("Failed to create Runbook subgraph file: {e}"))?;
             base_dir
