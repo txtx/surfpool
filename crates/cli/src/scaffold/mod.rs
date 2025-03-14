@@ -5,8 +5,9 @@ use std::{
 };
 use txtx_addon_network_svm::templates::{
     get_interpolated_addon_template, get_interpolated_anchor_program_deployment_template,
-    get_interpolated_anchor_subgraph_template, get_interpolated_header_template,
-    get_interpolated_mainnet_signer_template, get_interpolated_signer_template,
+    get_interpolated_anchor_subgraph_template, get_interpolated_devnet_signer_template,
+    get_interpolated_header_template, get_interpolated_localnet_signer_template,
+    get_interpolated_mainnet_signer_template,
 };
 use txtx_core::{
     kit::{helpers::fs::FileLocation, indexmap::indexmap},
@@ -140,17 +141,15 @@ pub fn scaffold_iac_layout(
         "input.authority_keypair_json",
     ));
 
-    let mut signer_testnet = String::new();
+    let mut signer_devnet = String::new();
     // signer_testnet.push_str(&get_interpolated_header_template(&format!("Runbook")));
     // signer_testnet.push_str(&get_interpolated_addon_template("http://localhost:8899"));
-    signer_testnet.push_str(&get_interpolated_signer_template(
-        "input.authority_keypair_json",
-    ));
+    signer_devnet.push_str(&get_interpolated_devnet_signer_template());
 
-    let mut signer_simnet = String::new();
+    let mut signer_localnet = String::new();
     // signer_simnet.push_str(&get_interpolated_header_template(&format!("Runbook")));
     // signer_simnet.push_str(&get_interpolated_addon_template("http://localhost:8899"));
-    signer_simnet.push_str(&get_interpolated_signer_template(
+    signer_localnet.push_str(&get_interpolated_localnet_signer_template(
         "input.authority_keypair_json",
     ));
 
@@ -346,7 +345,7 @@ pub fn scaffold_iac_layout(
             let _ = File::create(base_dir.to_string())
                 .map_err(|e| format!("Failed to create Runbook signer file: {e}"))?;
             base_dir
-                .write_content(signer_simnet.as_bytes())
+                .write_content(signer_localnet.as_bytes())
                 .map_err(|e| format!("Failed to write data to Runbook signer file: {e}"))?;
             println!(
                 "{} {}",
@@ -362,7 +361,7 @@ pub fn scaffold_iac_layout(
             let _ = File::create(base_dir.to_string())
                 .map_err(|e| format!("Failed to create Runbook signer file: {e}"))?;
             base_dir
-                .write_content(signer_testnet.as_bytes())
+                .write_content(signer_devnet.as_bytes())
                 .map_err(|e| format!("Failed to write data to Runbook signer file: {e}"))?;
             println!(
                 "{} {}",
