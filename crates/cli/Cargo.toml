@@ -20,6 +20,8 @@ surfpool-gql = { workspace = true }
 # surfpool-core = { version = "0.1" }
 txtx-core = { workspace = true }
 txtx-addon-network-svm = { workspace = true }
+txtx-gql = { workspace = true }
+txtx-supervisor-ui = { workspace = true, optional = true, features = ["release"]}
 hiro-system-kit = "0.3.1"
 atty = "0.2.13"
 ansi_term = "0.12.1"
@@ -55,4 +57,5 @@ convert_case = "0.7.1"
 [features]
 default = ["cli"]
 cli = ["clap", "toml", "ctrlc", "hiro-system-kit/log"]
+supervisor_ui = ["txtx-supervisor-ui/release"]
 explorer = []
