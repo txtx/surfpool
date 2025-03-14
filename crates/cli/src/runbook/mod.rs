@@ -274,7 +274,6 @@ pub async fn configure_supervised_execution(
     let moved_kill_loops_tx = kill_loops_tx.clone();
     #[cfg(feature = "supervisor_ui")]
     let web_ui_handle = if cmd.do_start_supervisor_ui() {
-        println!("Starting the supervisor web console");
         use txtx_supervisor_ui::start_supervisor_ui;
         let (supervisor_events_tx, supervisor_events_rx) = channel::unbounded();
         let web_ui_handle = start_supervisor_ui(
@@ -299,7 +298,6 @@ pub async fn configure_supervised_execution(
             while let Ok(msg) = supervisor_events_rx.recv() {
                 match msg {
                     txtx_supervisor_ui::SupervisorEvents::Started(network_binding) => {
-                        println!("started!");
                         let _ = moved_simnet_events_tx.send(SimnetEvent::info(format!(
                             "Starting the supervisor web console",
                         )));
@@ -313,6 +311,10 @@ pub async fn configure_supervised_execution(
     } else {
         None
     };
+    #[cfg(not(feature = "supervisor_ui"))]
+    if cmd.do_start_supervisor_ui() {
+        panic!("Supervisor UI is not enabled in this build");
+    }
 
     let block_store_handle = tokio::spawn(async move {
         loop {
