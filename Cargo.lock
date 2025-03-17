@@ -212,6 +212,19 @@ dependencies = [
 
 [[package]]
 name = "actix-ws"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "535aec173810be3ca6f25dd5b4d431ae7125d62000aa3cbae1ec739921b02cf3"
+dependencies = [
+ "actix-codec",
+ "actix-http",
+ "actix-web",
+ "futures-core",
+ "tokio",
+]
+
+[[package]]
+name = "actix-ws"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3a1fb4f9f2794b0aadaf2ba5f14a6f034c7e86957b458c506a8cb75953f2d99"
@@ -856,10 +869,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "base32"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23ce669cd6c8588f79e15cf450314f9638f967fc5770ff1c7c1deb0925ea7cfa"
+
+[[package]]
 name = "base58"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5024ee8015f02155eee35c711107ddd9a9bf3cb689cf2a9089c97e79b6e1ae83"
+
+[[package]]
+name = "base58"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6107fe1be6682a68940da878d9e9f5e90ca5745b3dec9fd1bb393c8777d4f581"
 
 [[package]]
 name = "base64"
@@ -982,7 +1007,7 @@ dependencies = [
  "arrayvec",
  "cc",
  "cfg-if 1.0.0",
- "constant_time_eq",
+ "constant_time_eq 0.3.1",
  "digest 0.10.7",
 ]
 
@@ -1535,6 +1560,12 @@ dependencies = [
  "log 0.4.25",
  "web-sys",
 ]
+
+[[package]]
+name = "constant_time_eq"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21a53c0a4d288377e7415b53dcfc3c04da5cdc2cc95c8d5ac178b58f0b861ad6"
 
 [[package]]
 name = "constant_time_eq"
@@ -3784,13 +3815,30 @@ dependencies = [
 
 [[package]]
 name = "juniper_actix"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2eafd05a9b03395e4c032e5d903109a5fceaf89bb7ae6731e416bc2088f9e556"
+dependencies = [
+ "actix-http",
+ "actix-web",
+ "actix-ws 0.2.5",
+ "anyhow",
+ "futures 0.3.31",
+ "juniper",
+ "juniper_graphql_ws",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "juniper_actix"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "457190a70f2a8d7c6d9ae8a5cfc134909c498c335dbb751a147eec7a513faced"
 dependencies = [
  "actix-http",
  "actix-web",
- "actix-ws",
+ "actix-ws 0.3.0",
  "anyhow",
  "futures 0.3.31",
  "juniper",
@@ -4523,6 +4571,15 @@ name = "notify-types"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e0826a989adedc2a244799e823aece04662b66609d96af8dff7ac6df9a8925d"
+
+[[package]]
+name = "npm_rs"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1454347ca3c562570eff8af4a09445783dc4b7ccd00853390a7f88f76037b55"
+dependencies = [
+ "cfg-if 1.0.0",
+]
 
 [[package]]
 name = "num"
@@ -8166,8 +8223,8 @@ dependencies = [
  "thiserror 2.0.11",
  "tokio",
  "tokio-stream",
- "tokio-tungstenite",
- "tungstenite",
+ "tokio-tungstenite 0.20.1",
+ "tungstenite 0.20.1",
  "url 2.5.4",
 ]
 
@@ -10099,7 +10156,7 @@ dependencies = [
  "hiro-system-kit",
  "ipc-channel",
  "juniper",
- "juniper_actix",
+ "juniper_actix 0.6.0",
  "juniper_graphql_ws",
  "mime_guess",
  "mustache",
@@ -10115,6 +10172,8 @@ dependencies = [
  "toml 0.8.19",
  "txtx-addon-network-svm",
  "txtx-core",
+ "txtx-gql",
+ "txtx-supervisor-ui",
  "url 2.5.4",
 ]
 
@@ -10580,7 +10639,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01b874a4992538d4b2f4fbbac11b9419d685f4b39bdc3fed95b04e07bfd76040"
 dependencies = [
- "base58",
+ "base58 0.1.0",
  "hmac 0.7.1",
  "libsecp256k1 0.3.5",
  "memzero",
@@ -10728,8 +10787,22 @@ dependencies = [
  "rustls 0.21.12",
  "tokio",
  "tokio-rustls 0.24.1",
- "tungstenite",
+ "tungstenite 0.20.1",
  "webpki-roots 0.25.4",
+]
+
+[[package]]
+name = "tokio-tungstenite"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6989540ced10490aaf14e6bad2e3d33728a2813310a0c71d1574304c49631cd"
+dependencies = [
+ "futures-util",
+ "log 0.4.25",
+ "native-tls",
+ "tokio",
+ "tokio-native-tls",
+ "tungstenite 0.23.0",
 ]
 
 [[package]]
@@ -10846,6 +10919,19 @@ dependencies = [
  "prost-build",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "totp-rs"
+version = "5.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17b2f27dad992486c26b4e7455f38aa487e838d6d61b57e72906ee2b8c287a90"
+dependencies = [
+ "base32",
+ "constant_time_eq 0.2.6",
+ "hmac 0.12.1",
+ "sha1",
+ "sha2 0.10.8",
 ]
 
 [[package]]
@@ -10986,10 +11072,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "txtx-addon-kit"
-version = "0.2.6"
+name = "tungstenite"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cd0b27f95c9ddda1cf8e685d082e4deb3f73eb4c516fbc47ad926dc915dccf9"
+checksum = "6e2e2ce1e47ed2994fd43b04c8f618008d4cabdd5ee34027cf14f9d918edd9c8"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "data-encoding",
+ "http 1.2.0",
+ "httparse",
+ "log 0.4.25",
+ "native-tls",
+ "rand 0.8.5",
+ "sha1",
+ "thiserror 1.0.69",
+ "utf-8",
+]
+
+[[package]]
+name = "txtx-addon-kit"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7971c840d33e2bf59136b3ce6777cffc5dce01fa4350fc8b585874251bea7db7"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -11022,9 +11127,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.9"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "658cc76dbc1c30ea05cc7e7abcabf284219fd3d2bf81de77f9be2e78cee22803"
+checksum = "a65e523d9a2b6b92ae0482f3fe102e0e8955d1a8564591db8da01e2afddb2e8d"
 dependencies = [
  "anchor-lang-idl",
  "async-recursion",
@@ -11070,9 +11175,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f5fff0fa531207293a38a64ca809e50b3a634f537935877b78893fb6ba4c0b3"
+checksum = "ab41c9c8d4a9bda8ccd08aa9dabe80bad07dbb7fb5bcd01e14d9f6ea12996330"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
@@ -11095,6 +11200,49 @@ dependencies = [
  "similar",
  "tokio",
  "txtx-addon-kit",
+]
+
+[[package]]
+name = "txtx-gql"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9bf903c7eb97fef9760d458ae65b92ef1acfc744791c5658380fcfb3725a2c7"
+dependencies = [
+ "async-stream",
+ "futures 0.3.31",
+ "futures-enum",
+ "juniper",
+ "juniper_codegen",
+ "tokio",
+ "txtx-addon-kit",
+]
+
+[[package]]
+name = "txtx-supervisor-ui"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a35e5132181fdbbb8b716cdf895f50b284eca3835798e7fdfc313c9a5d4b5e74"
+dependencies = [
+ "actix-cors",
+ "actix-web",
+ "base58 0.2.0",
+ "dotenvy",
+ "hiro-system-kit",
+ "include_dir",
+ "juniper_actix 0.5.0",
+ "juniper_graphql_ws",
+ "mime_guess",
+ "native-tls",
+ "npm_rs",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.23.1",
+ "totp-rs",
+ "txtx-addon-kit",
+ "txtx-core",
+ "txtx-gql",
 ]
 
 [[package]]

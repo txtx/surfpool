@@ -51,7 +51,7 @@ surfpool --version
 Start a local Solana network with:
 
 ```console
-surfpool run
+surfpool start
 ```
 
 If inside an Anchor project, Surfpool will:
@@ -65,7 +65,7 @@ If inside an Anchor project, Surfpool will:
 The command:
 
 ```console
-surfpool run --help
+surfpool start --help
 ```
 
 Is documenting all the options available.
