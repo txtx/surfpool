@@ -68,7 +68,7 @@ serde_derive = "1.0.217" # must match the serde version, see https://github.com/
 serde_json = "1.0.135"
 # txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit", features = ["wasm"]}
 # txtx-core = { path = "../txtx/crates/txtx-core" }
-# txtx-addon-network-svm = { package = "txtx-addon-network-svm", path = "../txtx/addons/svm" }
+# txtx-addon-network-svm = { package = "txtx-addon-network-svm", path = "../txtx/addons/svm/core" }
 # txtx-gql = { path = "../txtx/crates/txtx-gql" }
 # txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui", default-features = false, features = ["bin_build"] }
 # txtx-addon-network-svm-types = { package = "txtx-addon-network-svm-types", path = "../txtx/addons/svm/types" }
