@@ -4,7 +4,7 @@ use query::{Query, SchemaDataSource};
 use std::sync::RwLock;
 use std::{collections::BTreeMap, sync::Arc};
 use subscription::DynamicSubscription;
-use types::{GqlSubgraphDataEntry, SubgraphDataEntryUpdate};
+use types::GqlSubgraphDataEntry;
 use uuid::Uuid;
 
 pub mod mutation;
@@ -39,12 +39,13 @@ pub type GqlDynamicSchema =
     RootNode<'static, Query, Mutation, DynamicSubscription, DefaultScalarValue>;
 
 pub fn new_dynamic_schema(subgraph_index: SchemaDataSource) -> GqlDynamicSchema {
-    GqlDynamicSchema::new_with_info(
+    let schema = GqlDynamicSchema::new_with_info(
         Query::new(),
         Mutation,
         DynamicSubscription,
         subgraph_index,
         (),
         (),
-    )
+    );
+    schema.enable_introspection()
 }

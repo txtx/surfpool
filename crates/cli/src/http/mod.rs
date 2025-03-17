@@ -7,7 +7,7 @@ use actix_web::HttpRequest;
 use actix_web::{middleware, App, HttpResponse, HttpServer};
 use actix_web::{Error, Responder};
 use crossbeam::channel::{Receiver, Select, Sender};
-use juniper_actix::{graphiql_handler, graphql_handler, playground_handler, subscriptions};
+use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
 use std::collections::HashMap;
 use std::error::Error as StdError;
@@ -73,8 +73,7 @@ pub async fn start_subgraph_and_explorer_server(
                     .route("/graphql", web::post().to(post_graphql))
                     .route("/subscriptions", web::get().to(subscriptions)),
             )
-            .service(web::resource("/playground").route(web::get().to(playground)))
-            .service(web::resource("/graphiql").route(web::get().to(graphiql)))
+            .service(web::resource("/gql/console").route(web::get().to(graphiql)))
             .service(dist)
     })
     .workers(5)
@@ -177,10 +176,6 @@ async fn subscriptions(
     subscriptions::ws_handler(req, stream, schema.into_inner(), config).await
 }
 
-async fn playground() -> Result<HttpResponse, Error> {
-    playground_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
-}
-
 async fn graphiql() -> Result<HttpResponse, Error> {
     graphiql_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
 }
@@ -244,7 +239,7 @@ fn start_subgraph_runloop(
                                     subgraph_name.to_case(Case::Camel),
                                     (subgraph_uuid.clone(), vec![]),
                                 );
-                                let _ = sender.send("http://127.0.0.1:8900/playground".into());
+                                let _ = sender.send("http://127.0.0.1:8900/gql/console".into());
                             }
                             SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
                                 observers.push(subgraph_observer_rx);

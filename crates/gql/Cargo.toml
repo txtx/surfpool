@@ -24,6 +24,7 @@ surfpool-types = { workspace = true }
 convert_case = "0.7.1"
 txtx-addon-kit = { workspace = true }
 solana-pubkey = { workspace = true }
+txtx-addon-network-svm-types = { workspace = true }
 serde = { version = "1.0.122"}
 
 [dev-dependencies]
