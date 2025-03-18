@@ -4,7 +4,6 @@ use super::utils::{
 };
 use crate::types::{EntryStatus, TransactionWithStatusMeta};
 use itertools::Itertools;
-use std::collections::HashMap;
 use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
@@ -32,13 +31,14 @@ use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{Keypair, Signature};
 use solana_sdk::signer::Signer;
 use solana_sdk::system_instruction;
+use solana_sdk::sysvar::rewards::Rewards;
 use solana_sdk::transaction::{Transaction, VersionedTransaction};
 use solana_sdk::{account::Account, clock::UnixTimestamp};
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock, UiTransactionStatusMeta
+    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock, UiTransactionStatusMeta,
 };
 use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
-use solana_sdk::sysvar::rewards::Rewards;
+use std::collections::HashMap;
 use std::str::FromStr;
 use surfpool_types::{TransactionConfirmationStatus, TransactionStatusEvent};
 
@@ -580,7 +580,6 @@ impl Full for SurfpoolFullRpc {
         slot: Slot,
         config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
-
         let config = config
             .map(|c| match c {
                 RpcEncodingConfigWrapper::Deprecated(encoding) => RpcBlockConfig {
@@ -592,38 +591,41 @@ impl Full for SurfpoolFullRpc {
             })
             .unwrap_or_default();
 
-         let state_reader = match meta.get_state() {
-            Ok(res) => res,
-            Err(err) => return Box::pin(future::err(err.into())),
-         };
-
-        let rpc_client = state_reader.rpc_client.clone();
-
-        Box::pin(async move {                                                      
-                let ui_confirmed_block: UiConfirmedBlock = rpc_client.get_block_with_config(slot, config)
-                .await
-                .map_err(|err| Error::invalid_params(format!("failed to get block with config: {err:?}")))?;
-
-                Ok(Some(ui_confirmed_block))
-        })
-    }
-    
-    fn get_block_time(
-        &self,
-        meta: Self::Metadata,
-        slot: Slot,
-    ) -> BoxFuture<Result<Option<UnixTimestamp>>> {
-        let state_reader = match meta.get_state(){
+        let state_reader = match meta.get_state() {
             Ok(res) => res,
             Err(err) => return Box::pin(future::err(err.into())),
         };
 
         let rpc_client = state_reader.rpc_client.clone();
 
-        Box::pin(async move { 
+        Box::pin(async move {
+            let ui_confirmed_block: UiConfirmedBlock = rpc_client
+                .get_block_with_config(slot, config)
+                .await
+                .map_err(|err| {
+                    Error::invalid_params(format!("failed to get block with config: {err:?}"))
+                })?;
+
+            Ok(Some(ui_confirmed_block))
+        })
+    }
+
+    fn get_block_time(
+        &self,
+        meta: Self::Metadata,
+        slot: Slot,
+    ) -> BoxFuture<Result<Option<UnixTimestamp>>> {
+        let state_reader = match meta.get_state() {
+            Ok(res) => res,
+            Err(err) => return Box::pin(future::err(err.into())),
+        };
+
+        let rpc_client = state_reader.rpc_client.clone();
+
+        Box::pin(async move {
             let response = match rpc_client.get_block_time(slot).await {
-                    Ok(res) => return Ok(Some(res)),
-                    Err(_res) => Ok(None),
+                Ok(res) => return Ok(Some(res)),
+                Err(_res) => Ok(None),
             };
             response
         })
@@ -725,11 +727,11 @@ impl Full for SurfpoolFullRpc {
         };
 
         let rpc_client = state_reader.rpc_client.clone();
-        
-        Box::pin(async move { 
-            let response = rpc_client.get_first_available_block()
-            .await
-            .map_err(|err|Error::invalid_params(format!("failed to get first available block: {err:?}")));
+
+        Box::pin(async move {
+            let response = rpc_client.get_first_available_block().await.map_err(|err| {
+                Error::invalid_params(format!("failed to get first available block: {err:?}"))
+            });
 
             response
         })
@@ -1171,7 +1173,7 @@ mod tests {
             .await
             .unwrap();
         println!("this is the block time {}", res.unwrap()); //works
-        assert_eq!(res, Some(1742327046)); 
+        assert_eq!(res, Some(1742327046));
     }
 
     #[tokio::test]
@@ -1249,7 +1251,7 @@ mod tests {
             .get_first_available_block(Some(setup.context))
             .await
             .unwrap();
-        println!("this is the first available_block {}", res); //works 
+        println!("this is the first available_block {}", res); //works
         assert_eq!(res, 0);
     }
 

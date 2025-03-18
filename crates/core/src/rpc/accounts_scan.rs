@@ -1,3 +1,7 @@
+use super::not_implemented_err_async;
+use super::RunloopContext;
+use crate::rpc::State;
+use jsonrpc_core::futures::future::{self};
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
@@ -5,16 +9,12 @@ use solana_client::rpc_config::{
     RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig, RpcSupplyConfig,
     RpcTokenAccountsFilter,
 };
-use jsonrpc_core::futures::future::{self};
 use solana_client::rpc_response::{
     OptionalContext, RpcAccountBalance, RpcKeyedAccount, RpcSupply, RpcTokenAccountBalance,
 };
-use solana_rpc_client_api::response::{Response as RpcResponse};
-use solana_client::rpc_response::{RpcResponseContext, RpcApiVersion};
-use solana_sdk::commitment_config::{CommitmentConfig,CommitmentLevel};
-use super::not_implemented_err_async;
-use super::RunloopContext;
-use crate::rpc::State;
+use solana_client::rpc_response::{RpcApiVersion, RpcResponseContext};
+use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_sdk::commitment_config::{CommitmentConfig, CommitmentLevel};
 
 #[rpc]
 pub trait AccountsScan {
@@ -97,27 +97,32 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
     fn get_supply(
         &self,
         meta: Self::Metadata,
-        config: Option<RpcSupplyConfig>, 
+        config: Option<RpcSupplyConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSupply>>> {
-
         let state_reader = match meta.get_state() {
             Ok(res) => res,
-            Err(err) => return Box::pin(future::err(err.into()))
+            Err(err) => return Box::pin(future::err(err.into())),
         };
 
         let rpc_client = state_reader.rpc_client.clone();
 
         Box::pin(async move {
             if let Some(commitment) = config.and_then(|c| c.commitment) {
-                let response = rpc_client.supply_with_commitment(commitment)
-                .await
-                .map_err(|err|Error::invalid_params(format!("failed to get supply with commitment : {err:?}")));
+                let response = rpc_client
+                    .supply_with_commitment(commitment)
+                    .await
+                    .map_err(|err| {
+                        Error::invalid_params(format!(
+                            "failed to get supply with commitment : {err:?}"
+                        ))
+                    });
 
                 response
             } else {
-                let response = rpc_client.supply()
-                .await
-                .map_err(|err|Error::invalid_params(format!("failed to get supply: {err:?}")));
+                let response = rpc_client
+                    .supply()
+                    .await
+                    .map_err(|err| Error::invalid_params(format!("failed to get supply: {err:?}")));
 
                 response
             }
@@ -154,8 +159,6 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use crate::tests::helpers::TestSetup;
@@ -185,27 +188,29 @@ mod tests {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
         let res = setup
             .rpc
-            .get_supply(Some(setup.context), Some(RpcSupplyConfig {
-                commitment: Some(CommitmentConfig {
-                    commitment: CommitmentLevel::Finalized
+            .get_supply(
+                Some(setup.context),
+                Some(RpcSupplyConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Finalized,
+                    }),
+                    exclude_non_circulating_accounts_list: true,
                 }),
-                exclude_non_circulating_accounts_list: true
-            }))
+            )
             .await
             .unwrap();
 
         let expected_response = RpcResponse {
-            context: RpcResponseContext { 
-                slot: 2000, 
-                api_version: Some(RpcApiVersion::default())
-                // Some(RpcApiVersion( // we can't initialize a tuple struct which contains private fields
-                //     Version { 
-                //         major: 1, 
-                //         minor: 18, 
-                //         patch: 18 
-                //     }
-                // ))
-            } ,
+            context: RpcResponseContext {
+                slot: 2000,
+                api_version: Some(RpcApiVersion::default()), // Some(RpcApiVersion( // we can't initialize a tuple struct which contains private fields
+                                                             //     Version {
+                                                             //         major: 1,
+                                                             //         minor: 18,
+                                                             //         patch: 18
+                                                             //     }
+                                                             // ))
+            },
             value: RpcSupply {
                 total: 503000508421036093,
                 circulating: 503000508421036093,
@@ -265,7 +270,7 @@ mod tests {
                     "3bTGcGB9F98XxnrBNftmmm48JGfPgi5sYxDEKiCjQYk3",
                     "BuCEvc9ze8UoAQwwsQLy8d447C8sA4zeVtVpc6m5wQeS",
                     "CVgyXrbEd1ctEuvq11QdpnCQVnPit8NLdhyqXQHLprM2",
-                    "6o5v1HC7WhBnLfRHp8mQTtCP2khdXXjhuyGyYEoy2Suy"
+                    "6o5v1HC7WhBnLfRHp8mQTtCP2khdXXjhuyGyYEoy2Suy",
                 ]
                 .iter()
                 .map(|str| str.to_string())
