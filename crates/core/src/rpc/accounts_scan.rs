@@ -1,19 +1,21 @@
 use jsonrpc_core::BoxFuture;
-use jsonrpc_core::Result;
+use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use solana_client::rpc_config::{
     RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig, RpcSupplyConfig,
     RpcTokenAccountsFilter,
 };
-use solana_client::rpc_response::RpcResponseContext;
+use jsonrpc_core::futures::future::{self, join_all};
+// use solana_client::rpc_response::RpcResponseContext;
 use solana_client::rpc_response::{
     OptionalContext, RpcAccountBalance, RpcKeyedAccount, RpcSupply, RpcTokenAccountBalance,
 };
-use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_rpc_client_api::response::{Response as RpcResponse, RpcResponseContext};
 use solana_sdk::commitment_config::CommitmentConfig;
 
 use super::not_implemented_err_async;
 use super::RunloopContext;
+use crate::rpc::State;
 
 #[rpc]
 pub trait AccountsScan {
@@ -95,19 +97,24 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
 
     fn get_supply(
         &self,
-        _meta: Self::Metadata,
-        _config: Option<RpcSupplyConfig>,
+        meta: Self::Metadata,
+        _config: Option<RpcSupplyConfig>, //oddly theres no corresponding rpc_client method that takes in the config param in https://docs.rs/solana-rpc-client/2.2.2/src/solana_rpc_client/nonblocking/rpc_client.rs.html#1957 , but it works 
+        // from the docs https://solana.com/docs/rpc/http/getsupply 
     ) -> BoxFuture<Result<RpcResponse<RpcSupply>>> {
-        Box::pin(async {
-            Ok(RpcResponse {
-                context: RpcResponseContext::new(0),
-                value: RpcSupply {
-                    total: 1,
-                    circulating: 0,
-                    non_circulating: 0,
-                    non_circulating_accounts: vec![],
-                },
-            })
+        
+        let state_reader = match meta.get_state() {
+            Ok(res) => res,
+            Err(err) => return Box::pin(future::err(err.into()))
+        };
+
+        let rpc_client = state_reader.rpc_client.clone();
+
+        Box::pin(async move {
+            let response = rpc_client.supply()
+            .await
+            .map_err(|err|Error::invalid_params(format!("failed to get supply: {err:?}")));
+
+            response
         })
     }
 
