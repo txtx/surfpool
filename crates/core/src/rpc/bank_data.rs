@@ -84,7 +84,7 @@ impl BankData for SurfpoolBankDataRpc {
         not_implemented_err()
     }
 
-    fn get_epoch_schedule(&self, meta: Self::Metadata) -> Result<EpochSchedule> {
+    fn get_epoch_schedule(&self, _meta: Self::Metadata) -> Result<EpochSchedule> {
          not_implemented_err()
     }
 
