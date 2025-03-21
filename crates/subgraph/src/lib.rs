@@ -110,7 +110,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                         let rest = instruction.data[16..].to_vec();
 
                         for field in subgraph_request.fields.iter() {
-                            match &field.data_source {
+                            match &subgraph_request.data_source {
                                 IndexedSubgraphSourceType::Instruction(
                                     _instruction_subgraph_source,
                                 ) => {
