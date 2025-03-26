@@ -10135,7 +10135,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "surfpool-cli"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -10179,7 +10179,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-core"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "agave-geyser-plugin-interface",
  "base64 0.22.1",
@@ -10246,7 +10246,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-gql"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "async-stream",
  "convert_case 0.7.1",
@@ -10266,7 +10266,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-subgraph"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "agave-geyser-plugin-interface",
  "bincode",
@@ -10283,7 +10283,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-types"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "chrono",
  "crossbeam-channel",
@@ -11127,11 +11127,10 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a65e523d9a2b6b92ae0482f3fe102e0e8955d1a8564591db8da01e2afddb2e8d"
+checksum = "e250698d84d23fefca6908e27e2be1b133f04bf5392a15a487895461085de627"
 dependencies = [
- "anchor-lang-idl",
  "async-recursion",
  "bincode",
  "borsh 1.5.5",
@@ -11147,13 +11146,14 @@ dependencies = [
  "spl-token",
  "tiny-bip39",
  "txtx-addon-kit",
+ "txtx-addon-network-svm-types",
 ]
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d57deb19b64a8b48f72d51beae4e685ecd8426ac39b41f6f136920cc8c532ed"
+checksum = "e0d713ff26a74caf15a2c81b44ad1c6fc61f9fe66526e6f9dced05a639670467"
 dependencies = [
  "anchor-lang-idl",
  "lazy_static",
