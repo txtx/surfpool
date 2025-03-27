@@ -3,15 +3,16 @@ use juniper::{
     meta::{Field, MetaType},
     DefaultScalarValue, GraphQLType, GraphQLValue, Registry,
 };
+use serde::{Deserialize, Serialize};
 use txtx_addon_kit::types::types::Type;
 use txtx_addon_network_svm_types::{subgraph::IndexedSubgraphField, SVM_PUBKEY};
 use uuid::Uuid;
 
-use crate::Context;
+use crate::query::DataloaderContext;
 
 use super::scalars::{bigint::BigInt, pubkey::PublicKey};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DynamicSchemaMetadata {
     pub name: String,
     pub subgraph_uuid: Uuid,
@@ -65,7 +66,7 @@ impl GraphQLType<DefaultScalarValue> for DynamicSchemaMetadata {
 }
 
 impl GraphQLValue<DefaultScalarValue> for DynamicSchemaMetadata {
-    type Context = Context;
+    type Context = DataloaderContext;
     type TypeInfo = DynamicSchemaMetadata;
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
@@ -73,27 +74,36 @@ impl GraphQLValue<DefaultScalarValue> for DynamicSchemaMetadata {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FieldMetadata {
-    name: String,
-    ty: Type,
+    pub name: String,
+    pub typing: Type,
     description: Option<String>,
 }
 impl FieldMetadata {
     pub fn new(field: &IndexedSubgraphField) -> Self {
         Self {
             name: field.display_name.clone(),
-            ty: field.expected_type.clone(),
+            typing: field.expected_type.clone(),
             description: field.description.clone(),
         }
     }
+
+    pub fn is_bool(&self) -> bool {
+        self.typing.eq(&Type::Bool)
+    }
+
+    pub fn is_string(&self) -> bool {
+        self.typing.eq(&Type::String)
+    }
+
     pub fn register_as_scalar<'r>(
         &self,
         registry: &mut Registry<'r>,
     ) -> Field<'r, DefaultScalarValue> {
         let field_name = self.name.as_str();
 
-        let mut field = match &self.ty {
+        let mut field = match &self.typing {
             Type::Bool => registry.field::<&bool>(field_name, &()),
             Type::String => registry.field::<&String>(field_name, &()),
             Type::Integer => registry.field::<&BigInt>(field_name, &()),

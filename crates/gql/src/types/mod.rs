@@ -1,5 +1,5 @@
+use crate::query::DataloaderContext;
 use crate::types::schema::DynamicSchemaMetadata;
-use crate::Context;
 use juniper::graphql_object;
 use juniper::meta::Field;
 use juniper::meta::MetaType;
@@ -45,7 +45,7 @@ impl GraphQLType<DefaultScalarValue> for GqlSubgraphDataEntry {
 }
 
 impl GraphQLValue<DefaultScalarValue> for GqlSubgraphDataEntry {
-    type Context = Context;
+    type Context = DataloaderContext;
     type TypeInfo = DynamicSchemaMetadata;
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
@@ -57,7 +57,7 @@ impl GraphQLValue<DefaultScalarValue> for GqlSubgraphDataEntry {
         _info: &DynamicSchemaMetadata,
         field_name: &str,
         _args: &Arguments,
-        executor: &Executor<Context>,
+        executor: &Executor<DataloaderContext>,
     ) -> Result<juniper::Value, FieldError> {
         let entry = &self.0;
         match field_name {
@@ -107,7 +107,7 @@ impl SubgraphDataEntryUpdate {
     }
 }
 
-#[graphql_object(context = Context)]
+#[graphql_object(context = DataloaderContext)]
 impl SubgraphDataEntryUpdate {
     pub fn uuid(&self) -> String {
         self.entry.uuid.to_string()

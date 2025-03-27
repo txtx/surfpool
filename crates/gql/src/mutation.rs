@@ -1,10 +1,11 @@
-use crate::Context;
 use juniper_codegen::graphql_object;
+
+use crate::query::DataloaderContext;
 
 pub struct Mutation;
 
 #[graphql_object(
-    context = Context,
+    context = DataloaderContext,
 )]
 impl Mutation {
     fn api_version() -> &'static str {
@@ -15,7 +16,7 @@ impl Mutation {
 pub struct DynamicMutation;
 
 #[graphql_object(
-    context = Context,
+    context = DataloaderContext,
 )]
 impl DynamicMutation {
     fn api_version() -> &'static str {

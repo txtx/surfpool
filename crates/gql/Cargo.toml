@@ -21,7 +21,7 @@ juniper_codegen = { version = "0.16.0" }
 async-stream = "0.3.5"
 tokio = "1.37.0"
 surfpool-types = { workspace = true }
-convert_case = "0.7.1"
+convert_case = "0.8.0"
 txtx-addon-kit = { workspace = true }
 solana-pubkey = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }

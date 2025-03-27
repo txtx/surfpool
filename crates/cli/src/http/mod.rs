@@ -14,10 +14,10 @@ use std::error::Error as StdError;
 use std::sync::RwLock;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use surfpool_gql::query::SchemaDataSource;
+use surfpool_gql::query::{DataloaderContext, MemoryStore, SchemaDataSource};
 use surfpool_gql::types::schema::DynamicSchemaMetadata;
 use surfpool_gql::types::GqlSubgraphDataEntry;
-use surfpool_gql::{new_dynamic_schema, Context as GqlContext, GqlDynamicSchema};
+use surfpool_gql::{new_dynamic_schema, GqlDynamicSchema};
 use surfpool_types::{
     SchemaDataSourcingEvent, SubgraphCommand, SubgraphDataEntry, SubgraphEvent, SurfpoolConfig,
 };
@@ -38,7 +38,9 @@ pub async fn start_subgraph_and_explorer_server(
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     _ctx: &Context,
 ) -> Result<(ServerHandle, JoinHandle<Result<(), String>>), Box<dyn StdError>> {
-    let context = GqlContext::new();
+    // let schema_ref: &(dyn Dataloader + Sync) = schema_guard.as_ref();
+
+    let context: DataloaderContext = Box::new(MemoryStore::new());
     let schema_datasource = SchemaDataSource::new();
     let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
     let schema_wrapped = Data::new(schema);
@@ -121,7 +123,7 @@ async fn post_graphql(
     req: HttpRequest,
     payload: web::Payload,
     schema: Data<RwLock<Option<GqlDynamicSchema>>>,
-    context: Data<RwLock<GqlContext>>,
+    context: Data<RwLock<DataloaderContext>>,
 ) -> Result<HttpResponse, Error> {
     let context = context
         .read()
@@ -141,7 +143,7 @@ async fn get_graphql(
     req: HttpRequest,
     payload: web::Payload,
     schema: Data<RwLock<Option<GqlDynamicSchema>>>,
-    context: Data<RwLock<GqlContext>>,
+    context: Data<RwLock<DataloaderContext>>,
 ) -> Result<HttpResponse, Error> {
     let context = context
         .read()
@@ -161,29 +163,30 @@ async fn subscriptions(
     req: HttpRequest,
     stream: web::Payload,
     schema: Data<GqlDynamicSchema>,
-    context: Data<RwLock<GqlContext>>,
+    context: Data<RwLock<DataloaderContext>>,
 ) -> Result<HttpResponse, Error> {
     let context = context
         .read()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read context"))?;
-    let ctx = GqlContext {
-        subgraph_name_lookup: context.subgraph_name_lookup.clone(),
-        entries_store: context.entries_store.clone(),
-        // entries_broadcaster: context.entries_broadcaster.clone(),
-    };
-    let config = ConnectionConfig::new(ctx);
+    let config = ConnectionConfig::new(context);
     let config = config.with_keep_alive_interval(Duration::from_secs(15));
-    subscriptions::ws_handler(req, stream, schema.into_inner(), config).await
+    unimplemented!()
+    // subscriptions::ws_handler(req, stream, schema.into_inner(), config).await
 }
 
 async fn graphiql() -> Result<HttpResponse, Error> {
     graphiql_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
+    // graphiql_handler(
+    //     "http://127.0.0.1:9000/lambda-url/svm-subgraph-gql-api/graphql",
+    //     Some("/gql/v1/subscriptions"),
+    // )
+    // .await
 }
 
 fn start_subgraph_runloop(
     subgraph_events_tx: Sender<SubgraphEvent>,
     subgraph_commands_rx: Receiver<SubgraphCommand>,
-    gql_context: Data<RwLock<GqlContext>>,
+    gql_context: Data<RwLock<DataloaderContext>>,
     gql_schema: Data<RwLock<Option<GqlDynamicSchema>>>,
     mut schema_datasource: SchemaDataSource,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
@@ -220,25 +223,11 @@ fn start_subgraph_runloop(
 
                                 schema_datasource.add_entry(schema);
                                 gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
-                                use convert_case::{Case, Casing};
 
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql context")
                                 })?;
-                                let mut entries_store = gql_context.entries_store.write().map_err(|_| {
-                                    format!("{err_ctx}: Failed to acquire write lock on entries store")
-                                })?;
-                                let mut lookup = gql_context.subgraph_name_lookup.write().map_err(|_| {
-                                    format!("{err_ctx}: Failed to acquire write lock on subgraph name lookup")
-                                })?;
-                                lookup.insert(
-                                    subgraph_uuid.clone(),
-                                    subgraph_name.to_case(Case::Camel),
-                                );
-                                entries_store.insert(
-                                    subgraph_name.to_case(Case::Camel),
-                                    (subgraph_uuid.clone(), vec![]),
-                                );
+                                gql_context.register_subgraph(&subgraph_name, subgraph_uuid)?;
                                 let _ = sender.send("http://127.0.0.1:8900/gql/console".into());
                             }
                             SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
@@ -259,22 +248,13 @@ fn start_subgraph_runloop(
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql context")
                                 })?;
-                                let uuid_lookup = gql_context.subgraph_name_lookup.read().map_err(|_| {
-                                    format!("{err_ctx}: Failed to acquire read lock on subgraph name lookup")
-                                })?;
-                                let subgraph_name = uuid_lookup.get(&uuid).ok_or_else(|| {
+                                let subgraph_name = gql_context.get_subgraph_name(&uuid).ok_or_else(|| {
                                     format!("{err_ctx}: Subgraph name not found for uuid: {}", uuid)
-                                })?;
-                                let mut entries_store = gql_context.entries_store.write().map_err(|_| {
-                                    format!("{err_ctx}: Failed to acquire write lock on entries store")
-                                })?;
-                                let (_, entries) = entries_store.get_mut(subgraph_name).ok_or_else(|| {
-                                    format!("{err_ctx}: Entries not found for subgraph: {}", subgraph_name)
                                 })?;
                                 let values: HashMap<String, Value> = serde_json::from_slice(values.as_slice()).map_err(|e| {
                                     format!("{err_ctx}: Failed to deserialize new database entry for subgraph {}: {}", subgraph_name, e)
                                 })?;
-                                entries.push(GqlSubgraphDataEntry(SubgraphDataEntry::new(values)));
+                                gql_context.insert_entry_to_subgraph(&subgraph_name, GqlSubgraphDataEntry(SubgraphDataEntry::new(values)))?;
                             }
                             SchemaDataSourcingEvent::Rountrip(_uuid) => {}
                         },

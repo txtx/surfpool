@@ -1,6 +1,6 @@
 use std::pin::Pin;
 
-use crate::{types::SubgraphDataEntryUpdate, Context};
+use crate::{query::DataloaderContext, types::SubgraphDataEntryUpdate};
 use futures::Stream;
 use juniper::{graphql_subscription, FieldError};
 
@@ -10,10 +10,10 @@ type GqlEntriesStream =
 pub struct DynamicSubscription;
 
 #[graphql_subscription(
-  context = Context,
+  context = DataloaderContext,
 )]
 impl DynamicSubscription {
-    async fn entries_event(_context: &Context) -> GqlEntriesStream {
+    async fn entries_event(_context: &DataloaderContext) -> GqlEntriesStream {
         // let entries_tx: tokio::sync::broadcast::Sender<SubgraphDataEntryUpdate> =
         //     context.entries_broadcaster.clone();
         // let mut entries_tx = entries_tx.subscribe();
