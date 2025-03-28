@@ -1,6 +1,6 @@
 use convert_case::{Case, Casing};
 use juniper::{
-    meta::{Field, MetaType},
+    meta::{Argument, Field, MetaType},
     DefaultScalarValue, GraphQLType, GraphQLValue, Registry,
 };
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,10 @@ use uuid::Uuid;
 
 use crate::query::DataloaderContext;
 
-use super::scalars::{bigint::BigInt, pubkey::PublicKey};
+use super::{
+    scalars::{bigint::BigInt, pubkey::PublicKey},
+    SubgraphFilterSpec,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DynamicSchemaMetadata {
@@ -54,13 +57,17 @@ impl GraphQLType<DefaultScalarValue> for DynamicSchemaMetadata {
         );
 
         for field_metadata in spec.fields.iter() {
-            fields.push(field_metadata.register_as_scalar(registry));
+            let field = field_metadata.register_as_scalar(registry);
+            fields.push(field);
         }
 
-        let mut object_meta = registry.build_object_type::<DynamicSchemaMetadata>(&spec, &fields);
+        registry.arg::<SubgraphFilterSpec>("filter", &spec);
+
+        let mut object_meta = registry.build_object_type::<Self>(&spec, &fields);
         if let Some(description) = &spec.description {
             object_meta = object_meta.description(description.as_str());
         }
+
         object_meta.into_meta()
     }
 }
@@ -80,6 +87,7 @@ pub struct FieldMetadata {
     pub typing: Type,
     description: Option<String>,
 }
+
 impl FieldMetadata {
     pub fn new(field: &IndexedSubgraphField) -> Self {
         Self {
@@ -97,12 +105,15 @@ impl FieldMetadata {
         self.typing.eq(&Type::String)
     }
 
+    pub fn is_number(&self) -> bool {
+        self.typing.eq(&Type::Float) || self.typing.eq(&Type::Integer)
+    }
+
     pub fn register_as_scalar<'r>(
         &self,
         registry: &mut Registry<'r>,
     ) -> Field<'r, DefaultScalarValue> {
         let field_name = self.name.as_str();
-
         let mut field = match &self.typing {
             Type::Bool => registry.field::<&bool>(field_name, &()),
             Type::String => registry.field::<&String>(field_name, &()),
@@ -123,4 +134,35 @@ impl FieldMetadata {
         }
         field
     }
+}
+
+pub fn build_bool_filter_argument<'r>(
+    field_name: &str,
+    suffix: &str,
+    description: &str,
+) -> Argument<'r, DefaultScalarValue> {
+    let filter_name = format!("{}{}", field_name, suffix).to_case(Case::Camel);
+    Argument::new(
+        &filter_name,
+        juniper::Type::Named(std::borrow::Cow::Borrowed("Boolean")),
+    )
+    .description(&format!(
+        "return entities with '{}' {}",
+        field_name, description
+    ))
+}
+
+pub fn build_number_filter_argument<'r>(
+    field_name: &str,
+    filter: &str,
+) -> Argument<'r, DefaultScalarValue> {
+    Argument::new(
+        &filter,
+        juniper::Type::Named(std::borrow::Cow::Borrowed("i128")),
+    )
+    .description(&format!(
+        "Filters in entities with a property '{}' {} a given value",
+        field_name,
+        filter.to_case(Case::Sentence).to_lowercase()
+    ))
 }

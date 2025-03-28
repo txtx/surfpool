@@ -4,11 +4,12 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::types::{schema::DynamicSchemaMetadata, GqlSubgraphDataEntry};
+use crate::types::{schema::DynamicSchemaMetadata, SubgraphSpec};
 
 use convert_case::{Case, Casing};
 use juniper::{
-    meta::MetaType, Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
+    meta::{Argument, MetaType},
+    Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
     GraphQLValueAsync, Registry,
 };
 use serde::{Deserialize, Serialize};
@@ -34,9 +35,16 @@ impl GraphQLType<DefaultScalarValue> for Query {
     {
         let mut fields = vec![];
         fields.push(registry.field::<&String>("apiVersion", &()));
-
         for (name, entry) in spec.entries.iter() {
-            fields.push(registry.field::<&[DynamicSchemaMetadata]>(name, &entry));
+            let filter = Argument::new(
+                "filter",
+                juniper::Type::Named(std::borrow::Cow::Borrowed("SubgraphFilterSpec")),
+            )
+            .description(&format!("Filters in entities matching a set of conditions"));
+            let field = registry
+                .field::<&[DynamicSchemaMetadata]>(name, &entry)
+                .argument(filter);
+            fields.push(field);
         }
         registry
             .build_object_type::<Query>(&spec, &fields)
@@ -49,7 +57,7 @@ pub struct MemoryStore {
     /// A map of subgraph UUIDs to their names
     pub subgraph_name_lookup: Arc<RwLock<BTreeMap<Uuid, String>>>,
     /// A map of subgraph names to their entries
-    pub entries_store: Arc<RwLock<BTreeMap<String, (Uuid, Vec<GqlSubgraphDataEntry>)>>>,
+    pub entries_store: Arc<RwLock<BTreeMap<String, (Uuid, Vec<SubgraphSpec>)>>>,
     // A broadcaster for entry updates
     // pub entries_broadcaster: tokio::sync::broadcast::Sender<SubgraphDataEntryUpdate>,
 }
@@ -70,7 +78,7 @@ impl Dataloader for MemoryStore {
         subgraph_name: &str,
         _executor: &Executor<DataloaderContext>,
         _schema: &DynamicSchemaMetadata,
-    ) -> Result<Vec<GqlSubgraphDataEntry>, FieldError> {
+    ) -> Result<Vec<SubgraphSpec>, FieldError> {
         let subgraph_db = self
             .entries_store
             .read()
@@ -115,7 +123,7 @@ impl Dataloader for MemoryStore {
     fn insert_entry_to_subgraph(
         &self,
         subgraph_name: &str,
-        entry: GqlSubgraphDataEntry,
+        entry: SubgraphSpec,
     ) -> Result<(), String> {
         let mut store = self
             .entries_store
@@ -133,13 +141,13 @@ pub trait Dataloader {
         subgraph_name: &str,
         executor: &Executor<DataloaderContext>,
         schema: &DynamicSchemaMetadata,
-    ) -> Result<Vec<GqlSubgraphDataEntry>, FieldError>;
+    ) -> Result<Vec<SubgraphSpec>, FieldError>;
     fn register_subgraph(&self, subgraph_name: &str, subgraph_uuid: Uuid) -> Result<(), String>;
     fn get_subgraph_name(&self, subgraph_uuid: &Uuid) -> Option<String>;
     fn insert_entry_to_subgraph(
         &self,
         subgraph_name: &str,
-        entry: GqlSubgraphDataEntry,
+        entry: SubgraphSpec,
     ) -> Result<(), String>;
 }
 
