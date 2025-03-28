@@ -1,6 +1,6 @@
 use juniper::{DefaultScalarValue, RootNode};
-use mutation::Mutation;
-use query::{Query, SchemaDataSource};
+use mutation::Immutable;
+use query::{DynamicQuery, SchemaDataSource};
 use subscription::DynamicSubscription;
 
 pub mod mutation;
@@ -8,15 +8,15 @@ pub mod query;
 pub mod subscription;
 pub mod types;
 
-pub type GqlDynamicSchema =
-    RootNode<'static, Query, Mutation, DynamicSubscription, DefaultScalarValue>;
+pub type DynamicSchema =
+    RootNode<'static, DynamicQuery, Immutable, DynamicSubscription, DefaultScalarValue>;
 
-pub fn new_dynamic_schema(subgraph_index: SchemaDataSource) -> GqlDynamicSchema {
-    let schema = GqlDynamicSchema::new_with_info(
-        Query::new(),
-        Mutation,
+pub fn new_dynamic_schema(subgraph_spec: SchemaDataSource) -> DynamicSchema {
+    let schema = DynamicSchema::new_with_info(
+        DynamicQuery,
+        Immutable,
         DynamicSubscription,
-        subgraph_index,
+        subgraph_spec,
         (),
         (),
     );

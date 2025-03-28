@@ -10,7 +10,8 @@ type GqlEntriesStream =
 pub struct DynamicSubscription;
 
 #[graphql_subscription(
-  context = DataloaderContext,
+    name = "Subscription"
+    context = DataloaderContext,
 )]
 impl DynamicSubscription {
     async fn entries_event(_context: &DataloaderContext) -> GqlEntriesStream {

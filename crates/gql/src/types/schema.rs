@@ -1,50 +1,85 @@
 use convert_case::{Case, Casing};
 use juniper::{
-    meta::{Argument, Field, MetaType},
+    meta::{Field, MetaType},
     DefaultScalarValue, GraphQLType, GraphQLValue, Registry,
 };
 use serde::{Deserialize, Serialize};
 use txtx_addon_kit::types::types::Type;
-use txtx_addon_network_svm_types::{subgraph::IndexedSubgraphField, SVM_PUBKEY};
+use txtx_addon_network_svm_types::{
+    subgraph::{IndexedSubgraphField, SubgraphRequest},
+    SVM_PUBKEY,
+};
 use uuid::Uuid;
 
 use crate::query::DataloaderContext;
 
 use super::{
+    filters::SubgraphFilterSpec,
     scalars::{bigint::BigInt, pubkey::PublicKey},
-    SubgraphFilterSpec,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DynamicSchemaMetadata {
+pub struct DynamicSchemaPayload {
     pub name: String,
     pub subgraph_uuid: Uuid,
     pub description: Option<String>,
     pub fields: Vec<FieldMetadata>,
 }
 
-impl DynamicSchemaMetadata {
-    pub fn new(
-        uuid: &Uuid,
-        name: &str,
-        description: &Option<String>,
-        fields: &Vec<IndexedSubgraphField>,
-    ) -> Self {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DynamicSchemaSpec {
+    pub name: String,
+    pub filter: SubgraphFilterSpec,
+    pub subgraph_uuid: Uuid,
+    pub description: Option<String>,
+    pub fields: Vec<FieldMetadata>,
+}
+
+impl DynamicSchemaSpec {
+    pub fn from_request(uuid: &Uuid, request: &SubgraphRequest) -> Self {
+        let name = request.subgraph_name.to_case(Case::Pascal);
+        let fields: Vec<_> = request
+            .fields
+            .iter()
+            .map(|f| FieldMetadata::new(&f))
+            .collect();
         Self {
-            name: name.to_case(Case::Pascal),
+            name: name.clone(),
+            filter: SubgraphFilterSpec {
+                name: format!("{}Filter", name),
+                fields: fields.clone(),
+            },
             subgraph_uuid: uuid.clone(),
-            description: description.clone(),
-            fields: fields.iter().map(|f| FieldMetadata::new(&f)).collect(),
+            description: request.subgraph_description.clone(),
+            fields,
         }
+    }
+
+    pub fn from_payload(payload: &DynamicSchemaPayload) -> Self {
+        let name = payload.name.to_case(Case::Pascal);
+        Self {
+            name: name.clone(),
+            filter: SubgraphFilterSpec {
+                name: format!("{}Filter", name),
+                fields: payload.fields.clone(),
+            },
+            subgraph_uuid: payload.subgraph_uuid.clone(),
+            description: payload.description.clone(),
+            fields: payload.fields.clone(),
+        }
+    }
+
+    pub fn get_name(&self) -> &str {
+        &self.name
     }
 }
 
-impl GraphQLType<DefaultScalarValue> for DynamicSchemaMetadata {
-    fn name(spec: &DynamicSchemaMetadata) -> Option<&str> {
-        Some(spec.name.as_str())
+impl GraphQLType<DefaultScalarValue> for DynamicSchemaSpec {
+    fn name(spec: &DynamicSchemaSpec) -> Option<&str> {
+        Some(spec.get_name())
     }
 
-    fn meta<'r>(spec: &DynamicSchemaMetadata, registry: &mut Registry<'r>) -> MetaType<'r>
+    fn meta<'r>(spec: &DynamicSchemaSpec, registry: &mut Registry<'r>) -> MetaType<'r>
     where
         DefaultScalarValue: 'r,
     {
@@ -61,8 +96,6 @@ impl GraphQLType<DefaultScalarValue> for DynamicSchemaMetadata {
             fields.push(field);
         }
 
-        registry.arg::<SubgraphFilterSpec>("filter", &spec);
-
         let mut object_meta = registry.build_object_type::<Self>(&spec, &fields);
         if let Some(description) = &spec.description {
             object_meta = object_meta.description(description.as_str());
@@ -72,12 +105,12 @@ impl GraphQLType<DefaultScalarValue> for DynamicSchemaMetadata {
     }
 }
 
-impl GraphQLValue<DefaultScalarValue> for DynamicSchemaMetadata {
+impl GraphQLValue<DefaultScalarValue> for DynamicSchemaSpec {
     type Context = DataloaderContext;
-    type TypeInfo = DynamicSchemaMetadata;
+    type TypeInfo = DynamicSchemaSpec;
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
-        <DynamicSchemaMetadata as GraphQLType<DefaultScalarValue>>::name(info)
+        <DynamicSchemaSpec as GraphQLType<DefaultScalarValue>>::name(info)
     }
 }
 
@@ -134,35 +167,4 @@ impl FieldMetadata {
         }
         field
     }
-}
-
-pub fn build_bool_filter_argument<'r>(
-    field_name: &str,
-    suffix: &str,
-    description: &str,
-) -> Argument<'r, DefaultScalarValue> {
-    let filter_name = format!("{}{}", field_name, suffix).to_case(Case::Camel);
-    Argument::new(
-        &filter_name,
-        juniper::Type::Named(std::borrow::Cow::Borrowed("Boolean")),
-    )
-    .description(&format!(
-        "return entities with '{}' {}",
-        field_name, description
-    ))
-}
-
-pub fn build_number_filter_argument<'r>(
-    field_name: &str,
-    filter: &str,
-) -> Argument<'r, DefaultScalarValue> {
-    Argument::new(
-        &filter,
-        juniper::Type::Named(std::borrow::Cow::Borrowed("i128")),
-    )
-    .description(&format!(
-        "Filters in entities with a property '{}' {} a given value",
-        field_name,
-        filter.to_case(Case::Sentence).to_lowercase()
-    ))
 }

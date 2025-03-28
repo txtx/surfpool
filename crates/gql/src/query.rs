@@ -1,30 +1,29 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap},
     pin::Pin,
     sync::{Arc, RwLock},
 };
 
-use crate::types::{schema::DynamicSchemaMetadata, SubgraphSpec};
+use crate::types::{
+    filters::{FieldInfo, NumericFilter, SubgraphFilterSpec},
+    scalars::bigint::BigInt,
+    schema::DynamicSchemaSpec,
+    SubgraphSpec,
+};
 
 use convert_case::{Case, Casing};
 use juniper::{
     meta::{Argument, MetaType},
     Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
-    GraphQLValueAsync, Registry,
+    GraphQLValueAsync, Nullable, Registry, Type,
 };
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug)]
-pub struct Query {}
+pub struct DynamicQuery;
 
-impl Query {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl GraphQLType<DefaultScalarValue> for Query {
+impl GraphQLType<DefaultScalarValue> for DynamicQuery {
     fn name(_spec: &SchemaDataSource) -> Option<&str> {
         Some("Query")
     }
@@ -33,21 +32,22 @@ impl GraphQLType<DefaultScalarValue> for Query {
     where
         DefaultScalarValue: 'r,
     {
+        let _ = registry.get_type::<&BigInt>(&());
+
         let mut fields = vec![];
         fields.push(registry.field::<&String>("apiVersion", &()));
-        for (name, entry) in spec.entries.iter() {
-            let filter = Argument::new(
-                "filter",
-                juniper::Type::Named(std::borrow::Cow::Borrowed("SubgraphFilterSpec")),
-            )
-            .description(&format!("Filters in entities matching a set of conditions"));
+
+        for (name, schema_spec) in spec.entries.iter() {
+            let filter = registry.arg::<Option<SubgraphFilterSpec>>("filter", &schema_spec.filter);
+
             let field = registry
-                .field::<&[DynamicSchemaMetadata]>(name, &entry)
+                .field::<&[DynamicSchemaSpec]>(name, &schema_spec)
                 .argument(filter);
             fields.push(field);
         }
+
         registry
-            .build_object_type::<Query>(&spec, &fields)
+            .build_object_type::<DynamicQuery>(&spec, &fields)
             .into_meta()
     }
 }
@@ -73,11 +73,11 @@ impl MemoryStore {
 }
 
 impl Dataloader for MemoryStore {
-    fn get_entries_for_subgraph(
+    fn fetch_entries_from_subgraph(
         &self,
         subgraph_name: &str,
         _executor: &Executor<DataloaderContext>,
-        _schema: &DynamicSchemaMetadata,
+        _schema: &DynamicSchemaSpec,
     ) -> Result<Vec<SubgraphSpec>, FieldError> {
         let subgraph_db = self
             .entries_store
@@ -136,11 +136,11 @@ impl Dataloader for MemoryStore {
 }
 
 pub trait Dataloader {
-    fn get_entries_for_subgraph(
+    fn fetch_entries_from_subgraph(
         &self,
         subgraph_name: &str,
         executor: &Executor<DataloaderContext>,
-        schema: &DynamicSchemaMetadata,
+        schema: &DynamicSchemaSpec,
     ) -> Result<Vec<SubgraphSpec>, FieldError>;
     fn register_subgraph(&self, subgraph_name: &str, subgraph_uuid: Uuid) -> Result<(), String>;
     fn get_subgraph_name(&self, subgraph_uuid: &Uuid) -> Option<String>;
@@ -155,16 +155,16 @@ pub type DataloaderContext = Box<dyn Dataloader + Sync + Send>;
 
 impl juniper::Context for DataloaderContext {}
 
-impl GraphQLValue<DefaultScalarValue> for Query {
+impl GraphQLValue<DefaultScalarValue> for DynamicQuery {
     type Context = DataloaderContext;
     type TypeInfo = SchemaDataSource;
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
-        <Query as GraphQLType<DefaultScalarValue>>::name(&info)
+        <DynamicQuery as GraphQLType<DefaultScalarValue>>::name(&info)
     }
 }
 
-impl GraphQLValueAsync<DefaultScalarValue> for Query {
+impl GraphQLValueAsync<DefaultScalarValue> for DynamicQuery {
     fn resolve_field_async(
         &self,
         info: &SchemaDataSource,
@@ -179,7 +179,7 @@ impl GraphQLValueAsync<DefaultScalarValue> for Query {
             subgraph_name => {
                 let database = executor.context();
                 if let Some(schema) = info.entries.get(subgraph_name) {
-                    match database.get_entries_for_subgraph(subgraph_name, executor, schema) {
+                    match database.fetch_entries_from_subgraph(subgraph_name, executor, schema) {
                         Ok(entries) => executor.resolve_with_ctx(schema, &entries[..]),
                         Err(e) => Err(e),
                     }
@@ -195,9 +195,9 @@ impl GraphQLValueAsync<DefaultScalarValue> for Query {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct SchemaDataSource {
-    pub entries: HashMap<String, DynamicSchemaMetadata>,
+    pub entries: HashMap<String, DynamicSchemaSpec>,
 }
 
 impl SchemaDataSource {
@@ -207,7 +207,7 @@ impl SchemaDataSource {
         }
     }
 
-    pub fn add_entry(&mut self, entry: DynamicSchemaMetadata) {
+    pub fn add_entry(&mut self, entry: DynamicSchemaSpec) {
         self.entries.insert(entry.name.to_case(Case::Camel), entry);
     }
 }

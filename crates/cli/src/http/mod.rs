@@ -15,9 +15,9 @@ use std::sync::RwLock;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use surfpool_gql::query::{DataloaderContext, MemoryStore, SchemaDataSource};
-use surfpool_gql::types::schema::DynamicSchemaMetadata;
-use surfpool_gql::types::GqlSubgraphDataEntry;
-use surfpool_gql::{new_dynamic_schema, GqlDynamicSchema};
+use surfpool_gql::types::schema::DynamicSchemaSpec;
+use surfpool_gql::types::SubgraphSpec;
+use surfpool_gql::{new_dynamic_schema, DynamicSchema};
 use surfpool_types::{
     SchemaDataSourcingEvent, SubgraphCommand, SubgraphDataEntry, SubgraphEvent, SurfpoolConfig,
 };
@@ -122,7 +122,7 @@ async fn dist(path: web::Path<String>) -> impl Responder {
 async fn post_graphql(
     req: HttpRequest,
     payload: web::Payload,
-    schema: Data<RwLock<Option<GqlDynamicSchema>>>,
+    schema: Data<RwLock<Option<DynamicSchema>>>,
     context: Data<RwLock<DataloaderContext>>,
 ) -> Result<HttpResponse, Error> {
     let context = context
@@ -142,7 +142,7 @@ async fn post_graphql(
 async fn get_graphql(
     req: HttpRequest,
     payload: web::Payload,
-    schema: Data<RwLock<Option<GqlDynamicSchema>>>,
+    schema: Data<RwLock<Option<DynamicSchema>>>,
     context: Data<RwLock<DataloaderContext>>,
 ) -> Result<HttpResponse, Error> {
     let context = context
@@ -162,7 +162,7 @@ async fn get_graphql(
 async fn subscriptions(
     req: HttpRequest,
     stream: web::Payload,
-    schema: Data<GqlDynamicSchema>,
+    schema: Data<DynamicSchema>,
     context: Data<RwLock<DataloaderContext>>,
 ) -> Result<HttpResponse, Error> {
     let context = context
@@ -175,19 +175,19 @@ async fn subscriptions(
 }
 
 async fn graphiql() -> Result<HttpResponse, Error> {
-    graphiql_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
-    // graphiql_handler(
-    //     "http://127.0.0.1:9000/lambda-url/svm-subgraph-gql-api/graphql",
-    //     Some("/gql/v1/subscriptions"),
-    // )
-    // .await
+    // graphiql_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
+    graphiql_handler(
+        "http://127.0.0.1:9000/lambda-url/svm-subgraph-gql-api/graphql",
+        Some("/gql/v1/subscriptions"),
+    )
+    .await
 }
 
 fn start_subgraph_runloop(
     subgraph_events_tx: Sender<SubgraphEvent>,
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     gql_context: Data<RwLock<DataloaderContext>>,
-    gql_schema: Data<RwLock<Option<GqlDynamicSchema>>>,
+    gql_schema: Data<RwLock<Option<DynamicSchema>>>,
     mut schema_datasource: SchemaDataSource,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let handle = hiro_system_kit::thread_named("Subgraph")
@@ -207,27 +207,21 @@ fn start_subgraph_runloop(
                             // todo
                         }
                         Ok(cmd) => match cmd {
-                            SubgraphCommand::CreateSubgraph(uuid, config, sender) => {
+                            SubgraphCommand::CreateSubgraph(uuid, request, sender) => {
                                 let err_ctx = "Failed to create new subgraph";
                                 let mut gql_schema = gql_schema.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql schema")
                                 })?;
-                                let subgraph_uuid = uuid;
-                                let subgraph_name = config.subgraph_name.clone();
-                                let schema = DynamicSchemaMetadata::new(
-                                    &subgraph_uuid,
-                                    &subgraph_name,
-                                    &config.subgraph_description,
-                                    &config.fields,
-                                );
+                                // println!("{}", serde_json::json!(request));
 
-                                schema_datasource.add_entry(schema);
+                                let subgraph_uuid = uuid;
+                                schema_datasource.add_entry(DynamicSchemaSpec::from_request(&uuid, &request));
                                 gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
 
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql context")
                                 })?;
-                                gql_context.register_subgraph(&subgraph_name, subgraph_uuid)?;
+                                gql_context.register_subgraph(&request.subgraph_name, subgraph_uuid)?;
                                 let _ = sender.send("http://127.0.0.1:8900/gql/console".into());
                             }
                             SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
