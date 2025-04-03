@@ -18,13 +18,14 @@ use solana_sdk::{
     commitment_config::CommitmentConfig,
     epoch_info::EpochInfo,
     message::v0::LoadedAddresses,
+    pubkey::Pubkey,
     transaction::{SanitizedTransaction, Transaction},
 };
 use solana_transaction_status::{InnerInstruction, InnerInstructions, TransactionStatusMeta};
 use std::{
     collections::HashSet,
     net::SocketAddr,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, RwLockWriteGuard},
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
 };
@@ -231,6 +232,16 @@ pub async fn start(
             transaction.verify_with_results();
             let transaction = transaction.into_legacy_transaction().unwrap();
             let message = &transaction.message;
+
+            let accounts = message.account_keys.clone();
+            for account_pubkey in accounts.iter() {
+                match insert_account_from_remote(&mut ctx, account_pubkey, &rpc_client).await {
+                    Ok(Some(event)) | Err(event) => {
+                        let _ = simnet_events_tx.try_send(event);
+                    }
+                    Ok(None) => {}
+                }
+            }
 
             for instruction in &message.instructions {
                 // The Transaction may not be sanitized at this point
@@ -583,4 +594,38 @@ fn start_rpc_server_thread(
         })
         .map_err(|e| format!("Failed to spawn RPC Handler thread: {:?}", e))?;
     Ok((plugin_manager_commands_rx, _handle))
+}
+
+async fn insert_account_from_remote(
+    ctx: &mut RwLockWriteGuard<'_, GlobalState>,
+    account_pubkey: &Pubkey,
+    rpc: &RpcClient,
+) -> Result<Option<SimnetEvent>, SimnetEvent> {
+    if ctx.svm.get_account(&account_pubkey).is_none() {
+        let res = rpc
+            .get_account_with_commitment(&account_pubkey, CommitmentConfig::default())
+            .await;
+        match res {
+            Ok(res) => match res.value {
+                Some(account) => {
+                    println!("inserting account from mainnet: {:?}", account);
+                    let _ = ctx.svm.set_account(*account_pubkey, account);
+                    return Ok(Some(SimnetEvent::AccountUpdate(
+                        Local::now(),
+                        account_pubkey.clone(),
+                    )));
+                }
+                None => return Ok(None),
+            },
+            Err(e) => {
+                return Err(SimnetEvent::error(format!(
+                    "unable to retrieve account: {}",
+                    e
+                )));
+            }
+        }
+    } else {
+        println!("account already exists: {:?}", account_pubkey);
+    }
+    Ok(None)
 }
