@@ -14,6 +14,7 @@ pub mod admin;
 pub mod bank_data;
 pub mod full;
 pub mod minimal;
+pub mod svm_tricks;
 pub mod utils;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
