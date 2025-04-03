@@ -14,7 +14,10 @@ use solana_client::{
 };
 use solana_runtime::verify_precompiles::verify_precompiles;
 use solana_sdk::{
-    hash::Hash, packet::PACKET_DATA_SIZE, pubkey::Pubkey, signature::Signature,
+    hash::Hash,
+    packet::PACKET_DATA_SIZE,
+    pubkey::{ParsePubkeyError, Pubkey},
+    signature::Signature,
     transaction::SanitizedTransaction,
 };
 use solana_transaction_status::{
@@ -71,9 +74,9 @@ fn verify_filter(input: &RpcFilterType) -> Result<()> {
 }
 
 pub fn verify_pubkey(input: &str) -> Result<Pubkey> {
-    input
-        .parse()
-        .map_err(|e| Error::invalid_params(format!("Invalid param: {e:?}")))
+    input.parse().map_err(|e: ParsePubkeyError| {
+        Error::invalid_params(format!("Invalid Pubkey: {}", e.to_string()))
+    })
 }
 
 fn verify_hash(input: &str) -> Result<Hash> {

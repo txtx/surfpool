@@ -19,10 +19,10 @@ pub struct AccountUpdate {
     /// providing this value sets the lamports in the account
     pub lamports: Option<u64>,
     /// providing this value sets the data held in this account
-    #[cfg_attr(serde, with = "serde_bytes")]
+    #[serde(with = "serde_bytes")]
     pub data: Option<Vec<u8>>,
     ///  providing this value sets the program that owns this account. If executable, the program that loads this account.
-    pub owner: Option<Pubkey>,
+    pub owner: Option<String>,
     /// providing this value sets whether this account's data contains a loaded program (and is now read-only)
     pub executable: Option<bool>,
     /// providing this value sets the epoch at which this account will next owe rent
@@ -38,26 +38,28 @@ impl AccountUpdate {
             && self.data.is_some()
     }
     /// Convert the update to an account if all fields are provided
-    pub fn to_account(&self) -> Option<Account> {
+    pub fn to_account(&self) -> Result<Option<Account>> {
         if self.is_full_account_data() {
-            Some(Account {
+            Ok(Some(Account {
                 lamports: self.lamports.unwrap(),
-                owner: self.owner.unwrap(),
+                owner: verify_pubkey(&self.owner.clone().unwrap())
+                    .map_err(|e| Error::invalid_params(format!("Invalid owner: {}", e.message)))?,
                 executable: self.executable.unwrap(),
                 rent_epoch: self.rent_epoch.unwrap(),
                 data: self.data.clone().unwrap(),
-            })
+            }))
         } else {
-            None
+            Ok(None)
         }
     }
     /// Apply the update to the account
-    pub fn apply(self, account: &mut Account) {
+    pub fn apply(self, account: &mut Account) -> Result<()> {
         if let Some(lamports) = self.lamports {
             account.lamports = lamports;
         }
         if let Some(owner) = self.owner {
-            account.owner = owner;
+            account.owner = verify_pubkey(&owner)
+                .map_err(|e| Error::invalid_params(format!("Invalid owner: {}", e.message)))?;
         }
         if let Some(executable) = self.executable {
             account.executable = executable;
@@ -68,14 +70,15 @@ impl AccountUpdate {
         if let Some(data) = &self.data {
             account.data = data.clone();
         }
+        Ok(())
     }
 }
 
 #[rpc]
-pub trait CustomRpc {
+pub trait SvmTricksRpc {
     type Metadata;
 
-    #[rpc(meta, name = "surfpool_setAccount")]
+    #[rpc(meta, name = "svm_setAccount")]
     fn set_account(
         &self,
         meta: Self::Metadata,
@@ -89,17 +92,16 @@ pub fn write_account(
     pubkey: Pubkey,
     account: Account,
 ) -> std::result::Result<(), String> {
-    println!("writing pubkey {pubkey:?} with account {account:?}");
     let mut state_reader = meta.get_state_mut().map_err(|e| e.to_string())?;
     state_reader
         .svm
         .set_account(pubkey, account.clone())
-        .map_err(|err| format!("failed to save fetched account {pubkey:?}: {err:?}"))?;
+        .map_err(|err| format!("failed to save fetched account '{pubkey:?}': {err:?}"))?;
     Ok(())
 }
 
-pub struct SurfpoolCustomRpc;
-impl CustomRpc for SurfpoolCustomRpc {
+pub struct SurfpoolSvmTricksRpc;
+impl SvmTricksRpc for SurfpoolSvmTricksRpc {
     type Metadata = Option<RunloopContext>;
 
     fn set_account(
@@ -108,7 +110,6 @@ impl CustomRpc for SurfpoolCustomRpc {
         pubkey_str: String,
         update: AccountUpdate,
     ) -> BoxFuture<Result<RpcResponse<()>>> {
-        println!("set_account called with pubkey {pubkey_str:?} and update {update:?}");
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
             Err(e) => return Box::pin(future::err(e)),
@@ -123,7 +124,11 @@ impl CustomRpc for SurfpoolCustomRpc {
         let rpc_client = state_reader.rpc_client.clone();
         drop(state_reader);
 
-        if let Some(account) = update.to_account() {
+        let full_account_update = match update.to_account() {
+            Err(e) => return Box::pin(future::err(e)),
+            Ok(res) => res,
+        };
+        if let Some(account) = full_account_update {
             return match write_account(meta, pubkey, account).map_err(|e| Error::invalid_params(e))
             {
                 Ok(_) => Box::pin(future::ok(RpcResponse {
@@ -146,7 +151,9 @@ impl CustomRpc for SurfpoolCustomRpc {
                         }
                     }
                 };
-                update.apply(&mut account);
+                if let Err(e) = update.apply(&mut account) {
+                    return Err(e);
+                };
                 return match write_account(meta, pubkey, account)
                     .map_err(|e| Error::invalid_params(e))
                 {
@@ -158,7 +165,5 @@ impl CustomRpc for SurfpoolCustomRpc {
                 };
             });
         }
-
-        // not_implemented_err_async()
     }
 }
