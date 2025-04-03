@@ -608,7 +608,6 @@ async fn insert_account_from_remote(
         match res {
             Ok(res) => match res.value {
                 Some(account) => {
-                    println!("inserting account from mainnet: {:?}", account);
                     let _ = ctx.svm.set_account(*account_pubkey, account);
                     return Ok(Some(SimnetEvent::AccountUpdate(
                         Local::now(),
@@ -624,8 +623,6 @@ async fn insert_account_from_remote(
                 )));
             }
         }
-    } else {
-        println!("account already exists: {:?}", account_pubkey);
     }
     Ok(None)
 }
