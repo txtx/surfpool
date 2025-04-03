@@ -18,13 +18,14 @@ use solana_sdk::{
     commitment_config::CommitmentConfig,
     epoch_info::EpochInfo,
     message::v0::LoadedAddresses,
+    pubkey::Pubkey,
     transaction::{SanitizedTransaction, Transaction},
 };
 use solana_transaction_status::{InnerInstruction, InnerInstructions, TransactionStatusMeta};
 use std::{
     collections::HashSet,
     net::SocketAddr,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, RwLockWriteGuard},
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
 };
@@ -232,31 +233,19 @@ pub async fn start(
             let transaction = transaction.into_legacy_transaction().unwrap();
             let message = &transaction.message;
 
-            for instruction in &message.instructions {
-                // The Transaction may not be sanitized at this point
-                if instruction.program_id_index as usize >= message.account_keys.len() {
-                    unreachable!();
-                }
-                let program_id = &message.account_keys[instruction.program_id_index as usize];
-                if ctx.svm.get_account(&program_id).is_none() {
-                    let res = rpc_client
-                        .get_account_with_commitment(&program_id, CommitmentConfig::default())
-                        .await;
-                    if let Some(event) = match res {
-                        Ok(res) => match res.value {
-                            Some(account) => {
-                                let _ = ctx.svm.set_account(*program_id, account);
-                                Some(SimnetEvent::AccountUpdate(Local::now(), program_id.clone()))
-                            }
-                            None => None,
-                        },
-                        Err(e) => {
-                            SimnetEvent::error(format!("unable to retrieve account: {}", e));
-                            None
-                        }
-                    } {
+            let accounts = message.account_keys.clone();
+            for account_pubkey in accounts.iter() {
+                match insert_account_from_remote_if_not_in_local(
+                    &mut ctx,
+                    account_pubkey,
+                    &rpc_client,
+                )
+                .await
+                {
+                    Ok(Some(event)) | Err(event) => {
                         let _ = simnet_events_tx.try_send(event);
                     }
+                    Ok(None) => {}
                 }
             }
 
@@ -583,4 +572,35 @@ fn start_rpc_server_thread(
         })
         .map_err(|e| format!("Failed to spawn RPC Handler thread: {:?}", e))?;
     Ok((plugin_manager_commands_rx, _handle))
+}
+
+async fn insert_account_from_remote_if_not_in_local(
+    ctx: &mut RwLockWriteGuard<'_, GlobalState>,
+    account_pubkey: &Pubkey,
+    rpc: &RpcClient,
+) -> Result<Option<SimnetEvent>, SimnetEvent> {
+    if ctx.svm.get_account(&account_pubkey).is_none() {
+        let res = rpc
+            .get_account_with_commitment(&account_pubkey, CommitmentConfig::default())
+            .await;
+        match res {
+            Ok(res) => match res.value {
+                Some(account) => {
+                    let _ = ctx.svm.set_account(*account_pubkey, account);
+                    return Ok(Some(SimnetEvent::AccountUpdate(
+                        Local::now(),
+                        account_pubkey.clone(),
+                    )));
+                }
+                None => return Ok(None),
+            },
+            Err(e) => {
+                return Err(SimnetEvent::error(format!(
+                    "unable to retrieve account: {}",
+                    e
+                )));
+            }
+        }
+    }
+    Ok(None)
 }
