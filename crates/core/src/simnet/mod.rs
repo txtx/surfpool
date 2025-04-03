@@ -248,27 +248,6 @@ pub async fn start(
                 if instruction.program_id_index as usize >= message.account_keys.len() {
                     unreachable!();
                 }
-                let program_id = &message.account_keys[instruction.program_id_index as usize];
-                if ctx.svm.get_account(&program_id).is_none() {
-                    let res = rpc_client
-                        .get_account_with_commitment(&program_id, CommitmentConfig::default())
-                        .await;
-                    if let Some(event) = match res {
-                        Ok(res) => match res.value {
-                            Some(account) => {
-                                let _ = ctx.svm.set_account(*program_id, account);
-                                Some(SimnetEvent::AccountUpdate(Local::now(), program_id.clone()))
-                            }
-                            None => None,
-                        },
-                        Err(e) => {
-                            SimnetEvent::error(format!("unable to retrieve account: {}", e));
-                            None
-                        }
-                    } {
-                        let _ = simnet_events_tx.try_send(event);
-                    }
-                }
             }
 
             if !skip_preflight {
