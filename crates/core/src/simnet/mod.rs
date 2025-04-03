@@ -235,7 +235,13 @@ pub async fn start(
 
             let accounts = message.account_keys.clone();
             for account_pubkey in accounts.iter() {
-                match insert_account_from_remote(&mut ctx, account_pubkey, &rpc_client).await {
+                match insert_account_from_remote_if_not_in_local(
+                    &mut ctx,
+                    account_pubkey,
+                    &rpc_client,
+                )
+                .await
+                {
                     Ok(Some(event)) | Err(event) => {
                         let _ = simnet_events_tx.try_send(event);
                     }
@@ -575,7 +581,7 @@ fn start_rpc_server_thread(
     Ok((plugin_manager_commands_rx, _handle))
 }
 
-async fn insert_account_from_remote(
+async fn insert_account_from_remote_if_not_in_local(
     ctx: &mut RwLockWriteGuard<'_, GlobalState>,
     account_pubkey: &Pubkey,
     rpc: &RpcClient,
