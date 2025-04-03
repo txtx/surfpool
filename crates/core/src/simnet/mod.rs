@@ -249,13 +249,6 @@ pub async fn start(
                 }
             }
 
-            for instruction in &message.instructions {
-                // The Transaction may not be sanitized at this point
-                if instruction.program_id_index as usize >= message.account_keys.len() {
-                    unreachable!();
-                }
-            }
-
             if !skip_preflight {
                 let (meta, err) = match ctx.svm.simulate_transaction(transaction.clone()) {
                     Ok(res) => {
