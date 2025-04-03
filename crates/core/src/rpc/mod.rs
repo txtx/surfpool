@@ -12,6 +12,7 @@ pub mod accounts_data;
 pub mod accounts_scan;
 pub mod admin;
 pub mod bank_data;
+pub mod custom;
 pub mod full;
 pub mod minimal;
 pub mod utils;
