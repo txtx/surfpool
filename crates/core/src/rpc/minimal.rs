@@ -17,6 +17,7 @@ use solana_sdk::{
     clock::{Clock, Slot},
     epoch_info::EpochInfo,
 };
+use solana_version::Version;
 
 #[rpc]
 pub trait Minimal {
