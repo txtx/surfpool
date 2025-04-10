@@ -76,7 +76,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
     fn notify_transaction(
         &self,
         transaction: ReplicaTransactionInfoVersions,
-        _slot: Slot,
+        slot: Slot,
     ) -> PluginResult<()> {
         let Ok(tx) = self.subgraph_indexing_event_tx.lock() else {
             return Ok(());
@@ -86,7 +86,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
             return Ok(());
         };
         let mut entries = HashMap::new();
-        match transaction {
+        let tx_hash = match transaction {
             ReplicaTransactionInfoVersions::V0_0_2(data) => {
                 if data.is_vote {
                     return Ok(());
@@ -137,12 +137,20 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                         }
                     }
                 }
+                data.transaction.message_hash()
             }
-            ReplicaTransactionInfoVersions::V0_0_1(_) => {}
-        }
+            ReplicaTransactionInfoVersions::V0_0_1(_) => {
+                todo!()
+            }
+        };
         if !entries.is_empty() {
             let data = serde_json::to_vec(&entries).unwrap();
-            let _ = tx.send(SchemaDataSourcingEvent::ApplyEntry(self.uuid, data));
+            let _ = tx.send(SchemaDataSourcingEvent::ApplyEntry(
+                self.uuid,
+                data,
+                slot,
+                tx_hash.to_string(),
+            ));
         }
         Ok(())
     }
