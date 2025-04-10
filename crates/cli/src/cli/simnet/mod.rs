@@ -21,10 +21,9 @@ use notify::{
     event::{CreateKind, DataChange, ModifyKind},
     Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
 };
-use surfpool_core::{
-    solana_sdk::{signature::Keypair, signer::Signer},
-    start_simnet,
-};
+use solana_keypair::Keypair;
+use solana_signer::Signer;
+use surfpool_core::start_simnet;
 use surfpool_types::{SimnetEvent, SubgraphEvent};
 use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,

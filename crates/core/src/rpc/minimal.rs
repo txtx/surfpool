@@ -12,11 +12,9 @@ use solana_client::{
         RpcVoteAccountStatus,
     },
 };
+use solana_clock::{Clock, Slot};
+use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{
-    clock::{Clock, Slot},
-    epoch_info::EpochInfo,
-};
 
 #[rpc]
 pub trait Minimal {
