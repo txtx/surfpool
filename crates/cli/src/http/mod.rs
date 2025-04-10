@@ -253,7 +253,7 @@ fn start_subgraph_runloop(
                         Ok(cmd) => match cmd {
                             SchemaDataSourcingEvent::ApplyEntry(
                                 uuid,
-                                values, 
+                                values,
                                 slot,
                                 tx_hash
                             ) => {
