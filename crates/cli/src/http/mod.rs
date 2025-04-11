@@ -253,7 +253,9 @@ fn start_subgraph_runloop(
                         Ok(cmd) => match cmd {
                             SchemaDataSourcingEvent::ApplyEntry(
                                 uuid,
-                                values, /* , request, slot*/
+                                values,
+                                slot,
+                                tx_hash
                             ) => {
                                 let err_ctx = "Failed to apply new database entry to subgraph";
                                 let gql_context = gql_context.write().map_err(|_| {
@@ -274,7 +276,7 @@ fn start_subgraph_runloop(
                                 let values: HashMap<String, Value> = serde_json::from_slice(values.as_slice()).map_err(|e| {
                                     format!("{err_ctx}: Failed to deserialize new database entry for subgraph {}: {}", subgraph_name, e)
                                 })?;
-                                entries.push(GqlSubgraphDataEntry(SubgraphDataEntry::new(values)));
+                                entries.push(GqlSubgraphDataEntry(SubgraphDataEntry::new(values, slot, tx_hash)));
                             }
                             SchemaDataSourcingEvent::Rountrip(_uuid) => {}
                         },
