@@ -14,10 +14,8 @@ path = "src/lib.rs"
 
 [dependencies]
 crossbeam-channel = "0.5.14"
-log = "0.4.22"
 serde = { workspace = true }
 serde_derive = { workspace = true } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
-serde_json = { workspace = true }
 chrono = "0.4"
 solana-pubkey = { workspace = true }
 solana-clock = { workspace = true }

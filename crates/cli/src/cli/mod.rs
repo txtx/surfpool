@@ -1,10 +1,10 @@
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use clap_complete::{Generator, Shell};
 use hiro_system_kit::{self, Logger};
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::{EncodableKey, Signer};
 use std::{fs::File, path::PathBuf, process, str::FromStr};
-use surfpool_core::solana_sdk::pubkey::Pubkey;
-use surfpool_core::solana_sdk::signature::Keypair;
-use surfpool_core::solana_sdk::signer::{EncodableKey, Signer};
 use surfpool_types::{RpcConfig, SimnetConfig, SubgraphConfig, SurfpoolConfig};
 
 use crate::runbook::handle_execute_runbook_command;

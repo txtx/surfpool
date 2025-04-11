@@ -1,11 +1,10 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use litesvm::LiteSVM;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
-use solana_sdk::{
-    epoch_info::EpochInfo,
-    signature::Signature,
-    transaction::{Transaction, TransactionError, TransactionVersion},
-};
+use solana_epoch_info::EpochInfo;
+use solana_signature::Signature;
+use solana_transaction::{versioned::TransactionVersion, Transaction};
+use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionConfirmationStatus,
@@ -155,7 +154,7 @@ impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMe
                     compute_units_consumed: OptionSerializer::Some(meta.compute_units_consumed),
                 }),
                 version: Some(TransactionVersion::Legacy(
-                    solana_sdk::transaction::Legacy::Legacy,
+                    solana_transaction::versioned::Legacy::Legacy,
                 )),
             },
             block_time: SystemTime::now()

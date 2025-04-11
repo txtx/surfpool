@@ -10,15 +10,17 @@ use ratatui::{
     style::palette::{self, tailwind},
     widgets::*,
 };
+use solana_clock::Clock;
+use solana_commitment_config::CommitmentConfig;
+use solana_epoch_info::EpochInfo;
+use solana_keypair::Keypair;
+use solana_message::Message;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
+use solana_system_interface::instruction as system_instruction;
+use solana_transaction::Transaction;
 use std::{collections::VecDeque, error::Error, io, time::Duration};
-use surfpool_core::{
-    solana_rpc_client::rpc_client::RpcClient,
-    solana_sdk::{
-        clock::Clock, commitment_config::CommitmentConfig, epoch_info::EpochInfo, message::Message,
-        pubkey::Pubkey, signature::Keypair, signer::Signer, system_instruction,
-        transaction::Transaction,
-    },
-};
+use surfpool_core::solana_rpc_client::rpc_client::RpcClient;
 use surfpool_types::{ClockCommand, RunloopTriggerMode, SimnetCommand, SimnetEvent};
 use txtx_core::kit::types::frontend::BlockEvent;
 use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};

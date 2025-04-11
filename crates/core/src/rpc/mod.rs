@@ -5,8 +5,9 @@ use jsonrpc_core::{
     futures::future::Either, middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware,
     Request, Response,
 };
+use solana_blake3_hasher::Hash;
 use solana_client::rpc_custom_error::RpcCustomError;
-use solana_sdk::{blake3::Hash, clock::Slot};
+use solana_clock::Slot;
 
 pub mod accounts_data;
 pub mod accounts_scan;

@@ -12,14 +12,12 @@ use solana_client::{
     rpc_filter::RpcFilterType,
     rpc_request::{TokenAccountsFilter, MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT},
 };
+use solana_hash::Hash;
+use solana_packet::PACKET_DATA_SIZE;
+use solana_pubkey::{ParsePubkeyError, Pubkey};
 use solana_runtime::verify_precompiles::verify_precompiles;
-use solana_sdk::{
-    hash::Hash,
-    packet::PACKET_DATA_SIZE,
-    pubkey::{ParsePubkeyError, Pubkey},
-    signature::Signature,
-    transaction::SanitizedTransaction,
-};
+use solana_signature::Signature;
+use solana_transaction::sanitized::SanitizedTransaction;
 use solana_transaction_status::{
     InnerInstruction, InnerInstructions, TransactionBinaryEncoding, UiInnerInstructions,
 };

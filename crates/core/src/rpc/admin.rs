@@ -3,7 +3,7 @@ use jsonrpc_core::BoxFuture;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_client::rpc_config::RpcAccountIndex;
-use solana_sdk::pubkey::Pubkey;
+use solana_pubkey::Pubkey;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
