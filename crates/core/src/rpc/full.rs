@@ -31,12 +31,14 @@ use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{Keypair, Signature};
 use solana_sdk::signer::Signer;
 use solana_sdk::system_instruction;
+use solana_sdk::sysvar::rewards::Rewards;
 use solana_sdk::transaction::{Transaction, VersionedTransaction};
 use solana_sdk::{account::Account, clock::UnixTimestamp};
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
+    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock, UiTransactionStatusMeta,
 };
 use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
+use std::collections::HashMap;
 use std::str::FromStr;
 use surfpool_types::{TransactionConfirmationStatus, TransactionStatusEvent};
 
@@ -574,19 +576,59 @@ impl Full for SurfpoolFullRpc {
 
     fn get_block(
         &self,
-        _meta: Self::Metadata,
-        _slot: Slot,
-        _config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
+        meta: Self::Metadata,
+        slot: Slot,
+        config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
-        Box::pin(async { Ok(None) })
+        let config = config
+            .map(|c| match c {
+                RpcEncodingConfigWrapper::Deprecated(encoding) => RpcBlockConfig {
+                    encoding,
+                    ..RpcBlockConfig::default()
+                },
+                RpcEncodingConfigWrapper::Current(None) => RpcBlockConfig::default(),
+                RpcEncodingConfigWrapper::Current(Some(c)) => c,
+            })
+            .unwrap_or_default();
+
+        let state_reader = match meta.get_state() {
+            Ok(res) => res,
+            Err(err) => return Box::pin(future::err(err.into())),
+        };
+
+        let rpc_client = state_reader.rpc_client.clone();
+
+        Box::pin(async move {
+            let ui_confirmed_block: UiConfirmedBlock = rpc_client
+                .get_block_with_config(slot, config)
+                .await
+                .map_err(|err| {
+                    Error::invalid_params(format!("failed to get block with config: {err:?}"))
+                })?;
+
+            Ok(Some(ui_confirmed_block))
+        })
     }
 
     fn get_block_time(
         &self,
-        _meta: Self::Metadata,
-        _slot: Slot,
+        meta: Self::Metadata,
+        slot: Slot,
     ) -> BoxFuture<Result<Option<UnixTimestamp>>> {
-        Box::pin(async { Ok(None) })
+        let state_reader = match meta.get_state() {
+            Ok(res) => res,
+            Err(err) => return Box::pin(future::err(err.into())),
+        };
+
+        let rpc_client = state_reader.rpc_client.clone();
+
+        Box::pin(async move {
+            let response = match rpc_client.get_block_time(slot).await {
+                Ok(res) => return Ok(Some(res)),
+                Err(_res) => Ok(None),
+            };
+            response
+        })
     }
 
     fn get_blocks(
@@ -678,8 +720,21 @@ impl Full for SurfpoolFullRpc {
         not_implemented_err_async()
     }
 
-    fn get_first_available_block(&self, _meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
-        Box::pin(async move { Ok(1) })
+    fn get_first_available_block(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
+        let state_reader = match meta.get_state() {
+            Ok(res) => res,
+            Err(e) => return Box::pin(future::err(e.into())),
+        };
+
+        let rpc_client = state_reader.rpc_client.clone();
+
+        Box::pin(async move {
+            let response = rpc_client.get_first_available_block().await.map_err(|err| {
+                Error::invalid_params(format!("failed to get first available block: {err:?}"))
+            });
+
+            response
+        })
     }
 
     fn get_latest_blockhash(
@@ -1024,11 +1079,89 @@ mod tests {
         let setup = TestSetup::new(SurfpoolFullRpc);
         let res = setup
             .rpc
-            .get_block(Some(setup.context), 0, None)
+            .get_block(Some(setup.context), 2050, None)
             .await
             .unwrap();
 
-        assert_eq!(res, None);
+        let expected_response = UiConfirmedBlock {
+            previous_blockhash: "Qtzp4zTxakbeAS5EhdetTwWHjw68Fc5jifih193qpgA".to_string(),
+            blockhash: "2zudA7u9KW1ui4SUvgsmKtBjd2BG9FaKnM4no3v3TMtq".to_string(),
+            parent_slot: 2049,
+            transactions: Some(vec![
+                EncodedTransactionWithStatusMeta {
+                    transaction: EncodedTransaction::Json(UiTransaction {
+                        signatures: vec![
+                            "4S5tqrxM6kz512oqnJsSuPxukysu7tnASNfTsnJwstkTpXn9UghC8aseL3ACXeTGrcXv9qjsZ5YrKJJDBw2xNrdc".to_string(),
+                            "342x9ChMf6qMezRnMxar7ni8sjwx5DWGCWqNzy48LhkMjK2MX2ku4kzGEuQXkNyEeBxqBAB8r3yT4q2sjTg1YeEi".to_string(),
+                        ],
+                        message: UiRawMessage {
+                            header: MessageHeader {
+                                num_required_signatures: 2,
+                                num_readonly_signed_accounts: 0,
+                                num_readonly_unsigned_accounts: 1,
+                            },
+                            account_keys: vec![
+                                "CUuRJSPP2AnmqE8y9rUbCLpZediJSdFepwfRUEYSm9uu".to_string(),
+                                "8BnsY4kLk9bUPN5bp2tCDQho58XgAPyRc8HBMeTgwZKg".to_string(),
+                                "Vote111111111111111111111111111111111111111".to_string(),
+                            ],
+                            recent_blockhash: "Qtzp4zTxakbeAS5EhdetTwWHjw68Fc5jifih193qpgA".to_string(),
+                            instructions: vec![
+                                UiCompiledInstruction {
+                                    program_id_index: 2,
+                                    accounts: vec![1, 1],
+                                    data: "Fk63Q3k4uDVSxLsQby8asxmMAGGG4vjACk4SmRAQuECntTPvNzCYEai7gyU7A87XGecXdhWjBpVjJHiZuAsRMmtVzoyitXWtA1zL5Uu6LfS16dZdifyfeX5CPGYB7UXXCKnqFY2sA8FgG3GWCwRyDuCm8yF1wu".to_string(),
+                                    stack_height: None,
+                                }
+                            ],
+                            address_table_lookups: None,
+                        },
+                    }),
+                    meta: Some(UiTransactionStatusMeta {
+                        err: None,
+                        status: Some("Ok".to_string()),
+                        fee: 10000,
+                        pre_balances: vec![499989805000, 1000000000000000, 1],
+                        post_balances: vec![499989795000, 1000000000000000, 1],
+                        inner_instructions: Some(vec![]),
+                        log_messages: Some(vec![
+                            "Program Vote111111111111111111111111111111111111111 invoke [1]".to_string(),
+                            "Program Vote111111111111111111111111111111111111111 success".to_string(),
+                        ]),
+                        pre_token_balances: Some(vec![]),
+                        post_token_balances: Some(vec![]),
+                        rewards: Some(vec![
+                            Reward {
+                                pubkey: "CUuRJSPP2AnmqE8y9rUbCLpZediJSdFepwfRUEYSm9uu".to_string(),
+                                lamports: 5000,
+                                post_balance: 499989800000,
+                                reward_type: Some("Fee".to_string()),
+                                commission: None,
+                            }
+                        ]),
+                        loaded_addresses: Some(UiLoadedAddresses {
+                            writable: vec![],
+                            readonly: vec![],
+                        }),
+                        return_data: "Skip".to_string(),
+                        compute_units_consumed: Some(2100),
+                    }),
+                    version: None,
+                },
+            ]),
+            signatures: None,
+            rewards: Some(Rewards {
+                total_rewards: 5000,
+                accounts: HashMap::from([
+                    ("CUuRJSPP2AnmqE8y9rUbCLpZediJSdFepwfRUEYSm9uu".to_string(), 5000),
+                ]),
+            }),
+            num_reward_partitions: None,
+            block_time: Some(1742329096),
+            block_height: Some(2046),
+        };
+        println!("this is the block {:#?}", res.unwrap()); //works
+        assert_eq!(res, expected_response);
     }
 
     #[tokio::test]
@@ -1039,8 +1172,8 @@ mod tests {
             .get_block_time(Some(setup.context), 0)
             .await
             .unwrap();
-
-        assert_eq!(res, None);
+        println!("this is the block time {}", res.unwrap()); //works
+        assert_eq!(res, Some(1742327046));
     }
 
     #[tokio::test]
@@ -1118,8 +1251,8 @@ mod tests {
             .get_first_available_block(Some(setup.context))
             .await
             .unwrap();
-
-        assert_eq!(res, 1);
+        println!("this is the first available_block {}", res); //works
+        assert_eq!(res, 0);
     }
 
     #[test]
