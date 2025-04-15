@@ -6111,9 +6111,9 @@ dependencies = [
 
 [[package]]
 name = "serde_bytes"
-version = "0.11.15"
+version = "0.11.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "387cc504cb06bb40a96c8e04e951fe01854cf6bc921053c954e4a606d9675c6a"
+checksum = "8437fd221bde2d4ca316d61b90e337e9e702b3820b87d63caa9ba6c02bd06d96"
 dependencies = [
  "serde",
 ]
@@ -10144,7 +10144,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "surfpool-cli"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -10188,7 +10188,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-core"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "agave-geyser-plugin-interface",
  "base64 0.22.1",
@@ -10212,6 +10212,7 @@ dependencies = [
  "log 0.4.25",
  "regex",
  "serde",
+ "serde_bytes",
  "serde_derive",
  "serde_json",
  "solana-account",
@@ -10255,7 +10256,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-gql"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "async-stream",
  "convert_case 0.8.0",
@@ -10275,7 +10276,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-subgraph"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "agave-geyser-plugin-interface",
  "bincode",
@@ -10292,7 +10293,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-types"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "chrono",
  "crossbeam-channel",

@@ -90,6 +90,16 @@ impl GraphQLType<DefaultScalarValue> for DynamicSchemaSpec {
                 .field::<&Uuid>("uuid", &())
                 .description("The entry's UUID"),
         );
+        fields.push(
+            registry
+                .field::<&Uuid>("slot", &())
+                .description("The slot that the entry was processed in"),
+        );
+        fields.push(
+            registry
+                .field::<&Uuid>("transaction_hash", &())
+                .description("The hash of the transaction that created this entry"),
+        );
 
         for field_metadata in spec.fields.iter() {
             let field = field_metadata.register_as_scalar(registry);
