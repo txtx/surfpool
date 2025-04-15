@@ -1,22 +1,17 @@
 use std::{
-    borrow::Cow,
     collections::{BTreeMap, HashMap},
     pin::Pin,
     sync::{Arc, RwLock},
 };
 
 use crate::types::{
-    filters::{FieldInfo, NumericFilter, SubgraphFilterSpec},
-    scalars::bigint::BigInt,
-    schema::DynamicSchemaSpec,
-    SubgraphSpec,
+    filters::SubgraphFilterSpec, scalars::bigint::BigInt, schema::DynamicSchemaSpec, SubgraphSpec,
 };
 
 use convert_case::{Case, Casing};
 use juniper::{
-    meta::{Argument, MetaType},
-    Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
-    GraphQLValueAsync, Nullable, Registry, Type,
+    meta::MetaType, Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
+    GraphQLValueAsync, Registry,
 };
 use uuid::Uuid;
 
@@ -38,14 +33,12 @@ impl GraphQLType<DefaultScalarValue> for DynamicQuery {
         fields.push(registry.field::<&String>("apiVersion", &()));
 
         for (name, schema_spec) in spec.entries.iter() {
-            let filter = registry.arg::<Option<SubgraphFilterSpec>>("filter", &schema_spec.filter);
-
+            let filter = registry.arg::<Option<SubgraphFilterSpec>>("where", &schema_spec.filter);
             let field = registry
                 .field::<&[DynamicSchemaSpec]>(name, &schema_spec)
                 .argument(filter);
             fields.push(field);
         }
-
         registry
             .build_object_type::<DynamicQuery>(&spec, &fields)
             .into_meta()

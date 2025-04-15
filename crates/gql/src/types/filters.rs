@@ -2,10 +2,9 @@ use convert_case::{Case, Casing};
 use juniper::{
     meta::{Argument, EnumValue, MetaType},
     DefaultScalarValue, FieldError, FromInputValue, GraphQLType, GraphQLValue, InputValue,
-    Nullable, Registry, ToInputValue,
+    Registry,
 };
 use serde::{Deserialize, Serialize};
-use txtx_addon_kit::hcl::expr::Null;
 
 use crate::query::DataloaderContext;
 

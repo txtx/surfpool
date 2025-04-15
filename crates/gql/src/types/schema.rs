@@ -92,12 +92,12 @@ impl GraphQLType<DefaultScalarValue> for DynamicSchemaSpec {
         );
         fields.push(
             registry
-                .field::<&Uuid>("slot", &())
-                .description("The slot that the entry was processed in"),
+                .field::<&Uuid>("blockHeight", &())
+                .description("The block height that the entry was processed in"),
         );
         fields.push(
             registry
-                .field::<&Uuid>("transaction_hash", &())
+                .field::<&Uuid>("transactionHash", &())
                 .description("The hash of the transaction that created this entry"),
         );
 
