@@ -247,10 +247,12 @@ fn start_subgraph_runloop(
                                 let subgraph_name = gql_context.get_subgraph_name(&uuid).ok_or_else(|| {
                                     format!("{err_ctx}: Subgraph name not found for uuid: {}", uuid)
                                 })?;
-                                let values: HashMap<String, Value> = serde_json::from_slice(values.as_slice()).map_err(|e| {
+                                let entries: Vec<HashMap<String, Value>> = serde_json::from_slice(values.as_slice()).map_err(|e| {
                                     format!("{err_ctx}: Failed to deserialize new database entry for subgraph {}: {}", subgraph_name, e)
                                 })?;
-                                gql_context.insert_entry_to_subgraph(&subgraph_name, SubgraphSpec(SubgraphDataEntry::new(values, slot, tx_hash)))?;
+                                for entry in entries.into_iter() {
+                                    gql_context.insert_entry_to_subgraph(&subgraph_name, SubgraphSpec(SubgraphDataEntry::new(entry, slot, tx_hash.clone())))?;
+                                }
                             }
                             SchemaDataSourcingEvent::Rountrip(_uuid) => {}
                         },
