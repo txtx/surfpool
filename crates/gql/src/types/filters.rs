@@ -31,14 +31,14 @@ impl GraphQLType<DefaultScalarValue> for SubgraphFilterSpec {
 
         for field in spec.fields.iter() {
             if field.is_bool() {
-                args.push(registry.arg::<Option<BooleanFilter>>(&field.name, &spec));
+                args.push(registry.arg::<Option<BooleanFilter>>(&field.data.display_name, &spec));
             } else if field.is_string() {
-                args.push(registry.arg::<Option<StringFilter>>(&field.name, &spec));
+                args.push(registry.arg::<Option<StringFilter>>(&field.data.display_name, &spec));
             } else if field.is_number() {
-                args.push(
-                    registry
-                        .arg::<Option<NumericFilter>>(&field.name, &FieldInfo::new(&field.name)),
-                );
+                args.push(registry.arg::<Option<NumericFilter>>(
+                    &field.data.display_name,
+                    &FieldInfo::new(&field.data.display_name),
+                ));
             }
         }
 

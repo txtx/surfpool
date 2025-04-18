@@ -126,38 +126,34 @@ impl GraphQLValue<DefaultScalarValue> for DynamicSchemaSpec {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FieldMetadata {
-    pub name: String,
-    pub typing: Type,
-    description: Option<String>,
+    pub data: IndexedSubgraphField,
 }
 
 impl FieldMetadata {
     pub fn new(field: &IndexedSubgraphField) -> Self {
         Self {
-            name: field.display_name.clone(),
-            typing: field.expected_type.clone(),
-            description: field.description.clone(),
+            data: field.clone(),
         }
     }
 
     pub fn is_bool(&self) -> bool {
-        self.typing.eq(&Type::Bool)
+        self.data.expected_type.eq(&Type::Bool)
     }
 
     pub fn is_string(&self) -> bool {
-        self.typing.eq(&Type::String)
+        self.data.expected_type.eq(&Type::String)
     }
 
     pub fn is_number(&self) -> bool {
-        self.typing.eq(&Type::Float) || self.typing.eq(&Type::Integer)
+        self.data.expected_type.eq(&Type::Float) || self.data.expected_type.eq(&Type::Integer)
     }
 
     pub fn register_as_scalar<'r>(
         &self,
         registry: &mut Registry<'r>,
     ) -> Field<'r, DefaultScalarValue> {
-        let field_name = self.name.as_str();
-        let mut field = match &self.typing {
+        let field_name = self.data.display_name.as_str();
+        let mut field = match &self.data.expected_type {
             Type::Bool => registry.field::<&bool>(field_name, &()),
             Type::String => registry.field::<&String>(field_name, &()),
             Type::Integer => registry.field::<&BigInt>(field_name, &()),
@@ -172,7 +168,7 @@ impl FieldMetadata {
             }
             unsupported => unimplemented!("unsupported type: {:?}", unsupported),
         };
-        if let Some(description) = &self.description {
+        if let Some(description) = &self.data.description {
             field = field.description(description.as_str());
         }
         field
