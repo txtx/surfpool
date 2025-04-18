@@ -22,6 +22,7 @@ txtx-core = { workspace = true }
 txtx-addon-network-svm = { workspace = true }
 txtx-gql = { workspace = true }
 txtx-supervisor-ui = { workspace = true, optional = true}
+txtx-cloud = { workspace = true }
 hiro-system-kit = "0.3.1"
 atty = "0.2.13"
 ansi_term = "0.12.1"

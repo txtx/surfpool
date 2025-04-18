@@ -57,17 +57,17 @@ pub struct SubgraphDataEntry {
     // A map of field names and their values
     pub values: HashMap<String, Value>,
     // The slot that the transaction that created this entry was processed in
-    pub slot: u64,
+    pub block_height: u64,
     // The transaction hash that created this entry
     pub transaction_hash: Hash,
 }
 
 impl SubgraphDataEntry {
-    pub fn new(values: HashMap<String, Value>, slot: u64, tx_hash: String) -> Self {
+    pub fn new(values: HashMap<String, Value>, block_height: u64, tx_hash: String) -> Self {
         Self {
             uuid: Uuid::new_v4(),
             values,
-            slot,
+            block_height,
             transaction_hash: Hash::from_str(&tx_hash).unwrap_or_default(),
         }
     }

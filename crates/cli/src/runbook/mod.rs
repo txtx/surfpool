@@ -5,6 +5,7 @@ use dialoguer::{console::Style, theme::ColorfulTheme, Confirm};
 use surfpool_types::SimnetEvent;
 use tokio::{sync::RwLock, task::JoinHandle};
 use txtx_addon_network_svm::SvmNetworkAddon;
+use txtx_cloud::router::TxtxAuthenticatedCloudServiceRouter;
 use txtx_core::{
     kit::{
         channel::Sender,
@@ -20,11 +21,11 @@ use txtx_core::{
     utils::try_write_outputs_to_file,
 };
 
-use txtx_gql::kit::indexmap::IndexMap;
+use txtx_gql::kit::{indexmap::IndexMap, types::cloud_interface::CloudServiceContext};
 #[cfg(feature = "supervisor_ui")]
 use txtx_supervisor_ui::cloud_relayer::RelayerChannelEvent;
 
-use crate::cli::ExecuteRunbook;
+use crate::cli::{ExecuteRunbook, DEFAULT_ID_SVC_URL};
 
 pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
     let available_addons: Vec<Box<dyn Addon>> =
@@ -92,12 +93,17 @@ pub async fn execute_runbook(
     };
 
     let authorization_context = AuthorizationContext::new(manifest.location.clone().unwrap());
+    let cloud_svc_context = CloudServiceContext::new(Some(Arc::new(
+        TxtxAuthenticatedCloudServiceRouter::new(DEFAULT_ID_SVC_URL),
+    )));
+
     let res = runbook
         .build_contexts_from_sources(
             runbook_sources,
             top_level_inputs_map,
             authorization_context,
             get_addon_by_namespace,
+            cloud_svc_context,
         )
         .await;
     if let Err(diags) = res {

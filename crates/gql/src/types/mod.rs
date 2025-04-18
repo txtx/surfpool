@@ -1,5 +1,5 @@
-use crate::types::schema::DynamicSchemaMetadata;
-use crate::Context;
+use crate::query::DataloaderContext;
+use crate::types::schema::DynamicSchemaSpec;
 use juniper::graphql_object;
 use juniper::meta::Field;
 use juniper::meta::MetaType;
@@ -20,54 +20,56 @@ use txtx_addon_kit::types::types::Value;
 use txtx_addon_network_svm_types::{SvmValue, SVM_PUBKEY};
 use uuid::Uuid;
 
+pub mod filters;
 pub mod scalars;
 pub mod schema;
 
 #[derive(Debug, Clone)]
-pub struct GqlSubgraphDataEntry(pub SubgraphDataEntry);
+pub struct SubgraphSpec(pub SubgraphDataEntry);
 
-impl GraphQLType<DefaultScalarValue> for GqlSubgraphDataEntry {
-    fn name(spec: &DynamicSchemaMetadata) -> Option<&str> {
+impl GraphQLType<DefaultScalarValue> for SubgraphSpec {
+    fn name(spec: &DynamicSchemaSpec) -> Option<&str> {
         Some(spec.name.as_str())
     }
 
-    fn meta<'r>(spec: &DynamicSchemaMetadata, registry: &mut Registry<'r>) -> MetaType<'r>
+    fn meta<'r>(spec: &DynamicSchemaSpec, registry: &mut Registry<'r>) -> MetaType<'r>
     where
         DefaultScalarValue: 'r,
     {
         let mut fields: Vec<Field<'r, DefaultScalarValue>> = vec![];
         fields.push(registry.field::<&Uuid>("uuid", &()));
-        fields.push(registry.field::<&String>("slot", &()));
-        fields.push(registry.field::<&String>("transaction_hash", &()));
+        fields.push(registry.field::<&String>("blockHeight", &()));
+        fields.push(registry.field::<&String>("transactionHash", &()));
         for field_metadata in spec.fields.iter() {
-            fields.push(field_metadata.register_as_scalar(registry));
+            let field = field_metadata.register_as_scalar(registry);
+            fields.push(field);
         }
         registry
-            .build_object_type::<[GqlSubgraphDataEntry]>(&spec, &fields)
+            .build_object_type::<[SubgraphSpec]>(&spec, &fields)
             .into_meta()
     }
 }
 
-impl GraphQLValue<DefaultScalarValue> for GqlSubgraphDataEntry {
-    type Context = Context;
-    type TypeInfo = DynamicSchemaMetadata;
+impl GraphQLValue<DefaultScalarValue> for SubgraphSpec {
+    type Context = DataloaderContext;
+    type TypeInfo = DynamicSchemaSpec;
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
-        <GqlSubgraphDataEntry as GraphQLType>::name(info)
+        <SubgraphSpec as GraphQLType>::name(info)
     }
 
     fn resolve_field(
         &self,
-        _info: &DynamicSchemaMetadata,
+        _info: &DynamicSchemaSpec,
         field_name: &str,
         _args: &Arguments,
-        executor: &Executor<Context>,
+        executor: &Executor<DataloaderContext>,
     ) -> Result<juniper::Value, FieldError> {
         let entry = &self.0;
         match field_name {
             "uuid" => executor.resolve_with_ctx(&(), &entry.uuid.to_string()),
-            "slot" => executor.resolve_with_ctx(&(), &Slot(entry.slot)),
-            "transaction_hash" => executor.resolve_with_ctx(&(), &Hash(entry.transaction_hash)),
+            "blockHeight" => executor.resolve_with_ctx(&(), &Slot(entry.block_height)),
+            "transactionHash" => executor.resolve_with_ctx(&(), &Hash(entry.transaction_hash)),
             field_name => {
                 let value = entry.values.get(field_name).unwrap();
                 match value {
@@ -113,7 +115,7 @@ impl SubgraphDataEntryUpdate {
     }
 }
 
-#[graphql_object(context = Context)]
+#[graphql_object(context = DataloaderContext)]
 impl SubgraphDataEntryUpdate {
     pub fn uuid(&self) -> String {
         self.entry.uuid.to_string()

@@ -85,7 +85,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
         let Some(ref subgraph_request) = self.subgraph_request else {
             return Ok(());
         };
-        let mut entries = HashMap::new();
+        let mut entries = vec![];
         let tx_hash = match transaction {
             ReplicaTransactionInfoVersions::V0_0_2(data) => {
                 if data.is_vote {
@@ -109,29 +109,31 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                         let eight_bytes = instruction.data[8..16].to_vec();
                         let rest = instruction.data[16..].to_vec();
 
-                        for field in subgraph_request.fields.iter() {
-                            match &subgraph_request.data_source {
-                                IndexedSubgraphSourceType::Instruction(
-                                    _instruction_subgraph_source,
-                                ) => {
-                                    continue;
-                                }
-                                IndexedSubgraphSourceType::Event(event_subgraph_source) => {
-                                    if event_subgraph_source
-                                        .event
-                                        .discriminator
-                                        .eq(eight_bytes.as_slice())
-                                    {
-                                        let parsed_value =
-                                            parse_bytes_to_value_with_expected_idl_type(
-                                                &rest,
-                                                &event_subgraph_source.ty.ty,
-                                            )
-                                            .unwrap();
-                                        let obj = parsed_value.as_object().unwrap().clone();
+                        match &subgraph_request.data_source {
+                            IndexedSubgraphSourceType::Instruction(
+                                _instruction_subgraph_source,
+                            ) => {
+                                continue;
+                            }
+                            IndexedSubgraphSourceType::Event(event_subgraph_source) => {
+                                if event_subgraph_source
+                                    .event
+                                    .discriminator
+                                    .eq(eight_bytes.as_slice())
+                                {
+                                    let parsed_value = parse_bytes_to_value_with_expected_idl_type(
+                                        &rest,
+                                        &event_subgraph_source.ty.ty,
+                                    )
+                                    .unwrap();
+
+                                    let obj = parsed_value.as_object().unwrap().clone();
+                                    let mut entry = HashMap::new();
+                                    for field in subgraph_request.fields.iter() {
                                         let v = obj.get(&field.source_key).unwrap().clone();
-                                        entries.insert(field.display_name.clone(), v);
+                                        entry.insert(field.display_name.clone(), v);
                                     }
+                                    entries.push(entry);
                                 }
                             }
                         }
