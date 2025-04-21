@@ -24,6 +24,7 @@ surfpool-core = { path = "crates/core", default-features = false }
 surfpool-gql = { path = "crates/gql", default-features = false }
 surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
+# litesvm = { path = "../litesvm/crates/litesvm", features = ["nodejs-internal"] }
 litesvm = { version = "0.6.0", features = ["nodejs-internal"] }
 solana-sdk = "2.2.1"
 solana-program = "2.2.1"
@@ -75,8 +76,8 @@ serde_json = "1.0.135"
 # txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui", default-features = false, features = ["bin_build"] }
 txtx-addon-kit = { version = "0.2.7", features = ["wasm"] }
 txtx-core = { version = "0.2.8" }
-txtx-addon-network-svm = { version = "0.1.12" }
-txtx-addon-network-svm-types = { version = "0.1.1" }
+txtx-addon-network-svm = { version = "0.1.14" }
+txtx-addon-network-svm-types = { version = "0.1.13" }
 txtx-gql = { version = "0.2.5" }
 txtx-supervisor-ui = { version = "0.1.3", default-features = false, features = ["crates_build"]}
 bincode = "1.3.3"

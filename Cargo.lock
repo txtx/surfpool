@@ -2134,18 +2134,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
-name = "dotenvy_macro"
-version = "0.15.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb0235d912a8c749f4e0c9f18ca253b4c28cfefc1d2518096016d6e3230b6424"
-dependencies = [
- "dotenvy",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "downcast"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10203,9 +10191,9 @@ dependencies = [
  "log 0.4.25",
  "regex",
  "serde",
- "serde_bytes",
  "serde_derive",
  "serde_json",
+ "serde_with",
  "solana-account",
  "solana-account-decoder",
  "solana-accounts-db",
@@ -11093,13 +11081,12 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.2.7"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7971c840d33e2bf59136b3ce6777cffc5dce01fa4350fc8b585874251bea7db7"
+checksum = "898b215ceacd1d605147409ac46f9afe707411042a04f1c6fc8ccc24e2cd89fb"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
- "dotenvy_macro",
  "futures 0.3.31",
  "getrandom 0.2.15",
  "hcl-edit",
@@ -11128,9 +11115,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.12"
+version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e250698d84d23fefca6908e27e2be1b133f04bf5392a15a487895461085de627"
+checksum = "b67639236c59c91e8470413191f384ef7f6e69d0d8f240dd4feb8a8daa7b58f3"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -11152,9 +11139,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.1.1"
+version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0d713ff26a74caf15a2c81b44ad1c6fc61f9fe66526e6f9dced05a639670467"
+checksum = "701ba8f7f9130b8776375b54321132ab2176cb1ec774afc9632cc4420cbec360"
 dependencies = [
  "anchor-lang-idl",
  "lazy_static",
