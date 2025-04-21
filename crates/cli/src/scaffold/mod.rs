@@ -21,6 +21,7 @@ mod anchor;
 mod native;
 mod steel;
 mod typhoon;
+pub mod utils;
 
 pub async fn detect_program_frameworks(
     manifest_path: &str,
