@@ -324,7 +324,7 @@ async fn write_and_execute_iac(
 
     let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
 
-    if let Some((_framework, programs)) = deployment {
+    if let Some((framework, programs)) = deployment {
         // Is infrastructure-as-code (IaC) already setup?
         let base_location =
             FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
@@ -332,7 +332,7 @@ async fn write_and_execute_iac(
         txtx_manifest_location.append_path("txtx.yml")?;
         if !txtx_manifest_location.exists() {
             // Scaffold IaC
-            scaffold_iac_layout(programs, &base_location)?;
+            scaffold_iac_layout(&framework, programs, &base_location)?;
         }
 
         let mut futures = vec![];

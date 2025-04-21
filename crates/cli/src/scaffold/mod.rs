@@ -74,6 +74,7 @@ impl ProgramMetadata {
 }
 
 pub fn scaffold_iac_layout(
+    framework: &Framework,
     programs: Vec<ProgramMetadata>,
     base_location: &FileLocation,
 ) -> Result<(), String> {
@@ -124,7 +125,7 @@ pub fn scaffold_iac_layout(
     };
 
     let mut deployment_runbook_src: String = String::new();
-    let mut subgraph_runbook_src: String = String::new();
+    let mut subgraph_runbook_src: Option<String> = None;
     deployment_runbook_src.push_str(&get_interpolated_header_template(&format!(
         "Manage {} deployment through Crypto Infrastructure as Code",
         manifest.name
@@ -154,17 +155,14 @@ pub fn scaffold_iac_layout(
     ));
 
     for program_metadata in selected_programs.iter() {
-        deployment_runbook_src.push_str(&get_interpolated_anchor_program_deployment_template(
-            &program_metadata.name,
-        ));
-
-        subgraph_runbook_src.push_str(
-            &get_interpolated_anchor_subgraph_template(
-                &program_metadata.name,
-                &program_metadata.idl.as_ref().unwrap(),
-            )
-            .map_err(|e| format!("failed to generate subgraph infrastructure as code: {}", e))?,
+        deployment_runbook_src.push_str(
+            &framework.get_interpolated_program_deployment_template(&program_metadata.name),
         );
+
+        subgraph_runbook_src = framework.get_interpolated_subgraph_template(
+            &program_metadata.name,
+            program_metadata.idl.as_ref(),
+        )?;
 
         // Configure initialize instruction
         // let args = vec![
@@ -324,20 +322,23 @@ pub fn scaffold_iac_layout(
                     .map_err(|e| format!("Invalid Runbook file location: {e}"))?
             );
 
-            let mut base_dir = runbook_folder_location.clone();
-            base_dir.append_path(&format!("subgraphs.localnet.tx"))?;
-            let _ = File::create(base_dir.to_string())
-                .map_err(|e| format!("Failed to create Runbook subgraph file: {e}"))?;
-            base_dir
-                .write_content(subgraph_runbook_src.as_bytes())
-                .map_err(|e| format!("Failed to write data to Runbook subgraph file: {e}"))?;
-            println!(
-                "{} {}",
-                green!("Created file"),
+            // write subgraph.tx
+            if let Some(subgraph_runbook_src) = subgraph_runbook_src {
+                let mut base_dir = runbook_folder_location.clone();
+                base_dir.append_path(&format!("subgraphs.localnet.tx"))?;
+                let _ = File::create(base_dir.to_string())
+                    .map_err(|e| format!("Failed to create Runbook subgraph file: {e}"))?;
                 base_dir
-                    .get_relative_path_from_base(&base_location)
-                    .map_err(|e| format!("Invalid Runbook file location: {e}"))?
-            );
+                    .write_content(subgraph_runbook_src.as_bytes())
+                    .map_err(|e| format!("Failed to write data to Runbook subgraph file: {e}"))?;
+                println!(
+                    "{} {}",
+                    green!("Created file"),
+                    base_dir
+                        .get_relative_path_from_base(&base_location)
+                        .map_err(|e| format!("Invalid Runbook file location: {e}"))?
+                );
+            }
 
             // Create local signer
             let mut base_dir = runbook_folder_location.clone();
