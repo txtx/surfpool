@@ -5,6 +5,7 @@ use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
+use serde_with::{serde_as, BytesOrString};
 use solana_account::Account;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -13,13 +14,14 @@ use solana_sdk::pubkey::Pubkey;
 
 use super::RunloopContext;
 
+#[serde_as]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountUpdate {
     /// providing this value sets the lamports in the account
     pub lamports: Option<u64>,
     /// providing this value sets the data held in this account
-    #[serde(with = "serde_bytes")]
+    #[serde_as(as = "Option<BytesOrString>")]
     pub data: Option<Vec<u8>>,
     ///  providing this value sets the program that owns this account. If executable, the program that loads this account.
     pub owner: Option<String>,
