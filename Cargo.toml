@@ -64,7 +64,7 @@ agave-geyser-plugin-interface = "2.2.1"
 solana-streamer = "2.2.1"
 ipc-channel = "0.19.0"
 serde = "1.0.217"
-serde_bytes = "0.11.17"
+serde_with = "3"
 serde_derive = "1.0.217" # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = "1.0.135"
 # txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit", features = ["wasm"]}
