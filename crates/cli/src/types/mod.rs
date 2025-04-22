@@ -13,21 +13,12 @@ pub enum Framework {
 }
 
 impl Framework {
-    pub fn to_string(&self) -> String {
-        match self {
-            Framework::Anchor => "anchor".to_string(),
-            Framework::Native => "native".to_string(),
-            Framework::Steel => "steel".to_string(),
-            Framework::Typhoon => "typhoon".to_string(),
-            Framework::Pinocchio => "pinocchio".to_string(),
-        }
-    }
     pub fn get_interpolated_program_deployment_template(&self, program_name: &str) -> String {
         match self {
-            Framework::Anchor => get_interpolated_anchor_program_deployment_template(&program_name),
+            Framework::Anchor => get_interpolated_anchor_program_deployment_template(program_name),
             Framework::Typhoon => todo!(),
             Framework::Native | Framework::Steel | Framework::Pinocchio => {
-                get_interpolated_native_program_deployment_template(&program_name)
+                get_interpolated_native_program_deployment_template(program_name)
             }
         }
     }
@@ -42,7 +33,7 @@ impl Framework {
 
         match self {
             Framework::Anchor | Framework::Native | Framework::Pinocchio => {
-                let some_template = get_interpolated_anchor_subgraph_template(&program_name, &idl)
+                let some_template = get_interpolated_anchor_subgraph_template(program_name, idl)
                     .map_err(|e| {
                         format!("failed to generate subgraph infrastructure as code: {}", e)
                     })?;
@@ -55,7 +46,14 @@ impl Framework {
 }
 impl std::fmt::Display for Framework {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        let s = match self {
+            Framework::Anchor => "anchor",
+            Framework::Native => "native",
+            Framework::Steel => "steel",
+            Framework::Typhoon => "typhoon",
+            Framework::Pinocchio => "pinocchio",
+        };
+        write!(f, "{}", s)
     }
 }
 impl std::str::FromStr for Framework {

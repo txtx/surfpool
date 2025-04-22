@@ -65,7 +65,7 @@ impl CargoManifestFile {
         base_location: &FileLocation,
     ) -> Result<Option<CargoManifestFile>> {
         if let Some(deps) = &self.dependencies {
-            if let Some(_) = deps.get(name) {
+            if deps.get(name).is_some() {
                 return Ok(Some(self.clone()));
             }
         }
@@ -80,15 +80,6 @@ impl CargoManifestFile {
         }
         Ok(None)
     }
-
-    pub fn get_dependency(&self, name: &str) -> Option<&Dependency> {
-        if let Some(deps) = &self.dependencies {
-            if let Some(dep) = deps.get(name) {
-                return Some(dep);
-            }
-        }
-        None
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -101,6 +92,7 @@ pub struct Workspace {
     pub members: Vec<String>,
 
     #[serde(rename = "workspace.dependencies")]
+    #[allow(dead_code)]
     pub workspace_dependencies: Option<HashMap<String, Dependency>>,
 }
 
@@ -133,11 +125,13 @@ impl Workspace {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
+#[allow(dead_code)]
 pub enum Dependency {
     Version(String),
     Detailed(DependencyDetail),
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct DependencyDetail {
     pub version: Option<String>,
