@@ -526,7 +526,8 @@ fn start_rpc_server_thread(
 
     let middleware = SurfpoolMiddleware::new(
         context,
-        simnet_commands_tx,
+        &simnet_commands_tx,
+        &simnet_events_tx,
         &plugin_manager_commands_tx,
         &config.rpc,
     );
