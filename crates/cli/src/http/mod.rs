@@ -134,7 +134,7 @@ async fn post_graphql(
         .ok_or(actix_web::error::ErrorInternalServerError(
             "Missing expected schema",
         ))?;
-    graphql_handler(&schema, &context, req, payload).await
+    graphql_handler(schema, &context, req, payload).await
 }
 
 async fn get_graphql(
@@ -154,7 +154,7 @@ async fn get_graphql(
         .ok_or(actix_web::error::ErrorInternalServerError(
             "Missing expected schema",
         ))?;
-    graphql_handler(&schema, &context, req, payload).await
+    graphql_handler(schema, &context, req, payload).await
 }
 
 async fn subscriptions(
@@ -232,12 +232,12 @@ fn start_subgraph_runloop(
                                     format!("{err_ctx}: Failed to acquire write lock on subgraph name lookup")
                                 })?;
                                 lookup.insert(
-                                    subgraph_uuid.clone(),
+                                    subgraph_uuid,
                                     subgraph_name.to_case(Case::Camel),
                                 );
                                 entries_store.insert(
                                     subgraph_name.to_case(Case::Camel),
-                                    (subgraph_uuid.clone(), vec![]),
+                                    (subgraph_uuid, vec![]),
                                 );
                                 let _ = sender.send("http://127.0.0.1:8900/gql/console".into());
                             }
