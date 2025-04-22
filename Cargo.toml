@@ -63,6 +63,7 @@ solana-svm = "2.2.1"
 solana-program-runtime = "2.2.1"
 agave-geyser-plugin-interface = "2.2.1"
 solana-streamer = "2.2.1"
+spl-associated-token-account = "6.0.0"
 ipc-channel = "0.19.0"
 serde = "1.0.217"
 serde_with = "3"
@@ -74,8 +75,8 @@ serde_json = "1.0.135"
 # txtx-addon-network-svm-types = { package = "txtx-addon-network-svm-types", path = "../txtx/addons/svm/types" }
 # txtx-gql = { path = "../txtx/crates/txtx-gql" }
 # txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui", default-features = false, features = ["bin_build"] }
-txtx-addon-kit = { version = "0.2.7", features = ["wasm"] }
-txtx-core = { version = "0.2.8" }
+txtx-addon-kit = { version = "0.2.9", features = ["wasm"] }
+txtx-core = { version = "0.2.11" }
 txtx-addon-network-svm = { version = "0.1.14" }
 txtx-addon-network-svm-types = { version = "0.1.13" }
 txtx-gql = { version = "0.2.5" }
