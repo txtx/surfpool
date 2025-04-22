@@ -11116,9 +11116,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.14"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b67639236c59c91e8470413191f384ef7f6e69d0d8f240dd4feb8a8daa7b58f3"
+checksum = "cd4548f48336fde111da1e18eebf0626c99dccef4d87d9a4734625b561860a5c"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -11133,6 +11133,7 @@ dependencies = [
  "solana_idl",
  "spl-associated-token-account",
  "spl-token",
+ "spl-token-2022 7.0.0",
  "tiny-bip39",
  "txtx-addon-kit",
  "txtx-addon-network-svm-types",
@@ -11140,9 +11141,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.1.13"
+version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "701ba8f7f9130b8776375b54321132ab2176cb1ec774afc9632cc4420cbec360"
+checksum = "74f68dc655224ffca97d1aa0574c8c5b4d872c44ed3b8d776cf0522ec248ec81"
 dependencies = [
  "anchor-lang-idl",
  "lazy_static",
@@ -11164,9 +11165,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.2.11"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26332bdd4239da4fb1c2bd5d32cdc436ed66221a2a6eec5bca59a7eeb20bf5ad"
+checksum = "ceebe0f7b4293bfe2d680a485f127ae6a6d6621701637c7bc9bee47e08467ea5"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
