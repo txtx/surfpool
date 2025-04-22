@@ -67,6 +67,7 @@ solana-poh = { workspace = true }
 solana-svm = { workspace = true }
 solana-program-runtime = { workspace = true }
 solana-streamer = { workspace = true }
+spl-associated-token-account = { workspace = true }
 spl-token-2022 = "7.0.0"
 spl-token = "7.0.0"
 zstd = "0.13.2"

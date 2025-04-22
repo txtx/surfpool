@@ -10220,6 +10220,7 @@ dependencies = [
  "solana-transaction-status",
  "solana-version",
  "solana-vote-program",
+ "spl-associated-token-account",
  "spl-token",
  "spl-token-2022 7.0.0",
  "surfpool-subgraph",
@@ -11163,9 +11164,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.2.8"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab41c9c8d4a9bda8ccd08aa9dabe80bad07dbb7fb5bcd01e14d9f6ea12996330"
+checksum = "26332bdd4239da4fb1c2bd5d32cdc436ed66221a2a6eec5bca59a7eeb20bf5ad"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
