@@ -506,7 +506,7 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
-    let line_len = area.width as usize;
+    let line_len = area.width.max(1) as usize;
     let total_chars = line_len * 3;
     let cursor = app.slot() % total_chars;
     let sequence: Vec<char> = (0..total_chars)
