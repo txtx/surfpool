@@ -147,9 +147,22 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
                         if let Some(fetched_account) = rpc_client.get_account(&pubkey).await.ok() {
                             fetched_account
                         } else {
-                            return Err(Error::invalid_params(format!(
-                                "cannot mutate account that does not exist unless all account fields are provided"
-                            )));
+                            let Some(ctx) = &meta else {
+                                return Err(RpcCustomError::NodeUnhealthy {
+                                    num_slots_behind: None,
+                                }
+                                .into());
+                            };
+                            let _ = ctx.simnet_events_tx.send(SimnetEvent::info(
+                                format!("Account {pubkey} not found, creating a new account from default values"),
+                            ));
+                            Account {
+                                lamports: 0,
+                                owner: system_program::id(),
+                                executable: false,
+                                rent_epoch: 0,
+                                data: vec![],
+                            }
                         }
                     }
                 };
