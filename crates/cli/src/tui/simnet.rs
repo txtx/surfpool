@@ -115,8 +115,8 @@ impl App {
             deploy_progress_rx,
             status_bar_message: None,
             remote_rpc_url: remote_rpc_url.to_string(),
-            local_rpc_url: format!("http://{}", local_rpc_url.to_string()),
-            breaker: breaker,
+            local_rpc_url: format!("http://{}", local_rpc_url),
+            breaker,
         }
     }
 
@@ -295,8 +295,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                 Err(_) => break,
             },
             i => match oper.recv(&app.deploy_progress_rx[i - 1]) {
-                Ok(event) => match event {
-                    BlockEvent::UpdateProgressBarStatus(update) => {
+                Ok(event) => {
+                    if let BlockEvent::UpdateProgressBarStatus(update) = event {
                         match update.new_status.status_color {
                             ProgressBarStatusColor::Yellow => {
                                 app.status_bar_message = Some(format!(
@@ -330,8 +330,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             }
                         };
                     }
-                    _ => {}
-                },
+                }
                 Err(_) => {
                     deployment_completed = true;
                 }
@@ -341,59 +340,51 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
         terminal.draw(|f| ui(f, &mut app))?;
 
         if event::poll(Duration::from_millis(3))? {
-            match event::read()? {
-                Event::Key(key_event) => {
-                    if key_event.kind == KeyEventKind::Press {
-                        use KeyCode::*;
-                        if key_event.modifiers == KeyModifiers::CONTROL
-                            && key_event.code == Char('c')
-                        {
-                            return Ok(());
+            if let Event::Key(key_event) = event::read()? {
+                if key_event.kind == KeyEventKind::Press {
+                    use KeyCode::*;
+                    if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == Char('c') {
+                        return Ok(());
+                    }
+                    match key_event.code {
+                        Char('q') | Esc => return Ok(()),
+                        Down => app.next(),
+                        Up => app.previous(),
+                        Char('f') | Char('j') => {
+                            // Break Solana
+                            let sender = app.breaker.as_ref().unwrap();
+                            let instruction = system_instruction::transfer(
+                                &sender.pubkey(),
+                                &Pubkey::new_unique(),
+                                100,
+                            );
+                            let message = Message::new(&[instruction], Some(&sender.pubkey()));
+                            let _ = tx.send((message, sender.insecure_clone()));
                         }
-                        match key_event.code {
-                            Char('q') | Esc => return Ok(()),
-                            Down => app.next(),
-                            Up => app.previous(),
-                            Char('f') | Char('j') => {
-                                // Break Solana
-                                let sender = app.breaker.as_ref().unwrap();
-                                let instruction = system_instruction::transfer(
-                                    &sender.pubkey(),
-                                    &Pubkey::new_unique(),
-                                    100,
-                                );
-                                let message =
-                                    Message::new(&vec![instruction], Some(&sender.pubkey()));
-                                let _ = tx.send((message, sender.insecure_clone()));
-                            }
-                            Char(' ') => {
-                                let _ = app
-                                    .simnet_commands_tx
-                                    .send(SimnetCommand::UpdateClock(ClockCommand::Toggle));
-                            }
+                        Char(' ') => {
+                            let _ = app
+                                .simnet_commands_tx
+                                .send(SimnetCommand::UpdateClock(ClockCommand::Toggle));
+                        }
 
-                            Tab => {
-                                let _ = app.simnet_commands_tx.send(SimnetCommand::SlotForward);
-                            }
-                            Char('t') => {
-                                let _ =
-                                    app.simnet_commands_tx
-                                        .send(SimnetCommand::UpdateRunloopMode(
-                                            RunloopTriggerMode::Transaction,
-                                        ));
-                            }
-                            Char('c') => {
-                                let _ =
-                                    app.simnet_commands_tx
-                                        .send(SimnetCommand::UpdateRunloopMode(
-                                            RunloopTriggerMode::Clock,
-                                        ));
-                            }
-                            _ => {}
+                        Tab => {
+                            let _ = app.simnet_commands_tx.send(SimnetCommand::SlotForward);
                         }
+                        Char('t') => {
+                            let _ = app
+                                .simnet_commands_tx
+                                .send(SimnetCommand::UpdateRunloopMode(
+                                    RunloopTriggerMode::Transaction,
+                                ));
+                        }
+                        Char('c') => {
+                            let _ = app
+                                .simnet_commands_tx
+                                .send(SimnetCommand::UpdateRunloopMode(RunloopTriggerMode::Clock));
+                        }
+                        _ => {}
                     }
                 }
-                _ => {}
             }
         }
     }
@@ -413,7 +404,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         .fg(app.colors.secondary)
         .bg(app.colors.background);
     let chrome = Block::default()
-        .style(default_style.clone())
+        .style(default_style)
         .borders(Borders::ALL)
         .border_style(default_style)
         .border_type(BorderType::Plain);
@@ -470,7 +461,7 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
     let default_style = Style::new().fg(app.colors.gray);
 
     let separator = Block::default()
-        .style(default_style.clone())
+        .style(default_style)
         .borders(Borders::LEFT)
         .border_style(default_style)
         .border_type(BorderType::Plain);

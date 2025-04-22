@@ -61,7 +61,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         config.clone(),
         subgraph_events_tx.clone(),
         subgraph_commands_rx,
-        &ctx,
+        ctx,
     )
     .await
     {
@@ -150,7 +150,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         .map_err(|e| format!("{}", e))?;
     }
     if let Some(explorer_handle) = explorer_handle {
-        let _ = explorer_handle.stop(true);
+        let _ = explorer_handle.stop(true).await;
     }
     Ok(())
 }
