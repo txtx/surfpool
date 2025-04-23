@@ -23,6 +23,8 @@ pub const DEFAULT_EXPLORER_PORT: &str = "8900";
 pub const DEFAULT_SIMNET_PORT: &str = "8899";
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
+pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
+pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
 pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
 pub const DEFAULT_AIRDROPPED_KEYPAIR_PATH: &str = "~/.config/solana/id.json";
@@ -89,9 +91,12 @@ pub struct StartSimnet {
     /// Set the slot time
     #[arg(long = "slot-time", short = 's', default_value = DEFAULT_SLOT_TIME_MS)]
     pub slot_time: u64,
-    /// Set the ip
-    #[arg(long = "rpc-url", short = 'u', default_value = DEFAULT_RPC_URL)]
+    /// Set a custom RPC URL (cannot be used with --network)
+    #[arg(long = "rpc-url", short = 'u', default_value = DEFAULT_RPC_URL, conflicts_with = "network")]
     pub rpc_url: String,
+    /// Choose a predefined network (cannot be used with --rpc-url)
+    #[arg(long = "network", short = 'n', value_enum, conflicts_with = "rpc_url")]
+    pub network: Option<NetworkType>,
     /// Display streams of logs instead of terminal UI dashboard (default: false)
     #[clap(long = "no-tui")]
     pub no_tui: bool,
@@ -122,6 +127,16 @@ pub struct StartSimnet {
     /// List of geyser plugins to load
     #[arg(long = "geyser-plugin-config", short = 'g')]
     pub plugin_config_path: Vec<String>,
+}
+
+#[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
+pub enum NetworkType {
+    /// Solana Mainnet-Beta (https://api.mainnet-beta.solana.com)
+    Mainnet,
+    /// Solana Devnet (https://api.devnet.solana.com)
+    Devnet,
+    /// Solana Testnet (https://api.testnet.solana.com)
+    Testnet,
 }
 
 impl StartSimnet {
@@ -171,16 +186,30 @@ impl StartSimnet {
     }
 
     pub fn rpc_config(&self) -> RpcConfig {
+        let remote_rpc_url = match &self.network {
+            Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
+            Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
+            Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
+            None => self.rpc_url.clone(),
+        };
+
         RpcConfig {
             bind_host: self.network_host.clone(),
             bind_port: self.simnet_port,
-            remote_rpc_url: self.rpc_url.clone(),
+            remote_rpc_url,
         }
     }
 
     pub fn simnet_config(&self, airdrop_addresses: Vec<Pubkey>) -> SimnetConfig {
+        let remote_rpc_url = match &self.network {
+            Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
+            Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
+            Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
+            None => self.rpc_url.clone(),
+        };
+
         SimnetConfig {
-            remote_rpc_url: self.rpc_url.clone(),
+            remote_rpc_url,
             slot_time: self.slot_time,
             runloop_trigger_mode: surfpool_types::RunloopTriggerMode::Clock,
             airdrop_addresses,
