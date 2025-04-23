@@ -11,6 +11,7 @@ use ipc_channel::{
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
+use solana_account::Account;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_clock::Clock;
 use solana_commitment_config::CommitmentConfig;
@@ -19,6 +20,15 @@ use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
 use solana_message::v0::LoadedAddresses;
 use solana_pubkey::Pubkey;
 use solana_transaction::{sanitized::SanitizedTransaction, Transaction};
+use solana_sdk::{
+    bpf_loader_upgradeable::get_program_data_address,
+    clock::{Clock, Slot},
+    commitment_config::CommitmentConfig,
+    epoch_info::EpochInfo,
+    message::v0::LoadedAddresses,
+    pubkey::Pubkey,
+    transaction::{SanitizedTransaction, Transaction},
+};
 use solana_transaction_status::{InnerInstruction, InnerInstructions, TransactionStatusMeta};
 use std::{
     collections::HashSet,
@@ -105,7 +115,8 @@ pub async fn start(
     )?;
 
     let simnet_config = config.simnet.clone();
-    let (plugins_data_tx, plugins_data_rx) = unbounded::<(Transaction, TransactionMetadata)>();
+    let (plugins_data_tx, plugins_data_rx) =
+        unbounded::<(Transaction, TransactionMetadata, Slot)>();
 
     if !config.plugin_config_path.is_empty() {
         match start_geyser_plugin_thread(
@@ -233,17 +244,21 @@ pub async fn start(
 
             let accounts = message.account_keys.clone();
             for account_pubkey in accounts.iter() {
-                match insert_account_from_remote_if_not_in_local(
+                match insert_account_and_program_data_account_from_remote_if_not_in_local(
                     &mut ctx,
                     account_pubkey,
                     &rpc_client,
                 )
                 .await
                 {
-                    Ok(Some(event)) | Err(event) => {
+                    Ok(events) => {
+                        for event in events {
+                            let _ = simnet_events_tx.try_send(event);
+                        }
+                    }
+                    Err(event) => {
                         let _ = simnet_events_tx.try_send(event);
                     }
-                    Ok(None) => {}
                 }
             }
 
@@ -252,8 +267,11 @@ pub async fn start(
                     Ok(res) => {
                         let transaction_meta =
                             convert_transaction_metadata_from_canonical(&res.meta);
-                        let _ =
-                            plugins_data_tx.send((transaction.clone(), transaction_meta.clone()));
+                        let _ = plugins_data_tx.send((
+                            transaction.clone(),
+                            transaction_meta.clone(),
+                            ctx.epoch_info.absolute_slot,
+                        ));
                         (transaction_meta, None)
                     }
                     Err(res) => {
@@ -358,7 +376,7 @@ fn start_geyser_plugin_thread(
     plugin_manager_commands_rx: Receiver<PluginManagerCommand>,
     subgraph_commands_tx: Sender<SubgraphCommand>,
     simnet_events_tx: Sender<SimnetEvent>,
-    plugins_data_rx: Receiver<(Transaction, TransactionMetadata)>,
+    plugins_data_rx: Receiver<(Transaction, TransactionMetadata, Slot)>,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let handle = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
         let mut plugin_manager = vec![];
@@ -448,7 +466,7 @@ fn start_geyser_plugin_thread(
                     Err(e) => {
                         break format!("Failed to read new transaction to send to Geyser plugin: {e}");
                     },
-                    Ok((transaction, transaction_metadata)) => {
+                    Ok((transaction, transaction_metadata, slot)) => {
                         let mut inner_instructions = vec![];
                         for (i,inner) in transaction_metadata.inner_instructions.iter().enumerate() {
                             inner_instructions.push(
@@ -496,7 +514,7 @@ fn start_geyser_plugin_thread(
                             index: 0
                         };
                         for plugin in plugin_manager.iter() {
-                            if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), 0) {
+                            if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
                             };
                         }
@@ -520,7 +538,8 @@ fn start_rpc_server_thread(
 
     let middleware = SurfpoolMiddleware::new(
         context,
-        simnet_commands_tx,
+        &simnet_commands_tx,
+        &simnet_events_tx,
         &plugin_manager_commands_tx,
         &config.rpc,
     );
@@ -573,11 +592,44 @@ fn start_rpc_server_thread(
     Ok((plugin_manager_commands_rx, _handle))
 }
 
+async fn insert_account_and_program_data_account_from_remote_if_not_in_local(
+    ctx: &mut RwLockWriteGuard<'_, GlobalState>,
+    account_pubkey: &Pubkey,
+    rpc: &RpcClient,
+) -> Result<Vec<SimnetEvent>, SimnetEvent> {
+    let mut events = vec![];
+    let Some(account) =
+        insert_account_from_remote_if_not_in_local(ctx, account_pubkey, rpc).await?
+    else {
+        return Ok(events);
+    };
+
+    events.push(SimnetEvent::AccountUpdate(
+        Local::now(),
+        account_pubkey.clone(),
+    ));
+
+    if account.executable {
+        let program_data_address = get_program_data_address(account_pubkey);
+
+        if insert_account_from_remote_if_not_in_local(ctx, &program_data_address, rpc)
+            .await?
+            .is_some()
+        {
+            events.push(SimnetEvent::AccountUpdate(
+                Local::now(),
+                program_data_address.clone(),
+            ));
+        }
+    }
+    Ok(events)
+}
+
 async fn insert_account_from_remote_if_not_in_local(
     ctx: &mut RwLockWriteGuard<'_, GlobalState>,
     account_pubkey: &Pubkey,
     rpc: &RpcClient,
-) -> Result<Option<SimnetEvent>, SimnetEvent> {
+) -> Result<Option<Account>, SimnetEvent> {
     if ctx.svm.get_account(&account_pubkey).is_none() {
         let res = rpc
             .get_account_with_commitment(&account_pubkey, CommitmentConfig::default())
@@ -585,11 +637,16 @@ async fn insert_account_from_remote_if_not_in_local(
         match res {
             Ok(res) => match res.value {
                 Some(account) => {
-                    let _ = ctx.svm.set_account(*account_pubkey, account);
-                    return Ok(Some(SimnetEvent::AccountUpdate(
-                        Local::now(),
-                        account_pubkey.clone(),
-                    )));
+                    let _ = ctx
+                        .svm
+                        .set_account(*account_pubkey, account.clone())
+                        .map_err(|e| {
+                            SimnetEvent::error(format!(
+                                "unable to set account {}: {}",
+                                account_pubkey, e
+                            ))
+                        })?;
+                    return Ok(Some(account));
                 }
                 None => return Ok(None),
             },

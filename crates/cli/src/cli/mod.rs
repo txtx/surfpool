@@ -129,7 +129,7 @@ impl StartSimnet {
         let mut airdrop_addresses = vec![];
         let mut errors = vec![];
         for address in self.airdrop_addresses.iter() {
-            match Pubkey::from_str(&address).map_err(|e| e.to_string()) {
+            match Pubkey::from_str(address).map_err(|e| e.to_string()) {
                 Ok(pubkey) => {
                     airdrop_addresses.push(pubkey);
                 }
@@ -148,7 +148,7 @@ impl StartSimnet {
                 format!(
                     "{}{}",
                     dirs::home_dir().unwrap().display(),
-                    keypair_path[1..].to_string()
+                    &keypair_path[1..]
                 )
             } else {
                 keypair_path.clone()
@@ -183,7 +183,7 @@ impl StartSimnet {
             remote_rpc_url: self.rpc_url.clone(),
             slot_time: self.slot_time,
             runloop_trigger_mode: surfpool_types::RunloopTriggerMode::Clock,
-            airdrop_addresses: airdrop_addresses,
+            airdrop_addresses,
             airdrop_token_amount: self.airdrop_token_amount,
         }
     }
@@ -196,7 +196,7 @@ impl StartSimnet {
         let mut plugin_config_path = self
             .plugin_config_path
             .iter()
-            .map(|f| PathBuf::from(f))
+            .map(PathBuf::from)
             .collect::<Vec<_>>();
 
         if plugin_config_path.is_empty() {

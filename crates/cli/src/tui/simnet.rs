@@ -117,8 +117,8 @@ impl App {
             deploy_progress_rx,
             status_bar_message: None,
             remote_rpc_url: remote_rpc_url.to_string(),
-            local_rpc_url: format!("http://{}", local_rpc_url.to_string()),
-            breaker: breaker,
+            local_rpc_url: format!("http://{}", local_rpc_url),
+            breaker,
         }
     }
 
@@ -136,21 +136,22 @@ impl App {
     }
 
     pub fn next(&mut self) {
-        let i = match self.state.selected() {
-            Some(i) => i,
-            None => 0,
-        };
-        self.state.select(Some(i));
-        self.scroll_state = self.scroll_state.position(i * ITEM_HEIGHT);
+        self.state.select_next();
+        self.scroll_state.next();
+        let new_offset = self.state.offset() + ITEM_HEIGHT;
+        *self.state.offset_mut() = new_offset;
     }
 
     pub fn previous(&mut self) {
-        let i = match self.state.selected() {
-            Some(i) => i,
-            None => 0,
+        self.state.select_previous();
+        self.scroll_state.prev();
+        let current_offset = self.state.offset();
+        let new_offset = if current_offset == 0 {
+            0
+        } else {
+            current_offset - ITEM_HEIGHT
         };
-        self.state.select(Some(i));
-        self.scroll_state = self.scroll_state.position(i * ITEM_HEIGHT);
+        *self.state.offset_mut() = new_offset;
     }
 
     pub fn set_colors(&mut self) {
@@ -296,8 +297,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                 Err(_) => break,
             },
             i => match oper.recv(&app.deploy_progress_rx[i - 1]) {
-                Ok(event) => match event {
-                    BlockEvent::UpdateProgressBarStatus(update) => {
+                Ok(event) => {
+                    if let BlockEvent::UpdateProgressBarStatus(update) = event {
                         match update.new_status.status_color {
                             ProgressBarStatusColor::Yellow => {
                                 app.status_bar_message = Some(format!(
@@ -331,8 +332,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             }
                         };
                     }
-                    _ => {}
-                },
+                }
                 Err(_) => {
                     deployment_completed = true;
                 }
@@ -342,13 +342,13 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
         terminal.draw(|f| ui(f, &mut app))?;
 
         if event::poll(Duration::from_millis(3))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
+            if let Event::Key(key_event) = event::read()? {
+                if key_event.kind == KeyEventKind::Press {
                     use KeyCode::*;
-                    if key.modifiers == KeyModifiers::CONTROL && key.code == Char('c') {
+                    if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == Char('c') {
                         return Ok(());
                     }
-                    match key.code {
+                    match key_event.code {
                         Char('q') | Esc => return Ok(()),
                         Down => app.next(),
                         Up => app.previous(),
@@ -360,7 +360,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 &Pubkey::new_unique(),
                                 100,
                             );
-                            let message = Message::new(&vec![instruction], Some(&sender.pubkey()));
+                            let message = Message::new(&[instruction], Some(&sender.pubkey()));
                             let _ = tx.send((message, sender.insecure_clone()));
                         }
                         Char(' ') => {
@@ -406,7 +406,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         .fg(app.colors.secondary)
         .bg(app.colors.background);
     let chrome = Block::default()
-        .style(default_style.clone())
+        .style(default_style)
         .borders(Borders::ALL)
         .border_style(default_style)
         .border_type(BorderType::Plain);
@@ -463,7 +463,7 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
     let default_style = Style::new().fg(app.colors.gray);
 
     let separator = Block::default()
-        .style(default_style.clone())
+        .style(default_style)
         .borders(Borders::LEFT)
         .border_style(default_style)
         .border_type(BorderType::Plain);
@@ -499,7 +499,7 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
-    let line_len = area.width as usize;
+    let line_len = area.width.max(1) as usize;
     let total_chars = line_len * 3;
     let cursor = app.slot() % total_chars;
     let sequence: Vec<char> = (0..total_chars)

@@ -1,5 +1,6 @@
 use crate::types::Framework;
 use anyhow::{anyhow, Result};
+
 use txtx_core::kit::helpers::fs::FileLocation;
 
 use super::{
@@ -9,7 +10,7 @@ use super::{
 
 /// This function attempts to load a program from a native project.
 /// It looks for a `Cargo.toml` file in the specified base location.
-/// If the `Cargo.toml` has a package with the `solana-program` dependency,
+/// If the `Cargo.toml` has a package with the `pinocchio` dependency,
 /// it is considered a native project.
 pub fn try_get_programs_from_project(
     base_location: FileLocation,
@@ -25,16 +26,13 @@ pub fn try_get_programs_from_project(
         let manifest = CargoManifestFile::from_manifest_str(&manifest)
             .map_err(|e| anyhow!("unable to read Cargo.toml: {}", e))?;
 
-        let Some(program_metadata) = get_program_metadata_from_manifest_with_dep(
-            "solana-program",
-            &base_location,
-            &manifest,
-        )?
+        let Some(program_metadata) =
+            get_program_metadata_from_manifest_with_dep("pinocchio", &base_location, &manifest)?
         else {
             return Ok(None);
         };
 
-        Ok(Some((Framework::Native, vec![program_metadata])))
+        Ok(Some((Framework::Pinocchio, vec![program_metadata])))
     } else {
         Ok(None)
     }

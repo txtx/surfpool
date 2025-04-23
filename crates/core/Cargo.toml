@@ -16,6 +16,16 @@ path = "src/lib.rs"
 agave-geyser-plugin-interface = { workspace = true }
 base64 = "0.22.1"
 bincode = { workspace = true }
+crossbeam-channel = "0.5.14"
+log = "0.4.22"
+serde = { workspace = true }
+serde_with ={ workspace = true }
+serde_derive = { workspace = true } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
+serde_json = { workspace = true }
+itertools = "0.14.0"
+symlink = "0.1.0"
+tokio = "1.43.0"
+tokio-util = "0.7.13"
 bs58 = "0.5.1"
 chrono = "0.4"
 crossbeam = "0.8.4"
@@ -61,6 +71,16 @@ solana-version = { workspace = true }
 surfpool-subgraph = { workspace = true }
 surfpool-types = { workspace = true }
 tokio = "1.43.0"
+solana-poh = { workspace = true }
+solana-svm = { workspace = true }
+solana-program-runtime = { workspace = true }
+solana-streamer = { workspace = true }
+spl-associated-token-account = { workspace = true }
+spl-token-2022 = "7.0.0"
+spl-token = "7.0.0"
+zstd = "0.13.2"
+libloading = "0.7.4"
+json5 = "0.4.1"
 txtx-addon-network-svm-types = { workspace = true }
 uuid = "1.7.0"
 

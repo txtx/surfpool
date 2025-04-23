@@ -39,6 +39,7 @@ pub struct TestSetup<T> {
 impl<T> TestSetup<T> {
     pub fn new(rpc: T) -> Self {
         let (simnet_commands_tx, _rx) = crossbeam_channel::unbounded();
+        let (simnet_events_tx, _rx) = crossbeam_channel::unbounded();
         let (plugin_manager_commands_tx, _rx) = crossbeam_channel::unbounded();
 
         let mut svm = LiteSVM::new();
@@ -54,6 +55,7 @@ impl<T> TestSetup<T> {
         TestSetup {
             context: RunloopContext {
                 simnet_commands_tx,
+                simnet_events_tx: simnet_events_tx.clone(),
                 plugin_manager_commands_tx,
                 id: Hash::new_unique(),
                 state: Arc::new(RwLock::new(GlobalState {

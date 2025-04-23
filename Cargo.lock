@@ -1939,18 +1939,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
-name = "dotenvy_macro"
-version = "0.15.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb0235d912a8c749f4e0c9f18ca253b4c28cfefc1d2518096016d6e3230b6424"
-dependencies = [
- "dotenvy",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "downcast"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9080,7 +9068,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "surfpool-cli"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -9129,7 +9117,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-core"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "agave-geyser-plugin-interface",
  "base64 0.22.1",
@@ -9148,9 +9136,9 @@ dependencies = [
  "litesvm",
  "log 0.4.25",
  "serde",
- "serde_bytes",
  "serde_derive",
  "serde_json",
+ "serde_with",
  "solana-account",
  "solana-account-decoder",
  "solana-blake3-hasher",
@@ -9186,7 +9174,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-gql"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "convert_case 0.7.1",
  "futures 0.3.31",
@@ -9202,7 +9190,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-subgraph"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "agave-geyser-plugin-interface",
  "ipc-channel",
@@ -9216,7 +9204,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-types"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "chrono",
  "crossbeam-channel",
@@ -9848,13 +9836,12 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.2.7"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7971c840d33e2bf59136b3ce6777cffc5dce01fa4350fc8b585874251bea7db7"
+checksum = "898b215ceacd1d605147409ac46f9afe707411042a04f1c6fc8ccc24e2cd89fb"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
- "dotenvy_macro",
  "futures 0.3.31",
  "getrandom 0.2.15",
  "hcl-edit",
@@ -9883,9 +9870,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.12"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e250698d84d23fefca6908e27e2be1b133f04bf5392a15a487895461085de627"
+checksum = "cd4548f48336fde111da1e18eebf0626c99dccef4d87d9a4734625b561860a5c"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -9900,6 +9887,7 @@ dependencies = [
  "solana_idl",
  "spl-associated-token-account",
  "spl-token",
+ "spl-token-2022 7.0.0",
  "tiny-bip39",
  "txtx-addon-kit",
  "txtx-addon-network-svm-types",
@@ -9907,9 +9895,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.1.1"
+version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0d713ff26a74caf15a2c81b44ad1c6fc61f9fe66526e6f9dced05a639670467"
+checksum = "74f68dc655224ffca97d1aa0574c8c5b4d872c44ed3b8d776cf0522ec248ec81"
 dependencies = [
  "anchor-lang-idl",
  "lazy_static",
@@ -9931,9 +9919,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.2.8"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab41c9c8d4a9bda8ccd08aa9dabe80bad07dbb7fb5bcd01e14d9f6ea12996330"
+checksum = "ceebe0f7b4293bfe2d680a485f127ae6a6d6621701637c7bc9bee47e08467ea5"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
