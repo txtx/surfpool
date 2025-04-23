@@ -64,10 +64,6 @@ jobs:
           #   architecture: x64
           - os: macos-latest
             platform: darwin
-            target: x86_64-apple-darwin
-            architecture: x64
-          - os: macos-latest
-            platform: darwin
             target: aarch64-apple-darwin
             architecture: arm64
 
@@ -137,6 +133,14 @@ jobs:
         run: |
           echo "SDKROOT=$(xcrun -sdk macosx --show-sdk-path)" >> $GITHUB_ENV
           echo "MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx --show-sdk-platform-version)" >> $GITHUB_ENV
+
+      - name: Configure macos openssl
+        if: matrix.os == 'macos-latest' && matrix.architecture == 'x64'
+        run: |
+          brew install openssl@1.1
+          echo "OPENSSL_DIR=$(brew --prefix openssl@1.1)" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl@1.1)/include" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@1.1)/lib" >> $GITHUB_ENV
 
       - name: Configure artifact names
         shell: bash
