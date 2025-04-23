@@ -11,16 +11,16 @@ use ipc_channel::{
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
+use solana_account::Account;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
+use solana_clock::{Clock, Slot};
+use solana_commitment_config::CommitmentConfig;
+use solana_epoch_info::EpochInfo;
 use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
-use solana_sdk::{
-    clock::{Clock, Slot},
-    commitment_config::CommitmentConfig,
-    epoch_info::EpochInfo,
-    message::v0::LoadedAddresses,
-    pubkey::Pubkey,
-    transaction::{SanitizedTransaction, Transaction},
-};
+use solana_message::v0::LoadedAddresses;
+use solana_pubkey::Pubkey;
+use solana_sdk::bpf_loader_upgradeable::get_program_data_address;
+use solana_transaction::{sanitized::SanitizedTransaction, Transaction};
 use solana_transaction_status::{InnerInstruction, InnerInstructions, TransactionStatusMeta};
 use std::{
     collections::HashSet,
@@ -236,17 +236,21 @@ pub async fn start(
 
             let accounts = message.account_keys.clone();
             for account_pubkey in accounts.iter() {
-                match insert_account_from_remote_if_not_in_local(
+                match insert_account_and_program_data_account_from_remote_if_not_in_local(
                     &mut ctx,
                     account_pubkey,
                     &rpc_client,
                 )
                 .await
                 {
-                    Ok(Some(event)) | Err(event) => {
+                    Ok(events) => {
+                        for event in events {
+                            let _ = simnet_events_tx.try_send(event);
+                        }
+                    }
+                    Err(event) => {
                         let _ = simnet_events_tx.try_send(event);
                     }
-                    Ok(None) => {}
                 }
             }
 
@@ -526,7 +530,8 @@ fn start_rpc_server_thread(
 
     let middleware = SurfpoolMiddleware::new(
         context,
-        simnet_commands_tx,
+        &simnet_commands_tx,
+        &simnet_events_tx,
         &plugin_manager_commands_tx,
         &config.rpc,
     );
@@ -579,11 +584,44 @@ fn start_rpc_server_thread(
     Ok((plugin_manager_commands_rx, _handle))
 }
 
+async fn insert_account_and_program_data_account_from_remote_if_not_in_local(
+    ctx: &mut RwLockWriteGuard<'_, GlobalState>,
+    account_pubkey: &Pubkey,
+    rpc: &RpcClient,
+) -> Result<Vec<SimnetEvent>, SimnetEvent> {
+    let mut events = vec![];
+    let Some(account) =
+        insert_account_from_remote_if_not_in_local(ctx, account_pubkey, rpc).await?
+    else {
+        return Ok(events);
+    };
+
+    events.push(SimnetEvent::AccountUpdate(
+        Local::now(),
+        account_pubkey.clone(),
+    ));
+
+    if account.executable {
+        let program_data_address = get_program_data_address(account_pubkey);
+
+        if insert_account_from_remote_if_not_in_local(ctx, &program_data_address, rpc)
+            .await?
+            .is_some()
+        {
+            events.push(SimnetEvent::AccountUpdate(
+                Local::now(),
+                program_data_address.clone(),
+            ));
+        }
+    }
+    Ok(events)
+}
+
 async fn insert_account_from_remote_if_not_in_local(
     ctx: &mut RwLockWriteGuard<'_, GlobalState>,
     account_pubkey: &Pubkey,
     rpc: &RpcClient,
-) -> Result<Option<SimnetEvent>, SimnetEvent> {
+) -> Result<Option<Account>, SimnetEvent> {
     if ctx.svm.get_account(&account_pubkey).is_none() {
         let res = rpc
             .get_account_with_commitment(&account_pubkey, CommitmentConfig::default())
@@ -591,11 +629,16 @@ async fn insert_account_from_remote_if_not_in_local(
         match res {
             Ok(res) => match res.value {
                 Some(account) => {
-                    let _ = ctx.svm.set_account(*account_pubkey, account);
-                    return Ok(Some(SimnetEvent::AccountUpdate(
-                        Local::now(),
-                        account_pubkey.clone(),
-                    )));
+                    let _ = ctx
+                        .svm
+                        .set_account(*account_pubkey, account.clone())
+                        .map_err(|e| {
+                            SimnetEvent::error(format!(
+                                "unable to set account {}: {}",
+                                account_pubkey, e
+                            ))
+                        })?;
+                    return Ok(Some(account));
                 }
                 None => return Ok(None),
             },

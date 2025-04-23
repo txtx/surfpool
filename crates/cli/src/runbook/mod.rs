@@ -30,12 +30,9 @@ use crate::cli::{ExecuteRunbook, DEFAULT_ID_SVC_URL};
 pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
     let available_addons: Vec<Box<dyn Addon>> =
         vec![Box::new(StdAddon::new()), Box::new(SvmNetworkAddon::new())];
-    for addon in available_addons.into_iter() {
-        if namespace.starts_with(&format!("{}", addon.get_namespace())) {
-            return Some(addon);
-        }
-    }
-    None
+    available_addons
+        .into_iter()
+        .find(|addon| namespace.starts_with(&addon.get_namespace().to_string()))
 }
 
 pub fn load_workspace_manifest_from_manifest_path(
@@ -215,7 +212,7 @@ pub async fn execute_runbook(
                 .await?;
 
         ctrlc::set_handler(move || {
-            let _ = kill_supervised_execution_tx.send(true).unwrap();
+            kill_supervised_execution_tx.send(true).unwrap();
         })
         .expect("Error setting Ctrl-C handler");
 
@@ -248,7 +245,7 @@ pub async fn configure_supervised_execution(
     let (block_broadcaster, _) = tokio::sync::broadcast::channel(5);
     let block_store = Arc::new(RwLock::new(BTreeMap::new()));
     let (kill_loops_tx, kill_loops_rx) = channel::bounded(1);
-    let (action_item_events_tx, action_item_events_rx) = tokio::sync::broadcast::channel(32);
+    let (_action_item_events_tx, action_item_events_rx) = tokio::sync::broadcast::channel(32);
 
     let moved_block_tx = block_tx.clone();
     let moved_kill_loops_tx = kill_loops_tx.clone();
@@ -394,17 +391,14 @@ pub async fn configure_supervised_execution(
     let _ = hiro_system_kit::thread_named("Kill Runloops Thread")
         .spawn(move || {
             let future = async {
-                match kill_loops_rx.recv() {
-                    Ok(_) => {
-                        let _ = block_tx.send(BlockEvent::Exit);
-                        #[cfg(feature = "supervisor_ui")]
-                        let _ = relayer_channel_tx.send(RelayerChannelEvent::Exit);
-                        #[cfg(feature = "supervisor_ui")]
-                        if let Some(handle) = web_ui_handle {
-                            let _ = handle.stop(true).await;
-                        }
+                if kill_loops_rx.recv().is_ok() {
+                    let _ = block_tx.send(BlockEvent::Exit);
+                    #[cfg(feature = "supervisor_ui")]
+                    let _ = relayer_channel_tx.send(RelayerChannelEvent::Exit);
+                    #[cfg(feature = "supervisor_ui")]
+                    if let Some(handle) = web_ui_handle {
+                        let _ = handle.stop(true).await;
                     }
-                    Err(_) => {}
                 };
             };
 
@@ -481,7 +475,7 @@ pub fn display_snapshot_diffing(
         println!("\n{}", yellow!("Runbook Recovery Plan"));
         println!("The previous runbook execution was interrupted before completion, causing the following actions to be aborted:");
 
-        for (_i, (change, _impacted)) in synthesized_changes.iter().enumerate() {
+        for (change, _impacted) in synthesized_changes.iter() {
             match change {
                 SynthesizedChange::Edition(_, _) => {}
                 SynthesizedChange::FormerFailure(_construct_to_run, command_name) => {
@@ -518,8 +512,8 @@ fn log_actions_to_execute(
     let _ = simnet_events_tx.send(SimnetEvent::info(msg));
     let documentation_missing = black!("<description field empty>");
     for (context, actions) in actions_to_execute.iter() {
-        let _ = simnet_events_tx.send(SimnetEvent::info(format!("{}", context)));
-        for (action_name, documentation) in actions.into_iter() {
+        let _ = simnet_events_tx.send(SimnetEvent::info(context.to_string()));
+        for (action_name, documentation) in actions.iter() {
             let _ = simnet_events_tx.send(SimnetEvent::info(format!(
                 "- {}: {}",
                 action_name,
@@ -582,8 +576,8 @@ fn process_runbook_execution_output(
 ) {
     if let Err(diags) = execution_result {
         let _ = simnet_events_tx.send(SimnetEvent::warn("Runbook execution aborted"));
-        log_diagnostic_lines(diags, &simnet_events_tx);
-        write_runbook_transient_state(runbook, runbook_state_location, &simnet_events_tx);
+        log_diagnostic_lines(diags, simnet_events_tx);
+        write_runbook_transient_state(runbook, runbook_state_location, simnet_events_tx);
     } else {
         let runbook_outputs = runbook.collect_formatted_outputs();
         if !runbook_outputs.is_empty() {
@@ -602,7 +596,7 @@ fn process_runbook_execution_output(
                         Ok(output_location) => {
                             let _ = simnet_events_tx.send(SimnetEvent::info(format!(
                                 "Outputs written to {}",
-                                output_location.to_string()
+                                output_location
                             )));
                         }
                         Err(e) => {
@@ -623,6 +617,6 @@ fn process_runbook_execution_output(
                 ));
             }
         }
-        write_runbook_state(runbook, runbook_state_location, &simnet_events_tx);
+        write_runbook_state(runbook, runbook_state_location, simnet_events_tx);
     }
 }

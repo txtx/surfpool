@@ -91,11 +91,11 @@ impl Dataloader for MemoryStore {
         let mut entries_store = self
             .entries_store
             .write()
-            .map_err(|_| format!("Failed to acquire write lock on entries store"))?;
+            .map_err(|err_ctx| format!("{err_ctx}: Failed to acquire write lock on entries store"))?;
         let mut lookup = self
             .subgraph_name_lookup
             .write()
-            .map_err(|_| format!("Failed to acquire write lock on subgraph name lookup"))?;
+            .map_err(|err_ctx| format!("{err_ctx}: Failed to acquire write lock on subgraph name lookup"))?;
         lookup.insert(subgraph_uuid.clone(), subgraph_name.to_case(Case::Camel));
         entries_store.insert(
             subgraph_name.to_case(Case::Camel),

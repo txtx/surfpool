@@ -21,10 +21,9 @@ use notify::{
     event::{CreateKind, DataChange, ModifyKind},
     Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
 };
-use surfpool_core::{
-    solana_sdk::{signature::Keypair, signer::Signer},
-    start_simnet,
-};
+use solana_keypair::Keypair;
+use solana_signer::Signer;
+use surfpool_core::start_simnet;
 use surfpool_types::{SimnetEvent, SubgraphEvent};
 use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
@@ -61,7 +60,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         config.clone(),
         subgraph_events_tx.clone(),
         subgraph_commands_rx,
-        &ctx,
+        ctx,
     )
     .await
     {
@@ -150,7 +149,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         .map_err(|e| format!("{}", e))?;
     }
     if let Some(explorer_handle) = explorer_handle {
-        let _ = explorer_handle.stop(true);
+        let _ = explorer_handle.stop(true).await;
     }
     Ok(())
 }
@@ -324,7 +323,7 @@ async fn write_and_execute_iac(
 
     let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
 
-    if let Some((_framework, programs)) = deployment {
+    if let Some((framework, programs)) = deployment {
         // Is infrastructure-as-code (IaC) already setup?
         let base_location =
             FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
@@ -332,7 +331,7 @@ async fn write_and_execute_iac(
         txtx_manifest_location.append_path("txtx.yml")?;
         if !txtx_manifest_location.exists() {
             // Scaffold IaC
-            scaffold_iac_layout(programs, &base_location)?;
+            scaffold_iac_layout(&framework, programs, &base_location)?;
         }
 
         let mut futures = vec![];

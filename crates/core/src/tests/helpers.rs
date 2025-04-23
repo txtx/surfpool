@@ -6,8 +6,11 @@ use std::{
 
 use crossbeam_channel::Sender;
 use litesvm::LiteSVM;
+use solana_blake3_hasher::Hash;
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::{blake3::Hash, clock::Clock, epoch_info::EpochInfo, transaction::Transaction};
+use solana_clock::Clock;
+use solana_epoch_info::EpochInfo;
+use solana_transaction::Transaction;
 use surfpool_types::SimnetCommand;
 
 use crate::{
@@ -36,6 +39,7 @@ pub struct TestSetup<T> {
 impl<T> TestSetup<T> {
     pub fn new(rpc: T) -> Self {
         let (simnet_commands_tx, _rx) = crossbeam_channel::unbounded();
+        let (simnet_events_tx, _rx) = crossbeam_channel::unbounded();
         let (plugin_manager_commands_tx, _rx) = crossbeam_channel::unbounded();
 
         let mut svm = LiteSVM::new();
@@ -51,6 +55,7 @@ impl<T> TestSetup<T> {
         TestSetup {
             context: RunloopContext {
                 simnet_commands_tx,
+                simnet_events_tx: simnet_events_tx.clone(),
                 plugin_manager_commands_tx,
                 id: Hash::new_unique(),
                 state: Arc::new(RwLock::new(GlobalState {

@@ -14,46 +14,49 @@ name = "surfpool"
 path = "src/main.rs"
 
 [dependencies]
-surfpool-core = { workspace = true }
-surfpool-types = { workspace = true }
-surfpool-gql = { workspace = true }
-# surfpool-core = { version = "0.1" }
-txtx-core = { workspace = true }
-txtx-addon-network-svm = { workspace = true }
-txtx-gql = { workspace = true }
-txtx-supervisor-ui = { workspace = true, optional = true}
-txtx-cloud = { workspace = true }
-hiro-system-kit = "0.3.1"
-atty = "0.2.13"
+actix-cors = "0.7.0"
+actix-web = "4"
 ansi_term = "0.12.1"
-clap = { version = "4.5.27", features = ["derive"], optional = true }
-toml = { version = "0.8.2", features = ["preserve_order"], optional = true }
-ctrlc = { version = "3.4.5", optional = true }
-clap_generate = "3.0.3"
-clap_complete = "4.5.44"
-crossterm = "0.28.1"
-ratatui = "0.29.0"
+anyhow = "1.0.95"
+atty = "0.2.13"
 chrono = "0.4"
+clap = { version = "4.5.27", features = ["derive"], optional = true }
+clap_complete = "4.5.44"
+convert_case = "0.7.1"
+crossbeam = "0.8.4"
+crossterm = "0.28.1"
+ctrlc = { version = "3.4.5", optional = true }
+dialoguer = "0.11.0"
+dirs = "6.0.0"
+hiro-system-kit = "0.3.1"
+juniper_actix = { version = "0.6.0", features = ["subscriptions"] }
+juniper_graphql_ws = { version = "0.4.0", features = ["graphql-transport-ws"] }
+mime_guess = "2.0.4"
+mustache = "0.9.0"
+notify = { version = "8.0.0" }
+ratatui = "0.29.0"
+rust-embed = "8.2.0"
 serde = "1.0.217"
 serde_json = "1.0.138"
-anyhow = "1.0.95"
-url = "2.5.4"
-dialoguer = "0.11.0"
-mustache = "0.9.0"
-crossbeam = "0.8.4"
-dirs = "6.0.0"
+solana-clock = { workspace = true }
+solana-commitment-config = { workspace = true }
+solana-epoch-info = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+solana-system-interface = { workspace = true }
+solana-transaction = { workspace = true }
+surfpool-core = { workspace = true }
+surfpool-gql = { workspace = true }
+surfpool-types = { workspace = true }
 tokio = "1.43.0"
-actix-web = "4"
-actix-cors = "0.7.0"
-rust-embed="8.2.0"
-mime_guess = "2.0.4"
-notify = { version = "8.0.0" }
-juniper_actix = {version = "0.6.0", features = ["subscriptions"] }
-juniper_graphql_ws = { version = "0.4.0", features = ["graphql-transport-ws"] }
-juniper = { version = "0.16.1", features = ["schema-language"] }
-ipc-channel = { workspace = true }
-bincode = { workspace = true }
-convert_case = "0.7.1"
+toml = { version = "0.8.2", features = ["preserve_order"], optional = true }
+txtx-addon-network-svm = { workspace = true }
+txtx-core = { workspace = true }
+txtx-gql = { workspace = true }
+txtx-supervisor-ui = { workspace = true, optional = true }
+url = "2.5.4"
 
 [features]
 default = ["cli"]

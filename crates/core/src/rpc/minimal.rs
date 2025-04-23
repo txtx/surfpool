@@ -8,15 +8,25 @@ use solana_client::{
         RpcLeaderScheduleConfigWrapper,
     },
     rpc_response::{
-        RpcIdentity, RpcLeaderSchedule, RpcResponseContext, RpcSnapshotSlotInfo, RpcVersionInfo,
+        RpcIdentity, RpcLeaderSchedule, RpcResponseContext, RpcSnapshotSlotInfo,
         RpcVoteAccountStatus,
     },
 };
+use solana_clock::{Clock, Slot};
+use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{
-    clock::{Clock, Slot},
-    epoch_info::EpochInfo,
-};
+const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub struct SurfpoolRpcVersionInfo {
+    /// The current version of surfpool
+    pub surfpool_version: String,
+    /// The current version of solana-core
+    pub solana_core: String,
+    /// first 4 bytes of the FeatureSet identifier
+    pub feature_set: Option<u32>,
+}
 
 #[rpc]
 pub trait Minimal {
@@ -67,7 +77,7 @@ pub trait Minimal {
     ) -> Result<u64>;
 
     #[rpc(meta, name = "getVersion")]
-    fn get_version(&self, meta: Self::Metadata) -> Result<RpcVersionInfo>;
+    fn get_version(&self, meta: Self::Metadata) -> Result<SurfpoolRpcVersionInfo>;
 
     // TODO: Refactor `agave-validator wait-for-restart-window` to not require this method, so
     //       it can be removed from rpc_minimal
@@ -196,9 +206,11 @@ impl Minimal for SurfpoolMinimalRpc {
         Ok(state_reader.transactions_processed as u64)
     }
 
-    fn get_version(&self, _: Self::Metadata) -> Result<RpcVersionInfo> {
+    fn get_version(&self, _: Self::Metadata) -> Result<SurfpoolRpcVersionInfo> {
         let version = solana_version::Version::default();
-        Ok(RpcVersionInfo {
+
+        Ok(SurfpoolRpcVersionInfo {
+            surfpool_version: format!("surfpool_v{}", SURFPOOL_VERSION),
             solana_core: version.to_string(),
             feature_set: Some(version.feature_set),
         })
@@ -308,6 +320,10 @@ mod tests {
         let result = setup.rpc.get_version(Some(setup.context)).unwrap();
         assert!(!result.solana_core.is_empty());
         assert!(result.feature_set.is_some());
+        assert_eq!(
+            result.surfpool_version,
+            format!("surfpool_v{}", SURFPOOL_VERSION)
+        );
     }
 
     #[test]

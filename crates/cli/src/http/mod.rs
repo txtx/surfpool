@@ -136,7 +136,7 @@ async fn post_graphql(
         .ok_or(actix_web::error::ErrorInternalServerError(
             "Missing expected schema",
         ))?;
-    graphql_handler(&schema, &context, req, payload).await
+    graphql_handler(schema, &context, req, payload).await
 }
 
 async fn get_graphql(
@@ -156,7 +156,7 @@ async fn get_graphql(
         .ok_or(actix_web::error::ErrorInternalServerError(
             "Missing expected schema",
         ))?;
-    graphql_handler(&schema, &context, req, payload).await
+    graphql_handler(schema, &context, req, payload).await
 }
 
 async fn subscriptions(

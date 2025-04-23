@@ -5,8 +5,9 @@ use jsonrpc_core::{
     futures::future::Either, middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware,
     Request, Response,
 };
+use solana_blake3_hasher::Hash;
 use solana_client::rpc_custom_error::RpcCustomError;
-use solana_sdk::{blake3::Hash, clock::Slot};
+use solana_clock::Slot;
 
 pub mod accounts_data;
 pub mod accounts_scan;
@@ -31,6 +32,7 @@ pub struct RunloopContext {
     pub id: Hash,
     pub state: Arc<RwLock<GlobalState>>,
     pub simnet_commands_tx: Sender<SimnetCommand>,
+    pub simnet_events_tx: Sender<SimnetEvent>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
 }
 
@@ -79,12 +81,13 @@ use crate::types::GlobalState;
 use crate::PluginManagerCommand;
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
-use surfpool_types::{types::RpcConfig, SimnetCommand};
+use surfpool_types::{types::RpcConfig, SimnetCommand, SimnetEvent};
 
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
     pub context: Arc<RwLock<GlobalState>>,
     pub simnet_commands_tx: Sender<SimnetCommand>,
+    pub simnet_events_tx: Sender<SimnetEvent>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub config: RpcConfig,
 }
@@ -93,12 +96,14 @@ impl SurfpoolMiddleware {
     pub fn new(
         context: Arc<RwLock<GlobalState>>,
         simnet_commands_tx: &Sender<SimnetCommand>,
+        simnet_events_tx: &Sender<SimnetEvent>,
         plugin_manager_commands_tx: &Sender<PluginManagerCommand>,
         config: &RpcConfig,
     ) -> Self {
         Self {
             context,
             simnet_commands_tx: simnet_commands_tx.clone(),
+            simnet_events_tx: simnet_events_tx.clone(),
             plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
             config: config.clone(),
         }
@@ -123,6 +128,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             id: Hash::new_unique(),
             state: self.context.clone(),
             simnet_commands_tx: self.simnet_commands_tx.clone(),
+            simnet_events_tx: self.simnet_events_tx.clone(),
             plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
         });
         Either::Left(Box::pin(next(request, meta).map(move |res| res)))

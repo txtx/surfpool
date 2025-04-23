@@ -2,10 +2,10 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_client::rpc_config::{RpcBlockProductionConfig, RpcContextConfig};
 use solana_client::rpc_response::{RpcBlockProduction, RpcInflationGovernor, RpcInflationRate};
+use solana_clock::Slot;
+use solana_commitment_config::CommitmentConfig;
+use solana_epoch_schedule::EpochSchedule;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::clock::Slot;
-use solana_sdk::commitment_config::CommitmentConfig;
-use solana_sdk::epoch_schedule::EpochSchedule;
 
 use super::{not_implemented_err, RunloopContext, State};
 

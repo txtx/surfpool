@@ -27,7 +27,7 @@ pub fn try_get_programs_from_project(
         target_location.append_path("target")?;
         if let Some((_, deployments)) = manifest.programs.iter().next() {
             for (program_name, deployment) in deployments.iter() {
-                programs.push(ProgramMetadata::new(&program_name, &deployment.idl));
+                programs.push(ProgramMetadata::new(program_name, &deployment.idl));
             }
         }
 
@@ -150,7 +150,7 @@ impl AnchorProgramDeployment {
             serde_json::Value::String(address) => Ok(AnchorProgramDeployment {
                 address: address.clone(),
                 path: None,
-                idl: idl,
+                idl,
             }),
 
             serde_json::Value::Object(_) => {
@@ -158,15 +158,13 @@ impl AnchorProgramDeployment {
                     .map_err(|_| anyhow!("Unable to read Anchor.toml"))?;
                 Ok(AnchorProgramDeployment {
                     address: dep.address,
-                    idl: idl,
+                    idl,
                     path: dep.path,
                 })
             }
-            _ => {
-                return Err(anyhow!(
-                    "Invalid type for program definition in Anchor.toml"
-                ))
-            }
+            _ => Err(anyhow!(
+                "Invalid type for program definition in Anchor.toml"
+            )),
         }
     }
 }
@@ -254,7 +252,7 @@ fn deser_programs(
                 .map(|(name, program_id)| {
                     Ok((
                         name.clone(),
-                        AnchorProgramDeployment::new(name, program_id, &base_location)?,
+                        AnchorProgramDeployment::new(name, program_id, base_location)?,
                     ))
                 })
                 .collect::<Result<BTreeMap<String, AnchorProgramDeployment>>>()?;

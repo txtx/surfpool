@@ -1,10 +1,10 @@
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use clap_complete::{Generator, Shell};
 use hiro_system_kit::{self, Logger};
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::{EncodableKey, Signer};
 use std::{fs::File, path::PathBuf, process, str::FromStr};
-use surfpool_core::solana_sdk::pubkey::Pubkey;
-use surfpool_core::solana_sdk::signature::Keypair;
-use surfpool_core::solana_sdk::signer::{EncodableKey, Signer};
 use surfpool_types::{RpcConfig, SimnetConfig, SubgraphConfig, SurfpoolConfig};
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -27,6 +27,8 @@ pub const DEFAULT_SIMNET_PORT: &str = "8899";
 pub const DEFAULT_TXTX_PORT: &str = "8488";
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
+pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
+pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
 pub const DEFAULT_ID_SVC_URL: &str = "https://id.txtx.run/v1";
 pub const DEFAULT_AUTH_SVC_URL: &str = "https://auth.txtx.run";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
@@ -101,9 +103,12 @@ pub struct StartSimnet {
     /// Set the slot time
     #[arg(long = "slot-time", short = 's', default_value = DEFAULT_SLOT_TIME_MS)]
     pub slot_time: u64,
-    /// Set the ip
-    #[arg(long = "rpc-url", short = 'u', default_value = DEFAULT_RPC_URL)]
+    /// Set a custom RPC URL (cannot be used with --network)
+    #[arg(long = "rpc-url", short = 'u', default_value = DEFAULT_RPC_URL, conflicts_with = "network")]
     pub rpc_url: String,
+    /// Choose a predefined network (cannot be used with --rpc-url)
+    #[arg(long = "network", short = 'n', value_enum, conflicts_with = "rpc_url")]
+    pub network: Option<NetworkType>,
     /// Display streams of logs instead of terminal UI dashboard (default: false)
     #[clap(long = "no-tui")]
     pub no_tui: bool,
@@ -136,12 +141,22 @@ pub struct StartSimnet {
     pub plugin_config_path: Vec<String>,
 }
 
+#[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
+pub enum NetworkType {
+    /// Solana Mainnet-Beta (https://api.mainnet-beta.solana.com)
+    Mainnet,
+    /// Solana Devnet (https://api.devnet.solana.com)
+    Devnet,
+    /// Solana Testnet (https://api.testnet.solana.com)
+    Testnet,
+}
+
 impl StartSimnet {
     pub fn get_airdrop_addresses(&self) -> (Vec<Pubkey>, Vec<String>) {
         let mut airdrop_addresses = vec![];
         let mut errors = vec![];
         for address in self.airdrop_addresses.iter() {
-            match Pubkey::from_str(&address).map_err(|e| e.to_string()) {
+            match Pubkey::from_str(address).map_err(|e| e.to_string()) {
                 Ok(pubkey) => {
                     airdrop_addresses.push(pubkey);
                 }
@@ -160,7 +175,7 @@ impl StartSimnet {
                 format!(
                     "{}{}",
                     dirs::home_dir().unwrap().display(),
-                    keypair_path[1..].to_string()
+                    &keypair_path[1..]
                 )
             } else {
                 keypair_path.clone()
@@ -183,19 +198,33 @@ impl StartSimnet {
     }
 
     pub fn rpc_config(&self) -> RpcConfig {
+        let remote_rpc_url = match &self.network {
+            Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
+            Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
+            Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
+            None => self.rpc_url.clone(),
+        };
+
         RpcConfig {
             bind_host: self.network_host.clone(),
             bind_port: self.simnet_port,
-            remote_rpc_url: self.rpc_url.clone(),
+            remote_rpc_url,
         }
     }
 
     pub fn simnet_config(&self, airdrop_addresses: Vec<Pubkey>) -> SimnetConfig {
+        let remote_rpc_url = match &self.network {
+            Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
+            Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
+            Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
+            None => self.rpc_url.clone(),
+        };
+
         SimnetConfig {
-            remote_rpc_url: self.rpc_url.clone(),
+            remote_rpc_url,
             slot_time: self.slot_time,
             runloop_trigger_mode: surfpool_types::RunloopTriggerMode::Clock,
-            airdrop_addresses: airdrop_addresses,
+            airdrop_addresses,
             airdrop_token_amount: self.airdrop_token_amount,
         }
     }
@@ -208,7 +237,7 @@ impl StartSimnet {
         let mut plugin_config_path = self
             .plugin_config_path
             .iter()
-            .map(|f| PathBuf::from(f))
+            .map(PathBuf::from)
             .collect::<Vec<_>>();
 
         if plugin_config_path.is_empty() {

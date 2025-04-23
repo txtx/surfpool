@@ -8,6 +8,7 @@ use jsonrpc_core::futures::future::{self, join_all};
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
+use solana_account::Account;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::rpc_config::RpcContextConfig;
 use solana_client::rpc_custom_error::RpcCustomError;
@@ -24,15 +25,16 @@ use solana_client::{
         RpcInflationReward, RpcPerfSample, RpcPrioritizationFee, RpcSimulateTransactionResult,
     },
 };
+use solana_clock::UnixTimestamp;
+use solana_commitment_config::CommitmentLevel;
+use solana_keypair::Keypair;
+use solana_message::{Message, VersionedMessage};
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::commitment_config::CommitmentLevel;
-use solana_sdk::message::{Message, VersionedMessage};
-use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::{Keypair, Signature};
-use solana_sdk::signer::Signer;
-use solana_sdk::system_instruction;
-use solana_sdk::transaction::{Transaction, VersionedTransaction};
-use solana_sdk::{account::Account, clock::UnixTimestamp};
+use solana_signature::Signature;
+use solana_signer::Signer;
+use solana_system_interface::instruction as system_instruction;
+use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
 };
@@ -760,15 +762,14 @@ mod tests {
     use base64::{prelude::BASE64_STANDARD, Engine};
     use solana_account_decoder::{UiAccount, UiAccountData};
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
-    use solana_sdk::{
-        commitment_config::CommitmentConfig,
-        hash::Hash,
-        message::{Message, MessageHeader},
-        native_token::LAMPORTS_PER_SOL,
-        signature::Keypair,
-        signer::Signer,
-        system_instruction, system_program,
-        transaction::{Legacy, TransactionVersion},
+    use solana_commitment_config::CommitmentConfig;
+    use solana_hash::Hash;
+    use solana_message::{Message, MessageHeader};
+    use solana_native_token::LAMPORTS_PER_SOL;
+    use solana_system_interface::program as system_program;
+    use solana_transaction::{
+        versioned::{Legacy, TransactionVersion},
+        Transaction,
     };
     use solana_transaction_status::{
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,

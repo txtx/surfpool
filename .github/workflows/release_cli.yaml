@@ -54,7 +54,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             platform: linux
             target: x86_64-unknown-linux-gnu
             architecture: x64
@@ -154,7 +154,7 @@ jobs:
         run: tar -C target/${{ matrix.target }}/release -zcvf surfpool-${{ env.SHORT_TARGET_NAME }}.tar.gz surfpool
 
       - name: Store SHA256 Hash of Tar (Linux x64)
-        if: matrix.os == 'ubuntu-20.04'
+        if: matrix.platform == 'linux'
         id: linux_x64_sha
         run: |
           echo "LINUX_X64_SHA=$(sha256sum surfpool-${{ env.SHORT_TARGET_NAME }}.tar.gz | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
