@@ -9,8 +9,8 @@ use solana_client::rpc_response::RpcResponseContext;
 use solana_client::rpc_response::{
     OptionalContext, RpcAccountBalance, RpcKeyedAccount, RpcSupply, RpcTokenAccountBalance,
 };
+use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::commitment_config::CommitmentConfig;
 
 use super::not_implemented_err_async;
 use super::RunloopContext;
