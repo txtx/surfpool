@@ -38,8 +38,6 @@ pub async fn start_subgraph_and_explorer_server(
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     _ctx: &Context,
 ) -> Result<(ServerHandle, JoinHandle<Result<(), String>>), Box<dyn StdError>> {
-    // let schema_ref: &(dyn Dataloader + Sync) = schema_guard.as_ref();
-
     let context: DataloaderContext = Box::new(MemoryStore::new());
     let schema_datasource = SchemaDataSource::new();
     let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
@@ -175,12 +173,7 @@ async fn subscriptions(
 }
 
 async fn graphiql() -> Result<HttpResponse, Error> {
-    // graphiql_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
-    graphiql_handler(
-        "http://127.0.0.1:9000/lambda-url/svm-subgraph-gql-api/graphql",
-        Some("/gql/v1/subscriptions"),
-    )
-    .await
+    graphiql_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
 }
 
 fn start_subgraph_runloop(
@@ -212,7 +205,6 @@ fn start_subgraph_runloop(
                                 let mut gql_schema = gql_schema.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql schema")
                                 })?;
-                                // println!("{}", serde_json::json!(request));
 
                                 let subgraph_uuid = uuid;
                                 schema_datasource.add_entry(DynamicSchemaSpec::from_request(&uuid, &request));

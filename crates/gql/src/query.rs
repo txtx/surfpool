@@ -27,6 +27,7 @@ impl GraphQLType<DefaultScalarValue> for DynamicQuery {
     where
         DefaultScalarValue: 'r,
     {
+        // BigInt needs to be registered as a primitive type before moving on to more complex types.
         let _ = registry.get_type::<&BigInt>(&());
 
         let mut fields = vec![];
@@ -72,10 +73,12 @@ impl Dataloader for MemoryStore {
         _executor: &Executor<DataloaderContext>,
         _schema: &DynamicSchemaSpec,
     ) -> Result<Vec<SubgraphSpec>, FieldError> {
-        let subgraph_db = self
-            .entries_store
-            .read()
-            .expect("failed to read from gql entries store");
+        let subgraph_db = self.entries_store.read().map_err(|err| {
+            FieldError::new(
+                format!("error: {}", err.to_string()),
+                juniper::Value::null(),
+            )
+        })?;
 
         if let Some((_, entries)) = subgraph_db.get(subgraph_name) {
             Ok(entries.clone())
