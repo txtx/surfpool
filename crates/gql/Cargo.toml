@@ -13,20 +13,17 @@ categories = { workspace = true }
 [dependencies]
 # txtx-addon-kit = { version = "0.2.1" }
 futures = { version = "0.3.22", features = ["alloc"], default-features = false }
-futures-enum = { version = "0.1.12", default-features = false }
 uuid = { version = "1.6.1", features = ["serde", "v7"] }
 juniper = { version = "0.16.1", features = ["uuid"] }
 juniper_codegen = { version = "0.16.0" }
 # juniper_codegen = { git = "https://github.com/graphql-rust/juniper", rev = "c0e1b3e" }
-async-stream = "0.3.5"
-tokio = "1.37.0"
 surfpool-types = { workspace = true }
 convert_case = "0.7.1"
 txtx-addon-kit = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-sdk = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }
-serde = { version = "1.0.122"}
+serde = { version = "1.0.122" }
 
 [dev-dependencies]
 solana-sdk = { workspace = true }

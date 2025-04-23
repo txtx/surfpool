@@ -14,6 +14,8 @@ use serde_with::{serde_as, BytesOrString};
 use solana_account::Account;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcResponseContext;
+use solana_clock::Epoch;
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::clock::Epoch;
 use solana_sdk::program_option::COption;

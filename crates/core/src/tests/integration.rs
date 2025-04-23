@@ -4,16 +4,14 @@ use jsonrpc_core::{
     Error,
 };
 use jsonrpc_core_client::transports::http;
-use solana_sdk::{
-    hash::Hash,
-    message::{Message, VersionedMessage},
-    native_token::LAMPORTS_PER_SOL,
-    pubkey::Pubkey,
-    signature::Keypair,
-    signer::Signer,
-    system_instruction,
-    transaction::VersionedTransaction,
-};
+use solana_hash::Hash;
+use solana_keypair::Keypair;
+use solana_message::{Message, VersionedMessage};
+use solana_native_token::LAMPORTS_PER_SOL;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
+use solana_system_interface::instruction as system_instruction;
+use solana_transaction::versioned::VersionedTransaction;
 use std::{str::FromStr, time::Duration};
 use surfpool_types::{
     types::{RpcConfig, RunloopTriggerMode, SimnetConfig},

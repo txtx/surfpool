@@ -13,8 +13,7 @@ categories = { workspace = true }
 path = "src/lib.rs"
 
 [dependencies]
-surfpool-types = { workspace = true }
-surfpool-subgraph = { workspace = true }
+agave-geyser-plugin-interface = { workspace = true }
 base64 = "0.22.1"
 bincode = { workspace = true }
 crossbeam-channel = "0.5.14"
@@ -28,41 +27,50 @@ symlink = "0.1.0"
 tokio = "1.43.0"
 tokio-util = "0.7.13"
 bs58 = "0.5.1"
-indexmap = "2.7.1"
-hiro-system-kit = { version = "0.3.4" }
 chrono = "0.4"
-jsonrpc-core = "18.0.0"
-jsonrpc-derive = "18.0.0"
-jsonrpc-core-client = { version = "18.0.0", features = ["http"] }
-jsonrpc-http-server = "18.0.0"
-libc = "0.2.169"
-regex = "1.11.1"
-litesvm = { workspace = true }
-# litesvm = { path = "../../../litesvm/crates/litesvm" }
 crossbeam = "0.8.4"
-agave-geyser-plugin-interface = { workspace = true }
-solana-sdk = { workspace = true }
-solana-program-test = { workspace = true }
-solana-rpc-client = { workspace = true }
+crossbeam-channel = "0.5.14"
+hiro-system-kit = { version = "0.3.4" }
+ipc-channel = { workspace = true }
+itertools = "0.14.0"
+jsonrpc-core = "18.0.0"
+jsonrpc-core-client = { version = "18.0.0", features = ["http"] }
+jsonrpc-derive = "18.0.0"
+jsonrpc-http-server = "18.0.0"
+litesvm = { workspace = true }
+log = "0.4.22"
+serde = { workspace = true }
+serde_bytes = { workspace = true }
+serde_derive = { workspace = true } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
+serde_json = { workspace = true }
 solana-account = { workspace = true }
 solana-account-decoder = { workspace = true }
-solana-accounts-db = { workspace = true }
+solana-blake3-hasher = { workspace = true }
 solana-client = { workspace = true }
-solana-entry = { workspace = true }
+solana-clock = { workspace = true }
+solana-commitment-config = { workspace = true }
+solana-epoch-info = { workspace = true }
+solana-epoch-schedule = { workspace = true }
 solana-feature-set = { workspace = true }
-solana-inline-spl = { workspace = true }
-solana-ledger = { workspace = true }
-solana-metrics = { workspace = true }
-solana-perf = { workspace = true }
+solana-hash = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-native-token = { workspace = true }
+solana-packet  = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-runtime = { workspace = true }
-solana-runtime-transaction = { workspace = true }
-solana-send-transaction-service = { workspace = true }
-solana-stake-program = { workspace = true }
-solana-storage-bigtable = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+solana-system-interface = { workspace = true }
+solana-transaction = { workspace = true }
+solana-transaction-error = { workspace = true } 
 solana-transaction-status = { workspace = true }
-solana-vote-program = { workspace = true }
 solana-version = { workspace = true }
+surfpool-subgraph = { workspace = true }
+surfpool-types = { workspace = true }
+tokio = "1.43.0"
 solana-poh = { workspace = true }
 solana-svm = { workspace = true }
 solana-program-runtime = { workspace = true }
@@ -75,7 +83,7 @@ libloading = "0.7.4"
 json5 = "0.4.1"
 txtx-addon-network-svm-types = { workspace = true }
 uuid = "1.7.0"
-ipc-channel = { workspace = true }
+
 
 [dev-dependencies]
 test-case = "^3.3.1"
