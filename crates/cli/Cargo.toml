@@ -55,6 +55,7 @@ toml = { version = "0.8.2", features = ["preserve_order"], optional = true }
 txtx-addon-network-svm = { workspace = true }
 txtx-core = { workspace = true }
 txtx-gql = { workspace = true }
+txtx-cloud = { workspace = true }
 txtx-supervisor-ui = { workspace = true, optional = true }
 url = "2.5.4"
 

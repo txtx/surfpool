@@ -18,7 +18,7 @@ juniper = { version = "0.16.1", features = ["uuid"] }
 juniper_codegen = { version = "0.16.0" }
 # juniper_codegen = { git = "https://github.com/graphql-rust/juniper", rev = "c0e1b3e" }
 surfpool-types = { workspace = true }
-convert_case = "0.7.1"
+convert_case = "0.8.0"
 txtx-addon-kit = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-sdk = { workspace = true }

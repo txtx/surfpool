@@ -6,6 +6,9 @@ use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
 use std::{fs::File, path::PathBuf, process, str::FromStr};
 use surfpool_types::{RpcConfig, SimnetConfig, SubgraphConfig, SurfpoolConfig};
+use txtx_cloud::LoginCommand;
+use txtx_core::manifest::WorkspaceManifest;
+use txtx_gql::kit::helpers::fs::FileLocation;
 
 use crate::runbook::handle_execute_runbook_command;
 
@@ -21,10 +24,13 @@ pub struct Context {
 pub const DEFAULT_SLOT_TIME_MS: &str = "400";
 pub const DEFAULT_EXPLORER_PORT: &str = "8900";
 pub const DEFAULT_SIMNET_PORT: &str = "8899";
+pub const DEFAULT_TXTX_PORT: &str = "8488";
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
 pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
+pub const DEFAULT_ID_SVC_URL: &str = "https://id.txtx.run/v1";
+pub const DEFAULT_AUTH_SVC_URL: &str = "https://auth.txtx.run";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
 pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
 pub const DEFAULT_AIRDROPPED_KEYPAIR_PATH: &str = "~/.config/solana/id.json";
@@ -71,6 +77,12 @@ enum Command {
     /// Run, runbook, run!
     #[clap(name = "run", bin_name = "run")]
     Run(ExecuteRunbook),
+    /// List runbooks present in the current direcoty
+    #[clap(name = "ls", bin_name = "ls")]
+    List(ListRunbooks),
+    /// Txtx cloud commands
+    #[clap(subcommand, name = "cloud", bin_name = "cloud")]
+    Cloud(CloudCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -248,6 +260,20 @@ struct Completions {
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
+pub struct ListRunbooks {
+    /// Path to the manifest
+    #[arg(long = "manifest-file-path", short = 'm', default_value = "./txtx.yml")]
+    pub manifest_path: String,
+}
+
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+pub enum CloudCommand {
+    /// Login to the Txtx Cloud
+    #[clap(name = "login", bin_name = "login")]
+    Login(LoginCommand),
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
 #[command(group = clap::ArgGroup::new("execution_mode").multiple(false).args(["unsupervised", "web_console", "term_console"]).required(false))]
 pub struct ExecuteRunbook {
     /// Path to the manifest
@@ -255,7 +281,6 @@ pub struct ExecuteRunbook {
     pub manifest_path: String,
     /// Name of the runbook as indexed in the txtx.yml, or the path of the .tx file to run
     pub runbook: String,
-
     /// Execute the runbook without supervision
     #[arg(long = "unsupervised", short = 'u', action=ArgAction::SetTrue, group = "execution_mode")]
     pub unsupervised: bool,
@@ -288,7 +313,6 @@ pub struct ExecuteRunbook {
     /// A set of inputs to use for batch processing
     #[arg(long = "input")]
     pub inputs: Vec<String>,
-
     /// Execute the Runbook even if the cached state suggests this Runbook has already been executed
     #[arg(long = "force", short = 'f')]
     pub force_execution: bool,
@@ -353,6 +377,8 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Simnet(cmd) => simnet::handle_start_simnet_command(&cmd, ctx).await,
         Command::Completions(cmd) => generate_completion_helpers(&cmd),
         Command::Run(cmd) => handle_execute_runbook_command(cmd).await,
+        Command::List(cmd) => handle_list_command(cmd, ctx).await,
+        Command::Cloud(cmd) => handle_cloud_commands(cmd).await,
     }
 }
 
@@ -365,4 +391,36 @@ fn generate_completion_helpers(cmd: &Completions) -> Result<(), String> {
     println!("{} {}", green!("Created file"), file_name.clone());
     println!("Check your shell’s docs for how to enable completions for surfpool.");
     Ok(())
+}
+
+pub async fn handle_list_command(cmd: ListRunbooks, _ctx: &Context) -> Result<(), String> {
+    let manifest_location = FileLocation::from_path_string(&cmd.manifest_path)?;
+    let manifest = WorkspaceManifest::from_location(&manifest_location)?;
+    if manifest.runbooks.is_empty() {
+        println!("{}: no runbooks referenced in the txtx.yml manifest.\nRun the command `txtx new` to create a new runbook.", yellow!("warning"));
+        std::process::exit(1);
+    }
+    println!("{:<35}\t{}", "Name", yellow!("Description"));
+    for runbook in manifest.runbooks {
+        println!(
+            "{:<35}\t{}",
+            runbook.name,
+            yellow!(format!("{}", runbook.description.unwrap_or("".into())))
+        );
+    }
+    Ok(())
+}
+
+async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
+    match cmd {
+        CloudCommand::Login(cmd) => {
+            txtx_cloud::login::handle_login_command(
+                &cmd,
+                DEFAULT_AUTH_SVC_URL,
+                DEFAULT_TXTX_PORT,
+                DEFAULT_ID_SVC_URL,
+            )
+            .await
+        }
+    }
 }
