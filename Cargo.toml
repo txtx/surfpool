@@ -33,6 +33,7 @@ serde = "1.0.217"
 serde_bytes = "0.11.17"
 serde_derive = "1.0.217" # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = "1.0.135"
+serde_with = "3"
 solana-account = "2.2.1"
 solana-account-decoder = "2.2.1"
 solana-blake3-hasher = { version = "2.2.1", features = ["serde"]}
@@ -52,6 +53,7 @@ solana-pubkey = { version = "2.2.1", features = ["serde"]}
 solana-rpc-client = "2.2.1"
 solana-rpc-client-api = "2.2.1"
 solana-runtime = "2.2.1"
+solana-sdk = "2.2.1"
 solana-signature = { version = "2.2.1", features = ["serde"]}
 solana-signer = "2.2.1"
 solana-system-interface = { version = "1.0.0", features = ["bincode"] }
@@ -60,6 +62,7 @@ solana-transaction-context = { version = "2.2.1", features = ["serde"]}
 solana-transaction-error = { version = "2.2.1", features = ["serde"]}
 solana-transaction-status = { version = "2.2.2" }
 solana-version = "2.2.1"
+spl-associated-token-account =  "6.0.0"
 # txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit", features = ["wasm"]}
 # txtx-addon-network-svm = { package = "txtx-addon-network-svm", path = "../txtx/addons/svm/core" }
 # txtx-addon-network-svm-types = { package = "txtx-addon-network-svm-types", path = "../txtx/addons/svm/types" }
