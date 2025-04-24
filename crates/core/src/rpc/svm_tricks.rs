@@ -207,6 +207,44 @@ impl TokenAccountUpdate {
 pub trait SvmTricksRpc {
     type Metadata;
 
+    /// A "cheat code" method for developers to set or update an account in Surfpool.
+    ///
+    /// This method allows developers to set or update the lamports, data, owner, executable status,
+    /// and rent epoch of a given account.
+    ///
+    /// # Parameters
+    /// - `meta`: Metadata passed with the request, such as the client’s request context.
+    /// - `pubkey`: The public key of the account to be updated, as a base-58 encoded string.
+    /// - `update`: The `AccountUpdate` struct containing the fields to update the account.
+    ///
+    /// # Returns
+    /// A `RpcResponse<()>` indicating whether the account update was successful.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "svm_setAccount",
+    ///   "params": ["account_pubkey", {"lamports": 1000, "data": "base58string", "owner": "program_pubkey"}]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// This method is designed to help developers set or modify account properties within Surfpool.
+    /// Developers can quickly test or update account attributes, such as lamports, program ownership, and executable status.
+    ///
+    /// # See Also
+    /// - `getAccount`, `getAccountInfo`, `getAccountBalance`
     #[rpc(meta, name = "svm_setAccount")]
     fn set_account(
         &self,
@@ -215,6 +253,46 @@ pub trait SvmTricksRpc {
         update: AccountUpdate,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
 
+    /// A "cheat code" method for developers to set or update a token account in Surfpool.
+    ///
+    /// This method allows developers to set or update various properties of a token account,
+    /// including the token amount, delegate, state, delegated amount, and close authority.
+    ///
+    /// # Parameters
+    /// - `meta`: Metadata passed with the request, such as the client’s request context.
+    /// - `owner`: The base-58 encoded public key of the token account's owner.
+    /// - `mint`: The base-58 encoded public key of the token mint (e.g., the token type).
+    /// - `update`: The `TokenAccountUpdate` struct containing the fields to update the token account.
+    /// - `token_program`: The optional base-58 encoded address of the token program (defaults to the system token program).
+    ///
+    /// # Returns
+    /// A `RpcResponse<()>` indicating whether the token account update was successful.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "svm_setTokenAccount",
+    ///   "params": ["owner_pubkey", "mint_pubkey", {"amount": 1000, "state": "initialized"}]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// This method is designed to help developers quickly test or modify token account properties in Surfpool.
+    /// Developers can update attributes such as token amounts, delegates, and authorities for specific token accounts.
+    ///
+    /// # See Also
+    /// - `getTokenAccountInfo`, `getTokenAccountBalance`, `getTokenAccountDelegate`
     #[rpc(meta, name = "svm_setTokenAccount")]
     fn set_token_account(
         &self,
