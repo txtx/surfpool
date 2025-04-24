@@ -1,7 +1,7 @@
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, ReplicaTransactionInfoV2, ReplicaTransactionInfoVersions,
 };
-use chrono::{Local, Utc};
+use chrono::Utc;
 use crossbeam::select;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ipc_channel::{
@@ -11,16 +11,18 @@ use ipc_channel::{
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use litesvm::LiteSVM;
-use solana_account::Account;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot};
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
-use solana_message::v0::LoadedAddresses;
+use solana_message::{v0::LoadedAddresses, SimpleAddressLoader, VersionedMessage};
 use solana_pubkey::Pubkey;
-use solana_sdk::bpf_loader_upgradeable::get_program_data_address;
-use solana_transaction::{sanitized::SanitizedTransaction, Transaction};
+use solana_sdk::{
+    bpf_loader_upgradeable::get_program_data_address,
+    transaction::{MessageHash, VersionedTransaction},
+};
+use solana_transaction::sanitized::SanitizedTransaction;
 use solana_transaction_status::{InnerInstruction, InnerInstructions, TransactionStatusMeta};
 use std::{
     collections::HashSet,
@@ -108,7 +110,7 @@ pub async fn start(
 
     let simnet_config = config.simnet.clone();
     let (plugins_data_tx, plugins_data_rx) =
-        unbounded::<(Transaction, TransactionMetadata, Slot)>();
+        unbounded::<(VersionedTransaction, TransactionMetadata, Slot)>();
 
     if !config.plugin_config_path.is_empty() {
         match start_geyser_plugin_thread(
@@ -222,7 +224,6 @@ pub async fn start(
             },
         }
 
-        // We will create a slot!
         let unix_timestamp: i64 = Utc::now().timestamp();
         let Ok(mut ctx) = context.write() else {
             continue;
@@ -393,7 +394,7 @@ fn start_geyser_plugin_thread(
     plugin_manager_commands_rx: Receiver<PluginManagerCommand>,
     subgraph_commands_tx: Sender<SubgraphCommand>,
     simnet_events_tx: Sender<SimnetEvent>,
-    plugins_data_rx: Receiver<(Transaction, TransactionMetadata, Slot)>,
+    plugins_data_rx: Receiver<(VersionedTransaction, TransactionMetadata, Slot)>,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let handle = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
         let mut plugin_manager = vec![];
@@ -515,8 +516,8 @@ fn start_geyser_plugin_thread(
                             compute_units_consumed: Some(transaction_metadata.compute_units_consumed),
                         };
 
-                        let transaction = match SanitizedTransaction::try_from_legacy_transaction(transaction, &HashSet::new()) {
-                            Ok(tx) => tx,
+                        let transaction = match SanitizedTransaction::try_create(transaction, MessageHash::Compute, None, SimpleAddressLoader::Disabled, &HashSet::new()) {
+                        Ok(tx) => tx,
                             Err(e) => {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: failed to serialize transaction: {:?}", e)));
                                 continue;

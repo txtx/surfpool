@@ -10,7 +10,7 @@ use solana_blake3_hasher::Hash;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
-use solana_transaction::Transaction;
+use solana_sdk::transaction::VersionedTransaction;
 use surfpool_types::SimnetCommand;
 
 use crate::{
@@ -31,12 +31,19 @@ pub fn get_free_port() -> Result<u16, String> {
     Ok(port)
 }
 
-pub struct TestSetup<T> {
+#[derive(Clone)]
+pub struct TestSetup<T>
+where
+    T: Clone,
+{
     pub context: RunloopContext,
     pub rpc: T,
 }
 
-impl<T> TestSetup<T> {
+impl<T> TestSetup<T>
+where
+    T: Clone,
+{
     pub fn new(rpc: T) -> Self {
         let (simnet_commands_tx, _rx) = crossbeam_channel::unbounded();
         let (simnet_events_tx, _rx) = crossbeam_channel::unbounded();
@@ -96,13 +103,16 @@ impl<T> TestSetup<T> {
         setup
     }
 
-    pub fn new_without_blockhash(rpc: T) -> Self {
-        let setup = TestSetup::new(rpc);
-        setup.context.state.write().unwrap().svm = LiteSVM::new().with_blockhash_check(false);
-        setup
+    pub fn without_blockhash(self) -> Self {
+        let mut state_writer = self.context.state.write().unwrap();
+        let svm = state_writer.svm.clone();
+        let svm = svm.with_blockhash_check(false);
+        state_writer.svm = svm;
+        drop(state_writer);
+        self
     }
 
-    pub fn process_txs(&mut self, txs: Vec<Transaction>) {
+    pub fn process_txs(&mut self, txs: Vec<VersionedTransaction>) {
         for tx in txs {
             let mut state_writer = self.context.state.write().unwrap();
             match state_writer.svm.send_transaction(tx.clone()) {

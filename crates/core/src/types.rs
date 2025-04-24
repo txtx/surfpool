@@ -1,9 +1,13 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use litesvm::LiteSVM;
-use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
+use solana_client::{
+    nonblocking::rpc_client::RpcClient, rpc_client::SerializableTransaction,
+    rpc_response::RpcPerfSample,
+};
 use solana_epoch_info::EpochInfo;
+use solana_message::VersionedMessage;
+use solana_sdk::transaction::VersionedTransaction;
 use solana_signature::Signature;
-use solana_transaction::{versioned::TransactionVersion, Transaction};
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
@@ -59,7 +63,7 @@ impl EntryStatus {
 #[derive(Debug, Clone)]
 pub struct TransactionWithStatusMeta(
     pub u64,
-    pub Transaction,
+    pub VersionedTransaction,
     pub TransactionMetadata,
     pub Option<TransactionError>,
 );
@@ -82,30 +86,41 @@ impl TransactionWithStatusMeta {
 impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMeta {
     fn into(self) -> EncodedConfirmedTransactionWithStatusMeta {
         let slot = self.0;
-        let tx = self.1;
-        let meta = self.2;
-        let err = self.3;
+        let TransactionWithStatusMeta(_slot, tx, meta, err) = self;
+
+        let (header, account_keys, instructions) = match &tx.message {
+            VersionedMessage::Legacy(message) => (
+                message.header.clone(),
+                message.account_keys.iter().map(|k| k.to_string()).collect(),
+                message
+                    .instructions
+                    .iter()
+                    // TODO: use stack height
+                    .map(|ix| UiCompiledInstruction::from(ix, None))
+                    .collect(),
+            ),
+            VersionedMessage::V0(message) => (
+                message.header.clone(),
+                message.account_keys.iter().map(|k| k.to_string()).collect(),
+                message
+                    .instructions
+                    .iter()
+                    // TODO: use stack height
+                    .map(|ix| UiCompiledInstruction::from(ix, None))
+                    .collect(),
+            ),
+        };
+
         EncodedConfirmedTransactionWithStatusMeta {
             slot,
             transaction: EncodedTransactionWithStatusMeta {
                 transaction: EncodedTransaction::Json(UiTransaction {
                     signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
                     message: UiMessage::Raw(UiRawMessage {
-                        header: tx.message.header,
-                        account_keys: tx
-                            .message
-                            .account_keys
-                            .iter()
-                            .map(|pk| pk.to_string())
-                            .collect(),
-                        recent_blockhash: tx.message.recent_blockhash.to_string(),
-                        instructions: tx
-                            .message
-                            .instructions
-                            .iter()
-                            // TODO: use stack height
-                            .map(|ix| UiCompiledInstruction::from(ix, None))
-                            .collect(),
+                        header,
+                        account_keys,
+                        recent_blockhash: tx.get_recent_blockhash().to_string(),
+                        instructions,
                         address_table_lookups: None, // TODO: use lookup table
                     }),
                 }),
@@ -153,9 +168,7 @@ impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMe
                     }),
                     compute_units_consumed: OptionSerializer::Some(meta.compute_units_consumed),
                 }),
-                version: Some(TransactionVersion::Legacy(
-                    solana_transaction::versioned::Legacy::Legacy,
-                )),
+                version: Some(tx.version()),
             },
             block_time: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
