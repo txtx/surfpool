@@ -28,13 +28,13 @@ use solana_client::{
 use solana_clock::UnixTimestamp;
 use solana_commitment_config::CommitmentLevel;
 use solana_keypair::Keypair;
-use solana_message::{Message, VersionedMessage};
+use solana_message::{legacy::Message as LegacyMessage, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
-use solana_transaction::{versioned::VersionedTransaction, Transaction};
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
 };
@@ -1337,6 +1337,7 @@ pub trait Full {
     ) -> Result<Vec<RpcPrioritizationFee>>;
 }
 
+#[derive(Clone)]
 pub struct SurfpoolFullRpc;
 impl Full for SurfpoolFullRpc {
     type Metadata = Option<RunloopContext>;
@@ -1472,7 +1473,7 @@ impl Full for SurfpoolFullRpc {
             EntryStatus::Processed(TransactionWithStatusMeta(
                 slot,
                 VersionedTransaction::try_new(
-                    VersionedMessage::Legacy(Message::new(
+                    VersionedMessage::Legacy(LegacyMessage::new(
                         &[system_instruction::transfer(
                             &airdrop_kp.pubkey(),
                             &pk,
@@ -1482,8 +1483,6 @@ impl Full for SurfpoolFullRpc {
                     )),
                     &[airdrop_kp],
                 )
-                .unwrap()
-                .into_legacy_transaction()
                 .unwrap(),
                 convert_transaction_metadata_from_canonical(&tx_result),
                 None,
@@ -1579,7 +1578,7 @@ impl Full for SurfpoolFullRpc {
         config: Option<RpcSimulateTransactionConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSimulateTransactionResult>>> {
         let config = config.unwrap_or_default();
-        let (_bytes, tx): (Vec<_>, Transaction) = match decode_and_deserialize(
+        let (_bytes, tx): (Vec<_>, VersionedTransaction) = match decode_and_deserialize(
             data,
             config
                 .encoding
@@ -1591,14 +1590,17 @@ impl Full for SurfpoolFullRpc {
             Err(e) => return Box::pin(future::err(e)),
         };
 
+        let account_keys = match &tx.message {
+            VersionedMessage::Legacy(msg) => msg.account_keys.clone(),
+            VersionedMessage::V0(msg) => msg.account_keys.clone(),
+        };
+
         let (local_accounts, replacement_blockhash, rpc_client) = {
             let state = match meta.get_state_mut() {
                 Ok(res) => res,
                 Err(e) => return Box::pin(future::err(e.into())),
             };
-            let local_accounts: Vec<Option<Account>> = tx
-                .message
-                .account_keys
+            let local_accounts: Vec<Option<Account>> = account_keys
                 .clone()
                 .into_iter()
                 .map(|pk| state.svm.get_account(&pk))
@@ -1612,10 +1614,10 @@ impl Full for SurfpoolFullRpc {
             (local_accounts, replacement_blockhash, rpc_client)
         };
 
+        let account_keys = account_keys.clone();
         Box::pin(async move {
             let fetched_accounts = join_all(
-                tx.message
-                    .account_keys
+                account_keys
                     .iter()
                     .map(|pk| async { rpc_client.get_account(pk).await.ok() }),
             )
@@ -1628,8 +1630,7 @@ impl Full for SurfpoolFullRpc {
                 .set_blockhash_check(config.replace_recent_blockhash);
 
             // Update missing local accounts
-            tx.message
-                .account_keys
+            account_keys
                 .iter()
                 .zip(local_accounts.iter().zip(fetched_accounts))
                 .map(|(pk, (local, fetched))| {
@@ -1785,6 +1786,7 @@ impl Full for SurfpoolFullRpc {
             Err(err) => return Box::pin(future::err(err.into())),
         };
         let rpc_client = state_reader.rpc_client.clone();
+
         let tx = state_reader
             .transactions
             .get(&signature)
@@ -1895,16 +1897,23 @@ impl Full for SurfpoolFullRpc {
 
 #[cfg(test)]
 mod tests {
+
+    use std::thread::JoinHandle;
+
     use crate::tests::helpers::TestSetup;
 
     use super::*;
     use base64::{prelude::BASE64_STANDARD, Engine};
+    use crossbeam_channel::Receiver;
     use solana_account_decoder::{UiAccount, UiAccountData};
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
     use solana_commitment_config::CommitmentConfig;
     use solana_hash::Hash;
-    use solana_message::{Message, MessageHeader};
+    use solana_message::{
+        legacy::Message as LegacyMessage, v0::Message as V0Message, MessageHeader,
+    };
     use solana_native_token::LAMPORTS_PER_SOL;
+    use solana_sdk::instruction::Instruction;
     use solana_system_interface::program as system_program;
     use solana_transaction::{
         versioned::{Legacy, TransactionVersion},
@@ -1915,6 +1924,64 @@ mod tests {
         UiRawMessage, UiTransaction,
     };
     use test_case::test_case;
+
+    fn build_v0_transaction(
+        payer: &Pubkey,
+        signers: &[&Keypair],
+        instructions: &[Instruction],
+    ) -> VersionedTransaction {
+        let msg = VersionedMessage::V0(
+            V0Message::try_compile(&payer, instructions, &[], Hash::default()).unwrap(),
+        );
+        VersionedTransaction::try_new(msg, signers).unwrap()
+    }
+
+    fn build_legacy_transaction(
+        payer: &Pubkey,
+        signers: &[&Keypair],
+        instructions: &[Instruction],
+    ) -> VersionedTransaction {
+        let msg = VersionedMessage::Legacy(LegacyMessage::new_with_blockhash(
+            instructions,
+            Some(payer),
+            &Hash::default(),
+        ));
+        VersionedTransaction::try_new(msg, signers).unwrap()
+    }
+
+    fn send_and_await_transaction(
+        tx: VersionedTransaction,
+        setup: TestSetup<SurfpoolFullRpc>,
+        mempool_rx: Receiver<SimnetCommand>,
+    ) -> JoinHandle<String> {
+        let handle = hiro_system_kit::thread_named("send_tx")
+            .spawn(move || {
+                let res = setup
+                    .rpc
+                    .send_transaction(
+                        Some(setup.context),
+                        bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                        None,
+                    )
+                    .unwrap();
+
+                res
+            })
+            .unwrap();
+
+        match mempool_rx.recv() {
+            Ok(SimnetCommand::TransactionReceived(_, _, status_tx, _)) => {
+                status_tx
+                    .send(TransactionStatusEvent::Success(
+                        TransactionConfirmationStatus::Confirmed,
+                    ))
+                    .unwrap();
+            }
+            _ => panic!("failed to receive transaction from mempool"),
+        }
+
+        handle
+    }
 
     #[test_case(None, false ; "when limit is None")]
     #[test_case(Some(1), false ; "when limit is ok")]
@@ -1938,7 +2005,6 @@ mod tests {
         let valid_txs = pks.len();
         let invalid_txs = pks.len();
         let payer = Keypair::new();
-        let recent_blockhash = Hash::default();
         let valid = pks
             .clone()
             .map(|pk| {
@@ -1950,13 +2016,13 @@ mod tests {
                     )],
                     Some(&payer.pubkey()),
                     &[payer.insecure_clone()],
-                    recent_blockhash,
+                    Hash::default(),
                 )
             })
             .collect::<Vec<_>>();
         let invalid = pks
             .map(|pk| {
-                Transaction::new_unsigned(Message::new(
+                Transaction::new_unsigned(LegacyMessage::new(
                     &[system_instruction::transfer(
                         &pk,
                         &payer.pubkey(),
@@ -1969,8 +2035,12 @@ mod tests {
         let txs = valid
             .into_iter()
             .chain(invalid.into_iter())
+            .map(|tx| VersionedTransaction {
+                signatures: tx.signatures,
+                message: VersionedMessage::Legacy(tx.message),
+            })
             .collect::<Vec<_>>();
-        let mut setup = TestSetup::new_without_blockhash(SurfpoolFullRpc);
+        let mut setup = TestSetup::new(SurfpoolFullRpc).without_blockhash();
         let _ = setup.context.state.write().unwrap().svm.airdrop(
             &payer.pubkey(),
             (valid_txs + invalid_txs) as u64 * 2 * LAMPORTS_PER_SOL,
@@ -2041,22 +2111,36 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_send_transaction() {
+    #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
+    #[test_case(TransactionVersion::Number(0) ; "V0 transactions")]
+    #[tokio::test]
+    async fn test_send_transaction(version: TransactionVersion) {
         let payer = Keypair::new();
         let pk = Pubkey::new_unique();
         let (mempool_tx, mempool_rx) = crossbeam_channel::unbounded();
         let setup = TestSetup::new_with_mempool(SurfpoolFullRpc, mempool_tx);
-        let tx = Transaction::new_signed_with_payer(
-            &[system_instruction::transfer(
+        let tx = match version {
+            TransactionVersion::Legacy(_) => build_legacy_transaction(
                 &payer.pubkey(),
-                &pk,
-                LAMPORTS_PER_SOL,
-            )],
-            Some(&payer.pubkey()),
-            &[payer.insecure_clone()],
-            Hash::default(),
-        );
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(
+                    &payer.pubkey(),
+                    &pk,
+                    LAMPORTS_PER_SOL,
+                )],
+            ),
+            TransactionVersion::Number(0) => build_v0_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(
+                    &payer.pubkey(),
+                    &pk,
+                    LAMPORTS_PER_SOL,
+                )],
+            ),
+            _ => unimplemented!(),
+        };
+
         let _ = setup
             .context
             .state
@@ -2065,33 +2149,7 @@ mod tests {
             .svm
             .airdrop(&payer.pubkey(), 2 * LAMPORTS_PER_SOL);
 
-        let cloned_tx = tx.clone();
-        let handle = hiro_system_kit::thread_named("send_tx")
-            .spawn(move || {
-                let res = setup
-                    .rpc
-                    .send_transaction(
-                        Some(setup.context),
-                        bs58::encode(bincode::serialize(&cloned_tx).unwrap()).into_string(),
-                        None,
-                    )
-                    .unwrap();
-
-                res
-            })
-            .unwrap();
-
-        match mempool_rx.recv() {
-            Ok(SimnetCommand::TransactionReceived(_, _, status_tx, _)) => {
-                status_tx
-                    .send(TransactionStatusEvent::Success(
-                        TransactionConfirmationStatus::Confirmed,
-                    ))
-                    .unwrap();
-            }
-            _ => panic!("failed to receive transaction from mempool"),
-        }
-
+        let handle = send_and_await_transaction(tx.clone(), setup.clone(), mempool_rx);
         assert_eq!(
             handle.join().unwrap(),
             tx.signatures[0].to_string(),
@@ -2099,12 +2157,14 @@ mod tests {
         );
     }
 
+    #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
+    #[test_case(TransactionVersion::Number(0) ; "V0 transactions")]
     #[tokio::test]
-    async fn test_simulate_transaction() {
+    async fn test_simulate_transaction(version: TransactionVersion) {
         let payer = Keypair::new();
         let pk = Pubkey::new_unique();
         let lamports = LAMPORTS_PER_SOL;
-        let setup = TestSetup::new(SurfpoolFullRpc);
+        let setup = TestSetup::new(SurfpoolFullRpc).without_blockhash();
         let _ = setup
             .rpc
             .request_airdrop(
@@ -2114,12 +2174,21 @@ mod tests {
                 None,
             )
             .unwrap();
-        let tx = Transaction::new_signed_with_payer(
-            &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
-            Some(&payer.pubkey()),
-            &[payer.insecure_clone()],
-            Hash::default(),
-        );
+
+        let tx = match version {
+            TransactionVersion::Legacy(_) => build_legacy_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+            ),
+            TransactionVersion::Number(0) => build_v0_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+            ),
+            _ => unimplemented!(),
+        };
+
         let simulation_res = setup
             .rpc
             .simulate_transaction(
@@ -2183,12 +2252,14 @@ mod tests {
         assert_eq!(res, None);
     }
 
+    #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
+    #[test_case(TransactionVersion::Number(0) ; "V0 transactions")]
     #[tokio::test]
-    async fn test_get_transaction() {
+    async fn test_get_transaction(version: TransactionVersion) {
         let payer = Keypair::new();
         let pk = Pubkey::new_unique();
         let lamports = LAMPORTS_PER_SOL;
-        let mut setup = TestSetup::new_without_blockhash(SurfpoolFullRpc);
+        let mut setup = TestSetup::new(SurfpoolFullRpc);
         let _ = setup
             .rpc
             .request_airdrop(
@@ -2198,13 +2269,23 @@ mod tests {
                 None,
             )
             .unwrap();
-        let tx = Transaction::new_signed_with_payer(
-            &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
-            Some(&payer.pubkey()),
-            &[payer.insecure_clone()],
-            Hash::default(),
-        );
+
+        let tx = match version {
+            TransactionVersion::Legacy(_) => build_legacy_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+            ),
+            TransactionVersion::Number(0) => build_v0_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+            ),
+            _ => unimplemented!(),
+        };
+
         setup.process_txs(vec![tx.clone()]);
+
         let res = setup
             .rpc
             .get_transaction(
@@ -2215,6 +2296,19 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+
+        let instructions = match tx.message {
+            VersionedMessage::Legacy(message) => message
+                .instructions
+                .iter()
+                .map(|ix| UiCompiledInstruction::from(ix, None))
+                .collect(),
+            VersionedMessage::V0(message) => message
+                .instructions
+                .iter()
+                .map(|ix| UiCompiledInstruction::from(ix, None))
+                .collect(),
+        };
 
         assert_eq!(
             res,
@@ -2235,15 +2329,12 @@ mod tests {
                                 system_program::id().to_string()
                             ],
                             recent_blockhash: Hash::default().to_string(),
-                            instructions: vec![UiCompiledInstruction::from(
-                                &tx.message.instructions[0],
-                                None
-                            )],
+                            instructions,
                             address_table_lookups: None
                         })
                     }),
                     meta: res.transaction.clone().meta, // Using the same values to avoid reintroducing processing logic errors
-                    version: Some(TransactionVersion::Legacy(Legacy::Legacy))
+                    version: Some(version)
                 },
                 block_time: res.block_time // Using the same values to avoid flakyness
             }

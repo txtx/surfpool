@@ -569,6 +569,7 @@ pub trait Minimal {
     ) -> Result<Option<RpcLeaderSchedule>>;
 }
 
+#[derive(Clone)]
 pub struct SurfpoolMinimalRpc;
 impl Minimal for SurfpoolMinimalRpc {
     type Metadata = Option<RunloopContext>;
