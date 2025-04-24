@@ -228,32 +228,52 @@ pub async fn start(
             continue;
         };
 
-        // Handle the transactions accumulated
+        // Handle the accumulated transactions
         for (key, transaction, status_tx, skip_preflight) in transactions_to_process.drain(..) {
-            transaction.verify_with_results();
-            let transaction = transaction.into_legacy_transaction().unwrap();
-            let message = &transaction.message;
-
-            let accounts = message.account_keys.clone();
-            for account_pubkey in accounts.iter() {
-                match insert_account_and_program_data_account_from_remote_if_not_in_local(
-                    &mut ctx,
-                    account_pubkey,
-                    &rpc_client,
-                )
-                .await
+            // verify valid signatures on the transaction
+            {
+                if transaction
+                    .verify_with_results()
+                    .iter()
+                    .any(|valid| !*valid)
                 {
-                    Ok(events) => {
-                        for event in events {
+                    let _ = simnet_events_tx.try_send(SimnetEvent::error(format!(
+                        "Transaction verification failed: {}",
+                        transaction.signatures[0]
+                    )));
+                    continue;
+                }
+            }
+
+            // find accounts that are needed for this transaction but are missing from the local
+            // svm cached, fetch them from the RPC, and insert them locally
+            {
+                let accounts = match &transaction.message {
+                    VersionedMessage::Legacy(message) => message.account_keys.clone(),
+                    VersionedMessage::V0(message) => message.account_keys.clone(),
+                };
+                for account_pubkey in accounts.iter() {
+                    match insert_account_from_remote_if_not_in_local(
+                        &mut ctx,
+                        account_pubkey,
+                        &rpc_client,
+                    )
+                    .await
+                    {
+                        Ok(pubkeys) => {
+                            for pubkey in pubkeys {
+                                let _ =
+                                    simnet_events_tx.try_send(SimnetEvent::account_update(pubkey));
+                            }
+                        }
+                        Err(event) => {
                             let _ = simnet_events_tx.try_send(event);
                         }
-                    }
-                    Err(event) => {
-                        let _ = simnet_events_tx.try_send(event);
                     }
                 }
             }
 
+            // if not skipping preflight, simulate the transaction
             if !skip_preflight {
                 let (meta, err) = match ctx.svm.simulate_transaction(transaction.clone()) {
                     Ok(res) => {
@@ -285,6 +305,7 @@ pub async fn start(
                 }
             }
 
+            // send the transaction to the SVM
             let (meta, err) = match ctx.svm.send_transaction(transaction.clone()) {
                 Ok(res) => (convert_transaction_metadata_from_canonical(&res), None),
                 Err(res) => {
@@ -298,28 +319,32 @@ pub async fn start(
                     )
                 }
             };
-            let slot = ctx.epoch_info.absolute_slot;
 
-            ctx.transactions.insert(
-                transaction.signatures[0],
-                EntryStatus::Processed(TransactionWithStatusMeta(
-                    slot,
-                    transaction.clone(),
-                    meta.clone(),
-                    err.clone(),
-                )),
-            );
-            if let Some(e) = &err {
-                let _ =
-                    status_tx.try_send(TransactionStatusEvent::ExecutionFailure((e.clone(), meta)));
-            } else {
-                let _ = status_tx.try_send(TransactionStatusEvent::Success(
-                    TransactionConfirmationStatus::Processed,
-                ));
-                let _ = simnet_events_tx.try_send(SimnetEvent::transaction_processed(meta, err));
+            // send the transaction status events and mark this transaction as processed
+            {
+                let slot = ctx.epoch_info.absolute_slot;
+                ctx.transactions.insert(
+                    transaction.signatures[0],
+                    EntryStatus::Processed(TransactionWithStatusMeta(
+                        slot,
+                        transaction.clone(),
+                        meta.clone(),
+                        err.clone(),
+                    )),
+                );
+                if let Some(e) = &err {
+                    let _ = status_tx
+                        .try_send(TransactionStatusEvent::ExecutionFailure((e.clone(), meta)));
+                } else {
+                    let _ = status_tx.try_send(TransactionStatusEvent::Success(
+                        TransactionConfirmationStatus::Processed,
+                    ));
+                    let _ =
+                        simnet_events_tx.try_send(SimnetEvent::transaction_processed(meta, err));
+                }
+                transactions_processed.push((key, transaction, status_tx));
+                num_transactions += 1;
             }
-            transactions_processed.push((key, transaction, status_tx));
-            num_transactions += 1;
         }
 
         if !create_slot {
@@ -584,71 +609,64 @@ fn start_rpc_server_thread(
     Ok((plugin_manager_commands_rx, _handle))
 }
 
-async fn insert_account_and_program_data_account_from_remote_if_not_in_local(
-    ctx: &mut RwLockWriteGuard<'_, GlobalState>,
-    account_pubkey: &Pubkey,
-    rpc: &RpcClient,
-) -> Result<Vec<SimnetEvent>, SimnetEvent> {
-    let mut events = vec![];
-    let Some(account) =
-        insert_account_from_remote_if_not_in_local(ctx, account_pubkey, rpc).await?
-    else {
-        return Ok(events);
-    };
-
-    events.push(SimnetEvent::AccountUpdate(
-        Local::now(),
-        account_pubkey.clone(),
-    ));
-
-    if account.executable {
-        let program_data_address = get_program_data_address(account_pubkey);
-
-        if insert_account_from_remote_if_not_in_local(ctx, &program_data_address, rpc)
-            .await?
-            .is_some()
-        {
-            events.push(SimnetEvent::AccountUpdate(
-                Local::now(),
-                program_data_address.clone(),
-            ));
-        }
-    }
-    Ok(events)
-}
-
 async fn insert_account_from_remote_if_not_in_local(
     ctx: &mut RwLockWriteGuard<'_, GlobalState>,
     account_pubkey: &Pubkey,
     rpc: &RpcClient,
-) -> Result<Option<Account>, SimnetEvent> {
+) -> Result<Vec<Pubkey>, SimnetEvent> {
+    let mut updated_pubkeys = vec![];
+
     if ctx.svm.get_account(&account_pubkey).is_none() {
         let res = rpc
-            .get_account_with_commitment(&account_pubkey, CommitmentConfig::default())
-            .await;
-        match res {
-            Ok(res) => match res.value {
-                Some(account) => {
-                    let _ = ctx
-                        .svm
-                        .set_account(*account_pubkey, account.clone())
+            .get_account_with_commitment(&account_pubkey, CommitmentConfig::processed())
+            .await
+            .map_err(|e| {
+                SimnetEvent::error(format!(
+                    "unable to retrieve account {}: {}",
+                    account_pubkey, e
+                ))
+            })?;
+        if let Some(account) = res.value {
+            if account.executable {
+                let program_data_address = get_program_data_address(account_pubkey);
+
+                if ctx.svm.get_account(&program_data_address).is_none() {
+                    let res = rpc
+                        .get_account_with_commitment(
+                            &program_data_address,
+                            CommitmentConfig::processed(),
+                        )
+                        .await
                         .map_err(|e| {
                             SimnetEvent::error(format!(
-                                "unable to set account {}: {}",
-                                account_pubkey, e
+                                "unable to retrieve account {}: {}",
+                                program_data_address, e
                             ))
                         })?;
-                    return Ok(Some(account));
+                    if let Some(program_data_account) = res.value {
+                        let _ = ctx
+                            .svm
+                            .set_account(program_data_address, program_data_account.clone())
+                            .map_err(|e| {
+                                SimnetEvent::error(format!(
+                                    "unable to set account {}: {}",
+                                    program_data_address, e
+                                ))
+                            })?;
+                        updated_pubkeys.push(program_data_address);
+                    }
                 }
-                None => return Ok(None),
-            },
-            Err(e) => {
-                return Err(SimnetEvent::error(format!(
-                    "unable to retrieve account: {}",
-                    e
-                )));
             }
+
+            let _ = ctx
+                .svm
+                .set_account(*account_pubkey, account.clone())
+                .map_err(|e| {
+                    SimnetEvent::error(format!("unable to set account {}: {}", account_pubkey, e))
+                })?;
+
+            updated_pubkeys.push(*account_pubkey);
         }
     }
-    Ok(None)
+    Ok(updated_pubkeys)
 }
