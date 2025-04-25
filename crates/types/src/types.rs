@@ -196,6 +196,7 @@ pub enum TransactionStatusEvent {
     ExecutionFailure((TransactionError, TransactionMetadata)),
 }
 
+#[derive(Debug)]
 pub enum SimnetCommand {
     SlotForward,
     SlotBackward,
@@ -209,6 +210,7 @@ pub enum SimnetCommand {
     ),
 }
 
+#[derive(Debug)]
 pub enum ClockCommand {
     Pause,
     Resume,
