@@ -210,7 +210,6 @@ jobs:
       - name: Pack artifacts
         run: | 
           tar -czvf surfpool-linux-x64.tar.gz surfpool-linux-x64
-          tar -czvf surfpool-darwin-x64.tar.gz surfpool-darwin-x64
           tar -czvf surfpool-darwin-arm64.tar.gz surfpool-darwin-arm64
 
   
