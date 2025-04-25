@@ -63,7 +63,7 @@ where
                 simnet_commands_tx,
                 simnet_events_tx: simnet_events_tx.clone(),
                 plugin_manager_commands_tx,
-                id: Hash::new_unique(),
+                id: None,
                 state: Arc::new(RwLock::new(GlobalState {
                     svm,
                     transactions: HashMap::new(),

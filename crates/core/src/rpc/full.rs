@@ -1522,7 +1522,7 @@ impl Full for SurfpoolFullRpc {
         let _ = ctx
             .simnet_commands_tx
             .send(SimnetCommand::TransactionReceived(
-                ctx.id.clone(),
+                None,
                 unsanitized_tx,
                 status_update_tx,
                 config.skip_preflight,

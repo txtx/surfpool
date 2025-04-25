@@ -11,7 +11,7 @@ categories = ["cryptography"]
 [workspace]
 members = [
     "crates/cli",
-    "crates/core",
+    "crates/core", 
     "crates/gql",
     "crates/subgraph",
     "crates/types"

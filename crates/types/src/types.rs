@@ -1,7 +1,7 @@
 use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver, Sender};
-// use litesvm::types::TransactionMetadata;
 use solana_blake3_hasher::Hash;
+// use litesvm::types::TransactionMetadata;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
@@ -202,7 +202,7 @@ pub enum SimnetCommand {
     UpdateClock(ClockCommand),
     UpdateRunloopMode(RunloopTriggerMode),
     TransactionReceived(
-        Hash,
+        Option<Hash>,
         VersionedTransaction,
         Sender<TransactionStatusEvent>,
         bool,
