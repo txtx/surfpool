@@ -208,7 +208,6 @@ impl StartSimnet {
         RpcConfig {
             bind_host: self.network_host.clone(),
             bind_port: self.simnet_port,
-            remote_rpc_url,
         }
     }
 
@@ -244,7 +243,7 @@ impl StartSimnet {
             plugin_config_path.push(PathBuf::from("plugins"));
         }
         SurfpoolConfig {
-            simnet: self.simnet_config(airdrop_addresses),
+            simnets: vec![self.simnet_config(airdrop_addresses)],
             rpc: self.rpc_config(),
             subgraph: self.subgraph_config(),
             plugin_config_path,

@@ -26,16 +26,16 @@ pub trait AccountsScan {
     /// owned by a given program. The results can be filtered using data size, memory comparisons, and
     /// token-specific criteria.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `program_id_str`: Base-58 encoded program ID to scan for owned accounts.
     /// - `config`: Optional configuration object allowing filters, encoding options, context inclusion,
     ///   and sorting of results.
     ///
-    /// # Returns
+    /// ## Returns
     /// A future resolving to a vector of [`RpcKeyedAccount`]s wrapped in an [`OptionalContext`].
     /// Each result includes the account's public key and full account data.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -63,7 +63,7 @@ pub trait AccountsScan {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -95,7 +95,7 @@ pub trait AccountsScan {
     /// - `Memcmp`: Match byte patterns at specified offsets in account data.
     /// - `TokenAccountState`: Match on internal token account state (e.g. initialized).
     ///
-    /// # See also
+    /// ## See also
     /// - [`RpcProgramAccountsConfig`]: Main config for filtering and encoding.
     /// - [`UiAccount`]: Returned data representation.
     /// - [`RpcKeyedAccount`]: Wrapper struct with both pubkey and account fields.
@@ -113,15 +113,15 @@ pub trait AccountsScan {
     /// the distribution of large token holders. It can also be used for sanity checks on
     /// protocol activity or whale tracking.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `config`: Optional configuration allowing for filtering on specific account types
     ///   such as circulating or non-circulating accounts.
     ///
-    /// # Returns
+    /// ## Returns
     /// A future resolving to a [`RpcResponse`] containing a list of the 20 largest accounts
     /// by lamports, each represented as an [`RpcAccountBalance`].
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -135,7 +135,7 @@ pub trait AccountsScan {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -155,7 +155,7 @@ pub trait AccountsScan {
     /// }
     /// ```
     ///
-    /// # See also
+    /// ## See also
     /// - [`RpcLargestAccountsConfig`] *(defined elsewhere)*: Config struct that may specify a `filter`.
     /// - [`RpcAccountBalance`]: Struct representing account address and lamport amount.
     ///
@@ -175,15 +175,15 @@ pub trait AccountsScan {
     /// the total amount of tokens issued, how much is in circulation, and what is held in
     /// non-circulating accounts.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `config`: Optional [`RpcSupplyConfig`] that allows specifying commitment level and
     ///   whether to exclude the list of non-circulating accounts from the response.
     ///
-    /// # Returns
+    /// ## Returns
     /// A future resolving to a [`RpcResponse`] containing a [`RpcSupply`] struct with
     /// supply metrics in lamports.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -197,7 +197,7 @@ pub trait AccountsScan {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -216,7 +216,7 @@ pub trait AccountsScan {
     /// }
     /// ```
     ///
-    /// # See also
+    /// ## See also
     /// - [`RpcSupplyConfig`]: Configuration struct for optional parameters.
     /// - [`RpcSupply`]: Response struct with total, circulating, and non-circulating amounts.
     ///
@@ -235,16 +235,16 @@ pub trait AccountsScan {
     /// This method is useful for analyzing token distribution and concentration, especially
     /// to assess decentralization or identify whales.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `mint_str`: The base-58 encoded public key of the mint account of the SPL token.
     /// - `commitment`: Optional commitment level to query the state of the ledger at different levels
     ///   of finality (e.g., `Processed`, `Confirmed`, `Finalized`).
     ///
-    /// # Returns
+    /// ## Returns
     /// A [`BoxFuture`] resolving to a [`RpcResponse`] with a vector of [`RpcTokenAccountBalance`]s,
     /// representing the largest accounts holding the token.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -256,7 +256,7 @@ pub trait AccountsScan {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -285,7 +285,7 @@ pub trait AccountsScan {
     /// }
     /// ```
     ///
-    /// # See also
+    /// ## See also
     /// - [`UiTokenAmount`]: Describes the token amount in different representations.
     /// - [`RpcTokenAccountBalance`]: Includes token holder address and amount.
     ///
@@ -305,18 +305,18 @@ pub trait AccountsScan {
     /// This endpoint is commonly used by wallets and explorers to retrieve all token balances
     /// associated with a user, and optionally narrow results to a specific token mint or program.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `owner_str`: The base-58 encoded public key of the wallet owner.
     /// - `token_account_filter`: A [`RpcTokenAccountsFilter`] enum that allows filtering results by:
     ///   - Mint address
     ///   - Program ID (usually the SPL Token program)
     /// - `config`: Optional configuration for encoding, data slicing, and commitment.
     ///
-    /// # Returns
+    /// ## Returns
     /// A [`BoxFuture`] resolving to a [`RpcResponse`] containing a vector of [`RpcKeyedAccount`]s.
     /// Each entry contains the public key of a token account and its deserialized account data.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -334,7 +334,7 @@ pub trait AccountsScan {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -362,7 +362,7 @@ pub trait AccountsScan {
     /// - `Mint(String)` — return only token accounts associated with the specified mint.
     /// - `ProgramId(String)` — return only token accounts owned by the specified program (e.g. SPL Token program).
     ///
-    /// # See also
+    /// ## See also
     /// - [`RpcKeyedAccount`]: Contains the pubkey and the associated account data.
     /// - [`RpcAccountInfoConfig`]: Allows tweaking how account data is returned (encoding, commitment, etc.).
     /// - [`UiAccountEncoding`], [`CommitmentConfig`]
@@ -384,16 +384,16 @@ pub trait AccountsScan {
     /// This RPC method is useful for identifying which token accounts have granted delegate rights
     /// to a particular wallet or program (commonly used in DeFi apps or custodial flows).
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `delegate_str`: The base-58 encoded public key of the delegate authority.
     /// - `token_account_filter`: A [`RpcTokenAccountsFilter`] enum to filter results by mint or program.
     /// - `config`: Optional [`RpcAccountInfoConfig`] for controlling account encoding, commitment level, etc.
     ///
-    /// # Returns
+    /// ## Returns
     /// A [`BoxFuture`] resolving to a [`RpcResponse`] containing a vector of [`RpcKeyedAccount`]s,
     /// each pairing a token account public key with its associated on-chain data.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -407,7 +407,7 @@ pub trait AccountsScan {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -439,7 +439,7 @@ pub trait AccountsScan {
     /// - Useful for monitoring delegated token activity in governance or trading protocols.
     /// - If a token account doesn’t have a delegate, it won’t be included in results.
     ///
-    /// # See also
+    /// ## See also
     /// - [`RpcKeyedAccount`], [`RpcAccountInfoConfig`], [`CommitmentConfig`], [`UiAccountEncoding`]
     #[rpc(meta, name = "getTokenAccountsByDelegate")]
     fn get_token_accounts_by_delegate(

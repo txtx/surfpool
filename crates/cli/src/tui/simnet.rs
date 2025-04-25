@@ -26,7 +26,7 @@ use txtx_core::kit::types::frontend::BlockEvent;
 use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};
 
 const HELP_TEXT: &str = "(Esc) quit | (↑) move up | (↓) move down";
-const SURFPOOL_LINK: &str = "https://surfpool.run";
+const SURFPOOL_LINK: &str = "Help: https://docs.surfpool.run/surfpool/tui";
 
 const ITEM_HEIGHT: usize = 1;
 
@@ -582,7 +582,7 @@ fn render_scrollbar(f: &mut Frame, app: &mut App, area: Rect) {
 fn render_footer(f: &mut Frame, app: &mut App, area: Rect) {
     let rects = Layout::horizontal([
         Constraint::Min(30),    // Help
-        Constraint::Length(20), // https://txtx.run
+        Constraint::Length(50), // https://txtx.run
     ])
     .split(area);
 

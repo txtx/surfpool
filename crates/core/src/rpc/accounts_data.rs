@@ -10,6 +10,7 @@ use jsonrpc_derive::rpc;
 use solana_account::Account;
 use solana_account_decoder::parse_token::UiTokenAmount;
 use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcAccountInfoConfig;
 use solana_client::rpc_response::RpcBlockCommitment;
 use solana_client::rpc_response::RpcResponseContext;
@@ -30,16 +31,16 @@ pub trait AccountsData {
     /// This method queries the blockchain for the account associated with the provided
     /// public key string. It can be used to inspect balances, ownership, and program-related metadata.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `pubkey_str`: A base-58 encoded string representing the account's public key.
     /// - `config`: Optional configuration that controls encoding, commitment level,
     ///   data slicing, and other response details.
     ///
-    /// # Returns
+    /// ## Returns
     /// A [`RpcResponse`] containing an optional [`UiAccount`] object if the account exists.
     /// If the account does not exist, the response will contain `null`.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -55,7 +56,7 @@ pub trait AccountsData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -80,11 +81,11 @@ pub trait AccountsData {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the public key is malformed or invalid
     /// - Returns an internal error if the ledger cannot be accessed
     ///
-    /// # See also
+    /// ## See also
     /// - [`UiAccount`]: A readable structure representing on-chain accounts
     #[rpc(meta, name = "getAccountInfo")]
     fn get_account_info(
@@ -100,15 +101,15 @@ pub trait AccountsData {
     /// and with what level of lockout. This can be used to analyze consensus progress and
     /// determine finality confidence.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `block`: The target slot (block) to query.
     ///
-    /// # Returns
+    /// ## Returns
     /// A [`RpcBlockCommitment`] containing a [`BlockCommitmentArray`], which is an array of 32
     /// integers representing the number of votes at each lockout level for that block. Each index
     /// corresponds to a lockout level (i.e., confidence in finality).
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -118,7 +119,7 @@ pub trait AccountsData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -130,11 +131,11 @@ pub trait AccountsData {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - If the slot is not found in the current bank or has been purged, this call may return an error.
     /// - May fail if the RPC node is lagging behind or doesn't have voting history for the slot.
     ///
-    /// # See also
+    /// ## See also
     /// - [`BlockCommitmentArray`]: An array representing votes by lockout level
     /// - [`RpcBlockCommitment`]: Wrapper struct for the full response
     #[rpc(meta, name = "getBlockCommitment")]
@@ -150,16 +151,16 @@ pub trait AccountsData {
     /// network roundtrips. It returns a list of `UiAccount` values in the same order as
     /// the provided public keys.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `pubkey_strs`: A list of base-58 encoded public key strings representing accounts to query.
     /// - `config`: Optional configuration to control encoding, commitment level, data slicing, etc.
     ///
-    /// # Returns
+    /// ## Returns
     /// A [`RpcResponse`] wrapping a vector of optional [`UiAccount`] objects.  
     /// Each element in the response corresponds to the public key at the same index in the request.
     /// If an account is not found, the corresponding entry will be `null`.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -178,7 +179,7 @@ pub trait AccountsData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -204,11 +205,11 @@ pub trait AccountsData {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - If any public key is malformed or invalid, the entire call may fail.
     /// - Returns an internal error if the ledger cannot be accessed or some accounts are purged.
     ///
-    /// # See also
+    /// ## See also
     /// - [`UiAccount`]: Human-readable representation of an account
     /// - [`get_account_info`]: Use when querying a single account
     #[rpc(meta, name = "getMultipleAccounts")]
@@ -225,15 +226,15 @@ pub trait AccountsData {
     /// user-friendly information (like the UI amount in human-readable format). It is useful
     /// for token-related applications, such as checking balances in wallets or exchanges.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `pubkey_str`: The base-58 encoded string of the public key of the token account.
     /// - `commitment`: Optional commitment configuration to specify the desired confirmation level of the query.
     ///
-    /// # Returns
+    /// ## Returns
     /// A [`RpcResponse`] containing the token balance in a [`UiTokenAmount`] struct.
     /// If the account doesn't hold any tokens or is invalid, the response will contain `null`.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -248,7 +249,7 @@ pub trait AccountsData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -267,11 +268,11 @@ pub trait AccountsData {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - If the provided public key is invalid or does not exist.
     /// - If the account is not a valid token account or does not hold any tokens.
     ///
-    /// # See also
+    /// ## See also
     /// - [`UiTokenAmount`]: Represents the token balance in user-friendly format.
     #[rpc(meta, name = "getTokenAccountBalance")]
     fn get_token_account_balance(
@@ -287,15 +288,15 @@ pub trait AccountsData {
     /// amount and human-readable UI-formatted values. It can be useful for tracking token issuance
     /// and verifying the supply of a token on-chain.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `mint_str`: The base-58 encoded string of the mint address for the token.
     /// - `commitment`: Optional commitment configuration to specify the desired confirmation level of the query.
     ///
-    /// # Returns
+    /// ## Returns
     /// A [`RpcResponse`] containing the total token supply in a [`UiTokenAmount`] struct.
     /// If the token does not exist or is invalid, the response will return an error.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -310,7 +311,7 @@ pub trait AccountsData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -329,11 +330,11 @@ pub trait AccountsData {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - If the mint address is invalid or does not correspond to a token.
     /// - If the token supply cannot be fetched due to network issues or node synchronization problems.
     ///
-    /// # See also
+    /// ## See also
     /// - [`UiTokenAmount`]: Represents the token balance or supply in a user-friendly format.
     #[rpc(meta, name = "getTokenSupply")]
     fn get_token_supply(
@@ -369,7 +370,8 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
         // Drop the lock on the state while we fetch accounts
         let absolute_slot = state_reader.epoch_info.absolute_slot;
-        let rpc_client = state_reader.rpc_client.clone();
+
+        let rpc_client = RpcClient::new(state_reader.rpc_url.clone());
         let encoding = config.encoding.clone();
         let data_slice = config.data_slice.clone();
         drop(state_reader);
@@ -444,7 +446,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
         // Drop the lock on the state while we fetch accounts
         let absolute_slot = state_reader.epoch_info.absolute_slot;
-        let rpc_client = state_reader.rpc_client.clone();
+        let rpc_client = RpcClient::new(state_reader.rpc_url.clone());
         let encoding = config.encoding.clone();
         let data_slice = config.data_slice.clone();
         drop(state_reader);

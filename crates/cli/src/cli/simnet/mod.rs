@@ -50,7 +50,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
 
     // Build config
     let config = cmd.surfpool_config(airdrop_addresses);
-    let remote_rpc_url = config.rpc.remote_rpc_url.clone();
+    let remote_rpc_url = config.simnets[0].remote_rpc_url.clone();
     let local_rpc_url = config.rpc.get_socket_address();
 
     let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);

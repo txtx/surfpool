@@ -3,6 +3,7 @@ use crate::rpc::{utils::verify_pubkey, State};
 use jsonrpc_core::{futures::future, BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
 use solana_client::{
+    nonblocking::rpc_client::RpcClient,
     rpc_config::{
         RpcContextConfig, RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig,
         RpcLeaderScheduleConfigWrapper,
@@ -36,14 +37,14 @@ pub trait Minimal {
     ///
     /// This endpoint queries the current or historical balance of an account, depending on the optional commitment level provided in the config.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `pubkey_str`: The base-58 encoded public key of the account to query.
     /// - `_config` *(optional)*: [`RpcContextConfig`] specifying commitment level and/or minimum context slot.
     ///
-    /// # Returns
+    /// ## Returns
     /// An [`RpcResponse<u64>`] where the value is the balance in lamports.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -55,7 +56,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -88,13 +89,13 @@ pub trait Minimal {
     /// This endpoint provides epoch-related data such as the current epoch number, the total number of slots in the epoch,
     /// the current slot index within the epoch, and the absolute slot number.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `config` *(optional)*: [`RpcContextConfig`] for specifying commitment level and/or minimum context slot.
     ///
-    /// # Returns
+    /// ## Returns
     /// An [`EpochInfo`] struct containing information about the current epoch.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -103,7 +104,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -138,13 +139,13 @@ pub trait Minimal {
     /// The genesis hash is a unique identifier that represents the state of the blockchain at the genesis block (the very first block).
     /// This can be used to validate the integrity of the blockchain and ensure that a node is operating with the correct blockchain data.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - None.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `String` containing the base-58 encoded genesis hash.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -153,7 +154,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -176,15 +177,15 @@ pub trait Minimal {
     /// This method checks the health of the node and returns a status indicating whether the node is in a healthy state
     /// or if it is experiencing any issues such as being out of sync with the network or encountering any failures.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - None.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `String` indicating the health status of the node:
     /// - `"ok"`: The node is healthy and synchronized with the network.
     /// - `"failed"`: The node is not healthy or is experiencing issues.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -193,7 +194,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -217,14 +218,14 @@ pub trait Minimal {
     /// This method retrieves the current identity of the node, which is represented by a public key.
     /// The identity is used to uniquely identify the node on the network.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - None.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `RpcIdentity` object containing the identity of the node:
     /// - `identity`: The base-58 encoded public key of the node's identity.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -233,7 +234,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -258,13 +259,13 @@ pub trait Minimal {
     /// This method retrieves the current slot number in the blockchain, which represents a point in the ledger's history.
     /// Slots are used to organize and validate the timing of transactions in the network.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `config` (optional): Configuration options for the request, such as commitment level or context slot. Defaults to `None`.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `Slot` value representing the current slot of the ledger.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -273,7 +274,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -294,13 +295,13 @@ pub trait Minimal {
     ///
     /// This method retrieves the height of the most recent block in the ledger, which is an indicator of how many blocks have been added to the blockchain. The block height is the number of blocks that have been produced since the genesis block.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `config` (optional): Configuration options for the request, such as commitment level or context slot. Defaults to `None`.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `u64` representing the current block height of the ledger.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -309,7 +310,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -334,13 +335,13 @@ pub trait Minimal {
     ///
     /// This method retrieves information about the most recent snapshot slot, which refers to the slot in the blockchain where the most recent snapshot has been taken. A snapshot is a point-in-time capture of the state of the ledger, allowing for quicker validation of the state without processing every transaction.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `meta`: Metadata passed with the request, such as the client’s request context.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `RpcSnapshotSlotInfo` containing information about the highest snapshot slot.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -349,7 +350,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -374,14 +375,14 @@ pub trait Minimal {
     ///
     /// This method retrieves the number of transactions that have been processed in the blockchain up to the current point. It provides a snapshot of the transaction throughput and can be useful for monitoring and performance analysis.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `meta`: Metadata passed with the request, such as the client’s request context.
     /// - `config`: Optional configuration for the request, such as commitment settings or minimum context slot.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `u64` representing the total transaction count.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -390,7 +391,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -415,13 +416,13 @@ pub trait Minimal {
     ///
     /// This method retrieves the version information for the server or application. It provides details such as the version number and additional metadata that can help with compatibility checks or updates.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `meta`: Metadata passed with the request, such as the client’s request context.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `SurfpoolRpcVersionInfo` object containing the version details.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -430,7 +431,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -456,14 +457,14 @@ pub trait Minimal {
     ///
     /// This method retrieves the current status of vote accounts, including information about the validator’s vote account and whether it is delinquent. The response includes vote account details such as the stake, commission, vote history, and more.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `meta`: Metadata passed with the request, such as the client’s request context.
     /// - `config`: Optional configuration parameters, such as specific vote account addresses or commitment settings.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `RpcVoteAccountStatus` object containing details about the current and delinquent vote accounts.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -473,7 +474,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -525,15 +526,15 @@ pub trait Minimal {
     ///
     /// This method retrieves the leader schedule for the given slot or configuration, providing a map of validator identities to slot indices within a given range.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `meta`: Metadata passed with the request, such as the client’s request context.
     /// - `options`: Optional configuration wrapper, which can either be a specific slot or a full configuration.
     /// - `config`: Optional configuration containing the validator identity and commitment level.
     ///
-    /// # Returns
+    /// ## Returns
     /// An `Option<RpcLeaderSchedule>` containing a map of leader identities (base-58 encoded pubkeys) to slot indices, relative to the first epoch slot.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -543,7 +544,7 @@ pub trait Minimal {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -593,7 +594,7 @@ impl Minimal for SurfpoolMinimalRpc {
 
         // Drop the lock on the state while we fetch accounts
         let absolute_slot = state_reader.epoch_info.absolute_slot;
-        let rpc_client = state_reader.rpc_client.clone();
+        let rpc_client = RpcClient::new(state_reader.rpc_url.clone());
         drop(state_reader);
 
         Box::pin(async move {

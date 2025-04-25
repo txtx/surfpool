@@ -223,7 +223,7 @@ pub enum ClockEvent {
 
 #[derive(Clone, Debug, Default)]
 pub struct SurfpoolConfig {
-    pub simnet: SimnetConfig,
+    pub simnets: Vec<SimnetConfig>,
     pub rpc: RpcConfig,
     pub subgraph: SubgraphConfig,
     pub plugin_config_path: Vec<PathBuf>,
@@ -257,7 +257,6 @@ pub struct SubgraphConfig {}
 pub struct RpcConfig {
     pub bind_host: String,
     pub bind_port: u16,
-    pub remote_rpc_url: String,
 }
 
 impl RpcConfig {
@@ -276,7 +275,6 @@ pub struct SubgraphPluginConfig {
 impl Default for RpcConfig {
     fn default() -> Self {
         Self {
-            remote_rpc_url: DEFAULT_RPC_URL.to_string(),
             bind_host: "127.0.0.1".to_string(),
             bind_port: 8899,
         }

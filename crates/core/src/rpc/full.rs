@@ -10,6 +10,7 @@ use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use solana_account::Account;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcContextConfig;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcApiVersion;
@@ -53,17 +54,17 @@ pub trait Full {
     /// This RPC method allows you to query the inflation rewards credited to specific validator or voter addresses
     /// in a given epoch or range of slots. The rewards are provided as lamports, which are the smallest unit of SOL.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `address_strs`: A list of base-58 encoded public keys for which to query inflation rewards.
     /// - `config`: An optional configuration that allows you to specify:
     ///     - `epoch`: The epoch to query for inflation rewards. If `None`, the current epoch is used.
     ///     - `commitment`: The optional commitment level to use when querying for rewards.
     ///     - `min_context_slot`: The minimum slot to be considered when retrieving the rewards.
     ///
-    /// # Returns
+    /// ## Returns
     /// - `BoxFuture<Result<Vec<Option<RpcInflationReward>>>>`: A future that resolves to a vector of inflation reward information for each address provided.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -79,7 +80,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -104,7 +105,7 @@ pub trait Full {
     /// - The `post_balance` field represents the account balance after the reward was applied.
     /// - The `commission` field, if present, indicates the percentage commission (as an integer) for a vote account when the reward was credited.
     ///
-    /// # Example Response Interpretation
+    /// ## Example Response Interpretation
     /// - In the example response, the first address `3HgA9r8H9z5Pb2L6Pt5Yq1QoFwgr6YwdKKUh9n2ANp5U` received 5,000,000 lamports during epoch 200, with a post-reward balance of 1,000,000,000 lamports and a 10% commission.
     /// - The second address did not receive any inflation reward (represented as `null`).
     #[rpc(meta, name = "getInflationReward")]
@@ -121,10 +122,10 @@ pub trait Full {
     /// communication ports, such as the gossip, Tpu, and RPC ports. This information is essential for
     /// understanding the connectivity and configuration of nodes in a Solana cluster.
     ///
-    /// # Returns
+    /// ## Returns
     /// - `Result<Vec<RpcContactInfo>>`: A result containing a vector of `RpcContactInfo` objects, each representing a node's contact information in the cluster.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -134,7 +135,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -167,13 +168,13 @@ pub trait Full {
     /// This RPC method provides performance metrics from the most recent samples, such as the number
     /// of transactions processed, slots, and the period over which these metrics were collected.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `limit`: An optional parameter that specifies the maximum number of performance samples to return. If not provided, all available samples will be returned.
     ///
-    /// # Returns
+    /// ## Returns
     /// - `Result<Vec<RpcPerfSample>>`: A result containing a vector of `RpcPerfSample` objects, each representing a snapshot of the network's performance for a particular slot.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -183,7 +184,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -217,12 +218,12 @@ pub trait Full {
     /// slot, the number of confirmations it has, its success or failure status, and any errors that might have occurred.
     /// Optionally, it can also provide transaction history search results based on the provided configuration.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `signatureStrs`: A list of base-58 encoded transaction signatures for which the statuses are to be retrieved.
     /// - `config`: An optional configuration object to modify the query, such as enabling search for transaction history.
     ///   - If `None`, defaults to querying the current status of the provided transactions.
     ///
-    /// # Returns
+    /// ## Returns
     /// A response containing:
     /// - `value`: A list of transaction statuses corresponding to the provided transaction signatures. Each entry in the list can be:
     ///   - A successful status (`status` field set to `"Ok"`)
@@ -232,7 +233,7 @@ pub trait Full {
     ///   - The number of confirmations the transaction has received (if applicable).
     ///   - The confirmation status (`"processed"`, `"confirmed"`, or `"finalized"`).
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -250,7 +251,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -284,7 +285,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if there was an issue processing the request, such as network failures or invalid signatures.
     ///
     /// # Notes
@@ -308,12 +309,12 @@ pub trait Full {
     /// This RPC call returns the highest slot that can be retransmitted in the cluster, typically
     /// representing the latest possible slot that may still be valid for network retransmissions.
     ///
-    /// # Returns
+    /// ## Returns
     /// A response containing:
     /// - `value`: The maximum slot number available for retransmission. This is an integer value representing the highest slot
     ///   for which data can be retrieved or retransmitted from the network.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -323,7 +324,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -334,7 +335,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if there was an issue processing the request, such as network failure.
     ///
     /// # Notes
@@ -351,12 +352,12 @@ pub trait Full {
     /// This RPC call returns the highest slot for which data can still be inserted (shredded) into the ledger,
     /// typically indicating the most recent slot that can be included in the block production process.
     ///
-    /// # Returns
+    /// ## Returns
     /// A response containing:
     /// - `value`: The maximum slot number for which shreds can be inserted. This is an integer value that represents
     ///   the latest valid slot for including data in the ledger.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -366,7 +367,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -377,7 +378,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if there was an issue processing the request, such as network failure.
     ///
     /// # Notes
@@ -394,17 +395,17 @@ pub trait Full {
     /// This RPC call triggers the network to send a specified amount of lamports to the given public key.
     /// It is commonly used for testing or initial setup of accounts.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `pubkeyStr`: The public key (as a base-58 encoded string) to which the airdrop will be sent.
     /// - `lamports`: The amount of lamports to be sent. This is the smallest unit of the native cryptocurrency.
     /// - `config`: Optional configuration for the airdrop request.
     ///
-    /// # Returns
+    /// ## Returns
     /// A response containing:
     /// - `value`: A string representing the transaction signature for the airdrop request. This signature can be
     ///   used to track the status of the transaction.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -418,7 +419,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -427,7 +428,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if there is an issue with the airdrop request, such as invalid public key or insufficient funds.
     ///
     /// # Notes
@@ -451,16 +452,16 @@ pub trait Full {
     /// The transaction will be broadcast to the network, and the method returns a transaction signature
     /// that can be used to track the transaction's status.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `data`: The serialized transaction data in a specified encoding format.
     /// - `config`: Optional configuration for the transaction submission, including settings for retries, commitment level,
     ///   and encoding.
     ///
-    /// # Returns
+    /// ## Returns
     /// A response containing:
     /// - `value`: A string representing the transaction signature for the submitted transaction.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -478,7 +479,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -487,7 +488,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the transaction fails to send, such as network issues or invalid transaction data.
     ///
     /// # Notes
@@ -511,17 +512,17 @@ pub trait Full {
     /// behave on the blockchain without actually broadcasting it. It is useful for testing and debugging
     /// before sending a transaction to the network.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `data`: The serialized transaction data in a specified encoding format.
     /// - `config`: Optional configuration for simulating the transaction, including settings for signature verification,
     ///   blockhash replacement, and more.
     ///
-    /// # Returns
+    /// ## Returns
     /// A response containing:
     /// - `value`: An object with the result of the simulation, which includes information such as errors,
     ///   logs, accounts, units consumed, and return data.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -539,7 +540,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -562,7 +563,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the transaction simulation fails due to invalid data or other issues.
     ///
     /// # Notes
@@ -586,13 +587,13 @@ pub trait Full {
     /// contains some data or transaction. It is useful for understanding the earliest point in the
     /// blockchain's history where data is available.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - None.
     ///
-    /// # Returns
+    /// ## Returns
     /// The minimum ledger slot as an integer representing the earliest slot where data is available.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -602,7 +603,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -611,7 +612,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the ledger slot retrieval fails.
     ///
     /// # Notes
@@ -628,18 +629,18 @@ pub trait Full {
     /// given a specific slot number. The response includes information like the block's hash, previous
     /// block hash, rewards, transactions, and more.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `slot`: The slot number of the block you want to retrieve. This is the block's position in the
     ///   chain.
     /// - `config`: Optional configuration for the block retrieval. This allows you to customize the
     ///   encoding and details returned in the response (e.g., full transaction details, rewards, etc.).
     ///
-    /// # Returns
+    /// ## Returns
     /// A `UiConfirmedBlock` containing the block's information, such as the block's hash, previous block
     /// hash, and an optional list of transactions and rewards. If no block is found for the provided slot,
     /// the response will be `None`.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -649,7 +650,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -666,7 +667,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the block cannot be found for the specified slot.
     /// - Returns an error if there is an issue with the configuration options provided.
     ///
@@ -691,15 +692,15 @@ pub trait Full {
     /// This RPC method fetches the timestamp of the block associated with a given slot. The timestamp
     /// represents the time at which the block was created.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `slot`: The slot number of the block you want to retrieve the timestamp for. This is the block's
     ///   position in the chain.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `UnixTimestamp` containing the block's creation time in seconds since the Unix epoch. If no
     /// block exists for the provided slot, the response will be `None`.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -709,7 +710,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -718,7 +719,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if there is an issue with the provided slot or if the slot is invalid.
     ///
     /// # Notes
@@ -740,17 +741,17 @@ pub trait Full {
     /// and continuing until a defined `end_slot` (if provided). If no `end_slot` is specified,
     /// it will return all blocks from the `start_slot` onward.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `start_slot`: The slot number from which to begin retrieving blocks.
     /// - `wrapper`: An optional parameter that can either specify an `end_slot` or contain a configuration
     ///   (`RpcContextConfig`) to define additional context settings such as commitment and minimum context slot.
     /// - `config`: An optional configuration for additional context parameters like commitment and minimum context slot.
     ///
-    /// # Returns
+    /// ## Returns
     /// A list of slot numbers, representing the sequence of blocks starting from `start_slot`.
     /// The returned slots are in ascending order. If no blocks are found, the response will be an empty list.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -760,7 +761,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -769,7 +770,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the provided `start_slot` is invalid or if there is an issue processing the request.
     ///
     /// # Notes
@@ -794,16 +795,16 @@ pub trait Full {
     /// but limits the number of blocks returned to the specified `limit`. This is useful when you want
     /// to quickly retrieve a small number of blocks from a specific point in the blockchain.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `start_slot`: The slot number from which to begin retrieving blocks.
     /// - `limit`: The maximum number of block slots to return. This limits the size of the response.
     /// - `config`: An optional configuration for additional context parameters like commitment and minimum context slot.
     ///
-    /// # Returns
+    /// ## Returns
     /// A list of slot numbers, representing the sequence of blocks starting from `start_slot`, up to the specified `limit`.
     /// If fewer blocks are available, the response will contain only the available blocks.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -813,7 +814,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -822,7 +823,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the provided `start_slot` is invalid, if the `limit` is zero, or if there is an issue processing the request.
     ///
     /// # Notes
@@ -847,11 +848,11 @@ pub trait Full {
     /// along with its metadata. It supports multiple encoding formats and lets you
     /// optionally limit which transaction versions are returned.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `signature`: The base-58 encoded signature of the transaction to fetch.
     /// - `config` (optional): Configuration for the encoding, commitment level, and supported transaction version.
     ///
-    /// # Returns
+    /// ## Returns
     /// If the transaction is found, returns an object containing:
     /// - `slot`: The slot in which the transaction was confirmed.
     /// - `blockTime`: The estimated production time of the block containing the transaction (in Unix timestamp).
@@ -859,7 +860,7 @@ pub trait Full {
     ///
     /// Returns `null` if the transaction is not found.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -876,7 +877,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -900,7 +901,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the signature is invalid or if there is a backend failure.
     /// - Returns `null` if the transaction is not found (e.g., dropped or not yet confirmed).
     ///
@@ -925,7 +926,7 @@ pub trait Full {
     /// that involved a given account address. The list is returned in reverse
     /// chronological order (most recent first) and can be paginated.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `address`: The base-58 encoded address to query.
     /// - `config` (optional): Configuration object with the following fields:
     ///   - `before`: Start search before this signature.
@@ -934,7 +935,7 @@ pub trait Full {
     ///   - `commitment`: The level of commitment desired (e.g., finalized).
     ///   - `minContextSlot`: The minimum slot that the query should be evaluated at.
     ///
-    /// # Returns
+    /// ## Returns
     /// A list of confirmed transaction summaries, each including:
     /// - `signature`: Transaction signature (base-58).
     /// - `slot`: The slot in which the transaction was confirmed.
@@ -943,7 +944,7 @@ pub trait Full {
     /// - `blockTime`: Approximate production time of the block containing the transaction (Unix timestamp).
     /// - `confirmationStatus`: One of `processed`, `confirmed`, or `finalized`.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -959,7 +960,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -985,7 +986,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the address is invalid or if the request exceeds internal limits.
     /// - May return fewer results than requested if pagination is constrained by chain history.
     ///
@@ -1009,13 +1010,13 @@ pub trait Full {
     /// from the node. Blocks before this slot have likely been purged and are no longer accessible
     /// for queries such as `getBlock`, `getTransaction`, etc.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// None.
     ///
-    /// # Returns
+    /// ## Returns
     /// A single integer representing the first available slot (block) that has not been purged.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1025,7 +1026,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1034,7 +1035,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the node is not fully initialized or if the ledger is inaccessible.
     ///
     /// # Notes
@@ -1052,14 +1053,14 @@ pub trait Full {
     /// blockhash that should be included in a transaction to be considered valid. It may
     /// also include metadata such as the last valid block height and the minimum context slot.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `config` *(optional)*: Optional context settings, such as commitment level and minimum slot.
     ///
-    /// # Returns
+    /// ## Returns
     /// A JSON object containing the recent blockhash, last valid block height,
     /// and the context slot of the response.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1073,7 +1074,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1090,7 +1091,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the node is behind or if the blockhash cache is temporarily unavailable.
     ///
     /// # Notes
@@ -1112,16 +1113,16 @@ pub trait Full {
     /// be used in a transaction. Blockhashes expire after approximately 150 slots,
     /// and transactions that reference an expired blockhash will be rejected.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `blockhash`: A base-58 encoded string representing the blockhash to validate.
     /// - `config` *(optional)*: Optional context configuration such as commitment level or minimum context slot.
     ///
-    /// # Returns
+    /// ## Returns
     /// A boolean value wrapped in a `RpcResponse`:
     /// - `true` if the blockhash is valid and usable.
     /// - `false` if the blockhash has expired or is unknown to the node.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1136,7 +1137,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1150,7 +1151,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the node is unable to validate the blockhash (e.g., blockhash not found).
     ///
     /// # Notes
@@ -1172,16 +1173,16 @@ pub trait Full {
     /// and returns the fee in lamports that would be charged for processing that message,
     /// assuming it was submitted as a transaction.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `data`: A base64-encoded string of the binary-encoded `Message`.
     /// - `config` *(optional)*: Optional context configuration such as commitment level or minimum context slot.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `RpcResponse` wrapping an `Option<u64>`:
     /// - `Some(fee)` if the fee could be calculated for the given message.
     /// - `None` if the fee could not be determined (e.g., due to invalid inputs or expired blockhash).
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1196,7 +1197,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1210,7 +1211,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// ## Errors
     /// - Returns an error if the input is not a valid message.
     /// - Returns `null` (i.e., `None`) if the fee cannot be determined.
     ///
@@ -1234,13 +1235,13 @@ pub trait Full {
     /// in order to be considered active in the staking system. It helps users determine
     /// the minimum threshold to avoid their stake being considered inactive or rent-exempt only.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `config` *(optional)*: Optional context configuration including commitment level or minimum context slot.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `RpcResponse` containing a `u64` value indicating the minimum required lamports for stake delegation.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1254,7 +1255,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1287,15 +1288,15 @@ pub trait Full {
     /// for a transaction to be included quickly in a block. It returns the
     /// most recent prioritization fee paid by each account provided.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `pubkey_strs` *(optional)*: A list of base-58 encoded account public keys (as strings).
     ///   If omitted, the node may return a default or empty set.
     ///
-    /// # Returns
+    /// ## Returns
     /// A list of `RpcPrioritizationFee` entries, each containing the slot and the fee paid
     /// to prioritize transactions.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1309,7 +1310,7 @@ pub trait Full {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -1416,7 +1417,7 @@ impl Full for SurfpoolFullRpc {
         }
 
         let current_slot = state_reader.epoch_info.absolute_slot;
-        let rpc_client = state_reader.rpc_client.clone();
+        let rpc_client = RpcClient::new(state_reader.rpc_url.clone());
 
         Box::pin(async move {
             for (i, signature) in indices_to_fetch.iter() {
@@ -1596,20 +1597,20 @@ impl Full for SurfpoolFullRpc {
         };
 
         let (local_accounts, replacement_blockhash, rpc_client) = {
-            let state = match meta.get_state_mut() {
+            let state_reader = match meta.get_state() {
                 Ok(res) => res,
                 Err(e) => return Box::pin(future::err(e.into())),
             };
             let local_accounts: Vec<Option<Account>> = account_keys
                 .clone()
                 .into_iter()
-                .map(|pk| state.svm.get_account(&pk))
+                .map(|pk| state_reader.svm.get_account(&pk))
                 .collect();
             let replacement_blockhash = Some(RpcBlockhash {
-                blockhash: state.svm.latest_blockhash().to_string(),
-                last_valid_block_height: state.epoch_info.block_height,
+                blockhash: state_reader.svm.latest_blockhash().to_string(),
+                last_valid_block_height: state_reader.epoch_info.block_height,
             });
-            let rpc_client = state.rpc_client.clone();
+            let rpc_client = RpcClient::new(state_reader.rpc_url.clone());
 
             (local_accounts, replacement_blockhash, rpc_client)
         };
@@ -1785,7 +1786,8 @@ impl Full for SurfpoolFullRpc {
             Ok(s) => s,
             Err(err) => return Box::pin(future::err(err.into())),
         };
-        let rpc_client = state_reader.rpc_client.clone();
+
+        let rpc_client = RpcClient::new(state_reader.rpc_url.clone());
 
         let tx = state_reader
             .transactions
