@@ -81,25 +81,32 @@ pub async fn start(
     simnet_commands_rx: Receiver<SimnetCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut svm = initialize_lite_svm();
-    for recipient in config.simnet.airdrop_addresses.iter() {
-        let _ = svm.airdrop(&recipient, config.simnet.airdrop_token_amount);
+
+    let Some(simnet) = config.simnets.first() else {
+        return Ok(());
+    };
+
+    for recipient in simnet.airdrop_addresses.iter() {
+        let _ = svm.airdrop(&recipient, simnet.airdrop_token_amount);
         let _ = simnet_events_tx.send(SimnetEvent::info(format!(
             "Genesis airdrop successful {}: {}",
             recipient.to_string(),
-            config.simnet.airdrop_token_amount
+            simnet.airdrop_token_amount
         )));
     }
 
     // Todo: should check config first
-    let rpc_client = Arc::new(RpcClient::new(config.simnet.remote_rpc_url.clone()));
+    let rpc_client = RpcClient::new(simnet.remote_rpc_url.clone());
     let epoch_info = rpc_client.get_epoch_info().await?;
 
     // Question: can the value `slots_in_epoch` fluctuate over time?
     let slots_in_epoch = epoch_info.slots_in_epoch;
 
-    let context = GlobalState::new(svm, &epoch_info, rpc_client.clone());
-
-    let context = Arc::new(RwLock::new(context));
+    let context = Arc::new(RwLock::new(GlobalState::new(
+        svm,
+        &epoch_info,
+        &simnet.remote_rpc_url,
+    )));
     let (plugin_manager_commands_rx, _rpc_handle) = start_rpc_server_thread(
         &config,
         &simnet_events_tx,
@@ -108,7 +115,7 @@ pub async fn start(
         &epoch_info,
     )?;
 
-    let simnet_config = config.simnet.clone();
+    let simnet_config = simnet.clone();
     let (plugins_data_tx, plugins_data_rx) =
         unbounded::<(VersionedTransaction, TransactionMetadata, Slot)>();
 
@@ -165,7 +172,7 @@ pub async fn start(
         }
     });
 
-    let mut runloop_trigger_mode = config.simnet.runloop_trigger_mode.clone();
+    let mut runloop_trigger_mode = simnet.runloop_trigger_mode.clone();
     let mut transactions_to_process = vec![];
     let mut num_transactions = 0;
     loop {
@@ -577,6 +584,7 @@ fn start_rpc_server_thread(
     io.extend_with(rpc::accounts_scan::SurfpoolAccountsScanRpc.to_delegate());
     io.extend_with(rpc::bank_data::SurfpoolBankDataRpc.to_delegate());
     io.extend_with(rpc::svm_tricks::SurfpoolSvmTricksRpc.to_delegate());
+    io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());
 
     if !config.plugin_config_path.is_empty() {
         io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());

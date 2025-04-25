@@ -1,11 +1,11 @@
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use blake3::Hash;
 use crossbeam_channel::Sender;
 use jsonrpc_core::{
     futures::future::Either, middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware,
     Request, Response,
 };
-use solana_blake3_hasher::Hash;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_clock::Slot;
 
@@ -29,7 +29,7 @@ pub struct SurfpoolRpc;
 
 #[derive(Clone)]
 pub struct RunloopContext {
-    pub id: Hash,
+    pub id: Option<Hash>,
     pub state: Arc<RwLock<GlobalState>>,
     pub simnet_commands_tx: Sender<SimnetCommand>,
     pub simnet_events_tx: Sender<SimnetEvent>,
@@ -125,7 +125,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
         X: Future<Output = Option<Response>> + Send + 'static,
     {
         let meta = Some(RunloopContext {
-            id: Hash::new_unique(),
+            id: None,
             state: self.context.clone(),
             simnet_commands_tx: self.simnet_commands_tx.clone(),
             simnet_events_tx: self.simnet_events_tx.clone(),

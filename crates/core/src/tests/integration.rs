@@ -28,10 +28,10 @@ use crate::{
 #[tokio::test]
 async fn test_simnet_ready() {
     let config = SurfpoolConfig {
-        simnet: SimnetConfig {
+        simnets: vec![SimnetConfig {
             runloop_trigger_mode: RunloopTriggerMode::Manual, // Prevent ticks
             ..SimnetConfig::default()
-        },
+        }],
         ..SurfpoolConfig::default()
     };
 
@@ -63,10 +63,10 @@ async fn test_simnet_ticks() {
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
     let config = SurfpoolConfig {
-        simnet: SimnetConfig {
+        simnets: vec![SimnetConfig {
             slot_time: 1,
             ..SimnetConfig::default()
-        },
+        }],
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
@@ -122,12 +122,12 @@ async fn test_simnet_some_sol_transfers() {
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
     let config = SurfpoolConfig {
-        simnet: SimnetConfig {
+        simnets: vec![SimnetConfig {
             slot_time: 1,
             airdrop_addresses: airdrop_addresses.clone(),
             airdrop_token_amount,
             ..SimnetConfig::default()
-        },
+        }],
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,

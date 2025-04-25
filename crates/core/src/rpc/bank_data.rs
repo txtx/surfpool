@@ -20,18 +20,18 @@ pub trait BankData {
     /// can help users manage their accounts by ensuring they have enough balance to cover rent
     /// exemption, preventing accounts from being purged by the system.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `data_len`: The length (in bytes) of the account data. This is used to determine the
     ///   minimum balance required for rent exemption.
     /// - `commitment`: (Optional) A `CommitmentConfig` that allows specifying the level of
     ///   commitment for querying. If not provided, the default commitment level will be used.
     ///
-    /// # Returns
+    /// ## Returns
     /// - `Result<u64>`: The method returns the minimum balance required for rent exemption
     ///   as a `u64`. If successful, it will be wrapped in `Ok`, otherwise an error will be
     ///   returned.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -41,7 +41,7 @@ pub trait BankData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -57,7 +57,7 @@ pub trait BankData {
     ///   regarding the state of the ledger. For example, using `Confirmed` or `Finalized` ensures
     ///   that the state is more reliable.
     ///
-    /// # Errors
+    /// ## Errors
     /// - If there is an issue with the `data_len` or `commitment` parameter (e.g., invalid data),
     ///   an error will be returned.
     #[rpc(meta, name = "getMinimumBalanceForRentExemption")]
@@ -75,16 +75,16 @@ pub trait BankData {
     /// inflation rate over time, with parameters like the initial and terminal inflation rates,
     /// the taper rate, the foundation amount, and the foundation term.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `commitment`: (Optional) A `CommitmentConfig` that specifies the commitment level for
     ///   querying the inflation governor settings. If not provided, the default commitment level
     ///   is used. Valid commitment levels include `Processed`, `Confirmed`, or `Finalized`.
     ///
-    /// # Returns
+    /// ## Returns
     /// - `Result<RpcInflationGovernor>`: The method returns an `RpcInflationGovernor` struct that
     ///   contains the inflation parameters if successful. Otherwise, an error will be returned.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -94,7 +94,7 @@ pub trait BankData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -116,7 +116,7 @@ pub trait BankData {
     ///   inflation data is confirmed or finalized when queried. For example, using `Confirmed` or
     ///   `Finalized` ensures a more reliable inflation state.
     ///
-    /// # Errors
+    /// ## Errors
     /// - If there is an issue with the `commitment` parameter or an internal error occurs,
     ///   an error will be returned.
     #[rpc(meta, name = "getInflationGovernor")]
@@ -132,15 +132,15 @@ pub trait BankData {
     /// allocated to different entities such as validators and the foundation, along with the current
     /// epoch during which the rate applies.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - No parameters are required for this method.
     ///
-    /// # Returns
+    /// ## Returns
     /// - `Result<RpcInflationRate>`: The method returns an `RpcInflationRate` struct that contains
     ///   the total inflation rate, the validator portion, the foundation portion, and the epoch
     ///   during which this inflation rate applies.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -150,7 +150,7 @@ pub trait BankData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -171,7 +171,7 @@ pub trait BankData {
     ///   An epoch is a period during which the network operates under certain parameters.
     /// - Inflation rates can change over time depending on network conditions and governance decisions.
     ///
-    /// # Errors
+    /// ## Errors
     /// - If there is an internal error, or if the RPC request is malformed, an error will be returned.
     #[rpc(meta, name = "getInflationRate")]
     fn get_inflation_rate(&self, meta: Self::Metadata) -> Result<RpcInflationRate>;
@@ -181,15 +181,15 @@ pub trait BankData {
     /// This RPC method returns the configuration for the network's epoch schedule, including
     /// details on the number of slots per epoch, leader schedule offsets, and epoch warmup.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - No parameters are required for this method.
     ///
-    /// # Returns
+    /// ## Returns
     /// - `Result<EpochSchedule>`: The method returns an `EpochSchedule` struct, which contains
     ///   information about the slots per epoch, leader schedule offsets, warmup state, and the
     ///   first epoch after the warmup period.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -199,7 +199,7 @@ pub trait BankData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -224,7 +224,7 @@ pub trait BankData {
     /// - The `first_normal_slot` gives the first slot after the warmup period in terms of the number of slots
     ///   from the start of the network.
     ///
-    /// # Errors
+    /// ## Errors
     /// - If the RPC request is malformed, or if there is an internal error, an error will be returned.
     #[rpc(meta, name = "getEpochSchedule")]
     fn get_epoch_schedule(&self, meta: Self::Metadata) -> Result<EpochSchedule>;
@@ -234,15 +234,15 @@ pub trait BankData {
     /// This RPC method returns the leader for the current slot in the Solana network. The leader is responsible
     /// for producing blocks for the current slot. The leader is selected based on the Solana consensus mechanism.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `config`: An optional configuration for the request, which can include:
     ///     - `commitment`: A commitment level that defines how "final" the data must be.
     ///     - `min_context_slot`: An optional parameter to specify a minimum slot for the request.
     ///
-    /// # Returns
+    /// ## Returns
     /// - `Result<String>`: The method returns a `String` representing the public key of the leader for the current slot.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -252,7 +252,7 @@ pub trait BankData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -276,15 +276,15 @@ pub trait BankData {
     /// specify the `start_slot` from which the leaders should be queried and limit the number of results
     /// with the `limit` parameter. The leaders are responsible for producing blocks in the respective slots.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `start_slot`: The starting slot number for which the leaders should be queried.
     /// - `limit`: The number of slots (starting from `start_slot`) for which the leaders should be retrieved.
     ///
-    /// # Returns
+    /// ## Returns
     /// - `Result<Vec<String>>`: A vector of `String` values representing the public keys of the leaders for
     ///   the specified slot range.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -294,7 +294,7 @@ pub trait BankData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -328,16 +328,16 @@ pub trait BankData {
     /// validators. If a `range` is provided, it will return block production information for the slots within
     /// the specified range.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `config`: An optional configuration object that can include:
     ///     - `identity`: The base-58 encoded public key of a validator to query for block production data. If `None`, results for all validators will be returned.
     ///     - `range`: A range of slots for which block production information is needed. The range will default to the current epoch if `None`.
     ///     - `commitment`: The commitment level (optional) to use when querying for the block production data.
     ///
-    /// # Returns
+    /// ## Returns
     /// - `Result<RpcResponse<RpcBlockProduction>>`: The result contains a response object with block production data, including the number of leader slots and blocks produced by each validator.
     ///
-    /// # Example Request (JSON-RPC)
+    /// ## Example Request (JSON-RPC)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -353,7 +353,7 @@ pub trait BankData {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -376,7 +376,7 @@ pub trait BankData {
     ///     - The second value is the number of blocks produced by that validator in the queried range.
     /// - The `range` object specifies the range of slots that the block production information applies to, with `first_slot` being the starting slot and `last_slot` being the optional ending slot.
     ///
-    /// # Example Response Interpretation
+    /// ## Example Response Interpretation
     /// - In the example response, the identity `3HgA9r8H9z5Pb2L6Pt5Yq1QoFwgr6YwdKKUh9n2ANp5U` produced 10 leader slots and 8 blocks between slots 1000 and 1050.
     /// - Similarly, `BBh1FwXts8EZY6rPZ5kS2ygq99wYjFd5K5daRjc7eF9X` produced 5 leader slots and 4 blocks in the same slot range.
     #[rpc(meta, name = "getBlockProduction")]

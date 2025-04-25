@@ -12,6 +12,7 @@ use serde::Serialize;
 use serde::{Deserialize, Deserializer, Serializer};
 use serde_with::{serde_as, BytesOrString};
 use solana_account::Account;
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_clock::Epoch;
@@ -212,15 +213,15 @@ pub trait SvmTricksRpc {
     /// This method allows developers to set or update the lamports, data, owner, executable status,
     /// and rent epoch of a given account.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `meta`: Metadata passed with the request, such as the client’s request context.
     /// - `pubkey`: The public key of the account to be updated, as a base-58 encoded string.
     /// - `update`: The `AccountUpdate` struct containing the fields to update the account.
     ///
-    /// # Returns
+    /// ## Returns
     /// A `RpcResponse<()>` indicating whether the account update was successful.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -230,7 +231,7 @@ pub trait SvmTricksRpc {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -258,17 +259,17 @@ pub trait SvmTricksRpc {
     /// This method allows developers to set or update various properties of a token account,
     /// including the token amount, delegate, state, delegated amount, and close authority.
     ///
-    /// # Parameters
+    /// ## Parameters
     /// - `meta`: Metadata passed with the request, such as the client’s request context.
     /// - `owner`: The base-58 encoded public key of the token account's owner.
     /// - `mint`: The base-58 encoded public key of the token mint (e.g., the token type).
     /// - `update`: The `TokenAccountUpdate` struct containing the fields to update the token account.
     /// - `token_program`: The optional base-58 encoded address of the token program (defaults to the system token program).
     ///
-    /// # Returns
+    /// ## Returns
     /// A `RpcResponse<()>` indicating whether the token account update was successful.
     ///
-    /// # Example Request
+    /// ## Example Request
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -278,7 +279,7 @@ pub trait SvmTricksRpc {
     /// }
     /// ```
     ///
-    /// # Example Response
+    /// ## Example Response
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -338,7 +339,8 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
 
         let absolute_slot = state_reader.epoch_info.absolute_slot;
         let account = state_reader.svm.get_account(&pubkey);
-        let rpc_client = state_reader.rpc_client.clone();
+
+        let rpc_client = RpcClient::new(state_reader.rpc_url.clone());
         drop(state_reader);
 
         let full_account_update = match update.to_account() {
@@ -436,7 +438,7 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
         let minimum_rent = state_reader
             .svm
             .minimum_balance_for_rent_exemption(TokenAccount::LEN);
-        let rpc_client = state_reader.rpc_client.clone();
+        let rpc_client = RpcClient::new(state_reader.rpc_url.clone());
         drop(state_reader);
 
         return Box::pin(async move {

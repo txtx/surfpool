@@ -1,9 +1,6 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use litesvm::LiteSVM;
-use solana_client::{
-    nonblocking::rpc_client::RpcClient, rpc_client::SerializableTransaction,
-    rpc_response::RpcPerfSample,
-};
+use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
 use solana_epoch_info::EpochInfo;
 use solana_message::VersionedMessage;
 use solana_sdk::transaction::VersionedTransaction;
@@ -18,7 +15,6 @@ use solana_transaction_status::{
 };
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use surfpool_types::TransactionMetadata;
@@ -29,18 +25,18 @@ pub struct GlobalState {
     pub perf_samples: VecDeque<RpcPerfSample>,
     pub transactions_processed: u64,
     pub epoch_info: EpochInfo,
-    pub rpc_client: Arc<RpcClient>,
+    pub rpc_url: String,
 }
 
 impl GlobalState {
-    pub fn new(svm: LiteSVM, epoch_info: &EpochInfo, rpc_client: Arc<RpcClient>) -> Self {
+    pub fn new(svm: LiteSVM, epoch_info: &EpochInfo, rpc_url: &str) -> Self {
         Self {
             svm,
             transactions: HashMap::new(),
             perf_samples: VecDeque::new(),
             transactions_processed: 0,
             epoch_info: epoch_info.clone(),
-            rpc_client,
+            rpc_url: rpc_url.to_string(),
         }
     }
 }

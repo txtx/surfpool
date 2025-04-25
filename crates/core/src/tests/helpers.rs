@@ -7,7 +7,6 @@ use std::{
 use crossbeam_channel::Sender;
 use litesvm::LiteSVM;
 use solana_blake3_hasher::Hash;
-use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_sdk::transaction::VersionedTransaction;
@@ -64,7 +63,7 @@ where
                 simnet_commands_tx,
                 simnet_events_tx: simnet_events_tx.clone(),
                 plugin_manager_commands_tx,
-                id: Hash::new_unique(),
+                id: None,
                 state: Arc::new(RwLock::new(GlobalState {
                     svm,
                     transactions: HashMap::new(),
@@ -76,7 +75,7 @@ where
                         block_height: 42,
                         transaction_count: Some(2),
                     },
-                    rpc_client: Arc::new(RpcClient::new("http://localhost:8899".to_string())),
+                    rpc_url: "http://localhost:8899".to_string(),
                     perf_samples: VecDeque::new(),
                     transactions_processed: 69,
                 })),
