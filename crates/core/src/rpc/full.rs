@@ -48,6 +48,65 @@ use super::*;
 pub trait Full {
     type Metadata;
 
+    /// Retrieves inflation rewards for a list of addresses over a specified epoch or context.
+    ///
+    /// This RPC method allows you to query the inflation rewards credited to specific validator or voter addresses
+    /// in a given epoch or range of slots. The rewards are provided as lamports, which are the smallest unit of SOL.
+    ///
+    /// # Parameters
+    /// - `address_strs`: A list of base-58 encoded public keys for which to query inflation rewards.
+    /// - `config`: An optional configuration that allows you to specify:
+    ///     - `epoch`: The epoch to query for inflation rewards. If `None`, the current epoch is used.
+    ///     - `commitment`: The optional commitment level to use when querying for rewards.
+    ///     - `min_context_slot`: The minimum slot to be considered when retrieving the rewards.
+    ///
+    /// # Returns
+    /// - `BoxFuture<Result<Vec<Option<RpcInflationReward>>>>`: A future that resolves to a vector of inflation reward information for each address provided.
+    ///
+    /// # Example Request (JSON-RPC)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getInflationReward",
+    ///   "params": [
+    ///     ["3HgA9r8H9z5Pb2L6Pt5Yq1QoFwgr6YwdKKUh9n2ANp5U", "BBh1FwXts8EZY6rPZ5kS2ygq99wYjFd5K5daRjc7eF9X"],
+    ///     {
+    ///       "epoch": 200,
+    ///       "commitment": {"commitment": "finalized"}
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": [
+    ///     {
+    ///       "epoch": 200,
+    ///       "effectiveSlot": 123456,
+    ///       "amount": 5000000,
+    ///       "postBalance": 1000000000,
+    ///       "commission": 10
+    ///     },
+    ///     null
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// - The `address_strs` parameter should contain the list of addresses for which to query rewards.
+    /// - The response is a vector where each entry corresponds to an address in the `address_strs` input list.
+    /// - If an address did not receive any reward during the query period, its corresponding entry in the result will be `null`.
+    /// - The `amount` field represents the inflation reward (in lamports) that was credited to the address during the epoch.
+    /// - The `post_balance` field represents the account balance after the reward was applied.
+    /// - The `commission` field, if present, indicates the percentage commission (as an integer) for a vote account when the reward was credited.
+    ///
+    /// # Example Response Interpretation
+    /// - In the example response, the first address `3HgA9r8H9z5Pb2L6Pt5Yq1QoFwgr6YwdKKUh9n2ANp5U` received 5,000,000 lamports during epoch 200, with a post-reward balance of 1,000,000,000 lamports and a 10% commission.
+    /// - The second address did not receive any inflation reward (represented as `null`).
     #[rpc(meta, name = "getInflationReward")]
     fn get_inflation_reward(
         &self,
@@ -56,9 +115,95 @@ pub trait Full {
         config: Option<RpcEpochConfig>,
     ) -> BoxFuture<Result<Vec<Option<RpcInflationReward>>>>;
 
+    /// Retrieves the list of cluster nodes and their contact information.
+    ///
+    /// This RPC method returns a list of nodes in the cluster, including their public keys and various
+    /// communication ports, such as the gossip, Tpu, and RPC ports. This information is essential for
+    /// understanding the connectivity and configuration of nodes in a Solana cluster.
+    ///
+    /// # Returns
+    /// - `Result<Vec<RpcContactInfo>>`: A result containing a vector of `RpcContactInfo` objects, each representing a node's contact information in the cluster.
+    ///
+    /// # Example Request (JSON-RPC)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getClusterNodes",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": [
+    ///     {
+    ///       "pubkey": "3HgA9r8H9z5Pb2L6Pt5Yq1QoFwgr6YwdKKUh9n2ANp5U",
+    ///       "gossip": "127.0.0.1:8001",
+    ///       "tvu": "127.0.0.1:8002",
+    ///       "tpu": "127.0.0.1:8003",
+    ///       "tpu_quic": "127.0.0.1:8004",
+    ///       "rpc": "127.0.0.1:8899",
+    ///       "pubsub": "127.0.0.1:8900",
+    ///       "version": "v1.9.0",
+    ///       "feature_set": 1,
+    ///       "shred_version": 3
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// - The response contains a list of nodes, each identified by its public key and with multiple optional ports for different services.
+    /// - If a port is not configured, its value will be `null`.
+    /// - The `version` field contains the software version of the node.
     #[rpc(meta, name = "getClusterNodes")]
     fn get_cluster_nodes(&self, meta: Self::Metadata) -> Result<Vec<RpcContactInfo>>;
 
+    /// Retrieves recent performance samples of the Solana network.
+    ///
+    /// This RPC method provides performance metrics from the most recent samples, such as the number
+    /// of transactions processed, slots, and the period over which these metrics were collected.
+    ///
+    /// # Parameters
+    /// - `limit`: An optional parameter that specifies the maximum number of performance samples to return. If not provided, all available samples will be returned.
+    ///
+    /// # Returns
+    /// - `Result<Vec<RpcPerfSample>>`: A result containing a vector of `RpcPerfSample` objects, each representing a snapshot of the network's performance for a particular slot.
+    ///
+    /// # Example Request (JSON-RPC)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getRecentPerformanceSamples",
+    ///   "params": [10]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": [
+    ///     {
+    ///       "slot": 12345,
+    ///       "num_transactions": 1000,
+    ///       "num_non_vote_transactions": 800,
+    ///       "num_slots": 10,
+    ///       "sample_period_secs": 60
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// - The `num_transactions` field represents the total number of transactions processed in the given slot.
+    /// - The `num_non_vote_transactions` field is optional and represents the number of transactions that are not related to voting.
+    /// - The `num_slots` field indicates the number of slots sampled for the given period.
+    /// - The `sample_period_secs` represents the time period in seconds over which the performance sample was taken.
     #[rpc(meta, name = "getRecentPerformanceSamples")]
     fn get_recent_performance_samples(
         &self,
@@ -66,6 +211,90 @@ pub trait Full {
         limit: Option<usize>,
     ) -> Result<Vec<RpcPerfSample>>;
 
+    /// Retrieves the status of multiple transactions given their signatures.
+    ///
+    /// This RPC call returns the status of transactions, including details such as the transaction's
+    /// slot, the number of confirmations it has, its success or failure status, and any errors that might have occurred.
+    /// Optionally, it can also provide transaction history search results based on the provided configuration.
+    ///
+    /// # Parameters
+    /// - `signatureStrs`: A list of base-58 encoded transaction signatures for which the statuses are to be retrieved.
+    /// - `config`: An optional configuration object to modify the query, such as enabling search for transaction history.
+    ///   - If `None`, defaults to querying the current status of the provided transactions.
+    ///
+    /// # Returns
+    /// A response containing:
+    /// - `value`: A list of transaction statuses corresponding to the provided transaction signatures. Each entry in the list can be:
+    ///   - A successful status (`status` field set to `"Ok"`)
+    ///   - An error status (`status` field set to `"Err"`)
+    ///   - A transaction's error information (e.g., `InsufficientFundsForFee`, `AccountNotFound`, etc.)
+    ///   - The slot in which the transaction was processed.
+    ///   - The number of confirmations the transaction has received (if applicable).
+    ///   - The confirmation status (`"processed"`, `"confirmed"`, or `"finalized"`).
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getSignatureStatuses",
+    ///   "params": [
+    ///     [
+    ///       "5FJkGv5JrMwWe6Eqn24Lz6vgsJ9y8g4rVZn3z9pKfqGhWR23Zef5GjS6SCN8h4J7rb42yYoA4m83d5V7A2KhQkm3",
+    ///       "5eJZXh7FnSeFw5uJ5t9t5bjsKqS7khtjeFu6gAtfhsNj5fQYs5KZ5ZscknzFhfQj2rNJ4W2QqijKsyZk8tqbrT9m"
+    ///     ],
+    ///     {
+    ///       "searchTransactionHistory": true
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": {
+    ///     "value": [
+    ///       {
+    ///         "slot": 1234567,
+    ///         "confirmations": 5,
+    ///         "status": {
+    ///           "ok": {}
+    ///         },
+    ///         "err": null,
+    ///         "confirmationStatus": "confirmed"
+    ///       },
+    ///       {
+    ///         "slot": 1234568,
+    ///         "confirmations": 3,
+    ///         "status": {
+    ///           "err": {
+    ///             "insufficientFundsForFee": {}
+    ///           }
+    ///         },
+    ///         "err": {
+    ///           "insufficientFundsForFee": {}
+    ///         },
+    ///         "confirmationStatus": "processed"
+    ///       }
+    ///     ]
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if there was an issue processing the request, such as network failures or invalid signatures.
+    ///
+    /// # Notes
+    /// - The `TransactionStatus` contains various error types (e.g., `TransactionError`) and confirmation statuses (e.g., `TransactionConfirmationStatus`), which can be used to determine the cause of failure or the progress of the transaction's confirmation.
+    ///
+    /// # See Also
+    /// - [`TransactionStatus`](#TransactionStatus)
+    /// - [`RpcSignatureStatusConfig`](#RpcSignatureStatusConfig)
+    /// - [`TransactionError`](#TransactionError)
+    /// - [`TransactionConfirmationStatus`](#TransactionConfirmationStatus)
     #[rpc(meta, name = "getSignatureStatuses")]
     fn get_signature_statuses(
         &self,
@@ -74,12 +303,139 @@ pub trait Full {
         config: Option<RpcSignatureStatusConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<Option<TransactionStatus>>>>>;
 
+    /// Retrieves the maximum slot number for which data may be retransmitted.
+    ///
+    /// This RPC call returns the highest slot that can be retransmitted in the cluster, typically
+    /// representing the latest possible slot that may still be valid for network retransmissions.
+    ///
+    /// # Returns
+    /// A response containing:
+    /// - `value`: The maximum slot number available for retransmission. This is an integer value representing the highest slot
+    ///   for which data can be retrieved or retransmitted from the network.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getMaxRetransmitSlot",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": {
+    ///     "value": 1234567
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if there was an issue processing the request, such as network failure.
+    ///
+    /// # Notes
+    /// - The slot number returned by this RPC call can be used to identify the highest valid slot for retransmission,
+    ///   which may be useful for managing data synchronization across nodes in the cluster.
+    ///
+    /// # See Also
+    /// - `getSlot`
     #[rpc(meta, name = "getMaxRetransmitSlot")]
     fn get_max_retransmit_slot(&self, meta: Self::Metadata) -> Result<Slot>;
 
+    /// Retrieves the maximum slot number for which shreds may be inserted into the ledger.
+    ///
+    /// This RPC call returns the highest slot for which data can still be inserted (shredded) into the ledger,
+    /// typically indicating the most recent slot that can be included in the block production process.
+    ///
+    /// # Returns
+    /// A response containing:
+    /// - `value`: The maximum slot number for which shreds can be inserted. This is an integer value that represents
+    ///   the latest valid slot for including data in the ledger.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getMaxShredInsertSlot",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": {
+    ///     "value": 1234567
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if there was an issue processing the request, such as network failure.
+    ///
+    /// # Notes
+    /// - This method is used to identify the highest slot where data can still be added to the ledger.
+    ///   This is useful for managing the block insertion process and synchronizing data across the network.
+    ///
+    /// # See Also
+    /// - `getSlot`
     #[rpc(meta, name = "getMaxShredInsertSlot")]
     fn get_max_shred_insert_slot(&self, meta: Self::Metadata) -> Result<Slot>;
 
+    /// Requests an airdrop of lamports to the specified public key.
+    ///
+    /// This RPC call triggers the network to send a specified amount of lamports to the given public key.
+    /// It is commonly used for testing or initial setup of accounts.
+    ///
+    /// # Parameters
+    /// - `pubkeyStr`: The public key (as a base-58 encoded string) to which the airdrop will be sent.
+    /// - `lamports`: The amount of lamports to be sent. This is the smallest unit of the native cryptocurrency.
+    /// - `config`: Optional configuration for the airdrop request.
+    ///
+    /// # Returns
+    /// A response containing:
+    /// - `value`: A string representing the transaction signature for the airdrop request. This signature can be
+    ///   used to track the status of the transaction.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "requestAirdrop",
+    ///   "params": [
+    ///     "PublicKeyHere",
+    ///     1000000,
+    ///     {}
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": "TransactionSignatureHere"
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if there is an issue with the airdrop request, such as invalid public key or insufficient funds.
+    ///
+    /// # Notes
+    /// - Airdrop requests are commonly used for testing or initializing accounts in the development environment.
+    ///   This is not typically used in a production environment where real funds are at stake.
+    ///
+    /// # See Also
+    /// - `getBalance`
     #[rpc(meta, name = "requestAirdrop")]
     fn request_airdrop(
         &self,
@@ -89,6 +445,58 @@ pub trait Full {
         config: Option<RpcRequestAirdropConfig>,
     ) -> Result<String>;
 
+    /// Sends a transaction to the network.
+    ///
+    /// This RPC method is used to submit a signed transaction to the network for processing.
+    /// The transaction will be broadcast to the network, and the method returns a transaction signature
+    /// that can be used to track the transaction's status.
+    ///
+    /// # Parameters
+    /// - `data`: The serialized transaction data in a specified encoding format.
+    /// - `config`: Optional configuration for the transaction submission, including settings for retries, commitment level,
+    ///   and encoding.
+    ///
+    /// # Returns
+    /// A response containing:
+    /// - `value`: A string representing the transaction signature for the submitted transaction.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "sendTransaction",
+    ///   "params": [
+    ///     "TransactionDataHere",
+    ///     {
+    ///       "skipPreflight": false,
+    ///       "preflightCommitment": "processed",
+    ///       "encoding": "base64",
+    ///       "maxRetries": 3
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": "TransactionSignatureHere"
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the transaction fails to send, such as network issues or invalid transaction data.
+    ///
+    /// # Notes
+    /// - This method is primarily used for submitting a signed transaction to the network and obtaining a signature
+    ///   to track the transaction's status.
+    /// - The `skipPreflight` option, if set to true, bypasses the preflight checks to speed up the transaction submission.
+    ///
+    /// # See Also
+    /// - `getTransactionStatus`
     #[rpc(meta, name = "sendTransaction")]
     fn send_transaction(
         &self,
@@ -97,6 +505,73 @@ pub trait Full {
         config: Option<RpcSendTransactionConfig>,
     ) -> Result<String>;
 
+    /// Simulates a transaction without sending it to the network.
+    ///
+    /// This RPC method simulates a transaction locally, allowing users to check how a transaction would
+    /// behave on the blockchain without actually broadcasting it. It is useful for testing and debugging
+    /// before sending a transaction to the network.
+    ///
+    /// # Parameters
+    /// - `data`: The serialized transaction data in a specified encoding format.
+    /// - `config`: Optional configuration for simulating the transaction, including settings for signature verification,
+    ///   blockhash replacement, and more.
+    ///
+    /// # Returns
+    /// A response containing:
+    /// - `value`: An object with the result of the simulation, which includes information such as errors,
+    ///   logs, accounts, units consumed, and return data.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "simulateTransaction",
+    ///   "params": [
+    ///     "TransactionDataHere",
+    ///     {
+    ///       "sigVerify": true,
+    ///       "replaceRecentBlockhash": true,
+    ///       "encoding": "base64",
+    ///       "innerInstructions": true
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": {
+    ///     "err": null,
+    ///     "logs": ["Log output"],
+    ///     "accounts": [null, {}],
+    ///     "unitsConsumed": 12345,
+    ///     "returnData": {
+    ///       "programId": "ProgramIDHere",
+    ///       "data": ["returnDataHere", "base64"]
+    ///     },
+    ///     "innerInstructions": [{
+    ///       "index": 0,
+    ///       "instructions": [{ "parsed": { "programIdIndex": 0 } }]
+    ///     }],
+    ///     "replacementBlockhash": "BlockhashHere"
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the transaction simulation fails due to invalid data or other issues.
+    ///
+    /// # Notes
+    /// - This method simulates the transaction locally and does not affect the actual blockchain state.
+    /// - The `sigVerify` flag determines whether the transaction's signature should be verified during the simulation.
+    /// - The `replaceRecentBlockhash` flag allows the simulation to use the most recent blockhash for the transaction.
+    ///
+    /// # See Also
+    /// - `getTransactionStatus`
     #[rpc(meta, name = "simulateTransaction")]
     fn simulate_transaction(
         &self,
@@ -105,9 +580,104 @@ pub trait Full {
         config: Option<RpcSimulateTransactionConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSimulateTransactionResult>>>;
 
+    /// Retrieves the minimum ledger slot.
+    ///
+    /// This RPC method returns the minimum ledger slot, which is the smallest slot number that
+    /// contains some data or transaction. It is useful for understanding the earliest point in the
+    /// blockchain's history where data is available.
+    ///
+    /// # Parameters
+    /// - None.
+    ///
+    /// # Returns
+    /// The minimum ledger slot as an integer representing the earliest slot where data is available.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "minimumLedgerSlot",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": 123456
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the ledger slot retrieval fails.
+    ///
+    /// # Notes
+    /// - The returned slot is typically the earliest slot that contains useful data for the ledger.
+    ///
+    /// # See Also
+    /// - `getSlot`
     #[rpc(meta, name = "minimumLedgerSlot")]
     fn minimum_ledger_slot(&self, meta: Self::Metadata) -> Result<Slot>;
 
+    /// Retrieves the details of a block in the blockchain.
+    ///
+    /// This RPC method fetches a block's details, including its transactions and associated metadata,
+    /// given a specific slot number. The response includes information like the block's hash, previous
+    /// block hash, rewards, transactions, and more.
+    ///
+    /// # Parameters
+    /// - `slot`: The slot number of the block you want to retrieve. This is the block's position in the
+    ///   chain.
+    /// - `config`: Optional configuration for the block retrieval. This allows you to customize the
+    ///   encoding and details returned in the response (e.g., full transaction details, rewards, etc.).
+    ///
+    /// # Returns
+    /// A `UiConfirmedBlock` containing the block's information, such as the block's hash, previous block
+    /// hash, and an optional list of transactions and rewards. If no block is found for the provided slot,
+    /// the response will be `None`.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getBlock",
+    ///   "params": [123456, {"encoding": "json", "transactionDetails": "full"}]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": {
+    ///     "previousBlockhash": "abc123",
+    ///     "blockhash": "def456",
+    ///     "parentSlot": 123455,
+    ///     "transactions": [ ... ],
+    ///     "rewards": [ ... ],
+    ///     "blockTime": 1620000000,
+    ///     "blockHeight": 1000
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the block cannot be found for the specified slot.
+    /// - Returns an error if there is an issue with the configuration options provided.
+    ///
+    /// # Notes
+    /// - The `transactionDetails` field in the configuration can be used to specify the level of detail
+    ///   you want for transactions within the block (e.g., full transaction data, only signatures, etc.).
+    /// - The block's `blockhash` and `previousBlockhash` are crucial for navigating through the blockchain's
+    ///   history.
+    ///
+    /// # See Also
+    /// - `getSlot`, `getBlockHeight`
     #[rpc(meta, name = "getBlock")]
     fn get_block(
         &self,
@@ -116,6 +686,47 @@ pub trait Full {
         config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>>;
 
+    /// Retrieves the timestamp for a block, given its slot number.
+    ///
+    /// This RPC method fetches the timestamp of the block associated with a given slot. The timestamp
+    /// represents the time at which the block was created.
+    ///
+    /// # Parameters
+    /// - `slot`: The slot number of the block you want to retrieve the timestamp for. This is the block's
+    ///   position in the chain.
+    ///
+    /// # Returns
+    /// A `UnixTimestamp` containing the block's creation time in seconds since the Unix epoch. If no
+    /// block exists for the provided slot, the response will be `None`.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getBlockTime",
+    ///   "params": [123456]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": 1620000000
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if there is an issue with the provided slot or if the slot is invalid.
+    ///
+    /// # Notes
+    /// - The returned `UnixTimestamp` represents the time in seconds since the Unix epoch (1970-01-01 00:00:00 UTC).
+    /// - If the block for the given slot has not been processed or does not exist, the response will be `None`.
+    ///
+    /// # See Also
+    /// - `getBlock`, `getSlot`, `getBlockHeight`
     #[rpc(meta, name = "getBlockTime")]
     fn get_block_time(
         &self,
@@ -123,6 +734,51 @@ pub trait Full {
         slot: Slot,
     ) -> BoxFuture<Result<Option<UnixTimestamp>>>;
 
+    /// Retrieves a list of slot numbers starting from a given `start_slot`.
+    ///
+    /// This RPC method fetches a sequence of block slots starting from the specified `start_slot`
+    /// and continuing until a defined `end_slot` (if provided). If no `end_slot` is specified,
+    /// it will return all blocks from the `start_slot` onward.
+    ///
+    /// # Parameters
+    /// - `start_slot`: The slot number from which to begin retrieving blocks.
+    /// - `wrapper`: An optional parameter that can either specify an `end_slot` or contain a configuration
+    ///   (`RpcContextConfig`) to define additional context settings such as commitment and minimum context slot.
+    /// - `config`: An optional configuration for additional context parameters like commitment and minimum context slot.
+    ///
+    /// # Returns
+    /// A list of slot numbers, representing the sequence of blocks starting from `start_slot`.
+    /// The returned slots are in ascending order. If no blocks are found, the response will be an empty list.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getBlocks",
+    ///   "params": [123456, {"endSlotOnly": 123500}, {"commitment": "finalized"}]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": [123456, 123457, 123458, 123459]
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the provided `start_slot` is invalid or if there is an issue processing the request.
+    ///
+    /// # Notes
+    /// - The response will return all blocks starting from the `start_slot` and up to the `end_slot` if specified.
+    ///   If no `end_slot` is provided, the server will return all available blocks starting from `start_slot`.
+    /// - The `commitment` setting determines the level of finality for the blocks returned (e.g., "finalized", "confirmed", etc.).
+    ///
+    /// # See Also
+    /// - `getBlock`, `getSlot`, `getBlockTime`    
     #[rpc(meta, name = "getBlocks")]
     fn get_blocks(
         &self,
@@ -132,6 +788,50 @@ pub trait Full {
         config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>>;
 
+    /// Retrieves a limited list of block slots starting from a given `start_slot`.
+    ///
+    /// This RPC method fetches a sequence of block slots starting from the specified `start_slot`,
+    /// but limits the number of blocks returned to the specified `limit`. This is useful when you want
+    /// to quickly retrieve a small number of blocks from a specific point in the blockchain.
+    ///
+    /// # Parameters
+    /// - `start_slot`: The slot number from which to begin retrieving blocks.
+    /// - `limit`: The maximum number of block slots to return. This limits the size of the response.
+    /// - `config`: An optional configuration for additional context parameters like commitment and minimum context slot.
+    ///
+    /// # Returns
+    /// A list of slot numbers, representing the sequence of blocks starting from `start_slot`, up to the specified `limit`.
+    /// If fewer blocks are available, the response will contain only the available blocks.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getBlocksWithLimit",
+    ///   "params": [123456, 5, {"commitment": "finalized"}]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": [123456, 123457, 123458, 123459, 123460]
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the provided `start_slot` is invalid, if the `limit` is zero, or if there is an issue processing the request.
+    ///
+    /// # Notes
+    /// - The response will return up to the specified `limit` number of blocks starting from `start_slot`.
+    /// - If the blockchain contains fewer than the requested number of blocks, the response will contain only the available blocks.
+    /// - The `commitment` setting determines the level of finality for the blocks returned (e.g., "finalized", "confirmed", etc.).
+    ///
+    /// # See Also
+    /// - `getBlocks`, `getBlock`, `getSlot`
     #[rpc(meta, name = "getBlocksWithLimit")]
     fn get_blocks_with_limit(
         &self,
@@ -141,6 +841,76 @@ pub trait Full {
         config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>>;
 
+    /// Retrieves the details of a specific transaction by its signature.
+    ///
+    /// This RPC method allows clients to fetch a previously confirmed transaction
+    /// along with its metadata. It supports multiple encoding formats and lets you
+    /// optionally limit which transaction versions are returned.
+    ///
+    /// # Parameters
+    /// - `signature`: The base-58 encoded signature of the transaction to fetch.
+    /// - `config` (optional): Configuration for the encoding, commitment level, and supported transaction version.
+    ///
+    /// # Returns
+    /// If the transaction is found, returns an object containing:
+    /// - `slot`: The slot in which the transaction was confirmed.
+    /// - `blockTime`: The estimated production time of the block containing the transaction (in Unix timestamp).
+    /// - `transaction`: The transaction itself, including all metadata such as status, logs, and account changes.
+    ///
+    /// Returns `null` if the transaction is not found.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getTransaction",
+    ///   "params": [
+    ///     "5YwKXNYCnbAednZcJ2Qu9swiyWLUWaKkTZb2tFCSM1uCEmFHe5zoHQaKzwX4e6RGXkPRqRpxwWBLTeYEGqZtA6nW",
+    ///     {
+    ///       "encoding": "jsonParsed",
+    ///       "commitment": "finalized",
+    ///       "maxSupportedTransactionVersion": 0
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": {
+    ///     "slot": 175512345,
+    ///     "blockTime": 1702345678,
+    ///     "transaction": {
+    ///       "version": 0,
+    ///       "transaction": {
+    ///         "message": { ... },
+    ///         "signatures": [ ... ]
+    ///       },
+    ///       "meta": {
+    ///         "err": null,
+    ///         "status": { "Ok": null },
+    ///         ...
+    ///       }
+    ///     }
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the signature is invalid or if there is a backend failure.
+    /// - Returns `null` if the transaction is not found (e.g., dropped or not yet confirmed).
+    ///
+    /// # Notes
+    /// - The `encoding` field supports formats like `base64`, `base58`, `json`, and `jsonParsed`.
+    /// - If `maxSupportedTransactionVersion` is specified, transactions using a newer version will not be returned.
+    /// - Depending on the commitment level, this method may or may not return the latest transactions.
+    ///
+    /// # See Also
+    /// - `getSignatureStatuses`, `getConfirmedTransaction`, `getBlock`
     #[rpc(meta, name = "getTransaction")]
     fn get_transaction(
         &self,
@@ -149,6 +919,82 @@ pub trait Full {
         config: Option<RpcEncodingConfigWrapper<RpcTransactionConfig>>,
     ) -> BoxFuture<Result<Option<EncodedConfirmedTransactionWithStatusMeta>>>;
 
+    /// Returns confirmed transaction signatures for transactions involving an address.
+    ///
+    /// This RPC method allows clients to look up historical transaction signatures
+    /// that involved a given account address. The list is returned in reverse
+    /// chronological order (most recent first) and can be paginated.
+    ///
+    /// # Parameters
+    /// - `address`: The base-58 encoded address to query.
+    /// - `config` (optional): Configuration object with the following fields:
+    ///   - `before`: Start search before this signature.
+    ///   - `until`: Search until this signature (inclusive).
+    ///   - `limit`: Maximum number of results to return (default: 1,000; max: 1,000).
+    ///   - `commitment`: The level of commitment desired (e.g., finalized).
+    ///   - `minContextSlot`: The minimum slot that the query should be evaluated at.
+    ///
+    /// # Returns
+    /// A list of confirmed transaction summaries, each including:
+    /// - `signature`: Transaction signature (base-58).
+    /// - `slot`: The slot in which the transaction was confirmed.
+    /// - `err`: If the transaction failed, an error object; otherwise `null`.
+    /// - `memo`: Optional memo attached to the transaction.
+    /// - `blockTime`: Approximate production time of the block containing the transaction (Unix timestamp).
+    /// - `confirmationStatus`: One of `processed`, `confirmed`, or `finalized`.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getSignaturesForAddress",
+    ///   "params": [
+    ///     "5ZJShu4hxq7gxcu1RUVUMhNeyPmnASvokhZ8QgxtzVzm",
+    ///     {
+    ///       "limit": 2,
+    ///       "commitment": "confirmed"
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": [
+    ///     {
+    ///       "signature": "5VnFgjCwQoM2aBymRkdaV74ZKbbfUpR2zhfn9qN7shHPfLCXcfSBTfxhcuHsjVYz2UkAxw1cw6azS4qPGaKMyrjy",
+    ///       "slot": 176012345,
+    ///       "err": null,
+    ///       "memo": null,
+    ///       "blockTime": 1703456789,
+    ///       "confirmationStatus": "finalized"
+    ///     },
+    ///     {
+    ///       "signature": "3h1QfUHyjFdqLy5PSTLDmYqL2NhVLz9P9LtS43jJP3aNUv9yP1JWhnzMVg5crEXnEvhP6bLgRtbgi6Z1EGgdA1yF",
+    ///       "slot": 176012344,
+    ///       "err": null,
+    ///       "memo": "example-memo",
+    ///       "blockTime": 1703456770,
+    ///       "confirmationStatus": "confirmed"
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the address is invalid or if the request exceeds internal limits.
+    /// - May return fewer results than requested if pagination is constrained by chain history.
+    ///
+    /// # Notes
+    /// - For full transaction details, use the returned signatures with `getTransaction`.
+    /// - The default `limit` is 1,000 and is capped at 1,000.
+    ///
+    /// # See Also
+    /// - `getTransaction`, `getConfirmedSignaturesForAddress2` (legacy)
     #[rpc(meta, name = "getSignaturesForAddress")]
     fn get_signatures_for_address(
         &self,
@@ -157,9 +1003,102 @@ pub trait Full {
         config: Option<RpcSignaturesForAddressConfig>,
     ) -> BoxFuture<Result<Vec<RpcConfirmedTransactionStatusWithSignature>>>;
 
+    /// Returns the slot of the lowest confirmed block that has not been purged from the ledger.
+    ///
+    /// This RPC method is useful for determining the oldest block that is still available
+    /// from the node. Blocks before this slot have likely been purged and are no longer accessible
+    /// for queries such as `getBlock`, `getTransaction`, etc.
+    ///
+    /// # Parameters
+    /// None.
+    ///
+    /// # Returns
+    /// A single integer representing the first available slot (block) that has not been purged.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getFirstAvailableBlock",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "result": 146392340
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the node is not fully initialized or if the ledger is inaccessible.
+    ///
+    /// # Notes
+    /// - This value is typically useful for pagination or historical data indexing.
+    /// - This slot may increase over time as the node prunes old ledger data.
+    ///
+    /// # See Also
+    /// - `getBlock`, `getBlockTime`, `minimumLedgerSlot`
     #[rpc(meta, name = "getFirstAvailableBlock")]
     fn get_first_available_block(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>>;
 
+    /// Returns the latest blockhash and associated metadata needed to sign and send a transaction.
+    ///
+    /// This method is essential for transaction construction. It provides the most recent
+    /// blockhash that should be included in a transaction to be considered valid. It may
+    /// also include metadata such as the last valid block height and the minimum context slot.
+    ///
+    /// # Parameters
+    /// - `config` *(optional)*: Optional context settings, such as commitment level and minimum slot.
+    ///
+    /// # Returns
+    /// A JSON object containing the recent blockhash, last valid block height,
+    /// and the context slot of the response.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getLatestBlockhash",
+    ///   "params": [
+    ///     {
+    ///       "commitment": "confirmed"
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 18123942
+    ///     },
+    ///     "value": {
+    ///       "blockhash": "9Xc7XmXmpRmFAqMQUvn2utY5BJeXFY2ZHMxu2fbjZkfy",
+    ///       "lastValidBlockHeight": 18123971
+    ///     }
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the node is behind or if the blockhash cache is temporarily unavailable.
+    ///
+    /// # Notes
+    /// - Transactions must include a recent blockhash to be accepted.
+    /// - The blockhash will expire after a certain number of slots (around 150 slots typically).
+    ///
+    /// # See Also
+    /// - `sendTransaction`, `simulateTransaction`, `requestAirdrop`
     #[rpc(meta, name = "getLatestBlockhash")]
     fn get_latest_blockhash(
         &self,
@@ -167,6 +1106,58 @@ pub trait Full {
         config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<RpcBlockhash>>;
 
+    /// Checks if a given blockhash is still valid for transaction inclusion.
+    ///
+    /// This method can be used to determine whether a specific blockhash can still
+    /// be used in a transaction. Blockhashes expire after approximately 150 slots,
+    /// and transactions that reference an expired blockhash will be rejected.
+    ///
+    /// # Parameters
+    /// - `blockhash`: A base-58 encoded string representing the blockhash to validate.
+    /// - `config` *(optional)*: Optional context configuration such as commitment level or minimum context slot.
+    ///
+    /// # Returns
+    /// A boolean value wrapped in a `RpcResponse`:
+    /// - `true` if the blockhash is valid and usable.
+    /// - `false` if the blockhash has expired or is unknown to the node.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "isBlockhashValid",
+    ///   "params": [
+    ///     "9Xc7XmXmpRmFAqMQUvn2utY5BJeXFY2ZHMxu2fbjZkfy",
+    ///     {
+    ///       "commitment": "confirmed"
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 18123945
+    ///     },
+    ///     "value": true
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the node is unable to validate the blockhash (e.g., blockhash not found).
+    ///
+    /// # Notes
+    /// - This endpoint is useful for transaction retries or for validating manually constructed transactions.
+    ///
+    /// # See Also
+    /// - `getLatestBlockhash`, `sendTransaction`
     #[rpc(meta, name = "isBlockhashValid")]
     fn is_blockhash_valid(
         &self,
@@ -175,6 +1166,60 @@ pub trait Full {
         config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<bool>>;
 
+    /// Returns the estimated fee required to submit a given transaction message.
+    ///
+    /// This method takes a base64-encoded `Message` (the serialized form of a transaction’s message),
+    /// and returns the fee in lamports that would be charged for processing that message,
+    /// assuming it was submitted as a transaction.
+    ///
+    /// # Parameters
+    /// - `data`: A base64-encoded string of the binary-encoded `Message`.
+    /// - `config` *(optional)*: Optional context configuration such as commitment level or minimum context slot.
+    ///
+    /// # Returns
+    /// A `RpcResponse` wrapping an `Option<u64>`:
+    /// - `Some(fee)` if the fee could be calculated for the given message.
+    /// - `None` if the fee could not be determined (e.g., due to invalid inputs or expired blockhash).
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getFeeForMessage",
+    ///   "params": [
+    ///     "Af4F...base64-encoded-message...==",
+    ///     {
+    ///       "commitment": "processed"
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 19384722
+    ///     },
+    ///     "value": 5000
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// - Returns an error if the input is not a valid message.
+    /// - Returns `null` (i.e., `None`) if the fee cannot be determined.
+    ///
+    /// # Notes
+    /// - This method is useful for estimating fees before submitting transactions.
+    /// - It helps users decide whether to rebroadcast or update a transaction.
+    ///
+    /// # See Also
+    /// - `sendTransaction`, `simulateTransaction`
     #[rpc(meta, name = "getFeeForMessage")]
     fn get_fee_for_message(
         &self,
@@ -183,6 +1228,52 @@ pub trait Full {
         config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<Option<u64>>>;
 
+    /// Returns the current minimum delegation amount required for a stake account.
+    ///
+    /// This method provides the minimum number of lamports that must be delegated
+    /// in order to be considered active in the staking system. It helps users determine
+    /// the minimum threshold to avoid their stake being considered inactive or rent-exempt only.
+    ///
+    /// # Parameters
+    /// - `config` *(optional)*: Optional context configuration including commitment level or minimum context slot.
+    ///
+    /// # Returns
+    /// A `RpcResponse` containing a `u64` value indicating the minimum required lamports for stake delegation.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getStakeMinimumDelegation",
+    ///   "params": [
+    ///     {
+    ///       "commitment": "finalized"
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 21283712
+    ///     },
+    ///     "value": 10000000
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// - This value may change over time due to protocol updates or inflation.
+    /// - Stake accounts with a delegated amount below this value may not earn rewards.
+    ///
+    /// # See Also
+    /// - `getStakeActivation`, `getInflationReward`, `getEpochInfo`
     #[rpc(meta, name = "getStakeMinimumDelegation")]
     fn get_stake_minimum_delegation(
         &self,
@@ -190,6 +1281,54 @@ pub trait Full {
         config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<u64>>;
 
+    /// Returns recent prioritization fees for one or more accounts.
+    ///
+    /// This method is useful for estimating the prioritization fee required
+    /// for a transaction to be included quickly in a block. It returns the
+    /// most recent prioritization fee paid by each account provided.
+    ///
+    /// # Parameters
+    /// - `pubkey_strs` *(optional)*: A list of base-58 encoded account public keys (as strings).
+    ///   If omitted, the node may return a default or empty set.
+    ///
+    /// # Returns
+    /// A list of `RpcPrioritizationFee` entries, each containing the slot and the fee paid
+    /// to prioritize transactions.
+    ///
+    /// # Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "getRecentPrioritizationFees",
+    ///   "params": [
+    ///     [
+    ///       "9xz7uXmf3CjFWW5E8v9XJXuGzTZ2V7UtEG1epF2Tt6TL"
+    ///     ]
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// # Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": [
+    ///     {
+    ///       "slot": 21458900,
+    ///       "prioritizationFee": 5000
+    ///     }
+    ///   ],
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// - The prioritization fee helps validators prioritize transactions for inclusion in blocks.
+    /// - These fees are dynamic and can vary significantly depending on network congestion.
+    ///
+    /// # See Also
+    /// - `getFeeForMessage`, `simulateTransaction`
     #[rpc(meta, name = "getRecentPrioritizationFees")]
     fn get_recent_prioritization_fees(
         &self,
