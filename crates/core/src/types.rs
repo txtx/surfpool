@@ -1,10 +1,7 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
-use litesvm::LiteSVM;
-use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
-use solana_epoch_info::EpochInfo;
+use solana_client::rpc_client::SerializableTransaction;
 use solana_message::VersionedMessage;
 use solana_sdk::transaction::VersionedTransaction;
-use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
@@ -13,10 +10,7 @@ use solana_transaction_status::{
     UiRawMessage, UiReturnDataEncoding, UiTransaction, UiTransactionReturnData,
     UiTransactionStatusMeta,
 };
-use std::{
-    collections::{HashMap, VecDeque},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 use surfpool_types::TransactionMetadata;
 
 #[derive(Debug, Clone)]

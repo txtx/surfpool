@@ -198,13 +198,6 @@ impl StartSimnet {
     }
 
     pub fn rpc_config(&self) -> RpcConfig {
-        let remote_rpc_url = match &self.network {
-            Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
-            Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
-            Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
-            None => self.rpc_url.clone(),
-        };
-
         RpcConfig {
             bind_host: self.network_host.clone(),
             bind_port: self.simnet_port,

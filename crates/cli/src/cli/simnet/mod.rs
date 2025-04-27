@@ -86,8 +86,6 @@ pub async fn handle_start_local_surfnet_command(
     let simnet_commands_tx_copy = simnet_commands_tx.clone();
     let config_copy = config.clone();
 
-    println!("Here");
-    let simnet_events_tx_copy = simnet_events_tx.clone();
     let _handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
             let future = start_local_surfnet(
@@ -258,7 +256,7 @@ fn log_events(
                         return Err(error);
                     }
                     SimnetEvent::Ready => {}
-                    SimnetEvent::Connected(rpc_url) => {}
+                    SimnetEvent::Connected(_rpc_url) => {}
                     SimnetEvent::Shutdown => {
                         break;
                     }

@@ -122,11 +122,11 @@ pub async fn start_block_production_runloop(
             recv(simnet_commands_rx) -> msg => match msg {
                 Ok(event) => {
                     match event {
-                        SimnetCommand::SlotForward(key) => {
+                        SimnetCommand::SlotForward(_key) => {
                             block_production_mode = BlockProductionMode::Manual;
                             is_tick = true;
                         }
-                        SimnetCommand::SlotBackward(key) => {
+                        SimnetCommand::SlotBackward(_key) => {
 
                         }
                         SimnetCommand::UpdateClock(update) => {
@@ -137,7 +137,7 @@ pub async fn start_block_production_runloop(
                             block_production_mode = update;
                             continue
                         }
-                        SimnetCommand::TransactionReceived(key, transaction, status_tx, skip_preflight) => {
+                        SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
                             transactions_to_process.push((transaction, status_tx, skip_preflight));
                         }
                         SimnetCommand::Terminate(_) => {

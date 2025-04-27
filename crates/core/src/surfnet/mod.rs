@@ -183,7 +183,7 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         account: Account,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.inner.set_account(pubkey.clone(), account);
+        let _ = self.inner.set_account(pubkey.clone(), account);
         Ok(())
     }
 
@@ -232,7 +232,7 @@ impl SurfnetSvm {
             GetAccountStrategy::ConnectionOrDefault(factory) => {
                 let client = self.expected_rpc_client();
                 let account = client.get_account(&pubkey).await?;
-                self.inner.set_account(pubkey.clone(), account.clone());
+                let _ = self.inner.set_account(pubkey.clone(), account.clone());
                 (Some(account), factory)
             }
             GetAccountStrategy::LocalThenConnectionOrDefault(factory) => {
@@ -241,7 +241,7 @@ impl SurfnetSvm {
                     None => {
                         let client = self.expected_rpc_client();
                         let account = client.get_account(&pubkey).await?;
-                        self.inner.set_account(pubkey.clone(), account.clone());
+                        let _ = self.inner.set_account(pubkey.clone(), account.clone());
 
                         if account.executable {
                             let program_data_address = get_program_data_address(pubkey);
@@ -252,7 +252,7 @@ impl SurfnetSvm {
                                 )
                                 .await?;
                             if let Some(program_data) = res {
-                                self.inner.set_account(program_data_address, program_data);
+                                let _ = self.inner.set_account(program_data_address, program_data);
                             }
                         }
                         (Some(account), factory)
@@ -314,7 +314,7 @@ impl SurfnetSvm {
                 let remote_accounts = client.get_multiple_accounts(&missing_accounts).await?;
                 for (pubkey, remote_account) in missing_accounts.into_iter().zip(remote_accounts) {
                     if let Some(remote_account) = remote_account {
-                        self.inner.set_account(pubkey, remote_account);
+                        let _ = self.inner.set_account(pubkey, remote_account);
                     }
                 }
 
