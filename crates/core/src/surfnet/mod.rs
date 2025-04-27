@@ -110,6 +110,7 @@ impl SurfnetSvm {
         let rpc_client = RpcClient::new(rpc_url.to_string());
         let epoch_info = rpc_client.get_epoch_info().await?;
         self.connection = SurfnetDataConnection::Connected(rpc_url.to_string(), epoch_info.clone());
+        self.latest_epoch_info = epoch_info.clone();
 
         let _ = self
             .simnet_events_tx

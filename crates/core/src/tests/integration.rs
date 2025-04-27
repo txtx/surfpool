@@ -55,7 +55,7 @@ async fn test_simnet_ready() {
     });
 
     match simnet_events_rx.recv() {
-        Ok(SimnetEvent::Ready) => (),
+        Ok(SimnetEvent::Ready) | Ok(SimnetEvent::Connected(_)) => (),
         e => panic!("Expected Ready event: {e:?}"),
     }
 }
@@ -159,7 +159,7 @@ async fn test_simnet_some_sol_transfers() {
 
     loop {
         match simnet_events_rx.recv() {
-            Ok(SimnetEvent::Ready) => break,
+            Ok(SimnetEvent::Ready) | Ok(SimnetEvent::Connected(_)) => break,
             _ => (),
         }
     }
