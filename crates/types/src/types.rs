@@ -1,6 +1,6 @@
+use blake3::Hash;
 use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver, Sender};
-use solana_blake3_hasher::Hash;
 // use litesvm::types::TransactionMetadata;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
@@ -36,7 +36,7 @@ pub enum TransactionConfirmationStatus {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub enum RunloopTriggerMode {
+pub enum BlockProductionMode {
     #[default]
     Clock,
     Manual,
@@ -68,7 +68,7 @@ impl SubgraphDataEntry {
             uuid: Uuid::new_v4(),
             values,
             block_height,
-            transaction_hash: Hash::from_str(&tx_hash).unwrap_or_default(),
+            transaction_hash: Hash::from_str(&tx_hash).unwrap(),
         }
     }
 }
@@ -129,6 +129,7 @@ pub enum SubgraphCommand {
 #[derive(Debug)]
 pub enum SimnetEvent {
     Ready,
+    Connected(String),
     Aborted(String),
     Shutdown,
     ClockUpdate(Clock),
@@ -198,16 +199,17 @@ pub enum TransactionStatusEvent {
 
 #[derive(Debug)]
 pub enum SimnetCommand {
-    SlotForward,
-    SlotBackward,
+    SlotForward(Option<Hash>),
+    SlotBackward(Option<Hash>),
     UpdateClock(ClockCommand),
-    UpdateRunloopMode(RunloopTriggerMode),
+    UpdateBlockProductionMode(BlockProductionMode),
     TransactionReceived(
         Option<Hash>,
         VersionedTransaction,
         Sender<TransactionStatusEvent>,
         bool,
     ),
+    Terminate(Option<Hash>),
 }
 
 #[derive(Debug)]
@@ -235,7 +237,7 @@ pub struct SurfpoolConfig {
 pub struct SimnetConfig {
     pub remote_rpc_url: String,
     pub slot_time: u64,
-    pub runloop_trigger_mode: RunloopTriggerMode,
+    pub block_production_mode: BlockProductionMode,
     pub airdrop_addresses: Vec<Pubkey>,
     pub airdrop_token_amount: u64,
 }
@@ -245,7 +247,7 @@ impl Default for SimnetConfig {
         Self {
             remote_rpc_url: DEFAULT_RPC_URL.to_string(),
             slot_time: 0,
-            runloop_trigger_mode: RunloopTriggerMode::Clock,
+            block_production_mode: BlockProductionMode::Clock,
             airdrop_addresses: vec![],
             airdrop_token_amount: 0,
         }

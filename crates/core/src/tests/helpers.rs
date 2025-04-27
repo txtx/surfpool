@@ -1,20 +1,17 @@
 #![allow(dead_code)]
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::{Arc, RwLock},
-};
-
 use crossbeam_channel::Sender;
 use litesvm::LiteSVM;
-use solana_blake3_hasher::Hash;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_sdk::transaction::VersionedTransaction;
+use std::sync::Arc;
 use surfpool_types::SimnetCommand;
+use tokio::sync::RwLock;
 
 use crate::{
     rpc::{utils::convert_transaction_metadata_from_canonical, RunloopContext},
-    types::{EntryStatus, GlobalState, TransactionWithStatusMeta},
+    surfnet::SurfnetSvm,
+    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 
 use std::net::TcpListener;
@@ -45,10 +42,9 @@ where
 {
     pub fn new(rpc: T) -> Self {
         let (simnet_commands_tx, _rx) = crossbeam_channel::unbounded();
-        let (simnet_events_tx, _rx) = crossbeam_channel::unbounded();
         let (plugin_manager_commands_tx, _rx) = crossbeam_channel::unbounded();
 
-        let mut svm = LiteSVM::new();
+        let (mut sufnet_svm, _, _) = SurfnetSvm::new();
         let clock = Clock {
             slot: 123,
             epoch_start_timestamp: 123,
@@ -56,29 +52,23 @@ where
             leader_schedule_epoch: 1,
             unix_timestamp: 123,
         };
-        svm.set_sysvar::<Clock>(&clock);
+        sufnet_svm.inner.set_sysvar::<Clock>(&clock);
+        sufnet_svm.latest_epoch_info = EpochInfo {
+            epoch: 1,
+            slot_index: 0,
+            slots_in_epoch: 100,
+            absolute_slot: 50,
+            block_height: 42,
+            transaction_count: Some(2),
+        };
+        sufnet_svm.transactions_processed = 69;
 
         TestSetup {
             context: RunloopContext {
                 simnet_commands_tx,
-                simnet_events_tx: simnet_events_tx.clone(),
                 plugin_manager_commands_tx,
                 id: None,
-                state: Arc::new(RwLock::new(GlobalState {
-                    svm,
-                    transactions: HashMap::new(),
-                    epoch_info: EpochInfo {
-                        epoch: 1,
-                        slot_index: 0,
-                        slots_in_epoch: 100,
-                        absolute_slot: 50,
-                        block_height: 42,
-                        transaction_count: Some(2),
-                    },
-                    rpc_url: "http://localhost:8899".to_string(),
-                    perf_samples: VecDeque::new(),
-                    transactions_processed: 69,
-                })),
+                surfnet_svm: Arc::new(RwLock::new(sufnet_svm)),
             },
             rpc,
         }
@@ -86,13 +76,13 @@ where
 
     pub fn new_with_epoch_info(rpc: T, epoch_info: EpochInfo) -> Self {
         let setup = TestSetup::new(rpc);
-        setup.context.state.write().unwrap().epoch_info = epoch_info;
+        setup.context.surfnet_svm.blocking_write().latest_epoch_info = epoch_info;
         setup
     }
 
     pub fn new_with_svm(rpc: T, svm: LiteSVM) -> Self {
         let setup = TestSetup::new(rpc);
-        setup.context.state.write().unwrap().svm = svm;
+        setup.context.surfnet_svm.blocking_write().inner = svm;
         setup
     }
 
@@ -103,21 +93,21 @@ where
     }
 
     pub fn without_blockhash(self) -> Self {
-        let mut state_writer = self.context.state.write().unwrap();
-        let svm = state_writer.svm.clone();
+        let mut state_writer = self.context.surfnet_svm.blocking_write();
+        let svm = state_writer.inner.clone();
         let svm = svm.with_blockhash_check(false);
-        state_writer.svm = svm;
+        state_writer.inner = svm;
         drop(state_writer);
         self
     }
 
     pub fn process_txs(&mut self, txs: Vec<VersionedTransaction>) {
         for tx in txs {
-            let mut state_writer = self.context.state.write().unwrap();
-            match state_writer.svm.send_transaction(tx.clone()) {
+            let mut state_writer = self.context.surfnet_svm.blocking_write();
+            match state_writer.send_transaction(tx.clone()) {
                 Ok(res) => state_writer.transactions.insert(
                     tx.signatures[0],
-                    EntryStatus::Processed(TransactionWithStatusMeta(
+                    SurfnetTransactionStatus::Processed(TransactionWithStatusMeta(
                         0,
                         tx,
                         convert_transaction_metadata_from_canonical(&res),
@@ -126,7 +116,7 @@ where
                 ),
                 Err(e) => state_writer.transactions.insert(
                     tx.signatures[0],
-                    EntryStatus::Processed(TransactionWithStatusMeta(
+                    SurfnetTransactionStatus::Processed(TransactionWithStatusMeta(
                         0,
                         tx,
                         convert_transaction_metadata_from_canonical(&e.meta),

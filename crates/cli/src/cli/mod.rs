@@ -373,7 +373,7 @@ pub fn main() {
 
 async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     match opts.command {
-        Command::Simnet(cmd) => simnet::handle_start_simnet_command(&cmd, ctx).await,
+        Command::Simnet(cmd) => simnet::handle_start_local_surfnet_command(&cmd, ctx).await,
         Command::Completions(cmd) => generate_completion_helpers(&cmd),
         Command::Run(cmd) => handle_execute_runbook_command(cmd).await,
         Command::List(cmd) => handle_list_command(cmd, ctx).await,

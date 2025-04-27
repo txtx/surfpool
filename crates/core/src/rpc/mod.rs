@@ -1,5 +1,3 @@
-use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
-
 use blake3::Hash;
 use crossbeam_channel::Sender;
 use jsonrpc_core::{
@@ -8,6 +6,7 @@ use jsonrpc_core::{
 };
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_clock::Slot;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub mod accounts_data;
@@ -33,25 +32,14 @@ pub struct RunloopContext {
     pub id: Option<Hash>,
     pub surfnet_svm: Arc<RwLock<SurfnetSvm>>,
     pub simnet_commands_tx: Sender<SimnetCommand>,
-    pub simnet_events_tx: Sender<SimnetEvent>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
 }
 
 trait State {
-    fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, SurfnetSvm>, RpcCustomError>;
-    fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, SurfnetSvm>, RpcCustomError>;
     fn get_svm_locker<'a>(&'a self) -> Result<Arc<RwLock<SurfnetSvm>>, RpcCustomError>;
 }
 
 impl State for Option<RunloopContext> {
-    fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, SurfnetSvm>, RpcCustomError> {
-        unimplemented!()
-    }
-
-    fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, SurfnetSvm>, RpcCustomError> {
-        unimplemented!()
-    }
-
     fn get_svm_locker<'a>(&'a self) -> Result<Arc<RwLock<SurfnetSvm>>, RpcCustomError> {
         // Retrieve svm state
         let Some(ctx) = self else {
@@ -66,17 +54,16 @@ impl State for Option<RunloopContext> {
 
 impl Metadata for RunloopContext {}
 
-use crate::simnet::SurfnetSvm;
+use crate::surfnet::SurfnetSvm;
 use crate::PluginManagerCommand;
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
-use surfpool_types::{types::RpcConfig, SimnetCommand, SimnetEvent};
+use surfpool_types::{types::RpcConfig, SimnetCommand};
 
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
     pub surfnet_svm: Arc<RwLock<SurfnetSvm>>,
     pub simnet_commands_tx: Sender<SimnetCommand>,
-    pub simnet_events_tx: Sender<SimnetEvent>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub config: RpcConfig,
 }
@@ -85,14 +72,12 @@ impl SurfpoolMiddleware {
     pub fn new(
         surfnet_svm: Arc<RwLock<SurfnetSvm>>,
         simnet_commands_tx: &Sender<SimnetCommand>,
-        simnet_events_tx: &Sender<SimnetEvent>,
         plugin_manager_commands_tx: &Sender<PluginManagerCommand>,
         config: &RpcConfig,
     ) -> Self {
         Self {
             surfnet_svm,
             simnet_commands_tx: simnet_commands_tx.clone(),
-            simnet_events_tx: simnet_events_tx.clone(),
             plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
             config: config.clone(),
         }
@@ -117,7 +102,6 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             id: None,
             surfnet_svm: self.surfnet_svm.clone(),
             simnet_commands_tx: self.simnet_commands_tx.clone(),
-            simnet_events_tx: self.simnet_events_tx.clone(),
             plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
         });
         Either::Left(Box::pin(next(request, meta).map(move |res| res)))

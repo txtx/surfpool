@@ -1,6 +1,6 @@
 use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
-use crate::simnet::GetAccountStrategy;
+use crate::surfnet::GetAccountStrategy;
 
 use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;

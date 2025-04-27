@@ -1,17 +1,11 @@
-use super::utils::{
-    convert_transaction_metadata_from_canonical, decode_and_deserialize,
-    transform_tx_metadata_to_ui_accounts, verify_pubkey,
-};
-use crate::simnet::GetAccountStrategy;
-use crate::types::SurfnetTransactionStatus;
+use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey};
+use crate::surfnet::GetAccountStrategy;
 use itertools::Itertools;
-use jsonrpc_core::futures::future::{self, join_all};
+use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use solana_account::Account;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
-use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcContextConfig;
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcApiVersion;
@@ -1540,15 +1534,15 @@ impl Full for SurfpoolFullRpc {
 
         Box::pin(async move {
             let mut svm_writer = svm_locker.write().await;
-            svm_writer
+            let _ = svm_writer
                 .get_multiple_accounts_mut(
                     &pubkeys,
                     GetAccountStrategy::LocalThenConnectionOrDefault(None),
                 )
                 .await;
-            svm_writer.svm.set_sigverify(config.sig_verify);
+            svm_writer.inner.set_sigverify(config.sig_verify);
             svm_writer
-                .svm
+                .inner
                 .set_blockhash_check(config.replace_recent_blockhash);
 
             let replacement_blockhash = Some(RpcBlockhash {
@@ -1556,7 +1550,7 @@ impl Full for SurfpoolFullRpc {
                 last_valid_block_height: svm_writer.latest_epoch_info.block_height,
             });
 
-            let value = match svm_writer.svm.simulate_transaction(unsanitized_tx) {
+            let value = match svm_writer.inner.simulate_transaction(unsanitized_tx) {
                 Ok(tx_info) => {
                     let mut accounts = None;
                     if let Some(observed_accounts) = config.accounts {
@@ -1936,7 +1930,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let mut setup = TestSetup::new(SurfpoolFullRpc).without_blockhash();
-        let _ = setup.context.surfnet_svm.blocking_write().svm.airdrop(
+        let _ = setup.context.surfnet_svm.blocking_write().airdrop(
             &payer.pubkey(),
             (valid_txs + invalid_txs) as u64 * 2 * LAMPORTS_PER_SOL,
         );
@@ -1992,12 +1986,12 @@ mod tests {
         let sig = Signature::from_str(res.as_str()).unwrap();
         let state_reader = setup.context.surfnet_svm.blocking_read();
         assert_eq!(
-            state_reader.svm.get_account(&pk).unwrap().lamports,
+            state_reader.inner.get_account(&pk).unwrap().lamports,
             lamports,
             "airdropped amount is incorrect"
         );
         assert!(
-            state_reader.svm.get_transaction(&sig).is_some(),
+            state_reader.inner.get_transaction(&sig).is_some(),
             "transaction is not found in the SVM"
         );
         assert!(
@@ -2040,7 +2034,6 @@ mod tests {
             .context
             .surfnet_svm
             .blocking_write()
-            .svm
             .airdrop(&payer.pubkey(), 2 * LAMPORTS_PER_SOL);
 
         let handle = send_and_await_transaction(tx.clone(), setup.clone(), mempool_rx);
@@ -2261,7 +2254,6 @@ mod tests {
                 .context
                 .surfnet_svm
                 .blocking_read()
-                .svm
                 .latest_blockhash()
                 .to_string()
         );
