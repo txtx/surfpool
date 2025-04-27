@@ -42,16 +42,16 @@ impl GlobalState {
 }
 
 #[derive(Debug, Clone)]
-pub enum EntryStatus {
+pub enum SurfnetTransactionStatus {
     Received,
     Processed(TransactionWithStatusMeta),
 }
 
-impl EntryStatus {
+impl SurfnetTransactionStatus {
     pub fn expect_processed(&self) -> &TransactionWithStatusMeta {
         match &self {
-            EntryStatus::Received => unreachable!(),
-            EntryStatus::Processed(status) => status,
+            SurfnetTransactionStatus::Received => unreachable!(),
+            SurfnetTransactionStatus::Processed(status) => status,
         }
     }
 }

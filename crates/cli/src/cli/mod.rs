@@ -222,7 +222,7 @@ impl StartSimnet {
         SimnetConfig {
             remote_rpc_url,
             slot_time: self.slot_time,
-            runloop_trigger_mode: surfpool_types::RunloopTriggerMode::Clock,
+            block_production_mode: surfpool_types::BlockProductionMode::Clock,
             airdrop_addresses,
             airdrop_token_amount: self.airdrop_token_amount,
         }
