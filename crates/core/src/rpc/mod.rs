@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 
 use blake3::Hash;
 use crossbeam_channel::Sender;
@@ -8,6 +8,7 @@ use jsonrpc_core::{
 };
 use solana_client::rpc_custom_error::RpcCustomError;
 use solana_clock::Slot;
+use tokio::sync::RwLock;
 
 pub mod accounts_data;
 pub mod accounts_scan;
@@ -30,34 +31,28 @@ pub struct SurfpoolRpc;
 #[derive(Clone)]
 pub struct RunloopContext {
     pub id: Option<Hash>,
-    pub state: Arc<RwLock<GlobalState>>,
+    pub surfnet_svm: Arc<RwLock<SurfnetSvm>>,
     pub simnet_commands_tx: Sender<SimnetCommand>,
     pub simnet_events_tx: Sender<SimnetEvent>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
 }
 
 trait State {
-    fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, GlobalState>, RpcCustomError>;
-    fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, GlobalState>, RpcCustomError>;
+    fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, SurfnetSvm>, RpcCustomError>;
+    fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, SurfnetSvm>, RpcCustomError>;
+    fn get_svm_locker<'a>(&'a self) -> Result<Arc<RwLock<SurfnetSvm>>, RpcCustomError>;
 }
 
 impl State for Option<RunloopContext> {
-    fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, GlobalState>, RpcCustomError> {
-        // Retrieve svm state
-        let Some(ctx) = self else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
-        };
-
-        // Lock read access
-        ctx.state.read().map_err(|_| RpcCustomError::NodeUnhealthy {
-            num_slots_behind: None,
-        })
+    fn get_state<'a>(&'a self) -> Result<RwLockReadGuard<'a, SurfnetSvm>, RpcCustomError> {
+        unimplemented!()
     }
 
-    fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, GlobalState>, RpcCustomError> {
+    fn get_state_mut<'a>(&'a self) -> Result<RwLockWriteGuard<'a, SurfnetSvm>, RpcCustomError> {
+        unimplemented!()
+    }
+
+    fn get_svm_locker<'a>(&'a self) -> Result<Arc<RwLock<SurfnetSvm>>, RpcCustomError> {
         // Retrieve svm state
         let Some(ctx) = self else {
             return Err(RpcCustomError::NodeUnhealthy {
@@ -65,19 +60,13 @@ impl State for Option<RunloopContext> {
             }
             .into());
         };
-
-        // Lock write access to get a mutable reference
-        ctx.state
-            .write()
-            .map_err(|_| RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            })
+        Ok(ctx.surfnet_svm.clone())
     }
 }
 
 impl Metadata for RunloopContext {}
 
-use crate::types::GlobalState;
+use crate::simnet::SurfnetSvm;
 use crate::PluginManagerCommand;
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
@@ -85,7 +74,7 @@ use surfpool_types::{types::RpcConfig, SimnetCommand, SimnetEvent};
 
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
-    pub context: Arc<RwLock<GlobalState>>,
+    pub surfnet_svm: Arc<RwLock<SurfnetSvm>>,
     pub simnet_commands_tx: Sender<SimnetCommand>,
     pub simnet_events_tx: Sender<SimnetEvent>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
@@ -94,14 +83,14 @@ pub struct SurfpoolMiddleware {
 
 impl SurfpoolMiddleware {
     pub fn new(
-        context: Arc<RwLock<GlobalState>>,
+        surfnet_svm: Arc<RwLock<SurfnetSvm>>,
         simnet_commands_tx: &Sender<SimnetCommand>,
         simnet_events_tx: &Sender<SimnetEvent>,
         plugin_manager_commands_tx: &Sender<PluginManagerCommand>,
         config: &RpcConfig,
     ) -> Self {
         Self {
-            context,
+            surfnet_svm,
             simnet_commands_tx: simnet_commands_tx.clone(),
             simnet_events_tx: simnet_events_tx.clone(),
             plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
@@ -126,7 +115,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
     {
         let meta = Some(RunloopContext {
             id: None,
-            state: self.context.clone(),
+            surfnet_svm: self.surfnet_svm.clone(),
             simnet_commands_tx: self.simnet_commands_tx.clone(),
             simnet_events_tx: self.simnet_events_tx.clone(),
             plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
