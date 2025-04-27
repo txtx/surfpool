@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
+use crate::simnet::GetAccountStrategy;
 
 use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;
@@ -12,11 +13,8 @@ use serde::Serialize;
 use serde::{Deserialize, Deserializer, Serializer};
 use serde_with::{serde_as, BytesOrString};
 use solana_account::Account;
-use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_client::rpc_custom_error::RpcCustomError;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_clock::Epoch;
-use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::program_option::COption;
 use solana_sdk::program_pack::Pack;
@@ -305,19 +303,6 @@ pub trait SvmTricksRpc {
     ) -> BoxFuture<Result<RpcResponse<()>>>;
 }
 
-pub fn write_account(
-    meta: Option<RunloopContext>,
-    pubkey: Pubkey,
-    account: Account,
-) -> std::result::Result<(), String> {
-    let mut state_reader = meta.get_state_mut().map_err(|e| e.to_string())?;
-    state_reader
-        .svm
-        .set_account(pubkey, account.clone())
-        .map_err(|err| format!("failed to save fetched account '{pubkey:?}': {err:?}"))?;
-    Ok(())
-}
-
 pub struct SurfpoolSvmTricksRpc;
 impl SvmTricksRpc for SurfpoolSvmTricksRpc {
     type Metadata = Option<RunloopContext>;
@@ -332,71 +317,44 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
             Ok(res) => res,
             Err(e) => return Box::pin(future::err(e)),
         };
-        let state_reader = match meta.get_state() {
-            Ok(res) => res,
-            Err(e) => return Box::pin(future::err(e.into())),
-        };
-
-        let absolute_slot = state_reader.epoch_info.absolute_slot;
-        let account = state_reader.svm.get_account(&pubkey);
-
-        let rpc_client = RpcClient::new(state_reader.rpc_url.clone());
-        drop(state_reader);
-
-        let full_account_update = match update.to_account() {
+        let account_update = match update.to_account() {
             Err(e) => return Box::pin(future::err(e)),
             Ok(res) => res,
         };
-        if let Some(account) = full_account_update {
-            return match write_account(meta, pubkey, account).map_err(|e| Error::invalid_params(e))
-            {
-                Ok(_) => Box::pin(future::ok(RpcResponse {
-                    context: RpcResponseContext::new(absolute_slot),
-                    value: (),
-                })),
-                Err(e) => Box::pin(future::err(e)),
-            };
-        } else {
-            return Box::pin(async move {
-                let mut account = match account {
-                    Some(account) => account,
-                    None => {
-                        if let Some(fetched_account) = rpc_client.get_account(&pubkey).await.ok() {
-                            fetched_account
-                        } else {
-                            let Some(ctx) = &meta else {
-                                return Err(RpcCustomError::NodeUnhealthy {
-                                    num_slots_behind: None,
-                                }
-                                .into());
-                            };
-                            let _ = ctx.simnet_events_tx.send(SimnetEvent::info(
-                                format!("Account {pubkey} not found, creating a new account from default values"),
-                            ));
-                            Account {
-                                lamports: 0,
-                                owner: system_program::id(),
-                                executable: false,
-                                rent_epoch: 0,
-                                data: vec![],
-                            }
-                        }
-                    }
-                };
-                if let Err(e) = update.apply(&mut account) {
-                    return Err(e);
-                };
-                return match write_account(meta, pubkey, account)
-                    .map_err(|e| Error::invalid_params(e))
-                {
-                    Ok(_) => Ok(RpcResponse {
-                        context: RpcResponseContext::new(absolute_slot),
-                        value: (),
-                    }),
-                    Err(e) => Err(e),
-                };
-            });
-        }
+        let svm_locker = meta.get_svm_locker().unwrap();
+
+        Box::pin(async move {
+            let mut svm_writer = svm_locker.write().await;
+
+            if let Some(account) = account_update {
+                svm_writer.set_account(&pubkey, account);
+            } else {
+                let res = svm_writer
+                    .get_account_mut(&pubkey, GetAccountStrategy::ConnectionOrDefault(None))
+                    .await
+                    .unwrap();
+                if res.is_none() {
+                    let _ = svm_writer.simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Account {pubkey} not found, creating a new account from default values"
+                    )));
+                    svm_writer.set_account(
+                        &pubkey,
+                        Account {
+                            lamports: 0,
+                            owner: system_program::id(),
+                            executable: false,
+                            rent_epoch: 0,
+                            data: vec![],
+                        },
+                    );
+                }
+            }
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                value: (),
+            })
+        })
     }
 
     fn set_token_account(
@@ -428,37 +386,25 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
         let associated_token_account =
             get_associated_token_address_with_program_id(&owner, &mint, &token_program_id);
 
-        let state_reader = match meta.get_state() {
+        let svm_locker = match meta.get_svm_locker() {
             Ok(res) => res,
             Err(e) => return Box::pin(future::err(e.into())),
         };
 
-        let absolute_slot = state_reader.epoch_info.absolute_slot;
-        let account = state_reader.svm.get_account(&associated_token_account);
-        let minimum_rent = state_reader
-            .svm
-            .minimum_balance_for_rent_exemption(TokenAccount::LEN);
-        let rpc_client = RpcClient::new(state_reader.rpc_url.clone());
-        drop(state_reader);
-
         return Box::pin(async move {
-            let mut token_account = match account {
-                Some(account) => account,
-                None => {
-                    if let Some(fetched_account) =
-                        rpc_client.get_account(&associated_token_account).await.ok()
-                    {
-                        fetched_account
-                    } else {
-                        let Some(ctx) = &meta else {
-                            return Err(RpcCustomError::NodeUnhealthy {
-                                num_slots_behind: None,
-                            }
-                            .into());
-                        };
-                        let _ = ctx.simnet_events_tx.send(SimnetEvent::info(
-                                format!("Associated token account {associated_token_account} not found, creating a new account from default values"),
-                            ));
+            let mut svm_writer = svm_locker.write().await;
+            let mut token_account = svm_writer
+                .get_account_mut(
+                    &associated_token_account,
+                    GetAccountStrategy::LocalThenConnectionOrDefault(Some(Box::new(move |sufnet_svm| {
+                        let _ = sufnet_svm.simnet_events_tx.send(SimnetEvent::info(
+                            format!("Associated token account {associated_token_account} not found, creating a new account from default values"),
+                        ));
+
+                        let minimum_rent = sufnet_svm
+                            .svm
+                            .minimum_balance_for_rent_exemption(TokenAccount::LEN);
+
                         let mut data = [0; TokenAccount::LEN];
                         let default = TokenAccount {
                             mint,
@@ -474,9 +420,11 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
                             rent_epoch: 0,
                             data: data.to_vec(),
                         }
-                    }
-                }
-            };
+                    }))),
+                )
+                .await
+                .unwrap()
+                .unwrap();
 
             let mut token_account_data = match TokenAccount::unpack(&token_account.data) {
                 Ok(token_account_data) => token_account_data,
@@ -495,15 +443,12 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
             let mut final_account_bytes = [0; TokenAccount::LEN];
             token_account_data.pack_into_slice(&mut final_account_bytes);
             token_account.data = final_account_bytes.to_vec();
-            return match write_account(meta, associated_token_account, token_account)
-                .map_err(|e| Error::invalid_params(e))
-            {
-                Ok(_) => Ok(RpcResponse {
-                    context: RpcResponseContext::new(absolute_slot),
-                    value: (),
-                }),
-                Err(e) => Err(e),
-            };
+            svm_writer.set_account(&associated_token_account, token_account);
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                value: (),
+            })
         });
     }
 }
