@@ -1,3 +1,5 @@
+#![allow(unused_imports, unused_variables)]
+
 use crate::cli::Context;
 use actix_cors::Cors;
 use actix_web::dev::ServerHandle;
