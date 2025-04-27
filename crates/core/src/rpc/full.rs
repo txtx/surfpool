@@ -1357,15 +1357,16 @@ impl Full for SurfpoolFullRpc {
             return Err(Error::invalid_params("Invalid limit; max 720").into());
         }
 
-        let svm_locker = meta.get_svm_locker()?;
-        let svm_reader = svm_locker.blocking_read();
-        let samples = svm_reader
-            .perf_samples
-            .iter()
-            .map(|e| e.clone())
-            .take(limit)
-            .collect::<Vec<_>>();
-        Ok(samples)
+        meta.with_svm_reader(|svm_reader| {
+            let samples = svm_reader
+                .perf_samples
+                .iter()
+                .map(|e| e.clone())
+                .take(limit)
+                .collect::<Vec<_>>();
+            samples
+        })
+        .map_err(Into::into)
     }
 
     fn get_signature_statuses(
@@ -1418,13 +1419,13 @@ impl Full for SurfpoolFullRpc {
         _config: Option<RpcRequestAirdropConfig>,
     ) -> Result<String> {
         let pubkey = verify_pubkey(&pubkey_str)?;
-        let svm_locker = meta.get_svm_locker()?;
-        let mut svm_writer = svm_locker.blocking_write();
-        let tx_result = svm_writer
-            .airdrop(&pubkey, lamports)
-            .map_err(|err| Error::invalid_params(format!("failed to send transaction: {err:?}")))?;
-
-        Ok(tx_result.signature.to_string())
+        let res = meta.with_svm_writer(|svm_writer| {
+            let tx_result = svm_writer.airdrop(&pubkey, lamports).map_err(|err| {
+                Error::invalid_params(format!("failed to send transaction: {err:?}"))
+            });
+            tx_result
+        })??;
+        Ok(res.signature.to_string())
     }
 
     fn send_transaction(
@@ -1713,23 +1714,21 @@ impl Full for SurfpoolFullRpc {
         meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<RpcBlockhash>> {
-        let svm_locker = meta.get_svm_locker()?;
-        let svm_reader = svm_locker.blocking_read();
-
-        // Todo: are we returning the right block height?
-        let last_valid_block_height = svm_reader.latest_epoch_info.block_height;
-        let value = RpcBlockhash {
-            blockhash: svm_reader.latest_blockhash().to_string(),
-            last_valid_block_height,
-        };
-        let response = RpcResponse {
-            context: RpcResponseContext {
-                slot: svm_reader.get_latest_absolute_slot(),
-                api_version: Some(RpcApiVersion::default()),
-            },
-            value,
-        };
-        Ok(response)
+        meta.with_svm_reader(|svm_reader| {
+            let last_valid_block_height = svm_reader.latest_epoch_info.block_height;
+            let value = RpcBlockhash {
+                blockhash: svm_reader.latest_blockhash().to_string(),
+                last_valid_block_height,
+            };
+            RpcResponse {
+                context: RpcResponseContext {
+                    slot: svm_reader.get_latest_absolute_slot(),
+                    api_version: Some(RpcApiVersion::default()),
+                },
+                value,
+            }
+        })
+        .map_err(Into::into)
     }
 
     fn is_blockhash_valid(
@@ -1738,12 +1737,11 @@ impl Full for SurfpoolFullRpc {
         _blockhash: String,
         _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<bool>> {
-        let svm_locker = meta.get_svm_locker()?;
-        let svm_reader = svm_locker.blocking_read();
-        Ok(RpcResponse {
+        meta.with_svm_reader(|svm_reader| RpcResponse {
             context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
             value: true,
         })
+        .map_err(Into::into)
     }
 
     fn get_fee_for_message(
@@ -1754,14 +1752,12 @@ impl Full for SurfpoolFullRpc {
     ) -> Result<RpcResponse<Option<u64>>> {
         let (_, message) =
             decode_and_deserialize::<VersionedMessage>(encoded, TransactionBinaryEncoding::Base64)?;
-        let svm_locker = meta.get_svm_locker()?;
-        let svm_reader = svm_locker.blocking_read();
 
-        // TODO: add fee computation APIs in LiteSVM
-        Ok(RpcResponse {
+        meta.with_svm_reader(|svm_reader| RpcResponse {
             context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
             value: Some((message.header().num_required_signatures as u64) * 5000),
         })
+        .map_err(Into::into)
     }
 
     fn get_stake_minimum_delegation(
@@ -1930,7 +1926,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let mut setup = TestSetup::new(SurfpoolFullRpc).without_blockhash();
-        let _ = setup.context.surfnet_svm.blocking_write().airdrop(
+        let _ = setup.context.surfnet_svm.write().await.airdrop(
             &payer.pubkey(),
             (valid_txs + invalid_txs) as u64 * 2 * LAMPORTS_PER_SOL,
         );
@@ -2033,7 +2029,8 @@ mod tests {
         let _ = setup
             .context
             .surfnet_svm
-            .blocking_write()
+            .write()
+            .await
             .airdrop(&payer.pubkey(), 2 * LAMPORTS_PER_SOL);
 
         let handle = send_and_await_transaction(tx.clone(), setup.clone(), mempool_rx);

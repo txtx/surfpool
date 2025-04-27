@@ -479,10 +479,10 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _config: Option<RpcSupplyConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSupply>>> {
         let svm_locker = meta.get_svm_locker().unwrap();
-        let svm_reader = svm_locker.blocking_read();
-        let slot = svm_reader.get_latest_absolute_slot();
 
         Box::pin(async move {
+            let svm_reader = svm_locker.read().await;
+            let slot = svm_reader.get_latest_absolute_slot();
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
                 value: RpcSupply {
