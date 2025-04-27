@@ -1,3 +1,17 @@
+use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_EXPLORER_PORT};
+use crate::{
+    http::start_subgraph_and_explorer_server,
+    runbook::execute_runbook,
+    scaffold::{detect_program_frameworks, scaffold_iac_layout},
+    tui,
+};
+use crossbeam::channel::{Select, Sender};
+use notify::{
+    event::{CreateKind, DataChange, ModifyKind},
+    Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
+};
+use solana_keypair::Keypair;
+use solana_signer::Signer;
 use std::{
     path::Path,
     sync::{
@@ -7,22 +21,6 @@ use std::{
     thread::sleep,
     time::Duration,
 };
-
-use crate::{
-    http::start_subgraph_and_explorer_server,
-    runbook::execute_runbook,
-    scaffold::{detect_program_frameworks, scaffold_iac_layout},
-    tui,
-};
-
-use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_EXPLORER_PORT};
-use crossbeam::channel::{Select, Sender};
-use notify::{
-    event::{CreateKind, DataChange, ModifyKind},
-    Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
-};
-use solana_keypair::Keypair;
-use solana_signer::Signer;
 use surfpool_core::{start_local_surfnet, surfnet::SurfnetSvm};
 use surfpool_types::{SimnetEvent, SubgraphEvent};
 use txtx_core::kit::{
@@ -88,6 +86,7 @@ pub async fn handle_start_local_surfnet_command(
     let simnet_commands_tx_copy = simnet_commands_tx.clone();
     let config_copy = config.clone();
 
+    println!("Here");
     let simnet_events_tx_copy = simnet_events_tx.clone();
     let _handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
@@ -112,7 +111,7 @@ pub async fn handle_start_local_surfnet_command(
         match simnet_events_rx.recv() {
             Ok(SimnetEvent::Aborted(error)) => return Err(error),
             Ok(SimnetEvent::Shutdown) => return Ok(()),
-            Ok(SimnetEvent::Ready) => break,
+            Ok(SimnetEvent::Connected(_)) | Ok(SimnetEvent::Ready) => break,
             _other => continue,
         }
     }

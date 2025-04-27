@@ -35,7 +35,6 @@ use surfpool_types::{
 //     include_bytes!("../../../../target/release/libsurfpool_subgraph.dylib");
 
 pub type AccountFactory = Box<dyn Fn(&SurfnetSvm) -> Account + Send + Sync>;
-// pub type AccountFactory = Box<dyn Fn() -> Account>;
 
 pub enum GetAccountStrategy {
     LocalOrDefault(Option<AccountFactory>),

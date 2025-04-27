@@ -35,8 +35,18 @@ pub struct RunloopContext {
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
 }
 
+pub type SvmReadClosure<T> = Box<dyn Fn(&SurfnetSvm) -> T + Send + Sync>;
+
 trait State {
     fn get_svm_locker<'a>(&'a self) -> Result<Arc<RwLock<SurfnetSvm>>, RpcCustomError>;
+    fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, RpcCustomError>
+    where
+        F: Fn(&SurfnetSvm) -> T + Send + Sync,
+        T: Send + 'static;
+    fn with_svm_writer<T, F>(&self, writer: F) -> Result<T, RpcCustomError>
+    where
+        F: Fn(&mut SurfnetSvm) -> T + Send + Sync,
+        T: Send + 'static;
 }
 
 impl State for Option<RunloopContext> {
@@ -49,6 +59,44 @@ impl State for Option<RunloopContext> {
             .into());
         };
         Ok(ctx.surfnet_svm.clone())
+    }
+
+    fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, RpcCustomError>
+    where
+        F: Fn(&SurfnetSvm) -> T + Send + Sync,
+        T: Send + 'static,
+    {
+        let Some(ctx) = self else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+        let read_lock = ctx.surfnet_svm.clone();
+        let res = tokio::task::block_in_place(move || {
+            let read_guard = read_lock.blocking_read();
+            reader(&read_guard)
+        });
+        Ok(res)
+    }
+
+    fn with_svm_writer<T, F>(&self, writer: F) -> Result<T, RpcCustomError>
+    where
+        F: Fn(&mut SurfnetSvm) -> T + Send + Sync,
+        T: Send + 'static,
+    {
+        let Some(ctx) = self else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+        let read_lock = ctx.surfnet_svm.clone();
+        let res = tokio::task::block_in_place(move || {
+            let mut read_guard = read_lock.blocking_write();
+            writer(&mut read_guard)
+        });
+        Ok(res)
     }
 }
 

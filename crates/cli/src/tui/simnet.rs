@@ -290,9 +290,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         break;
                     }
                     SimnetEvent::Ready => {}
-                    SimnetEvent::Connected(_) => {
-                        
-                    }
+                    SimnetEvent::Connected(_) => {}
                     SimnetEvent::Shutdown => {
                         break;
                     }
@@ -373,7 +371,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         }
 
                         Tab => {
-                            let _ = app.simnet_commands_tx.send(SimnetCommand::SlotForward(None));
+                            let _ = app
+                                .simnet_commands_tx
+                                .send(SimnetCommand::SlotForward(None));
                         }
                         Char('t') => {
                             let _ = app.simnet_commands_tx.send(

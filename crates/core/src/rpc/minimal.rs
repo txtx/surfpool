@@ -619,9 +619,8 @@ impl Minimal for SurfpoolMinimalRpc {
         meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<EpochInfo> {
-        let svm_locker = meta.get_svm_locker()?;
-        let svm_reader = svm_locker.blocking_read();
-        Ok(svm_reader.latest_epoch_info.clone())
+        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
+            .map_err(Into::into)
     }
 
     fn get_genesis_hash(&self, _meta: Self::Metadata) -> Result<String> {
@@ -638,9 +637,8 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_slot(&self, meta: Self::Metadata, _config: Option<RpcContextConfig>) -> Result<Slot> {
-        let svm_locker = meta.get_svm_locker()?;
-        let svm_reader = svm_locker.blocking_read();
-        Ok(svm_reader.get_latest_absolute_slot().into())
+        meta.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot().into())
+            .map_err(Into::into)
     }
 
     fn get_block_height(
@@ -648,9 +646,8 @@ impl Minimal for SurfpoolMinimalRpc {
         meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<u64> {
-        let svm_locker = meta.get_svm_locker()?;
-        let svm_reader = svm_locker.blocking_read();
-        Ok(svm_reader.latest_epoch_info.block_height)
+        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.block_height)
+            .map_err(Into::into)
     }
 
     fn get_highest_snapshot_slot(&self, _meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
@@ -662,9 +659,8 @@ impl Minimal for SurfpoolMinimalRpc {
         meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<u64> {
-        let svm_locker = meta.get_svm_locker()?;
-        let svm_reader = svm_locker.blocking_read();
-        Ok(svm_reader.transactions_processed as u64)
+        meta.with_svm_reader(|svm_reader| svm_reader.transactions_processed as u64)
+            .map_err(Into::into)
     }
 
     fn get_version(&self, _: Self::Metadata) -> Result<SurfpoolRpcVersionInfo> {
