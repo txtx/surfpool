@@ -1,6 +1,7 @@
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, ReplicaTransactionInfoV2, ReplicaTransactionInfoVersions,
 };
+use blake3::Hash;
 use chrono::Utc;
 use crossbeam::select;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -10,28 +11,36 @@ use ipc_channel::{
 };
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
-use litesvm::LiteSVM;
+use litesvm::{types::TransactionResult, LiteSVM};
+use solana_account::Account;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot};
-use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
-use solana_message::{v0::LoadedAddresses, SimpleAddressLoader, VersionedMessage};
+use solana_keypair::Keypair;
+use solana_message::{v0::LoadedAddresses, Message, SimpleAddressLoader, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_sdk::{
     bpf_loader_upgradeable::get_program_data_address,
+    system_instruction,
     transaction::{MessageHash, VersionedTransaction},
 };
+use solana_signature::Signature;
+use solana_signer::Signer;
 use solana_transaction::sanitized::SanitizedTransaction;
-use solana_transaction_status::{InnerInstruction, InnerInstructions, TransactionStatusMeta};
+use solana_transaction_status::{
+    EncodedConfirmedTransactionWithStatusMeta, InnerInstruction, InnerInstructions,
+    TransactionStatus, TransactionStatusMeta, UiTransactionEncoding,
+};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet, VecDeque},
     net::SocketAddr,
-    sync::{Arc, RwLock, RwLockWriteGuard},
+    sync::{Arc, RwLockWriteGuard},
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
 };
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
+use tokio::sync::RwLock;
 
 use crate::{
     rpc::{
@@ -39,11 +48,11 @@ use crate::{
         bank_data::BankData, full::Full, minimal::Minimal, svm_tricks::SvmTricksRpc,
         utils::convert_transaction_metadata_from_canonical, SurfpoolMiddleware,
     },
-    types::{EntryStatus, GlobalState, TransactionWithStatusMeta},
+    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
     PluginManagerCommand,
 };
 use surfpool_types::{
-    ClockCommand, ClockEvent, RunloopTriggerMode, SchemaDataSourcingEvent, SubgraphPluginConfig,
+    BlockProductionMode, ClockCommand, ClockEvent, SchemaDataSourcingEvent, SubgraphPluginConfig,
     TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
 };
 use surfpool_types::{SimnetCommand, SimnetEvent, SubgraphCommand, SurfpoolConfig};
@@ -57,87 +66,340 @@ const BLOCKHASH_SLOT_TTL: u64 = 75;
 // const SUBGRAPH_PLUGIN_BYTES: &[u8] =
 //     include_bytes!("../../../../target/release/libsurfpool_subgraph.dylib");
 
-fn initialize_lite_svm() -> LiteSVM {
-    let mut feature_set = FeatureSet::all_enabled();
-
-    // v2.2 of the solana_sdk deprecates the v3 loader, and enables the v4 loader by default.
-    // In order to keep the v3 deployments enabled, we need to remove the
-    // `disable_new_loader_v3_deployments` feature from the active set, and add it to the inactive set.
-    let _ = feature_set
-        .active
-        .remove(&disable_new_loader_v3_deployments::id());
-    feature_set
-        .inactive
-        .insert(disable_new_loader_v3_deployments::id());
-
-    LiteSVM::new().with_feature_set(feature_set)
+pub struct SurfnetSvm {
+    pub svm: LiteSVM,
+    pub transactions: HashMap<Signature, SurfnetTransactionStatus>,
+    pub perf_samples: VecDeque<RpcPerfSample>,
+    pub transactions_processed: u64,
+    pub simnet_events_tx: Sender<SimnetEvent>,
+    pub connection: SurfnetDataConnection,
+    pub latest_epoch_info: EpochInfo,
 }
 
-pub async fn start(
-    config: SurfpoolConfig,
-    subgraph_commands_tx: Sender<SubgraphCommand>,
-    simnet_events_tx: Sender<SimnetEvent>,
-    simnet_commands_tx: Sender<SimnetCommand>,
-    simnet_commands_rx: Receiver<SimnetCommand>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut svm = initialize_lite_svm();
+pub enum SurfnetDataConnection {
+    Local,
+    Connected(String, EpochInfo),
+}
 
-    let Some(simnet) = config.simnets.first() else {
-        return Ok(());
-    };
+impl SurfnetSvm {
+    pub fn new() -> (Self, Receiver<SimnetEvent>) {
+        let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
+        let mut feature_set = FeatureSet::all_enabled();
+        // v2.2 of the solana_sdk deprecates the v3 loader, and enables the v4 loader by default.
+        // In order to keep the v3 deployments enabled, we need to remove the
+        // `disable_new_loader_v3_deployments` feature from the active set, and add it to the inactive set.
+        let _ = feature_set
+            .active
+            .remove(&disable_new_loader_v3_deployments::id());
+        feature_set
+            .inactive
+            .insert(disable_new_loader_v3_deployments::id());
 
-    for recipient in simnet.airdrop_addresses.iter() {
-        let _ = svm.airdrop(&recipient, simnet.airdrop_token_amount);
-        let _ = simnet_events_tx.send(SimnetEvent::info(format!(
-            "Genesis airdrop successful {}: {}",
-            recipient.to_string(),
-            simnet.airdrop_token_amount
-        )));
+        let svm = LiteSVM::new().with_feature_set(feature_set);
+
+        (
+            Self {
+                svm,
+                transactions: HashMap::new(),
+                perf_samples: VecDeque::new(),
+                transactions_processed: 0,
+                simnet_events_tx,
+                connection: SurfnetDataConnection::Local,
+                latest_epoch_info: EpochInfo {
+                    epoch: 0,
+                    slot_index: 0,
+                    slots_in_epoch: 0,
+                    absolute_slot: 0,
+                    block_height: 0,
+                    transaction_count: None,
+                },
+            },
+            simnet_events_rx,
+        )
     }
 
-    // Todo: should check config first
-    let rpc_client = RpcClient::new(simnet.remote_rpc_url.clone());
-    let epoch_info = rpc_client.get_epoch_info().await?;
+    pub async fn connect(
+        &mut self,
+        rpc_url: &str,
+    ) -> Result<EpochInfo, Box<dyn std::error::Error>> {
+        let rpc_client = RpcClient::new(rpc_url.to_string());
+        let epoch_info = rpc_client.get_epoch_info().await?;
+        self.connection = SurfnetDataConnection::Connected(rpc_url.to_string(), epoch_info.clone());
 
-    // Question: can the value `slots_in_epoch` fluctuate over time?
-    let slots_in_epoch = epoch_info.slots_in_epoch;
+        let _ = self
+            .simnet_events_tx
+            .send(SimnetEvent::Connected(rpc_url.to_string()));
+        let _ = self
+            .simnet_events_tx
+            .send(SimnetEvent::EpochInfoUpdate(epoch_info.clone()));
+        Ok(epoch_info)
+    }
 
-    let context = Arc::new(RwLock::new(GlobalState::new(
-        svm,
-        &epoch_info,
-        &simnet.remote_rpc_url,
-    )));
-    let (plugin_manager_commands_rx, _rpc_handle) = start_rpc_server_thread(
-        &config,
-        &simnet_events_tx,
-        &simnet_commands_tx,
-        context.clone(),
-        &epoch_info,
-    )?;
+    pub fn airdrop_pubkeys(&mut self, lamports: u64, addresses: &Vec<Pubkey>) {
+        for recipient in addresses.iter() {
+            let _ = self.airdrop(&recipient, lamports);
+            let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
+                "Genesis airdrop successful {}: {}",
+                recipient.to_string(),
+                lamports
+            )));
+        }
+    }
 
-    let simnet_config = simnet.clone();
-    let (plugins_data_tx, plugins_data_rx) =
-        unbounded::<(VersionedTransaction, TransactionMetadata, Slot)>();
+    pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
+        let res = self.svm.airdrop(pubkey, lamports);
+        if let Ok(ref tx_result) = res {
+            let airdrop_keypair = Keypair::new();
+            let slot = self.latest_epoch_info.absolute_slot;
+            self.transactions.insert(
+                tx_result.signature,
+                SurfnetTransactionStatus::Processed(TransactionWithStatusMeta(
+                    slot,
+                    VersionedTransaction::try_new(
+                        VersionedMessage::Legacy(Message::new(
+                            &[system_instruction::transfer(
+                                &airdrop_keypair.pubkey(),
+                                &pubkey,
+                                lamports,
+                            )],
+                            Some(&airdrop_keypair.pubkey()),
+                        )),
+                        &[airdrop_keypair],
+                    )
+                    .unwrap(),
+                    convert_transaction_metadata_from_canonical(&tx_result),
+                    None,
+                )),
+            );
+        }
+        res
+    }
 
-    if !config.plugin_config_path.is_empty() {
-        match start_geyser_plugin_thread(
-            plugin_manager_commands_rx,
-            subgraph_commands_tx.clone(),
-            simnet_events_tx.clone(),
-            plugins_data_rx,
-        ) {
-            Ok(_) => {}
-            Err(e) => {
-                let _ =
-                    simnet_events_tx.send(SimnetEvent::error(format!("Geyser plugin failed: {e}")));
+    pub fn expected_rpc_client(&self) -> RpcClient {
+        match &self.connection {
+            SurfnetDataConnection::Local => unreachable!(),
+            SurfnetDataConnection::Connected(rpc_url, _) => {
+                let rpc_client = RpcClient::new(rpc_url.to_string());
+                rpc_client
+            }
+        }
+    }
+
+    pub async fn get_account_mut(
+        &mut self,
+        pubkey: &Pubkey,
+        strategy: GetAccountStrategy,
+    ) -> Result<Option<Account>, Box<dyn std::error::Error>> {
+        let (result, factory) = match strategy {
+            GetAccountStrategy::LocalOrDefault(factory) => (self.svm.get_account(pubkey), factory),
+            GetAccountStrategy::ConnectionOrDefault(factory) => {
+                let client = self.expected_rpc_client();
+                let account = client.get_account(&pubkey).await?;
+                self.svm.set_account(pubkey.clone(), account.clone());
+                (Some(account), factory)
+            }
+            GetAccountStrategy::LocalThenConnectionOrDefault(factory) => {
+                match self.svm.get_account(pubkey) {
+                    Some(entry) => (Some(entry), factory),
+                    None => {
+                        let client = self.expected_rpc_client();
+                        let account = client.get_account(&pubkey).await?;
+                        self.svm.set_account(pubkey.clone(), account.clone());
+
+                        if account.executable {
+                            let program_data_address = get_program_data_address(pubkey);
+                            let res = self
+                                .get_account(
+                                    &program_data_address,
+                                    GetAccountStrategy::ConnectionOrDefault(None),
+                                )
+                                .await?;
+                            if let Some(program_data) = res {
+                                self.svm.set_account(program_data_address, program_data);
+                            }
+                        }
+                        (Some(account), factory)
+                    }
+                }
             }
         };
+        let account = match (result, factory) {
+            (None, Some(factory)) => Some(factory(self)),
+            (None, None) => None,
+            (Some(account), _) => Some(account),
+        };
+        Ok(account)
     }
 
+    pub async fn set_account(
+        &mut self,
+        pubkey: &Pubkey,
+        account: Account,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.svm.set_account(pubkey.clone(), account);
+        Ok(())
+    }
+
+    pub fn get_latest_absolute_slot(&self) -> Slot {
+        self.latest_epoch_info.absolute_slot
+    }
+
+    pub fn latest_blockhash(&self) -> solana_hash::Hash {
+        self.svm.latest_blockhash()
+    }
+
+    pub async fn get_multiple_accounts_mut(
+        &mut self,
+        pubkeys: &Vec<Pubkey>,
+        strategy: GetAccountStrategy,
+    ) -> Result<Vec<Option<Account>>, Box<dyn std::error::Error>> {
+        match strategy {
+            GetAccountStrategy::LocalOrDefault(_) => {
+                let mut accounts = vec![];
+                for pubkey in pubkeys.iter() {
+                    let account = self.svm.get_account(pubkey);
+                    accounts.push(account);
+                }
+                Ok(accounts)
+            }
+            GetAccountStrategy::ConnectionOrDefault(_) => {
+                let client = self.expected_rpc_client();
+                let entry = client.get_multiple_accounts(pubkeys).await?;
+                Ok(entry)
+            }
+            GetAccountStrategy::LocalThenConnectionOrDefault(_) => {
+                // Retrieve accounts missing locally
+                let mut missing_accounts = Vec::new();
+                let mut fetched_accounts = HashMap::new();
+                for pubkey in pubkeys.iter() {
+                    match self.svm.get_account(pubkey) {
+                        Some(entry) => {
+                            fetched_accounts.insert(pubkey.clone(), entry.clone());
+                        }
+                        None => {
+                            missing_accounts.push(pubkey.clone());
+                        }
+                    };
+                }
+
+                if missing_accounts.is_empty() {
+                    let mut accounts = vec![];
+                    for (_, account) in fetched_accounts.into_iter() {
+                        accounts.push(Some(account));
+                    }
+                    return Ok(accounts);
+                }
+
+                let client = self.expected_rpc_client();
+                let remote_accounts = client.get_multiple_accounts(&missing_accounts).await?;
+                for (pubkey, remote_account) in missing_accounts.into_iter().zip(remote_accounts) {
+                    if let Some(remote_account) = remote_account {
+                        self.svm.set_account(pubkey, remote_account);
+                    }
+                }
+
+                let mut accounts = vec![];
+                for pubkey in pubkeys.iter() {
+                    let account = self.svm.get_account(pubkey);
+                    accounts.push(account);
+                }
+                Ok(accounts)
+            }
+        }
+    }
+
+    pub fn send_transaction(&mut self, tx: impl Into<VersionedTransaction>) -> TransactionResult {
+        self.transactions_processed += 1;
+        self.svm.send_transaction(tx)
+    }
+
+    pub async fn get_account(
+        &self,
+        pubkey: &Pubkey,
+        strategy: GetAccountStrategy,
+    ) -> Result<Option<Account>, Box<dyn std::error::Error>> {
+        let (result, factory) = match strategy {
+            GetAccountStrategy::LocalOrDefault(factory) => (self.svm.get_account(pubkey), factory),
+            GetAccountStrategy::ConnectionOrDefault(factory) => {
+                let client = self.expected_rpc_client();
+                let entry = client.get_account(pubkey).await?;
+                (Some(entry), factory)
+            }
+            GetAccountStrategy::LocalThenConnectionOrDefault(factory) => {
+                match self.svm.get_account(pubkey) {
+                    Some(entry) => (Some(entry), factory),
+                    None => {
+                        let client = self.expected_rpc_client();
+                        let entry = client.get_account(pubkey).await?;
+                        (Some(entry), factory)
+                    }
+                }
+            }
+        };
+        let account = match (result, factory) {
+            (None, Some(factory)) => Some(factory(self)),
+            (None, None) => None,
+            (Some(account), _) => Some(account),
+        };
+        Ok(account)
+    }
+
+    pub async fn get_transaction(
+        &self,
+        signature: &Signature,
+        encoding: Option<UiTransactionEncoding>,
+    ) -> Result<
+        Option<(EncodedConfirmedTransactionWithStatusMeta, TransactionStatus)>,
+        Box<dyn std::error::Error>,
+    > {
+        let mut tx = self
+            .transactions
+            .get(&signature)
+            .map(|entry| entry.expect_processed().clone().into());
+
+        if tx.is_none() {
+            let client = self.expected_rpc_client();
+            let entry = client
+                .get_transaction(signature, encoding.unwrap_or(UiTransactionEncoding::Json))
+                .await?;
+            tx = Some(entry);
+        }
+
+        let mut response = None;
+        if let Some(tx) = tx {
+            let status = TransactionStatus {
+                slot: tx.slot,
+                confirmations: Some((self.get_latest_absolute_slot() - tx.slot) as usize),
+                status: tx.transaction.clone().meta.map_or(Ok(()), |m| m.status),
+                err: tx.transaction.clone().meta.map(|m| m.err).flatten(),
+                confirmation_status: Some(
+                    solana_transaction_status::TransactionConfirmationStatus::Confirmed,
+                ),
+            };
+            response = Some((tx, status));
+        }
+        Ok(response)
+    }
+
+    pub async fn tick(&mut self) {
+
+        // iterate on transactions that has been processed
+    }
+}
+
+pub type AccountFactory = Box<dyn Fn(&SurfnetSvm) -> Account + Send + Sync>;
+// pub type AccountFactory = Box<dyn Fn() -> Account>;
+
+pub enum GetAccountStrategy {
+    LocalOrDefault(Option<AccountFactory>),
+    ConnectionOrDefault(Option<AccountFactory>),
+    LocalThenConnectionOrDefault(Option<AccountFactory>),
+}
+
+pub fn start_clock(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {
     let (clock_event_tx, clock_event_rx) = unbounded::<ClockEvent>();
     let (clock_command_tx, clock_command_rx) = unbounded::<ClockCommand>();
 
-    let mut slot_time = simnet_config.slot_time;
     let _handle = hiro_system_kit::thread_named("clock").spawn(move || {
         let mut enabled = true;
         let mut block_hash_timeout = Instant::now();

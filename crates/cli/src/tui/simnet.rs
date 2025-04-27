@@ -21,7 +21,7 @@ use solana_system_interface::instruction as system_instruction;
 use solana_transaction::Transaction;
 use std::{collections::VecDeque, error::Error, io, time::Duration};
 use surfpool_core::solana_rpc_client::rpc_client::RpcClient;
-use surfpool_types::{ClockCommand, RunloopTriggerMode, SimnetCommand, SimnetEvent};
+use surfpool_types::{BlockProductionMode, ClockCommand, SimnetCommand, SimnetEvent};
 use txtx_core::kit::types::frontend::BlockEvent;
 use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};
 
@@ -373,16 +373,18 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             let _ = app.simnet_commands_tx.send(SimnetCommand::SlotForward);
                         }
                         Char('t') => {
-                            let _ = app
-                                .simnet_commands_tx
-                                .send(SimnetCommand::UpdateRunloopMode(
-                                    RunloopTriggerMode::Transaction,
-                                ));
+                            let _ = app.simnet_commands_tx.send(
+                                SimnetCommand::UpdateBlockProductionMode(
+                                    BlockProductionMode::Transaction,
+                                ),
+                            );
                         }
                         Char('c') => {
-                            let _ = app
-                                .simnet_commands_tx
-                                .send(SimnetCommand::UpdateRunloopMode(RunloopTriggerMode::Clock));
+                            let _ = app.simnet_commands_tx.send(
+                                SimnetCommand::UpdateBlockProductionMode(
+                                    BlockProductionMode::Clock,
+                                ),
+                            );
                         }
                         _ => {}
                     }

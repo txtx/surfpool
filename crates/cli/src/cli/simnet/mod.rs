@@ -253,6 +253,7 @@ fn log_events(
                         return Err(error);
                     }
                     SimnetEvent::Ready => {}
+                    SimnetEvent::Connected(rpc_url) => {}
                     SimnetEvent::Shutdown => {
                         break;
                     }
