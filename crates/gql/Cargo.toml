@@ -24,3 +24,4 @@ solana-pubkey = { workspace = true }
 solana-sdk = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }
 serde = { version = "1.0.122" }
+blake3 = "1.8.2"

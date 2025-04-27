@@ -59,7 +59,7 @@ pub async fn start_local_surfnet_runloop(
     let simnet_events_tx_cc = surfnet_svm.simnet_events_tx.clone();
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
     let (plugin_manager_commands_rx, _rpc_handle) =
-        start_rpc_server_runloop(&config, &simnet_commands_tx, svm_locker.clone())?;
+        start_rpc_server_runloop(&config, &simnet_commands_tx, svm_locker.clone()).await?;
 
     let simnet_config = simnet.clone();
 
@@ -354,13 +354,13 @@ fn start_geyser_runloop(
     Ok(handle)
 }
 
-fn start_rpc_server_runloop(
+async fn start_rpc_server_runloop(
     config: &SurfpoolConfig,
     simnet_commands_tx: &Sender<SimnetCommand>,
     svm_locker: Arc<RwLock<SurfnetSvm>>,
 ) -> Result<(Receiver<PluginManagerCommand>, JoinHandle<()>), String> {
     let (plugin_manager_commands_tx, plugin_manager_commands_rx) = unbounded();
-    let simnet_events_tx = svm_locker.blocking_read().simnet_events_tx.clone();
+    let simnet_events_tx = svm_locker.read().await.simnet_events_tx.clone();
 
     let middleware = SurfpoolMiddleware::new(
         svm_locker,

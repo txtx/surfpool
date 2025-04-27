@@ -19,28 +19,6 @@ use std::{
 };
 use surfpool_types::TransactionMetadata;
 
-pub struct GlobalState {
-    pub svm: LiteSVM,
-    pub transactions: HashMap<Signature, EntryStatus>,
-    pub perf_samples: VecDeque<RpcPerfSample>,
-    pub transactions_processed: u64,
-    pub epoch_info: EpochInfo,
-    pub rpc_url: String,
-}
-
-impl GlobalState {
-    pub fn new(svm: LiteSVM, epoch_info: &EpochInfo, rpc_url: &str) -> Self {
-        Self {
-            svm,
-            transactions: HashMap::new(),
-            perf_samples: VecDeque::new(),
-            transactions_processed: 0,
-            epoch_info: epoch_info.clone(),
-            rpc_url: rpc_url.to_string(),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum SurfnetTransactionStatus {
     Received,

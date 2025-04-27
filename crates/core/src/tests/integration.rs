@@ -14,14 +14,15 @@ use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use std::{str::FromStr, time::Duration};
 use surfpool_types::{
-    types::{RpcConfig, RunloopTriggerMode, SimnetConfig},
+    types::{BlockProductionMode, RpcConfig, SimnetConfig},
     SimnetEvent, SurfpoolConfig,
 };
 use tokio::task;
 
 use crate::{
     rpc::{full::FullClient, minimal::MinimalClient},
-    simnet::start,
+    runloops::start_local_surfnet_runloop,
+    surfnet::SurfnetSvm,
     tests::helpers::get_free_port,
 };
 
@@ -29,23 +30,24 @@ use crate::{
 async fn test_simnet_ready() {
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
-            runloop_trigger_mode: RunloopTriggerMode::Manual, // Prevent ticks
+            block_production_mode: BlockProductionMode::Manual, // Prevent ticks
             ..SimnetConfig::default()
         }],
         ..SurfpoolConfig::default()
     };
 
-    let (simnet_events_tx, simnet_events_rx) = unbounded();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
-        let future = start(
+        let future = start_local_surfnet_runloop(
+            surfnet_svm,
             config,
             subgraph_commands_tx,
-            simnet_events_tx,
             simnet_commands_tx,
             simnet_commands_rx,
+            geyser_events_rx,
         );
         if let Err(e) = hiro_system_kit::nestable_block_on(future) {
             panic!("{e:?}");
@@ -75,18 +77,19 @@ async fn test_simnet_ticks() {
         ..SurfpoolConfig::default()
     };
 
-    let (simnet_events_tx, simnet_events_rx) = unbounded();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let (test_tx, test_rx) = unbounded();
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
-        let future = start(
+        let future = start_local_surfnet_runloop(
+            surfnet_svm,
             config,
             subgraph_commands_tx,
-            simnet_events_tx,
             simnet_commands_tx,
             simnet_commands_rx,
+            geyser_events_rx,
         );
         if let Err(e) = hiro_system_kit::nestable_block_on(future) {
             panic!("{e:?}");
@@ -136,17 +139,18 @@ async fn test_simnet_some_sol_transfers() {
         ..SurfpoolConfig::default()
     };
 
-    let (simnet_events_tx, simnet_events_rx) = unbounded();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
-        let future = start(
+        let future = start_local_surfnet_runloop(
+            surfnet_svm,
             config,
             subgraph_commands_tx,
-            simnet_events_tx,
             simnet_commands_tx,
             simnet_commands_rx,
+            geyser_events_rx,
         );
         if let Err(e) = hiro_system_kit::nestable_block_on(future) {
             panic!("{e:?}");

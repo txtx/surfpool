@@ -3,11 +3,13 @@ use jsonrpc_core::BoxFuture;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_client::rpc_config::RpcAccountIndex;
+use solana_client::rpc_custom_error::RpcCustomError;
 use solana_pubkey::Pubkey;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 use std::time::SystemTime;
+use surfpool_types::SimnetCommand;
 use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
@@ -753,8 +755,19 @@ pub struct SurfpoolAdminRpc;
 impl AdminRpc for SurfpoolAdminRpc {
     type Metadata = Option<RunloopContext>;
 
-    fn exit(&self, _meta: Self::Metadata) -> Result<()> {
-        not_implemented_err()
+    fn exit(&self, meta: Self::Metadata) -> Result<()> {
+        let Some(ctx) = meta else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+
+        let _ = ctx
+            .simnet_commands_tx
+            .send(SimnetCommand::Terminate(ctx.id));
+
+        Ok(())
     }
 
     fn reload_plugin(

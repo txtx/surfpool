@@ -1,7 +1,7 @@
 use super::{not_implemented_err, RunloopContext};
 use crate::{
     rpc::{utils::verify_pubkey, State},
-    simnet::GetAccountStrategy,
+    surfnet::GetAccountStrategy,
 };
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use jsonrpc_derive::rpc;
@@ -15,7 +15,7 @@ use solana_client::{
         RpcVoteAccountStatus,
     },
 };
-use solana_clock::{Clock, Slot};
+use solana_clock::Slot;
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -628,9 +628,7 @@ impl Minimal for SurfpoolMinimalRpc {
         not_implemented_err()
     }
 
-    fn get_health(&self, meta: Self::Metadata) -> Result<String> {
-        let _state_reader = meta.get_state()?;
-
+    fn get_health(&self, _meta: Self::Metadata) -> Result<String> {
         // todo: we could check the time from the state clock and compare
         Ok("ok".to_string())
     }

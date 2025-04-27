@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
-use crate::simnet::GetAccountStrategy;
+use crate::surfnet::GetAccountStrategy;
 
 use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;
@@ -327,7 +327,7 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
             let mut svm_writer = svm_locker.write().await;
 
             if let Some(account) = account_update {
-                svm_writer.set_account(&pubkey, account);
+                let _ = svm_writer.set_account(&pubkey, account);
             } else {
                 let res = svm_writer
                     .get_account_mut(&pubkey, GetAccountStrategy::ConnectionOrDefault(None))
@@ -337,7 +337,7 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
                     let _ = svm_writer.simnet_events_tx.send(SimnetEvent::info(format!(
                         "Account {pubkey} not found, creating a new account from default values"
                     )));
-                    svm_writer.set_account(
+                    let _ = svm_writer.set_account(
                         &pubkey,
                         Account {
                             lamports: 0,
@@ -402,7 +402,7 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
                         ));
 
                         let minimum_rent = sufnet_svm
-                            .svm
+                            .inner
                             .minimum_balance_for_rent_exemption(TokenAccount::LEN);
 
                         let mut data = [0; TokenAccount::LEN];
@@ -443,7 +443,7 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
             let mut final_account_bytes = [0; TokenAccount::LEN];
             token_account_data.pack_into_slice(&mut final_account_bytes);
             token_account.data = final_account_bytes.to_vec();
-            svm_writer.set_account(&associated_token_account, token_account);
+            let _ = svm_writer.set_account(&associated_token_account, token_account);
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),

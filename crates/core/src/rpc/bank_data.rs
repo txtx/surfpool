@@ -397,9 +397,11 @@ impl BankData for SurfpoolBankDataRpc {
         data_len: usize,
         _commitment: Option<CommitmentConfig>,
     ) -> Result<u64> {
-        let ctx = meta.get_state()?;
-
-        Ok(ctx.svm.minimum_balance_for_rent_exemption(data_len))
+        let svm_locker = meta.get_svm_locker()?;
+        let svm_reader = svm_locker.blocking_read();
+        Ok(svm_reader
+            .inner
+            .minimum_balance_for_rent_exemption(data_len))
     }
 
     fn get_inflation_governor(
