@@ -46,6 +46,12 @@ pub enum GeyserEvent {
     NewTransaction(VersionedTransaction, TransactionMetadata, Slot),
 }
 
+/// `SurfnetSvm` provides a lightweight Solana Virtual Machine (SVM) for testing and simulation.
+///
+/// It supports a local in-memory blockchain state,
+/// remote RPC connections, transaction processing, and account management.
+///
+/// It also exposes channels to listen for simulation events (`SimnetEvent`) and Geyser plugin events (`GeyserEvent`).
 pub struct SurfnetSvm {
     pub inner: LiteSVM,
     pub transactions: HashMap<Signature, SurfnetTransactionStatus>,
@@ -63,6 +69,9 @@ pub enum SurfnetDataConnection {
 }
 
 impl SurfnetSvm {
+    /// Creates a new instance of `SurfnetSvm`.
+    ///
+    /// Returns a tuple containing the instance itself, a receiver for simulation events, and a receiver for Geyser plugin events.
     pub fn new() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
@@ -103,6 +112,17 @@ impl SurfnetSvm {
         )
     }
 
+    /// Connects the `SurfnetSvm` to a live Solana RPC endpoint.
+    ///
+    /// This updates the internal epoch information and sends connection events over the simulation event channel.
+    ///
+    /// # Arguments
+    ///
+    /// * `rpc_url` - The URL of the Solana RPC endpoint to connect to.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(EpochInfo)` on success, or an error if the RPC request fails.
     pub async fn connect(
         &mut self,
         rpc_url: &str,
@@ -121,17 +141,16 @@ impl SurfnetSvm {
         Ok(epoch_info)
     }
 
-    pub fn airdrop_pubkeys(&mut self, lamports: u64, addresses: &Vec<Pubkey>) {
-        for recipient in addresses.iter() {
-            let _ = self.airdrop(&recipient, lamports);
-            let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
-                "Genesis airdrop successful {}: {}",
-                recipient.to_string(),
-                lamports
-            )));
-        }
-    }
-
+    /// Airdrops a specified amount of lamports to a single public key.
+    ///
+    /// # Arguments
+    ///
+    /// * `pubkey` - The recipient public key.
+    /// * `lamports` - The amount of lamports to airdrop.
+    ///
+    /// # Returns
+    ///
+    /// * `TransactionResult` indicating success or failure.
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
         let res = self.inner.airdrop(pubkey, lamports);
         if let Ok(ref tx_result) = res {
@@ -161,6 +180,26 @@ impl SurfnetSvm {
         res
     }
 
+    /// Airdrops a specified amount of lamports to a list of public keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `lamports` - The amount of lamports to airdrop.
+    /// * `addresses` - A vector of `Pubkey` recipients.
+    pub fn airdrop_pubkeys(&mut self, lamports: u64, addresses: &Vec<Pubkey>) {
+        for recipient in addresses.iter() {
+            let _ = self.airdrop(&recipient, lamports);
+            let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
+                "Genesis airdrop successful {}: {}",
+                recipient.to_string(),
+                lamports
+            )));
+        }
+    }
+
+    /// Returns an `RpcClient` instance pointing to the currently connected RPC URL.
+    ///
+    /// Panics if the `SurfnetSvm` is not connected to an RPC endpoint.
     pub fn expected_rpc_client(&self) -> RpcClient {
         match &self.connection {
             SurfnetDataConnection::Local => unreachable!(),
@@ -171,14 +210,26 @@ impl SurfnetSvm {
         }
     }
 
+    /// Returns the latest known absolute slot from the local epoch info.
     pub fn get_latest_absolute_slot(&self) -> Slot {
         self.latest_epoch_info.absolute_slot
     }
 
+    /// Returns the latest blockhash known by the `SurfnetSvm`.
     pub fn latest_blockhash(&self) -> solana_hash::Hash {
         self.inner.latest_blockhash()
     }
 
+    /// Sets an account in the local SVM state.
+    ///
+    /// # Arguments
+    ///
+    /// * `pubkey` - The public key of the account.
+    /// * `account` - The `Account` to insert.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` on success, or an error if the operation fails.
     pub async fn set_account(
         &mut self,
         pubkey: &Pubkey,
@@ -188,6 +239,19 @@ impl SurfnetSvm {
         Ok(())
     }
 
+    /// Retrieves an account for the specified public key based on the given strategy.
+    ///
+    /// This function checks the `GetAccountStrategy` to decide whether to fetch the account from the local cache
+    /// or from a remote RPC endpoint, falling back to the connection if needed.
+    ///
+    /// # Parameters
+    ///
+    /// - `pubkey`: The public key of the account to retrieve.
+    /// - `strategy`: The strategy to use for fetching the account (`LocalOrDefault`, `ConnectionOrDefault`, etc.).
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing an optional account, which may be `None` if the account was not found.
     pub async fn get_account(
         &self,
         pubkey: &Pubkey,
@@ -221,6 +285,19 @@ impl SurfnetSvm {
         Ok(account)
     }
 
+    /// Retrieves a mutable account for the specified public key based on the given strategy.
+    ///
+    /// This function works similarly to `get_account`, but will mutate the underlying state with the Account.
+    /// Note: if the requested account is executable, the data account is also retrieved and stored.
+    ///
+    /// # Parameters
+    ///
+    /// - `pubkey`: The public key of the account to retrieve.
+    /// - `strategy`: The strategy to use for fetching the account (`LocalOrDefault`, `ConnectionOrDefault`, etc.).
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing an optional mutable account.
     pub async fn get_account_mut(
         &mut self,
         pubkey: &Pubkey,
@@ -269,6 +346,21 @@ impl SurfnetSvm {
         Ok(account)
     }
 
+    /// Retrieves multiple accounts in a mutable fashion, based on the specified strategy.
+    ///
+    /// This function allows fetching multiple accounts at once. It uses different strategies to decide whether to fetch the
+    /// account from local storage or the network, depending on the availability of the accounts and the given strategy.
+    /// Note: requested accounts that are executable, are also getting their associate data retrieved and stored.
+    ///
+    /// # Parameters
+    ///
+    /// - `pubkeys`: A vector of public keys for the accounts to retrieve.
+    /// - `strategy`: The strategy for fetching the account information (`LocalOrDefault`, `ConnectionOrDefault`, or `LocalThenConnectionOrDefault`).
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a vector of `Option<Account>` for each requested public key. If the account is found, it is wrapped
+    /// in `Some`; otherwise, `None` will be returned for the missing accounts.
     pub async fn get_multiple_accounts_mut(
         &mut self,
         pubkeys: &Vec<Pubkey>,
@@ -315,6 +407,18 @@ impl SurfnetSvm {
                 let remote_accounts = client.get_multiple_accounts(&missing_accounts).await?;
                 for (pubkey, remote_account) in missing_accounts.into_iter().zip(remote_accounts) {
                     if let Some(remote_account) = remote_account {
+                        if remote_account.executable {
+                            let program_data_address = get_program_data_address(&pubkey);
+                            let res = self
+                                .get_account(
+                                    &program_data_address,
+                                    GetAccountStrategy::ConnectionOrDefault(None),
+                                )
+                                .await?;
+                            if let Some(program_data) = res {
+                                let _ = self.inner.set_account(program_data_address, program_data);
+                            }
+                        }
                         let _ = self.inner.set_account(pubkey, remote_account);
                     }
                 }
@@ -329,6 +433,25 @@ impl SurfnetSvm {
         }
     }
 
+    /// Fetches a transaction's details by its signature.
+    ///
+    /// This function retrieves the details of a transaction based on its signature. It first checks if the transaction is
+    /// cached locally. If not, it fetches the transaction from the RPC client. The transaction details are returned along with
+    /// the transaction's status.
+    ///
+    /// # Parameters
+    ///
+    /// - `signature`: The signature of the transaction to retrieve.
+    /// - `encoding`: An optional parameter specifying the encoding format for the transaction (e.g., `Json` or other formats).
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing either:
+    /// - `Some((EncodedConfirmedTransactionWithStatusMeta, TransactionStatus))` if the transaction was successfully found, or
+    /// - `None` if the transaction is not found.
+    ///
+    /// The `EncodedConfirmedTransactionWithStatusMeta` contains the full transaction details, and `TransactionStatus` includes
+    /// the status of the transaction (e.g., whether it was confirmed).
     pub async fn get_transaction(
         &self,
         signature: &Signature,
@@ -366,6 +489,22 @@ impl SurfnetSvm {
         Ok(response)
     }
 
+    /// Sends a transaction to the system for execution.
+    ///
+    /// This function attempts to send a transaction to the blockchain. It first increments the `transactions_processed` counter.
+    /// Then it sends the transaction to the system and updates its status. If the transaction is successfully processed, it is
+    /// cached locally, and a "transaction processed" event is sent. If the transaction fails, the error is recorded and an event
+    /// is sent indicating the failure.
+    ///
+    /// # Parameters
+    ///
+    /// - `tx`: The transaction to send for processing.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result`:
+    /// - `Ok(res)` if the transaction was successfully sent and processed, containing the result of the transaction.
+    /// - `Err(tx_failure)` if the transaction failed, containing the error information.
     pub fn send_transaction(&mut self, tx: VersionedTransaction) -> TransactionResult {
         self.transactions_processed += 1;
         match self.inner.send_transaction(tx.clone()) {
@@ -401,6 +540,25 @@ impl SurfnetSvm {
         }
     }
 
+    /// Processes a batch of transactions by verifying, simulating, and executing them on the blockchain.
+    ///
+    /// This function processes a list of transactions, each with an associated sender for status updates. The transactions are
+    /// verified for valid signatures, missing accounts are fetched from the network if needed, and the transactions are
+    /// simulated or executed depending on the configuration. If the `tick` flag is set to `true`, the final status of each
+    /// transaction is updated to "Confirmed". Performance statistics are also updated.
+    ///
+    /// # Parameters
+    ///
+    /// - `transactions_to_process`: A vector of tuples where each tuple contains:
+    ///     - `VersionedTransaction`: The transaction to process.
+    ///     - `Sender<TransactionStatusEvent>`: A sender used to send status updates.
+    ///     - `bool`: Whether to skip the preflight simulation step for the transaction.
+    /// - `tick`: A flag indicating whether to update the transaction statuses to "Confirmed" after execution.
+    ///
+    /// # Returns
+    ///
+    /// This function does not return a value. It processes the transactions in-place, sending status updates via the provided
+    /// sender and updating internal performance and epoch information.
     pub async fn process_transactions(
         &mut self,
         transactions_to_process: Vec<(VersionedTransaction, Sender<TransactionStatusEvent>, bool)>,
