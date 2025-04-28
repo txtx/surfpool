@@ -1,6 +1,7 @@
 use std::{future::Future, pin::Pin};
 
 use crossbeam_channel::TrySendError;
+use serde::Serialize;
 use serde_json::json;
 
 use jsonrpc_core::{Error, Result};
@@ -95,6 +96,15 @@ impl SurfpoolError {
             "Failed to fetch accounts from remote: {}",
             e.to_string()
         )));
+        Self(error)
+    }
+
+    pub fn invalid_signature<D>(signature: &str, data: D) -> Self
+    where
+        D: Serialize,
+    {
+        let mut error = Error::invalid_params(format!("Invalid signature {signature}"));
+        error.data = Some(json!(data));
         Self(error)
     }
 }
