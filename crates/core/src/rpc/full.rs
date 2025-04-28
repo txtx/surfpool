@@ -1473,41 +1473,40 @@ impl Full for SurfpoolFullRpc {
             .map_err(|_| RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             })?;
-        loop {
-            match status_update_rx.recv() {
-                Ok(TransactionStatusEvent::SimulationFailure(e)) => {
-                    return Err(Error {
-                        data: None,
-                        message: format!(
-                            "Transaction simulation failed: {}: {} log messages:\n{}",
-                            e.0.to_string(),
-                            e.1.logs.len(),
-                            e.1.logs.iter().map(|l| l.to_string()).join("\n")
-                        ),
-                        code: jsonrpc_core::ErrorCode::ServerError(-32002),
-                    })
-                }
-                Ok(TransactionStatusEvent::ExecutionFailure(e)) => {
-                    return Err(Error {
-                        data: None,
-                        message: format!(
-                            "Transaction execution failed: {}: {} log messages:\n{}",
-                            e.0.to_string(),
-                            e.1.logs.len(),
-                            e.1.logs.iter().map(|l| l.to_string()).join("\n")
-                        ),
-                        code: jsonrpc_core::ErrorCode::ServerError(-32002),
-                    })
-                }
-                Err(e) => {
-                    return Err(Error {
-                        data: None,
-                        message: format!("Failed to process transaction: {}", e.to_string()),
-                        code: jsonrpc_core::ErrorCode::ServerError(-32002),
-                    });
-                }
-                Ok(TransactionStatusEvent::Success(_)) => break,
+
+        match status_update_rx.recv() {
+            Ok(TransactionStatusEvent::SimulationFailure(e)) => {
+                return Err(Error {
+                    data: None,
+                    message: format!(
+                        "Transaction simulation failed: {}: {} log messages:\n{}",
+                        e.0.to_string(),
+                        e.1.logs.len(),
+                        e.1.logs.iter().map(|l| l.to_string()).join("\n")
+                    ),
+                    code: jsonrpc_core::ErrorCode::ServerError(-32002),
+                })
             }
+            Ok(TransactionStatusEvent::ExecutionFailure(e)) => {
+                return Err(Error {
+                    data: None,
+                    message: format!(
+                        "Transaction execution failed: {}: {} log messages:\n{}",
+                        e.0.to_string(),
+                        e.1.logs.len(),
+                        e.1.logs.iter().map(|l| l.to_string()).join("\n")
+                    ),
+                    code: jsonrpc_core::ErrorCode::ServerError(-32002),
+                })
+            }
+            Err(e) => {
+                return Err(Error {
+                    data: None,
+                    message: format!("Failed to process transaction: {}", e.to_string()),
+                    code: jsonrpc_core::ErrorCode::ServerError(-32002),
+                });
+            }
+            Ok(TransactionStatusEvent::Success(_)) => {}
         }
         Ok(signature.to_string())
     }
