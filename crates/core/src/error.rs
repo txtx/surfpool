@@ -7,6 +7,8 @@ use serde_json::json;
 use jsonrpc_core::{Error, Result};
 use solana_pubkey::Pubkey;
 
+pub type SurfpoolResult<T> = std::result::Result<T, SurfpoolError>;
+
 #[derive(Debug, Clone)]
 pub struct SurfpoolError(Error);
 
@@ -96,6 +98,15 @@ impl SurfpoolError {
             "Failed to fetch accounts from remote: {}",
             e.to_string()
         )));
+        Self(error)
+    }
+
+    pub fn invalid_pubkey<D>(pubkey: &str, data: D) -> Self
+    where
+        D: Serialize,
+    {
+        let mut error = Error::invalid_params(format!("Invalid pubkey {pubkey}"));
+        error.data = Some(json!(data));
         Self(error)
     }
 
