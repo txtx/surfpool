@@ -54,10 +54,10 @@ where
         };
         sufnet_svm.inner.set_sysvar::<Clock>(&clock);
         sufnet_svm.latest_epoch_info = EpochInfo {
-            epoch: 1,
-            slot_index: 0,
+            epoch: clock.epoch,
+            slot_index: clock.slot,
             slots_in_epoch: 100,
-            absolute_slot: 50,
+            absolute_slot: clock.slot,
             block_height: 42,
             transaction_count: Some(2),
         };
@@ -92,8 +92,8 @@ where
         setup
     }
 
-    pub fn without_blockhash(self) -> Self {
-        let mut state_writer = self.context.surfnet_svm.blocking_write();
+    pub async fn without_blockhash(self) -> Self {
+        let mut state_writer = self.context.surfnet_svm.write().await;
         let svm = state_writer.inner.clone();
         let svm = svm.with_blockhash_check(false);
         state_writer.inner = svm;
@@ -101,9 +101,9 @@ where
         self
     }
 
-    pub fn process_txs(&mut self, txs: Vec<VersionedTransaction>) {
+    pub async fn process_txs(&mut self, txs: Vec<VersionedTransaction>) {
         for tx in txs {
-            let mut state_writer = self.context.surfnet_svm.blocking_write();
+            let mut state_writer = self.context.surfnet_svm.write().await;
             match state_writer.send_transaction(tx.clone()) {
                 Ok(res) => state_writer.transactions.insert(
                     tx.signatures[0],

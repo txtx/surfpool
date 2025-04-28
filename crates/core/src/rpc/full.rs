@@ -1928,12 +1928,12 @@ mod tests {
                 message: VersionedMessage::Legacy(tx.message),
             })
             .collect::<Vec<_>>();
-        let mut setup = TestSetup::new(SurfpoolFullRpc).without_blockhash();
+        let mut setup = TestSetup::new(SurfpoolFullRpc).without_blockhash().await;
         let _ = setup.context.surfnet_svm.write().await.airdrop(
             &payer.pubkey(),
             (valid_txs + invalid_txs) as u64 * 2 * LAMPORTS_PER_SOL,
         );
-        setup.process_txs(txs.clone());
+        setup.process_txs(txs.clone()).await;
 
         let res = setup
             .rpc
@@ -2046,12 +2046,12 @@ mod tests {
 
     #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
     #[test_case(TransactionVersion::Number(0) ; "V0 transactions")]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_simulate_transaction(version: TransactionVersion) {
         let payer = Keypair::new();
         let pk = Pubkey::new_unique();
         let lamports = LAMPORTS_PER_SOL;
-        let setup = TestSetup::new(SurfpoolFullRpc).without_blockhash();
+        let setup = TestSetup::new(SurfpoolFullRpc);
         let _ = setup
             .rpc
             .request_airdrop(
@@ -2141,12 +2141,13 @@ mod tests {
 
     #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
     #[test_case(TransactionVersion::Number(0) ; "V0 transactions")]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_transaction(version: TransactionVersion) {
         let payer = Keypair::new();
         let pk = Pubkey::new_unique();
         let lamports = LAMPORTS_PER_SOL;
         let mut setup = TestSetup::new(SurfpoolFullRpc);
+
         let _ = setup
             .rpc
             .request_airdrop(
@@ -2171,7 +2172,7 @@ mod tests {
             _ => unimplemented!(),
         };
 
-        setup.process_txs(vec![tx.clone()]);
+        setup.process_txs(vec![tx.clone()]).await;
 
         let res = setup
             .rpc
