@@ -323,41 +323,34 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
             let mut svm_writer = svm_locker.write().await;
 
             // if the account update is contains all fields, we can directly set the account
-            if let Some(account) = account_update {
-                let _ = svm_writer.set_account(&pubkey, account);
+            let account_to_set = if let Some(account) = account_update {
+                account
             } else {
                 // otherwise, we need to fetch the account and apply the update
-                let res = svm_writer
+                let mut account_to_update = svm_writer
                     .get_account(
                         &pubkey,
-                        GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                        GetAccountStrategy::LocalThenConnectionOrDefault(Some(Box::new(move |surfnet_svm| {
+                            // if the account does not exist locally or in the remote, create a new account with default values
+                            let _ = surfnet_svm.simnet_events_tx.send(SimnetEvent::info(format!(
+                                "Account {pubkey} not found, creating a new account from default values"
+                            )));
+
+                            Account {
+                                lamports: 0,
+                                owner: system_program::id(),
+                                executable: false,
+                                rent_epoch: 0,
+                                data: vec![],
+                            }
+                        }))),
                     )
-                    .await?;
+                    .await?.unwrap();
 
-                // try to fetch the account from the local state or remote connection and apply the partial updates onto the account
-                let mut account_to_update = if let Some(upstream_account) = res {
-                    upstream_account
-                } else {
-                    // if the account does not exist locally or in the remote, create a new account with default values
-                    let _ = svm_writer.simnet_events_tx.send(SimnetEvent::info(format!(
-                        "Account {pubkey} not found, creating a new account from default values"
-                    )));
-                    Account {
-                        lamports: 0,
-                        owner: system_program::id(),
-                        executable: false,
-                        rent_epoch: 0,
-                        data: vec![],
-                    }
-                };
-
-                update.apply(&mut account_to_update).map_err(|e| {
-                    Error::invalid_params(format!(
-                        "Failed to apply account update: {}",
-                        e.to_string()
-                    ))
-                })?;
-            }
+                update.apply(&mut account_to_update)?;
+                account_to_update
+            };
+            svm_writer.set_account(&pubkey, account_to_set)?;
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
