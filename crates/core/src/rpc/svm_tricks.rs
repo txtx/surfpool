@@ -55,8 +55,7 @@ impl AccountUpdate {
         if self.is_full_account_data() {
             Ok(Some(Account {
                 lamports: self.lamports.unwrap(),
-                owner: verify_pubkey(&self.owner.clone().unwrap())
-                    .map_err(|e| Error::invalid_params(format!("Invalid owner: {}", e.message)))?,
+                owner: verify_pubkey(&self.owner.clone().unwrap())?,
                 executable: self.executable.unwrap(),
                 rent_epoch: self.rent_epoch.unwrap(),
                 data: self.data.clone().unwrap(),
@@ -71,8 +70,7 @@ impl AccountUpdate {
             account.lamports = lamports;
         }
         if let Some(owner) = self.owner {
-            account.owner = verify_pubkey(&owner)
-                .map_err(|e| Error::invalid_params(format!("Invalid owner: {}", e.message)))?;
+            account.owner = verify_pubkey(&owner)?;
         }
         if let Some(executable) = self.executable {
             account.executable = executable;
@@ -159,10 +157,7 @@ impl TokenAccountUpdate {
         if let Some(delegate) = self.delegate {
             match delegate {
                 SetSomeAccount::Account(pubkey) => {
-                    token_account.delegate =
-                        COption::Some(verify_pubkey(&pubkey).map_err(|e| {
-                            Error::invalid_params(format!("Invalid delegate: {}", e.message))
-                        })?);
+                    token_account.delegate = COption::Some(verify_pubkey(&pubkey)?);
                 }
                 SetSomeAccount::NoAccount => {
                     token_account.delegate = COption::None;
@@ -188,10 +183,7 @@ impl TokenAccountUpdate {
         if let Some(close_authority) = self.close_authority {
             match close_authority {
                 SetSomeAccount::Account(pubkey) => {
-                    token_account.close_authority =
-                        COption::Some(verify_pubkey(&pubkey).map_err(|e| {
-                            Error::invalid_params(format!("Invalid close authority: {}", e.message))
-                        })?);
+                    token_account.close_authority = COption::Some(verify_pubkey(&pubkey)?);
                 }
                 SetSomeAccount::NoAccount => {
                     token_account.close_authority = COption::None;
@@ -315,42 +307,56 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
     ) -> BoxFuture<Result<RpcResponse<()>>> {
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
-            Err(e) => return Box::pin(future::err(e)),
+            Err(e) => return e.into(),
         };
         let account_update = match update.to_account() {
             Err(e) => return Box::pin(future::err(e)),
             Ok(res) => res,
         };
-        let svm_locker = meta.get_svm_locker().unwrap();
+
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
 
         Box::pin(async move {
             let mut svm_writer = svm_locker.write().await;
 
+            // if the account update is contains all fields, we can directly set the account
             if let Some(account) = account_update {
                 let _ = svm_writer.set_account(&pubkey, account);
             } else {
+                // otherwise, we need to fetch the account and apply the update
                 let res = svm_writer
-                    .get_account_mut(
+                    .get_account(
                         &pubkey,
                         GetAccountStrategy::LocalThenConnectionOrDefault(None),
                     )
-                    .await
-                    .unwrap();
-                if res.is_none() {
+                    .await?;
+
+                // try to fetch the account from the local state or remote connection and apply the partial updates onto the account
+                let mut account_to_update = if let Some(upstream_account) = res {
+                    upstream_account
+                } else {
+                    // if the account does not exist locally or in the remote, create a new account with default values
                     let _ = svm_writer.simnet_events_tx.send(SimnetEvent::info(format!(
                         "Account {pubkey} not found, creating a new account from default values"
                     )));
-                    let _ = svm_writer.set_account(
-                        &pubkey,
-                        Account {
-                            lamports: 0,
-                            owner: system_program::id(),
-                            executable: false,
-                            rent_epoch: 0,
-                            data: vec![],
-                        },
-                    );
-                }
+                    Account {
+                        lamports: 0,
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                        data: vec![],
+                    }
+                };
+
+                update.apply(&mut account_to_update).map_err(|e| {
+                    Error::invalid_params(format!(
+                        "Failed to apply account update: {}",
+                        e.to_string()
+                    ))
+                })?;
             }
 
             Ok(RpcResponse {
@@ -370,18 +376,18 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
     ) -> BoxFuture<Result<RpcResponse<()>>> {
         let owner = match verify_pubkey(&owner_str) {
             Ok(res) => res,
-            Err(e) => return Box::pin(future::err(e)),
+            Err(e) => return e.into(),
         };
 
         let mint = match verify_pubkey(&mint_str) {
             Ok(res) => res,
-            Err(e) => return Box::pin(future::err(e)),
+            Err(e) => return e.into(),
         };
 
         let token_program_id = match some_token_program_str {
             Some(token_program_str) => match verify_pubkey(&token_program_str) {
                 Ok(res) => res,
-                Err(e) => return Box::pin(future::err(e)),
+                Err(e) => return e.into(),
             },
             None => spl_token::id(),
         };
@@ -425,8 +431,7 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
                         }
                     }))),
                 )
-                .await
-                .unwrap()
+                .await?
                 .unwrap();
 
             let mut token_account_data = match TokenAccount::unpack(&token_account.data) {

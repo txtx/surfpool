@@ -1,8 +1,8 @@
+use crate::error::SurfpoolResult;
 use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
 use crate::surfnet::GetAccountStrategy;
 
-use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -354,7 +354,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         let config = config.unwrap_or_default();
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
-            Err(e) => return Box::pin(future::err(e)),
+            Err(e) => return e.into(),
         };
 
         let svm_locker = match meta.get_svm_locker() {
@@ -396,10 +396,10 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         let pubkeys = match pubkeys_str
             .iter()
             .map(|s| verify_pubkey(s))
-            .collect::<Result<Vec<_>>>()
+            .collect::<SurfpoolResult<Vec<_>>>()
         {
             Ok(p) => p,
-            Err(e) => return Box::pin(future::err(e.into())),
+            Err(e) => return e.into(),
         };
 
         let svm_locker = match meta.get_svm_locker() {

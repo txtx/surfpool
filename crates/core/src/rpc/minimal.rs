@@ -585,7 +585,7 @@ impl Minimal for SurfpoolMinimalRpc {
     ) -> BoxFuture<Result<RpcResponse<u64>>> {
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
-            Err(e) => return Box::pin(future::err(e)),
+            Err(e) => return e.into(),
         };
 
         let svm_locker = match meta.get_svm_locker() {
