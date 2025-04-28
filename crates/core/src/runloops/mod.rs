@@ -98,9 +98,7 @@ pub async fn start_block_production_runloop(
     mut block_production_mode: BlockProductionMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
     loop {
-        let mut transactions_to_process = Vec::new();
-
-        let mut is_tick = false;
+        let mut do_produce_block = false;
         let mut expire_blockhash = false;
 
         select! {
@@ -109,7 +107,7 @@ pub async fn start_block_production_runloop(
                     match event {
                         ClockEvent::Tick => {
                             if block_production_mode.eq(&BlockProductionMode::Clock) {
-                                is_tick = true;
+                                do_produce_block = true;
                             }
                         }
                         ClockEvent::ExpireBlockHash => {
@@ -124,7 +122,7 @@ pub async fn start_block_production_runloop(
                     match event {
                         SimnetCommand::SlotForward(_key) => {
                             block_production_mode = BlockProductionMode::Manual;
-                            is_tick = true;
+                            do_produce_block = true;
                         }
                         SimnetCommand::SlotBackward(_key) => {
 
@@ -138,7 +136,8 @@ pub async fn start_block_production_runloop(
                             continue
                         }
                         SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
-                            transactions_to_process.push((transaction, status_tx, skip_preflight));
+                            let mut svm_writer = svm_locker.write().await;
+                            svm_writer.process_transaction(transaction, status_tx ,skip_preflight).await?;
                         }
                         SimnetCommand::Terminate(_) => {
                             std::process::exit(0)
@@ -150,10 +149,11 @@ pub async fn start_block_production_runloop(
         }
 
         {
-            let mut svm_writer = svm_locker.write().await;
-            svm_writer
-                .process_transactions(transactions_to_process, is_tick)
-                .await;
+            if do_produce_block {
+                let mut svm_writer = svm_locker.write().await;
+                svm_writer.confirm_transactions()?;
+                svm_writer.finalize_transactions()?;
+            }
         }
     }
 }

@@ -29,6 +29,8 @@ use surfpool_types::{
     SimnetEvent, TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
 };
 
+pub const FINALIZATION_SLOT_THRESHOLD: u64 = 2;
+
 // #[cfg(clippy)]
 // const SUBGRAPH_PLUGIN_BYTES: &[u8] = &[0];
 
@@ -65,6 +67,10 @@ pub enum GeyserEvent {
 pub struct SurfnetSvm {
     pub inner: LiteSVM,
     pub transactions: HashMap<Signature, SurfnetTransactionStatus>,
+    pub transactions_queued_for_confirmation:
+        VecDeque<(VersionedTransaction, Sender<TransactionStatusEvent>)>,
+    pub transactions_queued_for_finalization:
+        VecDeque<(Slot, VersionedTransaction, Sender<TransactionStatusEvent>)>,
     pub perf_samples: VecDeque<RpcPerfSample>,
     pub transactions_processed: u64,
     pub connection: SurfnetDataConnection,
@@ -117,6 +123,8 @@ impl SurfnetSvm {
                     block_height: 0,
                     transaction_count: None,
                 },
+                transactions_queued_for_confirmation: VecDeque::new(),
+                transactions_queued_for_finalization: VecDeque::new(),
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -236,6 +244,10 @@ impl SurfnetSvm {
     /// Returns the latest blockhash known by the `SurfnetSvm`.
     pub fn latest_blockhash(&self) -> solana_hash::Hash {
         self.inner.latest_blockhash()
+    }
+
+    pub fn expire_blockhash(&mut self) {
+        self.inner.expire_blockhash();
     }
 
     /// Sets an account in the local SVM state.
@@ -578,126 +590,146 @@ impl SurfnetSvm {
         }
     }
 
-    /// Processes a batch of transactions by verifying, simulating, and executing them on the blockchain.
+    /// Processes a transaction by verifying, simulating, and executing it on the blockchain.
     ///
-    /// This function processes a list of transactions, each with an associated sender for status updates. The transactions are
-    /// verified for valid signatures, missing accounts are fetched from the network if needed, and the transactions are
-    /// simulated or executed depending on the configuration. If the `tick` flag is set to `true`, the final status of each
-    /// transaction is updated to "Confirmed". Performance statistics are also updated.
+    /// This function processes a transaction with an associated sender for status updates. The transaction is
+    /// verified for valid signatures, missing accounts are fetched from the network if needed, and the transaction is
+    /// simulated or executed depending on the configuration.
     ///
     /// # Parameters
     ///
-    /// - `transactions_to_process`: A vector of tuples where each tuple contains:
-    ///     - `VersionedTransaction`: The transaction to process.
-    ///     - `Sender<TransactionStatusEvent>`: A sender used to send status updates.
-    ///     - `bool`: Whether to skip the preflight simulation step for the transaction.
-    /// - `produce_block`: A flag indicating whether to update the transaction statuses to "Confirmed" after execution.
+    /// - `transaction`: The `VersionedTransaction` to process.
+    /// - `status_tx`: A `Sender<TransactionStatusEvent>` used to send status updates.
+    /// - `skip_preflight`: A `bool` indicating whether to skip the preflight simulation step for the transaction.
     ///
     /// # Returns
     ///
-    /// This function does not return a value. It processes the transactions in-place, sending status updates via the provided
-    /// sender and updating internal performance and epoch information.
-    pub async fn process_transactions(
+    /// Returns a `Result`:
+    /// - `Ok(())` if the transaction was successfully processed.
+    /// - `Err(SurfpoolError)` if an error occurred during processing.
+    pub async fn process_transaction(
         &mut self,
-        transactions_to_process: Vec<(VersionedTransaction, Sender<TransactionStatusEvent>, bool)>,
-        produce_block: bool,
-    ) {
-        let unix_timestamp: i64 = Utc::now().timestamp();
-        let mut transactions_processed = Vec::new();
-
-        // Handle the accumulated transactions
-        for (transaction, status_tx, skip_preflight) in transactions_to_process.into_iter() {
-            // verify valid signatures on the transaction
+        transaction: VersionedTransaction,
+        status_tx: Sender<TransactionStatusEvent>,
+        skip_preflight: bool,
+    ) -> Result<(), SurfpoolError> {
+        // verify valid signatures on the transaction
+        {
+            if transaction
+                .verify_with_results()
+                .iter()
+                .any(|valid| !*valid)
             {
-                if transaction
-                    .verify_with_results()
-                    .iter()
-                    .any(|valid| !*valid)
-                {
-                    let _ = self.simnet_events_tx.try_send(SimnetEvent::error(format!(
-                        "Transaction verification failed: {}",
-                        transaction.signatures[0]
-                    )));
-                    continue;
-                }
+                let _ = self.simnet_events_tx.try_send(SimnetEvent::error(format!(
+                    "Transaction verification failed: {}",
+                    transaction.signatures[0]
+                )));
+                return Ok(());
             }
+        }
 
-            // find accounts that are needed for this transaction but are missing from the local
-            // svm cache, fetch them from the RPC, and insert them locally
-            let accounts = match &transaction.message {
-                VersionedMessage::Legacy(message) => message.account_keys.clone(),
-                VersionedMessage::V0(message) => message.account_keys.clone(),
-            };
-            let _ = self
-                .get_multiple_accounts_mut(
-                    &accounts,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
-                )
-                .await;
+        // find accounts that are needed for this transaction but are missing from the local
+        // svm cache, fetch them from the RPC, and insert them locally
+        let accounts = match &transaction.message {
+            VersionedMessage::Legacy(message) => message.account_keys.clone(),
+            VersionedMessage::V0(message) => message.account_keys.clone(),
+        };
+        let _ = self
+            .get_multiple_accounts_mut(
+                &accounts,
+                GetAccountStrategy::LocalThenConnectionOrDefault(None),
+            )
+            .await?;
 
-            // if not skipping preflight, simulate the transaction
-            if !skip_preflight {
-                let (meta, err) = match self.inner.simulate_transaction(transaction.clone()) {
-                    Ok(res) => {
-                        let transaction_meta =
-                            convert_transaction_metadata_from_canonical(&res.meta);
-                        (transaction_meta, None)
-                    }
-                    Err(res) => {
-                        let _ = self.simnet_events_tx.try_send(SimnetEvent::error(format!(
-                            "Transaction simulation failed: {}",
-                            res.err.to_string()
-                        )));
-                        (
-                            convert_transaction_metadata_from_canonical(&res.meta),
-                            Some(res.err),
-                        )
-                    }
-                };
-
-                if let Some(e) = &err {
-                    let _ = status_tx
-                        .try_send(TransactionStatusEvent::SimulationFailure((e.clone(), meta)));
-                    continue;
-                }
-            }
-
-            // send the transaction to the SVM
-            match self.send_transaction(transaction.clone()) {
+        // if not skipping preflight, simulate the transaction
+        if !skip_preflight {
+            let (meta, err) = match self.inner.simulate_transaction(transaction.clone()) {
                 Ok(res) => {
-                    let transaction_meta = convert_transaction_metadata_from_canonical(&res);
-                    let _ = self.geyser_events_tx.send(GeyserEvent::NewTransaction(
-                        transaction.clone(),
-                        transaction_meta.clone(),
-                        self.latest_epoch_info.absolute_slot,
-                    ));
-                    let _ = status_tx.try_send(TransactionStatusEvent::Success(
-                        TransactionConfirmationStatus::Processed,
-                    ));
-                    transactions_processed.push((transaction, status_tx));
+                    let transaction_meta = convert_transaction_metadata_from_canonical(&res.meta);
+                    (transaction_meta, None)
                 }
                 Err(res) => {
-                    let transaction_meta = convert_transaction_metadata_from_canonical(&res.meta);
                     let _ = self.simnet_events_tx.try_send(SimnetEvent::error(format!(
-                        "Transaction execution failed: {}",
+                        "Transaction simulation failed: {}",
                         res.err.to_string()
                     )));
-                    let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((
-                        res.err,
-                        transaction_meta,
-                    )));
+                    (
+                        convert_transaction_metadata_from_canonical(&res.meta),
+                        Some(res.err),
+                    )
                 }
             };
+
+            if let Some(e) = &err {
+                let _ = status_tx
+                    .try_send(TransactionStatusEvent::SimulationFailure((e.clone(), meta)));
+                return Ok(());
+            }
         }
 
-        if !produce_block {
-            return;
-        }
+        // send the transaction to the SVM
+        match self.send_transaction(transaction.clone()) {
+            Ok(res) => {
+                let transaction_meta = convert_transaction_metadata_from_canonical(&res);
+                let _ = self.geyser_events_tx.send(GeyserEvent::NewTransaction(
+                    transaction.clone(),
+                    transaction_meta.clone(),
+                    self.latest_epoch_info.absolute_slot,
+                ));
+                let _ = status_tx.try_send(TransactionStatusEvent::Success(
+                    TransactionConfirmationStatus::Processed,
+                ));
+                self.transactions_queued_for_confirmation
+                    .push_back((transaction, status_tx));
+            }
+            Err(res) => {
+                let transaction_meta = convert_transaction_metadata_from_canonical(&res.meta);
+                let _ = self.simnet_events_tx.try_send(SimnetEvent::error(format!(
+                    "Transaction execution failed: {}",
+                    res.err.to_string()
+                )));
+                let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((
+                    res.err,
+                    transaction_meta,
+                )));
+            }
+        };
+        Ok(())
+    }
 
-        for (_key, status_tx) in transactions_processed.iter() {
+    /// Confirms transactions that are queued for confirmation.
+    ///
+    /// This function processes all transactions in the confirmation queue, sending a confirmation
+    /// event for each transaction. It updates the internal epoch and slot information, ensuring
+    /// that the latest epoch and slot are reflected in the system. Additionally, it maintains
+    /// performance samples for the last 30 slots, tracking the number of transactions processed
+    /// in each slot.
+    ///
+    /// The function performs the following steps:
+    /// 1. Iterates through the `transactions_queued_for_confirmation` queue and sends a
+    ///    `TransactionStatusEvent::Success` event for each transaction, indicating that the
+    ///    transaction has been confirmed.
+    /// 2. Updates the `latest_epoch_info` to increment the slot index and absolute slot.
+    /// 3. If the slot index exceeds the number of slots in the current epoch, it resets the slot
+    ///    index to 0 and increments the epoch.
+    /// 4. Maintains a rolling window of performance samples, ensuring that only the last 30 slots
+    ///    are retained.
+    /// 5. Sends a `SimnetEvent::ClockUpdate` event with the updated clock information.
+    /// 6. Updates the system's clock sysvar with the new clock information.
+    ///
+    /// This function is typically called periodically to ensure that transactions are confirmed
+    /// and the system's state remains consistent with the passage of time.
+    pub fn confirm_transactions(&mut self) -> Result<(), SurfpoolError> {
+        let num_transactions = self.transactions_queued_for_confirmation.len();
+        while let Some((tx, status_tx)) = self.transactions_queued_for_confirmation.pop_front() {
             let _ = status_tx.try_send(TransactionStatusEvent::Success(
                 TransactionConfirmationStatus::Confirmed,
             ));
+            // .map_err(Into::into)?;
+
+            let finalized_at = self.latest_epoch_info.absolute_slot + FINALIZATION_SLOT_THRESHOLD;
+            self.transactions_queued_for_finalization
+                .push_back((finalized_at, tx, status_tx));
         }
 
         self.latest_epoch_info.slot_index += 1;
@@ -711,7 +743,7 @@ impl SurfnetSvm {
             slot,
             num_slots: 1,
             sample_period_secs: 1,
-            num_transactions: transactions_processed.len() as u64,
+            num_transactions: num_transactions as u64,
             num_non_vote_transactions: None,
         });
 
@@ -722,7 +754,7 @@ impl SurfnetSvm {
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.slot_index,
             epoch: self.latest_epoch_info.epoch,
-            unix_timestamp,
+            unix_timestamp: Utc::now().timestamp(),
             epoch_start_timestamp: 0, // todo
             leader_schedule_epoch: 0, // todo
         };
@@ -730,5 +762,50 @@ impl SurfnetSvm {
             .simnet_events_tx
             .send(SimnetEvent::ClockUpdate(clock.clone()));
         self.inner.set_sysvar(&clock);
+        Ok(())
+    }
+
+    /// Finalizes transactions that are queued for finalization.
+    ///
+    /// This function processes transactions in the finalization queue, sending a
+    /// `TransactionStatusEvent::Success` event with the `Finalized` status for each transaction
+    /// that has reached the required finalization slot threshold. Transactions that have not yet
+    /// reached the finalization threshold are requeued for future processing.
+    ///
+    /// The function performs the following steps:
+    /// 1. Iterates through the `transactions_queued_for_finalization` queue.
+    /// 2. For each transaction, checks if the current slot has reached or exceeded the
+    ///    transaction's `finalized_at` slot.
+    /// 3. If the transaction is ready for finalization, sends a `TransactionStatusEvent::Success`
+    ///    event with the `Finalized` status.
+    /// 4. If the transaction is not yet ready for finalization, requeues it for future processing.
+    ///
+    /// This function ensures that transactions are finalized only after the required number of
+    /// slots have passed, maintaining consistency with the blockchain's finalization rules.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` on successful processing of the finalization queue.
+    /// * `Err(SurfpoolError)` if an error occurs during processing.
+    pub fn finalize_transactions(&mut self) -> Result<(), SurfpoolError> {
+        let current_slot = self.latest_epoch_info.absolute_slot;
+        let mut requeue = VecDeque::new();
+        while let Some((finalized_at, _tx, status_tx)) =
+            self.transactions_queued_for_finalization.pop_front()
+        {
+            if current_slot >= finalized_at {
+                let _ = status_tx.try_send(TransactionStatusEvent::Success(
+                    TransactionConfirmationStatus::Finalized,
+                ));
+                // .map_err(Into::into)?;
+            } else {
+                requeue.push_back((finalized_at, _tx, status_tx));
+            }
+        }
+        // Requeue any transactions that are not yet finalized
+        self.transactions_queued_for_finalization
+            .append(&mut requeue);
+
+        Ok(())
     }
 }
