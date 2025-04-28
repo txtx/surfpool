@@ -4,7 +4,6 @@ use jsonrpc_core::{
     futures::future::Either, middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware,
     Request, Response,
 };
-use solana_client::rpc_custom_error::RpcCustomError;
 use solana_clock::Slot;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -38,39 +37,33 @@ pub struct RunloopContext {
 pub type SvmReadClosure<T> = Box<dyn Fn(&SurfnetSvm) -> T + Send + Sync>;
 
 trait State {
-    fn get_svm_locker<'a>(&'a self) -> Result<Arc<RwLock<SurfnetSvm>>, RpcCustomError>;
-    fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, RpcCustomError>
+    fn get_svm_locker<'a>(&'a self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError>;
+    fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, SurfpoolError>
     where
         F: Fn(&SurfnetSvm) -> T + Send + Sync,
         T: Send + 'static;
-    fn with_svm_writer<T, F>(&self, writer: F) -> Result<T, RpcCustomError>
+    fn with_svm_writer<T, F>(&self, writer: F) -> Result<T, SurfpoolError>
     where
         F: Fn(&mut SurfnetSvm) -> T + Send + Sync,
         T: Send + 'static;
 }
 
 impl State for Option<RunloopContext> {
-    fn get_svm_locker<'a>(&'a self) -> Result<Arc<RwLock<SurfnetSvm>>, RpcCustomError> {
+    fn get_svm_locker<'a>(&'a self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError> {
         // Retrieve svm state
         let Some(ctx) = self else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
+            return Err(SurfpoolError::no_locker());
         };
         Ok(ctx.surfnet_svm.clone())
     }
 
-    fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, RpcCustomError>
+    fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, SurfpoolError>
     where
         F: Fn(&SurfnetSvm) -> T + Send + Sync,
         T: Send + 'static,
     {
         let Some(ctx) = self else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
+            return Err(SurfpoolError::no_locker());
         };
         let read_lock = ctx.surfnet_svm.clone();
         let res = tokio::task::block_in_place(move || {
@@ -80,16 +73,13 @@ impl State for Option<RunloopContext> {
         Ok(res)
     }
 
-    fn with_svm_writer<T, F>(&self, writer: F) -> Result<T, RpcCustomError>
+    fn with_svm_writer<T, F>(&self, writer: F) -> Result<T, SurfpoolError>
     where
         F: Fn(&mut SurfnetSvm) -> T + Send + Sync,
         T: Send + 'static,
     {
         let Some(ctx) = self else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
+            return Err(SurfpoolError::no_locker());
         };
         let read_lock = ctx.surfnet_svm.clone();
         let res = tokio::task::block_in_place(move || {
@@ -102,8 +92,8 @@ impl State for Option<RunloopContext> {
 
 impl Metadata for RunloopContext {}
 
-use crate::surfnet::SurfnetSvm;
 use crate::PluginManagerCommand;
+use crate::{error::SurfpoolError, surfnet::SurfnetSvm};
 use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
 use surfpool_types::{types::RpcConfig, SimnetCommand};

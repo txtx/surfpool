@@ -478,7 +478,10 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         meta: Self::Metadata,
         _config: Option<RpcSupplyConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSupply>>> {
-        let svm_locker = meta.get_svm_locker().unwrap();
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
 
         Box::pin(async move {
             let svm_reader = svm_locker.read().await;
