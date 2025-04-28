@@ -21,7 +21,6 @@ use solana_client::{
     },
 };
 use solana_clock::UnixTimestamp;
-use solana_commitment_config::CommitmentLevel;
 use solana_message::VersionedMessage;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
@@ -31,7 +30,7 @@ use solana_transaction_status::{
 };
 use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
 use std::str::FromStr;
-use surfpool_types::{TransactionConfirmationStatus, TransactionStatusEvent};
+use surfpool_types::TransactionStatusEvent;
 
 use super::*;
 
@@ -1475,8 +1474,8 @@ impl Full for SurfpoolFullRpc {
                 num_slots_behind: None,
             })?;
         loop {
-            match (status_update_rx.recv(), config.preflight_commitment) {
-                (Ok(TransactionStatusEvent::SimulationFailure(e)), _) => {
+            match status_update_rx.recv() {
+                Ok(TransactionStatusEvent::SimulationFailure(e)) => {
                     return Err(Error {
                         data: None,
                         message: format!(
@@ -1488,7 +1487,7 @@ impl Full for SurfpoolFullRpc {
                         code: jsonrpc_core::ErrorCode::ServerError(-32002),
                     })
                 }
-                (Ok(TransactionStatusEvent::ExecutionFailure(e)), _) => {
+                Ok(TransactionStatusEvent::ExecutionFailure(e)) => {
                     return Err(Error {
                         data: None,
                         message: format!(
@@ -1500,26 +1499,14 @@ impl Full for SurfpoolFullRpc {
                         code: jsonrpc_core::ErrorCode::ServerError(-32002),
                     })
                 }
-                (
-                    Ok(TransactionStatusEvent::Success(TransactionConfirmationStatus::Processed)),
-                    Some(CommitmentLevel::Processed),
-                ) => break,
-                (
-                    Ok(TransactionStatusEvent::Success(TransactionConfirmationStatus::Confirmed)),
-                    None | Some(CommitmentLevel::Confirmed),
-                ) => break,
-                (
-                    Ok(TransactionStatusEvent::Success(TransactionConfirmationStatus::Finalized)),
-                    Some(CommitmentLevel::Finalized),
-                ) => break,
-                (Err(e), _) => {
+                Err(e) => {
                     return Err(Error {
                         data: None,
                         message: format!("Failed to process transaction: {}", e.to_string()),
                         code: jsonrpc_core::ErrorCode::ServerError(-32002),
                     });
                 }
-                (_, _) => continue,
+                Ok(TransactionStatusEvent::Success(_)) => break,
             }
         }
         Ok(signature.to_string())
@@ -1819,6 +1806,7 @@ mod tests {
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
         UiRawMessage, UiTransaction,
     };
+    use surfpool_types::TransactionConfirmationStatus;
     use test_case::test_case;
 
     fn build_v0_transaction(
