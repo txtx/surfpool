@@ -40,7 +40,6 @@ pub type AccountFactory = Box<dyn Fn(&SurfnetSvm) -> Account + Send + Sync>;
 
 pub enum GetAccountStrategy {
     LocalOrDefault(Option<AccountFactory>),
-    ConnectionOrDefault(Option<AccountFactory>),
     LocalThenConnectionOrDefault(Option<AccountFactory>),
 }
 
@@ -285,11 +284,6 @@ impl SurfnetSvm {
             GetAccountStrategy::LocalOrDefault(factory) => {
                 (self.inner.get_account(pubkey), factory)
             }
-            GetAccountStrategy::ConnectionOrDefault(factory) => {
-                let client = self.expected_rpc_client();
-                let entry = client.get_account(pubkey).await?;
-                (Some(entry), factory)
-            }
             GetAccountStrategy::LocalThenConnectionOrDefault(factory) => {
                 match self.inner.get_account(pubkey) {
                     Some(entry) => (Some(entry), factory),
@@ -336,29 +330,6 @@ impl SurfnetSvm {
             GetAccountStrategy::LocalOrDefault(factory) => {
                 (self.inner.get_account(pubkey), factory)
             }
-            GetAccountStrategy::ConnectionOrDefault(factory) => {
-                let client = self.expected_rpc_client();
-                let res = client
-                    .get_account_with_commitment(&pubkey, CommitmentConfig::confirmed())
-                    .await?;
-
-                if let Some(account) = &res.value {
-                    if account.executable {
-                        let program_data_address = get_program_data_address(pubkey);
-                        let res = self
-                            .get_account(
-                                &program_data_address,
-                                GetAccountStrategy::ConnectionOrDefault(None),
-                            )
-                            .await?;
-                        if let Some(program_data) = res {
-                            let _ = self.inner.set_account(program_data_address, program_data);
-                        }
-                    }
-                    let _ = self.inner.set_account(pubkey.clone(), account.clone());
-                }
-                (res.value, factory)
-            }
             GetAccountStrategy::LocalThenConnectionOrDefault(factory) => {
                 match self.inner.get_account(pubkey) {
                     Some(entry) => (Some(entry), factory),
@@ -374,7 +345,7 @@ impl SurfnetSvm {
                                 let res = self
                                     .get_account(
                                         &program_data_address,
-                                        GetAccountStrategy::ConnectionOrDefault(None),
+                                        GetAccountStrategy::LocalThenConnectionOrDefault(None),
                                     )
                                     .await?;
                                 if let Some(program_data) = res {
@@ -432,11 +403,6 @@ impl SurfnetSvm {
                 }
                 Ok(accounts)
             }
-            GetAccountStrategy::ConnectionOrDefault(_) => {
-                let client = self.expected_rpc_client();
-                let entry = client.get_multiple_accounts(pubkeys).await?;
-                Ok(entry)
-            }
             GetAccountStrategy::LocalThenConnectionOrDefault(_) => {
                 // Retrieve accounts missing locally
                 let mut missing_accounts = Vec::new();
@@ -469,7 +435,7 @@ impl SurfnetSvm {
                             let res = self
                                 .get_account(
                                     &program_data_address,
-                                    GetAccountStrategy::ConnectionOrDefault(None),
+                                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
                                 )
                                 .await?;
                             if let Some(program_data) = res {
