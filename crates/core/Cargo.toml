@@ -74,6 +74,7 @@ json5 = "0.4.1"
 txtx-addon-network-svm-types = { workspace = true }
 uuid = "1.7.0"
 blake3 = "1.8.2"
+anyhow = "1.0.98"
 
 [dev-dependencies]
 test-case = "^3.3.1"

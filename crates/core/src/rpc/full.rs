@@ -1389,7 +1389,10 @@ impl Full for SurfpoolFullRpc {
             let svm_reader = svm_locker.read().await;
             let mut responses = Vec::with_capacity(signatures.len());
             for signature in signatures.into_iter() {
-                let res = svm_reader.get_transaction(&signature, None).await.unwrap();
+                let res = match svm_reader.get_transaction(&signature, None).await {
+                    Ok(res) => res,
+                    Err(_e) => return Err(Error::internal_error()),
+                };
                 let entry = match res {
                     Some((_, status)) => Some(status),
                     None => None,
