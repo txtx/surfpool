@@ -71,9 +71,9 @@ spl-associated-token-account =  "6.0.0"
 # txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui", default-features = false, features = ["bin_build"] }
 txtx-addon-kit = { version = "0.2.10", features = ["wasm"] }
 txtx-core = { version = "0.2.13" }
-txtx-addon-network-svm = { version = "0.1.16" }
-txtx-addon-network-svm-types = { version = "0.1.16" }
+txtx-addon-network-svm = { version = "0.1.17" }
+txtx-addon-network-svm-types = { version = "0.1.17" }
 txtx-gql = { version = "0.2.6" }
-txtx-cloud = "0.1.1"
 txtx-supervisor-ui = { version = "0.1.4", default-features = false, features = ["crates_build"]}
+txtx-cloud = "0.1.1"
 uuid = "1.15.1"
