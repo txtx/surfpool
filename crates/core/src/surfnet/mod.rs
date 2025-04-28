@@ -1,5 +1,5 @@
 use crate::{
-    error::SurfpoolError,
+    error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
     types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
@@ -260,13 +260,10 @@ impl SurfnetSvm {
     /// # Returns
     ///
     /// * `Ok(())` on success, or an error if the operation fails.
-    pub async fn set_account(
-        &mut self,
-        pubkey: &Pubkey,
-        account: Account,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let _ = self.inner.set_account(pubkey.clone(), account);
-        Ok(())
+    pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
+        self.inner
+            .set_account(pubkey.clone(), account)
+            .map_err(|e| SurfpoolError::set_account(*pubkey, e))
     }
 
     /// Retrieves an account for the specified public key based on the given strategy.
