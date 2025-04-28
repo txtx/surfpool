@@ -1,7 +1,7 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use solana_client::rpc_client::SerializableTransaction;
 use solana_message::VersionedMessage;
-use solana_sdk::transaction::VersionedTransaction;
+use solana_sdk::{inner_instruction::InnerInstruction, transaction::VersionedTransaction};
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
@@ -108,16 +108,19 @@ impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMe
                             .map(|(i, ixs)| UiInnerInstructions {
                                 index: i as u8,
                                 instructions: ixs
-                                    .iter()
-                                    .map(|ix| {
-                                        UiInstruction::Compiled(UiCompiledInstruction {
-                                            program_id_index: ix.instruction.program_id_index,
-                                            accounts: ix.instruction.accounts.clone(),
-                                            data: String::from_utf8(ix.instruction.data.clone())
-                                                .unwrap(),
-                                            stack_height: Some(ix.stack_height as u32),
-                                        })
-                                    })
+                                    .into_iter()
+                                    .map(
+                                        |InnerInstruction {
+                                             instruction,
+                                             stack_height,
+                                         }| {
+                                            UiInstruction::Compiled(UiCompiledInstruction::from(
+                                                instruction,
+                                                // todo: concerned by this cast, we must be getting something wrong upstream
+                                                Some(*stack_height as u32),
+                                            ))
+                                        },
+                                    )
                                     .collect(),
                             })
                             .collect(),
