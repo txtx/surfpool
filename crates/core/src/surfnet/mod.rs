@@ -1,8 +1,8 @@
 use crate::{
+    error::SurfpoolError,
     rpc::utils::convert_transaction_metadata_from_canonical,
     types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
-use anyhow::anyhow;
 use chrono::Utc;
 use crossbeam_channel::{Receiver, Sender};
 use litesvm::{types::TransactionResult, LiteSVM};
@@ -274,10 +274,13 @@ impl SurfnetSvm {
         &self,
         pubkey: &Pubkey,
         strategy: GetAccountStrategy,
-    ) -> Result<Option<Account>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<Account>, SurfpoolError> {
         // Ensure consistency between connection and strategy
         if !self.is_connected() && strategy.requires_connection() {
-            return Err(anyhow!("Attempt to retrieve remote data from an offline vm").into());
+            return Err(SurfpoolError::get_account(
+                *pubkey,
+                "Attempt to retrieve remote data from an offline vm",
+            ));
         }
 
         let (result, factory) = match strategy {
@@ -289,8 +292,11 @@ impl SurfnetSvm {
                     Some(entry) => (Some(entry), factory),
                     None => {
                         let client = self.expected_rpc_client();
-                        let entry = client.get_account(pubkey).await?;
-                        (Some(entry), factory)
+                        let res = client
+                            .get_account_with_commitment(pubkey, CommitmentConfig::confirmed())
+                            .await
+                            .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
+                        (res.value, factory)
                     }
                 }
             }
@@ -320,10 +326,13 @@ impl SurfnetSvm {
         &mut self,
         pubkey: &Pubkey,
         strategy: GetAccountStrategy,
-    ) -> Result<Option<Account>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<Account>, SurfpoolError> {
         // Ensure consistency between connection and strategy
         if !self.is_connected() && strategy.requires_connection() {
-            return Err(anyhow!("Attempt to retrieve remote data from an offline vm").into());
+            return Err(SurfpoolError::get_account(
+                *pubkey,
+                "Attempt to retrieve remote data from an offline vm",
+            ));
         }
 
         let (result, factory) = match strategy {
@@ -337,7 +346,8 @@ impl SurfnetSvm {
                         let client = self.expected_rpc_client();
                         let res = client
                             .get_account_with_commitment(&pubkey, CommitmentConfig::confirmed())
-                            .await?;
+                            .await
+                            .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
 
                         if let Some(account) = &res.value {
                             if account.executable {
@@ -388,10 +398,12 @@ impl SurfnetSvm {
         &mut self,
         pubkeys: &Vec<Pubkey>,
         strategy: GetAccountStrategy,
-    ) -> Result<Vec<Option<Account>>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<Option<Account>>, SurfpoolError> {
         // Ensure consistency between connection and strategy
         if !self.is_connected() && strategy.requires_connection() {
-            return Err(anyhow!("Attempt to retrieve remote data from an offline vm").into());
+            return Err(SurfpoolError::get_multiple_accounts(
+                "Attempt to retrieve remote data from an offline vm",
+            ));
         }
 
         match strategy {
@@ -427,7 +439,10 @@ impl SurfnetSvm {
                 }
 
                 let client = self.expected_rpc_client();
-                let remote_accounts = client.get_multiple_accounts(&missing_accounts).await?;
+                let remote_accounts = client
+                    .get_multiple_accounts(&missing_accounts)
+                    .await
+                    .map_err(|e| SurfpoolError::get_multiple_accounts(e))?;
                 for (pubkey, remote_account) in missing_accounts.into_iter().zip(remote_accounts) {
                     if let Some(remote_account) = remote_account {
                         if remote_account.executable {

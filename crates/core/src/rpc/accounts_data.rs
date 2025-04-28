@@ -357,33 +357,32 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return Box::pin(future::err(e)),
         };
 
-        let svm_locker = meta.get_svm_locker().unwrap();
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
 
         Box::pin(async move {
             let mut svm_writer = svm_locker.write().await;
-            let res = svm_writer
+            let some_account = svm_writer
                 .get_account_mut(
                     &pubkey,
                     GetAccountStrategy::LocalThenConnectionOrDefault(None),
                 )
-                .await;
-            match res {
-                Err(e) => {
-                    unimplemented!()
-                }
-                Ok(account) => Ok(RpcResponse {
-                    context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
-                    value: account.map(|account| {
-                        encode_ui_account(
-                            &pubkey,
-                            &account,
-                            config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                            None,
-                            config.data_slice,
-                        )
-                    }),
+                .await?;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                value: some_account.map(|account| {
+                    encode_ui_account(
+                        &pubkey,
+                        &account,
+                        config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                        None,
+                        config.data_slice,
+                    )
                 }),
-            }
+            })
         })
     }
 
@@ -403,42 +402,38 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return Box::pin(future::err(e.into())),
         };
 
-        let svm_locker = meta.get_svm_locker().unwrap();
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
 
         Box::pin(async move {
             let mut svm_writer = svm_locker.write().await;
-            let res = svm_writer
+            let accounts = svm_writer
                 .get_multiple_accounts_mut(
                     &pubkeys,
                     GetAccountStrategy::LocalThenConnectionOrDefault(None),
                 )
-                .await;
-            match res {
-                Err(e) => {
-                    unimplemented!()
-                }
-                Ok(accounts) => {
-                    let mut ui_accounts = vec![];
-                    for (account, pubkey) in accounts.into_iter().zip(pubkeys) {
-                        let ui_account = match account {
-                            None => None,
-                            Some(account) => Some(encode_ui_account(
-                                &pubkey,
-                                &account,
-                                config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                                None,
-                                config.data_slice,
-                            )),
-                        };
-                        ui_accounts.push(ui_account);
-                    }
-
-                    Ok(RpcResponse {
-                        context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
-                        value: ui_accounts,
-                    })
-                }
+                .await?;
+            let mut ui_accounts = vec![];
+            for (account, pubkey) in accounts.into_iter().zip(pubkeys) {
+                let ui_account = match account {
+                    None => None,
+                    Some(account) => Some(encode_ui_account(
+                        &pubkey,
+                        &account,
+                        config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                        None,
+                        config.data_slice,
+                    )),
+                };
+                ui_accounts.push(ui_account);
             }
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                value: ui_accounts,
+            })
         })
     }
 
