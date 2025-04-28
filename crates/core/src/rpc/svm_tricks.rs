@@ -396,14 +396,14 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
         return Box::pin(async move {
             let mut svm_writer = svm_locker.write().await;
             let mut token_account = svm_writer
-                .get_account_mut(
+                .get_account(
                     &associated_token_account,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(Some(Box::new(move |sufnet_svm| {
-                        let _ = sufnet_svm.simnet_events_tx.send(SimnetEvent::info(
+                    GetAccountStrategy::LocalThenConnectionOrDefault(Some(Box::new(move |surfnet_svm| {
+                        let _ = surfnet_svm.simnet_events_tx.send(SimnetEvent::info(
                             format!("Associated token account {associated_token_account} not found, creating a new account from default values"),
                         ));
 
-                        let minimum_rent = sufnet_svm
+                        let minimum_rent = surfnet_svm
                             .inner
                             .minimum_balance_for_rent_exemption(TokenAccount::LEN);
 
@@ -426,16 +426,10 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
                 )
                 .await?
                 .unwrap();
-
-            let mut token_account_data = match TokenAccount::unpack(&token_account.data) {
-                Ok(token_account_data) => token_account_data,
-                Err(e) => {
-                    return Err(Error::invalid_params(format!(
-                        "Failed to unpack token account data: {}",
-                        e
-                    )))
-                }
-            };
+            let mut token_account_data =
+                TokenAccount::unpack(&token_account.data).map_err(|e| {
+                    Error::invalid_params(format!("Failed to unpack token account data: {}", e))
+                })?;
 
             if let Err(e) = update.apply(&mut token_account_data) {
                 return Err(e);
@@ -444,7 +438,7 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
             let mut final_account_bytes = [0; TokenAccount::LEN];
             token_account_data.pack_into_slice(&mut final_account_bytes);
             token_account.data = final_account_bytes.to_vec();
-            let _ = svm_writer.set_account(&associated_token_account, token_account);
+            svm_writer.set_account(&associated_token_account, token_account)?;
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
