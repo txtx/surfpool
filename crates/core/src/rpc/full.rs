@@ -1678,17 +1678,7 @@ impl Full for SurfpoolFullRpc {
         signature_str: String,
         config: Option<RpcEncodingConfigWrapper<RpcTransactionConfig>>,
     ) -> BoxFuture<Result<Option<EncodedConfirmedTransactionWithStatusMeta>>> {
-        // QUESTION: this vs unwrap_or_default?
-        let config = config
-            .map(|c| match c {
-                RpcEncodingConfigWrapper::Deprecated(encoding) => RpcTransactionConfig {
-                    encoding,
-                    ..RpcTransactionConfig::default()
-                },
-                RpcEncodingConfigWrapper::Current(None) => RpcTransactionConfig::default(),
-                RpcEncodingConfigWrapper::Current(Some(c)) => c,
-            })
-            .unwrap_or_default();
+        let config = config.map(|c| c.convert_to_current()).unwrap_or_default();
 
         let signature = match Signature::from_str(&signature_str)
             .map_err(|e| SurfpoolError::invalid_signature(&signature_str, e.to_string()))
