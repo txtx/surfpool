@@ -319,7 +319,6 @@ impl SurfnetSvm {
                     None => {
                         let client = self.expected_rpc_client();
                         let account = client.get_account(&pubkey).await?;
-                        let _ = self.inner.set_account(pubkey.clone(), account.clone());
 
                         if account.executable {
                             let program_data_address = get_program_data_address(pubkey);
@@ -333,6 +332,7 @@ impl SurfnetSvm {
                                 let _ = self.inner.set_account(program_data_address, program_data);
                             }
                         }
+                        let _ = self.inner.set_account(pubkey.clone(), account.clone());
                         (Some(account), factory)
                     }
                 }
@@ -585,7 +585,7 @@ impl SurfnetSvm {
             }
 
             // find accounts that are needed for this transaction but are missing from the local
-            // svm cached, fetch them from the RPC, and insert them locally
+            // svm cache, fetch them from the RPC, and insert them locally
             let accounts = match &transaction.message {
                 VersionedMessage::Legacy(message) => message.account_keys.clone(),
                 VersionedMessage::V0(message) => message.account_keys.clone(),
