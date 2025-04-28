@@ -585,7 +585,7 @@ impl SurfnetSvm {
             }
 
             // find accounts that are needed for this transaction but are missing from the local
-            // svm cached, fetch them from the RPC, and insert them locally
+            // svm cache, fetch them from the RPC, and insert them locally
             let accounts = match &transaction.message {
                 VersionedMessage::Legacy(message) => message.account_keys.clone(),
                 VersionedMessage::V0(message) => message.account_keys.clone(),
