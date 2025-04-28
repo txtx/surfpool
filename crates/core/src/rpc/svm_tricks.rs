@@ -330,7 +330,10 @@ impl SvmTricksRpc for SurfpoolSvmTricksRpc {
                 let _ = svm_writer.set_account(&pubkey, account);
             } else {
                 let res = svm_writer
-                    .get_account_mut(&pubkey, GetAccountStrategy::ConnectionOrDefault(None))
+                    .get_account_mut(
+                        &pubkey,
+                        GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                    )
                     .await
                     .unwrap();
                 if res.is_none() {
