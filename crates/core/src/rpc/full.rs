@@ -1382,7 +1382,7 @@ impl Full for SurfpoolFullRpc {
 
         let svm_locker = match meta.get_svm_locker() {
             Ok(s) => s,
-            Err(e) => return Box::pin(future::err(e.into())),
+            Err(e) => return e.into(),
         };
 
         Box::pin(async move {
@@ -1543,7 +1543,10 @@ impl Full for SurfpoolFullRpc {
             VersionedMessage::V0(msg) => msg.account_keys.clone(),
         };
 
-        let svm_locker = meta.get_svm_locker().unwrap();
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
 
         Box::pin(async move {
             let mut svm_writer = svm_locker.write().await;

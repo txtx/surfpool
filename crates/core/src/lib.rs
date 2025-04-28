@@ -10,6 +10,7 @@ extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
 
+pub mod error;
 pub mod rpc;
 pub mod runloops;
 pub mod surfnet;

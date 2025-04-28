@@ -600,8 +600,7 @@ impl Minimal for SurfpoolMinimalRpc {
                     &pubkey,
                     GetAccountStrategy::LocalThenConnectionOrDefault(None),
                 )
-                .await
-                .unwrap();
+                .await?;
             let balance = match res {
                 Some(account) => account.lamports,
                 None => 0,
