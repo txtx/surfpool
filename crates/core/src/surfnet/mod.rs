@@ -2,6 +2,7 @@ use crate::{
     rpc::utils::convert_transaction_metadata_from_canonical,
     types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
+use anyhow::anyhow;
 use chrono::Utc;
 use crossbeam_channel::{Receiver, Sender};
 use litesvm::{types::TransactionResult, LiteSVM};
@@ -42,6 +43,15 @@ pub enum GetAccountStrategy {
     LocalThenConnectionOrDefault(Option<AccountFactory>),
 }
 
+impl GetAccountStrategy {
+    pub fn requires_connection(&self) -> bool {
+        match &self {
+            Self::LocalOrDefault(_) => false,
+            _ => true,
+        }
+    }
+}
+
 pub enum GeyserEvent {
     NewTransaction(VersionedTransaction, TransactionMetadata, Slot),
 }
@@ -63,8 +73,9 @@ pub struct SurfnetSvm {
     pub geyser_events_tx: Sender<GeyserEvent>,
 }
 
+#[derive(PartialEq, Eq)]
 pub enum SurfnetDataConnection {
-    Local,
+    Offline,
     Connected(String, EpochInfo),
 }
 
@@ -97,7 +108,7 @@ impl SurfnetSvm {
                 transactions_processed: 0,
                 simnet_events_tx,
                 geyser_events_tx,
-                connection: SurfnetDataConnection::Local,
+                connection: SurfnetDataConnection::Offline,
                 latest_epoch_info: EpochInfo {
                     epoch: 0,
                     slot_index: 0,
@@ -202,11 +213,18 @@ impl SurfnetSvm {
     /// Panics if the `SurfnetSvm` is not connected to an RPC endpoint.
     pub fn expected_rpc_client(&self) -> RpcClient {
         match &self.connection {
-            SurfnetDataConnection::Local => unreachable!(),
+            SurfnetDataConnection::Offline => unreachable!(),
             SurfnetDataConnection::Connected(rpc_url, _) => {
                 let rpc_client = RpcClient::new(rpc_url.to_string());
                 rpc_client
             }
+        }
+    }
+
+    pub fn is_connected(&self) -> bool {
+        match &self.connection {
+            SurfnetDataConnection::Offline => false,
+            SurfnetDataConnection::Connected(_, _) => true,
         }
     }
 
@@ -257,6 +275,11 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         strategy: GetAccountStrategy,
     ) -> Result<Option<Account>, Box<dyn std::error::Error>> {
+        // Ensure consistency between connection and strategy
+        if !self.is_connected() && strategy.requires_connection() {
+            return Err(anyhow!("Attempt to retrieve remote data from an offline vm").into());
+        }
+
         let (result, factory) = match strategy {
             GetAccountStrategy::LocalOrDefault(factory) => {
                 (self.inner.get_account(pubkey), factory)
@@ -303,6 +326,11 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         strategy: GetAccountStrategy,
     ) -> Result<Option<Account>, Box<dyn std::error::Error>> {
+        // Ensure consistency between connection and strategy
+        if !self.is_connected() && strategy.requires_connection() {
+            return Err(anyhow!("Attempt to retrieve remote data from an offline vm").into());
+        }
+
         let (result, factory) = match strategy {
             GetAccountStrategy::LocalOrDefault(factory) => {
                 (self.inner.get_account(pubkey), factory)
@@ -310,6 +338,19 @@ impl SurfnetSvm {
             GetAccountStrategy::ConnectionOrDefault(factory) => {
                 let client = self.expected_rpc_client();
                 let account = client.get_account(&pubkey).await?;
+
+                if account.executable {
+                    let program_data_address = get_program_data_address(pubkey);
+                    let res = self
+                        .get_account(
+                            &program_data_address,
+                            GetAccountStrategy::ConnectionOrDefault(None),
+                        )
+                        .await?;
+                    if let Some(program_data) = res {
+                        let _ = self.inner.set_account(program_data_address, program_data);
+                    }
+                }
                 let _ = self.inner.set_account(pubkey.clone(), account.clone());
                 (Some(account), factory)
             }
@@ -366,6 +407,11 @@ impl SurfnetSvm {
         pubkeys: &Vec<Pubkey>,
         strategy: GetAccountStrategy,
     ) -> Result<Vec<Option<Account>>, Box<dyn std::error::Error>> {
+        // Ensure consistency between connection and strategy
+        if !self.is_connected() && strategy.requires_connection() {
+            return Err(anyhow!("Attempt to retrieve remote data from an offline vm").into());
+        }
+
         match strategy {
             GetAccountStrategy::LocalOrDefault(_) => {
                 let mut accounts = vec![];
@@ -465,7 +511,7 @@ impl SurfnetSvm {
             .get(&signature)
             .map(|entry| entry.expect_processed().clone().into());
 
-        if tx.is_none() {
+        if tx.is_none() && self.is_connected() {
             let client = self.expected_rpc_client();
             let entry = client
                 .get_transaction(signature, encoding.unwrap_or(UiTransactionEncoding::Json))
