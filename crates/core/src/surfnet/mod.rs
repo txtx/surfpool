@@ -9,6 +9,7 @@ use litesvm::{types::TransactionResult, LiteSVM};
 use solana_account::Account;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot};
+use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
 use solana_keypair::Keypair;
@@ -337,44 +338,54 @@ impl SurfnetSvm {
             }
             GetAccountStrategy::ConnectionOrDefault(factory) => {
                 let client = self.expected_rpc_client();
-                let account = client.get_account(&pubkey).await?;
+                let res = client
+                    .get_account_with_commitment(&pubkey, CommitmentConfig::confirmed())
+                    .await?;
 
-                if account.executable {
-                    let program_data_address = get_program_data_address(pubkey);
-                    let res = self
-                        .get_account(
-                            &program_data_address,
-                            GetAccountStrategy::ConnectionOrDefault(None),
-                        )
-                        .await?;
-                    if let Some(program_data) = res {
-                        let _ = self.inner.set_account(program_data_address, program_data);
+                if let Some(account) = &res.value {
+                    if account.executable {
+                        let program_data_address = get_program_data_address(pubkey);
+                        let res = self
+                            .get_account(
+                                &program_data_address,
+                                GetAccountStrategy::ConnectionOrDefault(None),
+                            )
+                            .await?;
+                        if let Some(program_data) = res {
+                            let _ = self.inner.set_account(program_data_address, program_data);
+                        }
                     }
+                    let _ = self.inner.set_account(pubkey.clone(), account.clone());
                 }
-                let _ = self.inner.set_account(pubkey.clone(), account.clone());
-                (Some(account), factory)
+                (res.value, factory)
             }
             GetAccountStrategy::LocalThenConnectionOrDefault(factory) => {
                 match self.inner.get_account(pubkey) {
                     Some(entry) => (Some(entry), factory),
                     None => {
                         let client = self.expected_rpc_client();
-                        let account = client.get_account(&pubkey).await?;
+                        let res = client
+                            .get_account_with_commitment(&pubkey, CommitmentConfig::confirmed())
+                            .await?;
 
-                        if account.executable {
-                            let program_data_address = get_program_data_address(pubkey);
-                            let res = self
-                                .get_account(
-                                    &program_data_address,
-                                    GetAccountStrategy::ConnectionOrDefault(None),
-                                )
-                                .await?;
-                            if let Some(program_data) = res {
-                                let _ = self.inner.set_account(program_data_address, program_data);
+                        if let Some(account) = &res.value {
+                            if account.executable {
+                                let program_data_address = get_program_data_address(pubkey);
+                                let res = self
+                                    .get_account(
+                                        &program_data_address,
+                                        GetAccountStrategy::ConnectionOrDefault(None),
+                                    )
+                                    .await?;
+                                if let Some(program_data) = res {
+                                    let _ =
+                                        self.inner.set_account(program_data_address, program_data);
+                                }
                             }
+                            let _ = self.inner.set_account(pubkey.clone(), account.clone());
                         }
-                        let _ = self.inner.set_account(pubkey.clone(), account.clone());
-                        (Some(account), factory)
+
+                        (res.value, factory)
                     }
                 }
             }
