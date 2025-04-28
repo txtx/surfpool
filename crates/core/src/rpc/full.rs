@@ -1456,7 +1456,7 @@ impl Full for SurfpoolFullRpc {
             .into());
         };
 
-        let (status_update_tx, status_uptate_rx) = crossbeam_channel::bounded(1);
+        let (status_update_tx, status_update_rx) = crossbeam_channel::bounded(1);
         let _ = ctx
             .simnet_commands_tx
             .send(SimnetCommand::TransactionReceived(
@@ -1464,9 +1464,12 @@ impl Full for SurfpoolFullRpc {
                 unsanitized_tx,
                 status_update_tx,
                 config.skip_preflight,
-            ));
+            ))
+            .map_err(|_| RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            })?;
         loop {
-            match (status_uptate_rx.recv(), config.preflight_commitment) {
+            match (status_update_rx.recv(), config.preflight_commitment) {
                 (Ok(TransactionStatusEvent::SimulationFailure(e)), _) => {
                     return Err(Error {
                         data: None,
@@ -1503,7 +1506,13 @@ impl Full for SurfpoolFullRpc {
                     Ok(TransactionStatusEvent::Success(TransactionConfirmationStatus::Finalized)),
                     Some(CommitmentLevel::Finalized),
                 ) => break,
-                (Err(_), _) => break,
+                (Err(e), _) => {
+                    return Err(Error {
+                        data: None,
+                        message: format!("Failed to process transaction: {}", e.to_string()),
+                        code: jsonrpc_core::ErrorCode::ServerError(-32002),
+                    });
+                }
                 (_, _) => continue,
             }
         }
