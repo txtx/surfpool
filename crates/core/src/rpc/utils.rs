@@ -22,6 +22,8 @@ use solana_transaction_status::{
     InnerInstruction, InnerInstructions, TransactionBinaryEncoding, UiInnerInstructions,
 };
 
+use crate::error::{SurfpoolError, SurfpoolResult};
+
 pub fn convert_transaction_metadata_from_canonical(
     transaction_metadata: &TransactionMetadata,
 ) -> surfpool_types::TransactionMetadata {
@@ -71,10 +73,10 @@ fn verify_filter(input: &RpcFilterType) -> Result<()> {
         .map_err(|e| Error::invalid_params(format!("Invalid param: {e:?}")))
 }
 
-pub fn verify_pubkey(input: &str) -> Result<Pubkey> {
-    input.parse().map_err(|e: ParsePubkeyError| {
-        Error::invalid_params(format!("Invalid Pubkey: {}", e.to_string()))
-    })
+pub fn verify_pubkey(input: &str) -> SurfpoolResult<Pubkey> {
+    input
+        .parse()
+        .map_err(|e: ParsePubkeyError| SurfpoolError::invalid_pubkey(input, e.to_string()))
 }
 
 fn verify_hash(input: &str) -> Result<Hash> {
