@@ -553,7 +553,7 @@ impl SurfnetSvm {
     ///     - `VersionedTransaction`: The transaction to process.
     ///     - `Sender<TransactionStatusEvent>`: A sender used to send status updates.
     ///     - `bool`: Whether to skip the preflight simulation step for the transaction.
-    /// - `tick`: A flag indicating whether to update the transaction statuses to "Confirmed" after execution.
+    /// - `produce_block`: A flag indicating whether to update the transaction statuses to "Confirmed" after execution.
     ///
     /// # Returns
     ///
@@ -562,7 +562,7 @@ impl SurfnetSvm {
     pub async fn process_transactions(
         &mut self,
         transactions_to_process: Vec<(VersionedTransaction, Sender<TransactionStatusEvent>, bool)>,
-        tick: bool,
+        produce_block: bool,
     ) {
         let unix_timestamp: i64 = Utc::now().timestamp();
         let mut transactions_processed = Vec::new();
@@ -652,7 +652,7 @@ impl SurfnetSvm {
             };
         }
 
-        if !tick {
+        if !produce_block {
             return;
         }
 
