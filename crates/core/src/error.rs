@@ -76,6 +76,18 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn set_account<T>(pubkey: Pubkey, e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to set account {} in remote: {}",
+            pubkey,
+            e.to_string()
+        )));
+        Self(error)
+    }
     pub fn get_account<T>(pubkey: Pubkey, e: T) -> Self
     where
         T: ToString,
