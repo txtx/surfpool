@@ -1,7 +1,6 @@
 use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey};
 use crate::surfnet::GetAccountStrategy;
 use itertools::Itertools;
-use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
@@ -1375,10 +1374,17 @@ impl Full for SurfpoolFullRpc {
         signature_strs: Vec<String>,
         _config: Option<RpcSignatureStatusConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<Option<TransactionStatus>>>>> {
-        let signatures = signature_strs
+        let signatures = match signature_strs
             .iter()
-            .map(|s| Signature::from_str(s).unwrap())
-            .collect::<Vec<Signature>>();
+            .map(|s| {
+                Signature::from_str(s)
+                    .map_err(|e| SurfpoolError::invalid_signature(s, e.to_string()))
+            })
+            .collect::<std::result::Result<Vec<Signature>, SurfpoolError>>()
+        {
+            Ok(sigs) => sigs,
+            Err(e) => return e.into(),
+        };
 
         let svm_locker = match meta.get_svm_locker() {
             Ok(s) => s,
@@ -1685,15 +1691,15 @@ impl Full for SurfpoolFullRpc {
             .unwrap_or_default();
 
         let signature = match Signature::from_str(&signature_str)
-            .map_err(|e| Error::invalid_params(format!("failed to decode signature data: {e:?}")))
+            .map_err(|e| SurfpoolError::invalid_signature(&signature_str, e.to_string()))
         {
             Ok(s) => s,
-            Err(err) => return Box::pin(future::err(err.into())),
+            Err(e) => return e.into(),
         };
 
         let svm_locker = match meta.get_svm_locker() {
             Ok(s) => s,
-            Err(err) => return Box::pin(future::err(err.into())),
+            Err(e) => return e.into(),
         };
 
         Box::pin(async move {
