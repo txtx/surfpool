@@ -191,6 +191,7 @@ impl SimnetEvent {
     }
 }
 
+#[derive(Debug)]
 pub enum TransactionStatusEvent {
     Success(TransactionConfirmationStatus),
     SimulationFailure((TransactionError, TransactionMetadata)),
