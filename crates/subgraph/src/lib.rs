@@ -151,7 +151,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                 self.uuid,
                 data,
                 slot,
-                tx_hash.to_string(),
+                tx_hash.to_bytes(),
             ));
         }
         Ok(())

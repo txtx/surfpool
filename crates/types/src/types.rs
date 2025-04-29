@@ -12,7 +12,7 @@ use solana_transaction_context::TransactionReturnData;
 use solana_transaction_error::TransactionError;
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 
-use std::{collections::HashMap, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, path::PathBuf};
 use txtx_addon_kit::types::types::Value;
 use uuid::Uuid;
 
@@ -63,12 +63,12 @@ pub struct SubgraphDataEntry {
 }
 
 impl SubgraphDataEntry {
-    pub fn new(values: HashMap<String, Value>, block_height: u64, tx_hash: String) -> Self {
+    pub fn new(values: HashMap<String, Value>, block_height: u64, tx_hash: [u8; 32]) -> Self {
         Self {
             uuid: Uuid::new_v4(),
             values,
             block_height,
-            transaction_hash: Hash::from_str(&tx_hash).unwrap(),
+            transaction_hash: Hash::from_bytes(tx_hash),
         }
     }
 }
@@ -116,7 +116,7 @@ impl SubgraphEvent {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum SchemaDataSourcingEvent {
     Rountrip(Uuid),
-    ApplyEntry(Uuid, Vec<u8>, u64, String), //, SubgraphRequest u64),
+    ApplyEntry(Uuid, Vec<u8>, u64, [u8; 32]),
 }
 
 #[derive(Debug, Clone)]
