@@ -51,10 +51,7 @@ pub enum GetAccountStrategy {
 
 impl GetAccountStrategy {
     pub fn requires_connection(&self) -> bool {
-        match &self {
-            Self::LocalOrDefault(_) => false,
-            _ => true,
-        }
+        !matches!(self, Self::LocalOrDefault(_))
     }
 }
 
@@ -189,7 +186,7 @@ impl SurfnetSvm {
                         VersionedMessage::Legacy(Message::new(
                             &[system_instruction::transfer(
                                 &airdrop_keypair.pubkey(),
-                                &pubkey,
+                                pubkey,
                                 lamports,
                             )],
                             Some(&airdrop_keypair.pubkey()),
@@ -211,13 +208,12 @@ impl SurfnetSvm {
     ///
     /// * `lamports` - The amount of lamports to airdrop.
     /// * `addresses` - A vector of `Pubkey` recipients.
-    pub fn airdrop_pubkeys(&mut self, lamports: u64, addresses: &Vec<Pubkey>) {
+    pub fn airdrop_pubkeys(&mut self, lamports: u64, addresses: &[Pubkey]) {
         for recipient in addresses.iter() {
             let _ = self.airdrop(&recipient, lamports);
             let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
                 "Genesis airdrop successful {}: {}",
-                recipient.to_string(),
-                lamports
+                recipient, lamports
             )));
         }
     }
@@ -228,10 +224,7 @@ impl SurfnetSvm {
     pub fn expected_rpc_client(&self) -> RpcClient {
         match &self.connection {
             SurfnetDataConnection::Offline => unreachable!(),
-            SurfnetDataConnection::Connected(rpc_url, _) => {
-                let rpc_client = RpcClient::new(rpc_url.to_string());
-                rpc_client
-            }
+            SurfnetDataConnection::Connected(rpc_url, _) => RpcClient::new(rpc_url.to_string()),
         }
     }
 
@@ -311,7 +304,7 @@ impl SurfnetSvm {
     /// * `Ok(())` on success, or an error if the operation fails.
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
         self.inner
-            .set_account(pubkey.clone(), account)
+            .set_account(*pubkey, account)
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))
     }
 
@@ -403,7 +396,7 @@ impl SurfnetSvm {
                     None => {
                         let client = self.expected_rpc_client();
                         let res = client
-                            .get_account_with_commitment(&pubkey, CommitmentConfig::confirmed())
+                            .get_account_with_commitment(pubkey, CommitmentConfig::confirmed())
                             .await
                             .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
 
@@ -480,10 +473,10 @@ impl SurfnetSvm {
                 for pubkey in pubkeys.iter() {
                     match self.inner.get_account(pubkey) {
                         Some(entry) => {
-                            fetched_accounts.insert(pubkey.clone(), entry.clone());
+                            fetched_accounts.insert(pubkey, entry.clone());
                         }
                         None => {
-                            missing_accounts.push(pubkey.clone());
+                            missing_accounts.push(*pubkey);
                         }
                     };
                 }
@@ -500,7 +493,7 @@ impl SurfnetSvm {
                 let remote_accounts = client
                     .get_multiple_accounts(&missing_accounts)
                     .await
-                    .map_err(|e| SurfpoolError::get_multiple_accounts(e))?;
+                    .map_err(SurfpoolError::get_multiple_accounts)?;
                 for (pubkey, remote_account) in missing_accounts.into_iter().zip(remote_accounts) {
                     if let Some(remote_account) = remote_account {
                         if remote_account.executable {
@@ -760,7 +753,7 @@ impl SurfnetSvm {
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res.meta);
                 let _ = self.simnet_events_tx.try_send(SimnetEvent::error(format!(
                     "Transaction execution failed: {}",
-                    res.err.to_string()
+                    res.err
                 )));
                 let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((
                     res.err,

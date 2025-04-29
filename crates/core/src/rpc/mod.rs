@@ -37,7 +37,7 @@ pub struct RunloopContext {
 pub type SvmReadClosure<T> = Box<dyn Fn(&SurfnetSvm) -> T + Send + Sync>;
 
 trait State {
-    fn get_svm_locker<'a>(&'a self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError>;
+    fn get_svm_locker(&self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError>;
     fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, SurfpoolError>
     where
         F: Fn(&SurfnetSvm) -> T + Send + Sync,
@@ -49,7 +49,7 @@ trait State {
 }
 
 impl State for Option<RunloopContext> {
-    fn get_svm_locker<'a>(&'a self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError> {
+    fn get_svm_locker(&self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError> {
         // Retrieve svm state
         let Some(ctx) = self else {
             return Err(SurfpoolError::no_locker());

@@ -101,49 +101,43 @@ pub async fn start_block_production_runloop(
         let mut do_produce_block = false;
 
         select! {
-            recv(clock_event_rx) -> msg => match msg {
-                Ok(event) => {
-                    match event {
-                        ClockEvent::Tick => {
-                            if block_production_mode.eq(&BlockProductionMode::Clock) {
-                                do_produce_block = true;
-                            }
-                        }
-                        ClockEvent::ExpireBlockHash => {
+            recv(clock_event_rx) -> msg => if let Ok(event) = msg {
+                match event {
+                    ClockEvent::Tick => {
+                        if block_production_mode.eq(&BlockProductionMode::Clock) {
                             do_produce_block = true;
                         }
                     }
-                },
-                Err(_) => {},
+                    ClockEvent::ExpireBlockHash => {
+                        do_produce_block = true;
+                    }
+                }
             },
-            recv(simnet_commands_rx) -> msg => match msg {
-                Ok(event) => {
-                    match event {
-                        SimnetCommand::SlotForward(_key) => {
-                            block_production_mode = BlockProductionMode::Manual;
-                            do_produce_block = true;
-                        }
-                        SimnetCommand::SlotBackward(_key) => {
-
-                        }
-                        SimnetCommand::UpdateClock(update) => {
-                            let _ = clock_command_tx.send(update);
-                            continue
-                        }
-                        SimnetCommand::UpdateBlockProductionMode(update) => {
-                            block_production_mode = update;
-                            continue
-                        }
-                        SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
-                            let mut svm_writer = svm_locker.write().await;
-                            svm_writer.process_transaction(transaction, status_tx ,skip_preflight).await?;
-                        }
-                        SimnetCommand::Terminate(_) => {
-                            std::process::exit(0)
-                        }
+            recv(simnet_commands_rx) -> msg => if let Ok(event) = msg {
+                match event {
+                    SimnetCommand::SlotForward(_key) => {
+                        block_production_mode = BlockProductionMode::Manual;
+                        do_produce_block = true;
                     }
-                },
-                Err(_) => {},
+                    SimnetCommand::SlotBackward(_key) => {
+
+                    }
+                    SimnetCommand::UpdateClock(update) => {
+                        let _ = clock_command_tx.send(update);
+                        continue
+                    }
+                    SimnetCommand::UpdateBlockProductionMode(update) => {
+                        block_production_mode = update;
+                        continue
+                    }
+                    SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
+                        let mut svm_writer = svm_locker.write().await;
+                        svm_writer.process_transaction(transaction, status_tx ,skip_preflight).await?;
+                    }
+                    SimnetCommand::Terminate(_) => {
+                        std::process::exit(0)
+                    }
+                }
             },
         }
 
@@ -253,7 +247,7 @@ fn start_geyser_runloop(
                         Ok(event) => {
                             match event {
                                 PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
-                                    let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(uuid.clone(), config.data.clone(), notifier));
+                                    let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(uuid, config.data.clone(), notifier));
                                     let mut plugin = SurfpoolSubgraphPlugin::default();
 
                                     let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SchemaDataSourcingEvent>>::new().expect("Failed to create IPC one-shot server.");

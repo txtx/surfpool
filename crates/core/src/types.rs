@@ -51,10 +51,9 @@ impl TransactionWithStatusMeta {
     }
 }
 
-impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMeta {
-    fn into(self) -> EncodedConfirmedTransactionWithStatusMeta {
-        let slot = self.0;
-        let TransactionWithStatusMeta(_slot, tx, meta, err) = self;
+impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMeta {
+    fn from(val: TransactionWithStatusMeta) -> Self {
+        let TransactionWithStatusMeta(slot, tx, meta, err) = val;
 
         let (header, account_keys, instructions) = match &tx.message {
             VersionedMessage::Legacy(message) => (
@@ -68,7 +67,7 @@ impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMe
                     .collect(),
             ),
             VersionedMessage::V0(message) => (
-                message.header.clone(),
+                message.header,
                 message.account_keys.iter().map(|k| k.to_string()).collect(),
                 message
                     .instructions
@@ -108,7 +107,7 @@ impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMe
                             .map(|(i, ixs)| UiInnerInstructions {
                                 index: i as u8,
                                 instructions: ixs
-                                    .into_iter()
+                                    .iter()
                                     .map(
                                         |InnerInstruction {
                                              instruction,
