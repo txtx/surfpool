@@ -99,7 +99,6 @@ pub async fn start_block_production_runloop(
 ) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let mut do_produce_block = false;
-        let mut expire_blockhash = false;
 
         select! {
             recv(clock_event_rx) -> msg => match msg {
@@ -111,7 +110,7 @@ pub async fn start_block_production_runloop(
                             }
                         }
                         ClockEvent::ExpireBlockHash => {
-                            expire_blockhash = true;
+                            do_produce_block = true;
                         }
                     }
                 },
@@ -153,6 +152,7 @@ pub async fn start_block_production_runloop(
                 let mut svm_writer = svm_locker.write().await;
                 svm_writer.confirm_transactions()?;
                 svm_writer.finalize_transactions()?;
+                svm_writer.new_blockhash();
             }
         }
     }

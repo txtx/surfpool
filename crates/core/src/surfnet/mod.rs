@@ -5,13 +5,17 @@ use crate::{
 };
 use chrono::Utc;
 use crossbeam_channel::{Receiver, Sender};
-use litesvm::{types::TransactionResult, LiteSVM};
+use litesvm::{
+    types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult},
+    LiteSVM,
+};
 use solana_account::Account;
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
-use solana_clock::{Clock, Slot};
+use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
+use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
@@ -104,7 +108,9 @@ impl SurfnetSvm {
             .inactive
             .insert(disable_new_loader_v3_deployments::id());
 
-        let inner = LiteSVM::new().with_feature_set(feature_set);
+        let inner = LiteSVM::new()
+            .with_feature_set(feature_set)
+            .with_blockhash_check(false);
 
         (
             Self {
@@ -246,8 +252,51 @@ impl SurfnetSvm {
         self.inner.latest_blockhash()
     }
 
-    pub fn expire_blockhash(&mut self) {
+    #[allow(deprecated)]
+    pub fn new_blockhash(&mut self) {
+        // cache th current blockhashes
+        let blockhashes = self
+            .inner
+            .get_sysvar::<solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes>();
+        let max_entries_len = blockhashes.len().min(MAX_RECENT_BLOCKHASHES);
+        let mut entries = Vec::with_capacity(max_entries_len);
+        // note: expire blockhash has a bug with liteSVM.
+        // they only keep one blockhash in their RecentBlockhashes sysvar, so this function
+        // clears out the other valid hashes.
+        // so we manually rehydrate the sysvar with new latest blockhash + cached blockhashes.
         self.inner.expire_blockhash();
+        let latest_entries = self
+            .inner
+            .get_sysvar::<solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes>();
+        let latest_entry = latest_entries.first().unwrap();
+        entries.push(solana_sdk::sysvar::recent_blockhashes::IterItem(
+            0,
+            &latest_entry.blockhash,
+            latest_entry.fee_calculator.lamports_per_signature,
+        ));
+        for (i, entry) in blockhashes.iter().enumerate() {
+            if i == MAX_RECENT_BLOCKHASHES - 1 {
+                break;
+            }
+
+            entries.push(solana_sdk::sysvar::recent_blockhashes::IterItem(
+                i as u64 + 1,
+                &entry.blockhash,
+                entry.fee_calculator.lamports_per_signature,
+            ));
+        }
+
+        self.inner.set_sysvar(
+            &solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes::from_iter(entries),
+        );
+    }
+
+    pub fn check_blockhash_is_recent(&self, recent_blockhash: &Hash) -> bool {
+        #[allow(deprecated)]
+        self.inner
+            .get_sysvar::<solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes>()
+            .iter()
+            .any(|entry| entry.blockhash == *recent_blockhash)
     }
 
     /// Sets an account in the local SVM state.
@@ -554,6 +603,21 @@ impl SurfnetSvm {
     /// - `Err(tx_failure)` if the transaction failed, containing the error information.
     pub fn send_transaction(&mut self, tx: VersionedTransaction) -> TransactionResult {
         self.transactions_processed += 1;
+
+        if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
+            let meta = litesvm::types::TransactionMetadata::default();
+            let err = solana_transaction_error::TransactionError::BlockhashNotFound;
+
+            let transaction_meta = convert_transaction_metadata_from_canonical(&meta);
+
+            let _ = self
+                .simnet_events_tx
+                .try_send(SimnetEvent::transaction_processed(
+                    transaction_meta,
+                    Some(err.clone()),
+                ));
+            return Err(FailedTransactionMetadata { err, meta });
+        }
         match self.inner.send_transaction(tx.clone()) {
             Ok(res) => {
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res);
@@ -585,6 +649,19 @@ impl SurfnetSvm {
                 Err(tx_failure)
             }
         }
+    }
+
+    pub fn simulate_transaction(
+        &mut self,
+        tx: VersionedTransaction,
+    ) -> Result<SimulatedTransactionInfo, FailedTransactionMetadata> {
+        if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
+            let meta = litesvm::types::TransactionMetadata::default();
+            let err = solana_transaction_error::TransactionError::BlockhashNotFound;
+
+            return Err(FailedTransactionMetadata { err, meta });
+        }
+        self.inner.simulate_transaction(tx)
     }
 
     /// Processes a transaction by verifying, simulating, and executing it on the blockchain.
