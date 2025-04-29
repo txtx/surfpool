@@ -1497,7 +1497,7 @@ impl Full for SurfpoolFullRpc {
                         e.1.logs.iter().map(|l| l.to_string()).join("\n")
                     ),
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
-                })
+                });
             }
             Err(e) => {
                 return Err(Error {
