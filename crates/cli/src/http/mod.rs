@@ -245,7 +245,7 @@ fn start_subgraph_runloop(
                                     format!("{err_ctx}: Failed to deserialize new database entry for subgraph {}: {}", subgraph_name, e)
                                 })?;
                                 for entry in entries.into_iter() {
-                                    gql_context.insert_entry_to_subgraph(&subgraph_name, SubgraphSpec(SubgraphDataEntry::new(entry, slot, tx_hash.clone())))?;
+                                    gql_context.insert_entry_to_subgraph(&subgraph_name, SubgraphSpec(SubgraphDataEntry::new(entry, slot, tx_hash)))?;
                                 }
                             }
                             SchemaDataSourcingEvent::Rountrip(_uuid) => {}
