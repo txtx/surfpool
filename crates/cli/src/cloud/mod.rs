@@ -4,8 +4,8 @@ use clap::{builder::PossibleValue, Parser, ValueEnum};
 use dialoguer::{console::Style, theme::ColorfulTheme, Input, Select};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use surfpool_types::BlockProductionMode;
-use txtx_cloud::{auth::AuthConfig, workspace::get_user_workspaces, LoginCommand};
+use surfpool_types::{BlockProductionMode, CreateNetworkRequest, CreateNetworkResponse};
+use txtx_cloud::{auth::AuthConfig, workspace::fetch_workspaces, LoginCommand};
 use txtx_gql::kit::{reqwest, uuid::Uuid};
 
 use crate::cli::DEFAULT_RPC_URL;
@@ -56,9 +56,9 @@ impl ValueEnum for CliBlockProductionMode {
 impl CliBlockProductionMode {
     fn choices() -> Vec<String> {
         vec![
-            "clock".to_string(),
-            "transaction".to_string(),
-            "manual".to_string(),
+            "Produce blocks every 400ms".to_string(),
+            "Only produce blocks when transactions are received".to_string(),
+            "Full manual control (via RPC methods / cloud.txtx.run)".to_string(),
         ]
     }
     fn from_index(index: usize) -> Result<Self, String> {
@@ -88,8 +88,8 @@ impl CloudStartCommand {
         auth_service_url: &str,
         auth_callback_port: &str,
         id_service_url: &str,
-        txtx_console_url: &str,
         svm_gql_url: &str,
+        svm_cloud_api_url: &str,
     ) -> Result<(), String> {
         let auth_config = match AuthConfig::read_from_system_config()
             .map_err(|e| format!("failed to authenticate user: {e}"))?
@@ -125,7 +125,7 @@ impl CloudStartCommand {
             ..ColorfulTheme::default()
         };
 
-        let workspaces = get_user_workspaces(&auth_config.access_token, svm_gql_url)
+        let workspaces = fetch_workspaces(&auth_config.access_token, svm_gql_url)
             .await
             .map_err(|e| format!("failed to get available workspaces: {}", e))?;
 
@@ -193,20 +193,19 @@ impl CloudStartCommand {
             }
         };
 
-        let client = reqwest::Client::new();
-
-        let body = json!(CreateNetworkRequest::new(
+        println!("{} Spining up your hosted Surfnet...", yellow!("→"));
+        let request = CreateNetworkRequest::new(
             workspace_id,
             name,
             description,
             datasource_rpc_url,
             block_production_mode,
-        ));
-
+        );
+        let client = reqwest::Client::new();
         let res = client
-            .get(txtx_console_url)
+            .post(svm_cloud_api_url)
             .bearer_auth(auth_config.access_token)
-            .json(&body)
+            .json(&request)
             .send()
             .await
             .map_err(|e| format!("failed to send request to start cloud surfnet: {e}"))?;
@@ -224,38 +223,13 @@ impl CloudStartCommand {
             .await
             .map_err(|e| format!("failed to parse response: {e}"))?;
 
-        println!("Successfully created surfnet with RPC URL: {}", res.rpc_url);
+        println!(
+            "🌊 Surf's up for network '{}'\n- Dashboard: {}\n- Rpc url:   {}\n",
+            request.name,
+            green!("https://cloud.txtx.run/networks"),
+            green!(res.rpc_url)
+        );
+
         Ok(())
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CreateNetworkRequest {
-    pub workspace_id: Uuid,
-    pub name: String,
-    pub description: Option<String>,
-    pub datasource_rpc_url: String,
-    pub block_production_mode: i16,
-}
-impl CreateNetworkRequest {
-    pub fn new(
-        workspace_id: Uuid,
-        name: String,
-        description: Option<String>,
-        datasource_rpc_url: String,
-        block_production_mode: BlockProductionMode,
-    ) -> Self {
-        Self {
-            workspace_id,
-            name,
-            description,
-            datasource_rpc_url,
-            block_production_mode: block_production_mode as i16,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CreateNetworkResponse {
-    rpc_url: String,
 }
