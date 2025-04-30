@@ -2,10 +2,8 @@ use std::fmt;
 
 use clap::{builder::PossibleValue, Parser, ValueEnum};
 use dialoguer::{console::Style, theme::ColorfulTheme, Input, Select};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use surfpool_types::{BlockProductionMode, CreateNetworkRequest, CreateNetworkResponse};
-use txtx_cloud::{auth::AuthConfig, workspace::fetch_workspaces, LoginCommand};
+use txtx_cloud::{auth::AuthConfig, workspace::get_user_workspaces, LoginCommand};
 use txtx_gql::kit::{reqwest, uuid::Uuid};
 
 use crate::cli::DEFAULT_RPC_URL;
@@ -125,7 +123,7 @@ impl CloudStartCommand {
             ..ColorfulTheme::default()
         };
 
-        let workspaces = fetch_workspaces(&auth_config.access_token, svm_gql_url)
+        let workspaces = get_user_workspaces(&auth_config.access_token, svm_gql_url)
             .await
             .map_err(|e| format!("failed to get available workspaces: {}", e))?;
 
@@ -224,7 +222,7 @@ impl CloudStartCommand {
             .map_err(|e| format!("failed to parse response: {e}"))?;
 
         println!(
-            "🌊 Surf's up for network '{}'\n- Dashboard: {}\n- Rpc url:   {}\n",
+            "\n🌊 Surf is up for network '{}'\n- Dashboard: {}\n- Rpc url:   {}\n",
             request.name,
             green!("https://cloud.txtx.run/networks"),
             green!(res.rpc_url)
