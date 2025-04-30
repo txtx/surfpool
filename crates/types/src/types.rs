@@ -39,8 +39,8 @@ pub enum TransactionConfirmationStatus {
 pub enum BlockProductionMode {
     #[default]
     Clock,
-    Manual,
     Transaction,
+    Manual,
 }
 
 #[derive(Debug, Clone)]
