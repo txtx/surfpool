@@ -461,9 +461,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.95"
+version = "1.0.98"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
+checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
 name = "aquamarine"
@@ -2563,7 +2563,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http 0.2.12",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "slab",
  "tokio",
  "tokio-util 0.7.13",
@@ -3103,9 +3103,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.7.1"
+version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c9c992b02b5b4c94ea26e32fe5bccb7aa7d9f390ab5c1221ff895bc7ea8b652"
+checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
 dependencies = [
  "equivalent",
  "hashbrown 0.15.2",
@@ -3294,7 +3294,7 @@ dependencies = [
  "ahash",
  "dyn-clone",
  "hifijson",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "jaq-syn",
  "once_cell",
  "serde_json",
@@ -3498,7 +3498,7 @@ dependencies = [
  "auto_enums",
  "fnv",
  "futures 0.3.31",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "juniper_codegen",
  "serde",
  "smartstring",
@@ -3808,7 +3808,7 @@ checksum = "f7f51b2a1fa1d4d48c1103514cc20d3d15552fc89468c71726449c0c489b7aa1"
 dependencies = [
  "ansi_term",
  "bincode",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "itertools 0.14.0",
  "log 0.4.25",
  "qualifier_attr",
@@ -4611,7 +4611,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4c5cc86750666a3ed20bdaf5ca2a0344f9c67674cae0515bec2da16fbaa47db"
 dependencies = [
  "fixedbitset",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
 ]
 
 [[package]]
@@ -5501,7 +5501,7 @@ version = "1.0.140"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20068b6e96dc6c9bd23e01df8827e6c7e1f2fddd43c21810382803c136b99373"
 dependencies = [
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "itoa",
  "memchr",
  "ryu",
@@ -5539,7 +5539,7 @@ dependencies = [
  "chrono",
  "hex",
  "indexmap 1.9.3",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "serde",
  "serde_derive",
  "serde_json",
@@ -5565,7 +5565,7 @@ version = "0.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48e76bab63c3fd98d27c17f9cbce177f64a91f5e69ac04cafe04e1bb25d1dc3c"
 dependencies = [
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "itoa",
  "libyml",
  "log 0.4.25",
@@ -5917,7 +5917,7 @@ dependencies = [
  "crossbeam-channel",
  "dashmap",
  "index_list",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "itertools 0.12.1",
  "lazy_static",
  "log 0.4.25",
@@ -6187,7 +6187,7 @@ dependencies = [
  "dashmap",
  "futures 0.3.31",
  "futures-util",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "indicatif",
  "log 0.4.25",
  "quinn",
@@ -6365,7 +6365,7 @@ dependencies = [
  "bincode",
  "crossbeam-channel",
  "futures-util",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "log 0.4.25",
  "rand 0.8.5",
  "rayon",
@@ -8036,7 +8036,7 @@ dependencies = [
  "futures-util",
  "governor",
  "histogram",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "itertools 0.12.1",
  "libc",
  "log 0.4.25",
@@ -8309,7 +8309,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "futures-util",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "indicatif",
  "log 0.4.25",
  "rayon",
@@ -9234,6 +9234,7 @@ name = "surfpool-core"
 version = "0.1.15"
 dependencies = [
  "agave-geyser-plugin-interface",
+ "anyhow",
  "base64 0.22.1",
  "bincode",
  "blake3",
@@ -9241,6 +9242,7 @@ dependencies = [
  "chrono",
  "crossbeam",
  "crossbeam-channel",
+ "hex",
  "hiro-system-kit",
  "ipc-channel",
  "itertools 0.14.0",
@@ -9301,6 +9303,7 @@ dependencies = [
 name = "surfpool-gql"
 version = "0.1.15"
 dependencies = [
+ "blake3",
  "convert_case 0.8.0",
  "futures 0.3.31",
  "juniper",
@@ -9332,6 +9335,7 @@ dependencies = [
 name = "surfpool-types"
 version = "0.1.15"
 dependencies = [
+ "blake3",
  "chrono",
  "crossbeam-channel",
  "serde",
@@ -9801,7 +9805,7 @@ version = "0.8.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1ed1f98e3fdc28d6d910e6737ae6ab1a93bf1985935a1193e68f93eeb68d24e"
 dependencies = [
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "serde",
  "serde_spanned",
  "toml_datetime",
@@ -9823,7 +9827,7 @@ version = "0.22.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ae48d6208a266e853d946088ed816055e556cc6028c5e8e2b84d9fa5dd7c7f5"
 dependencies = [
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "serde",
  "serde_spanned",
  "toml_datetime",
@@ -9928,7 +9932,7 @@ dependencies = [
  "hex",
  "highway",
  "hmac 0.12.1",
- "indexmap 2.7.1",
+ "indexmap 2.9.0",
  "indoc",
  "jaq-interpret",
  "keccak-hash",
@@ -9999,9 +10003,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-cloud"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4377bab66d6b1c5aa1ddd391d4acf8d43390f2b717f1881f9c8c74e0be831192"
+checksum = "fc0df98d01446d782a8650f7d16e4cf84e2a93f4c84616f2f00f077fc6213bc7"
 dependencies = [
  "actix-cors",
  "actix-web",

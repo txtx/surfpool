@@ -26,12 +26,12 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
     }
 
     fn on_load(&mut self, config_file: &str, _is_reload: bool) -> PluginResult<()> {
-        let config = serde_json::from_str::<SubgraphPluginConfig>(&config_file).unwrap();
+        let config = serde_json::from_str::<SubgraphPluginConfig>(config_file).unwrap();
         let oneshot_tx = IpcSender::connect(config.ipc_token).unwrap();
         let (tx, rx) = ipc_channel::ipc::channel().unwrap();
-        let _ = tx.send(SchemaDataSourcingEvent::Rountrip(config.uuid.clone()));
+        let _ = tx.send(SchemaDataSourcingEvent::Rountrip(config.uuid));
         let _ = oneshot_tx.send(rx);
-        self.uuid = config.uuid.clone();
+        self.uuid = config.uuid;
         self.subgraph_indexing_event_tx = Mutex::new(Some(tx));
         self.subgraph_request = Some(config.subgraph_request);
         Ok(())
@@ -151,7 +151,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                 self.uuid,
                 data,
                 slot,
-                tx_hash.to_string(),
+                tx_hash.to_bytes(),
             ));
         }
         Ok(())
@@ -180,7 +180,6 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
 
 #[no_mangle]
 #[allow(improper_ctypes_definitions)]
-
 /// # Safety
 ///
 /// This function returns the Plugin pointer as trait GeyserPlugin.

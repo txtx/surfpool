@@ -1,10 +1,7 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
-use litesvm::LiteSVM;
-use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
-use solana_epoch_info::EpochInfo;
+use solana_client::rpc_client::SerializableTransaction;
 use solana_message::VersionedMessage;
-use solana_sdk::transaction::VersionedTransaction;
-use solana_signature::Signature;
+use solana_sdk::{inner_instruction::InnerInstruction, transaction::VersionedTransaction};
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
@@ -13,45 +10,20 @@ use solana_transaction_status::{
     UiRawMessage, UiReturnDataEncoding, UiTransaction, UiTransactionReturnData,
     UiTransactionStatusMeta,
 };
-use std::{
-    collections::{HashMap, VecDeque},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 use surfpool_types::TransactionMetadata;
 
-pub struct GlobalState {
-    pub svm: LiteSVM,
-    pub transactions: HashMap<Signature, EntryStatus>,
-    pub perf_samples: VecDeque<RpcPerfSample>,
-    pub transactions_processed: u64,
-    pub epoch_info: EpochInfo,
-    pub rpc_url: String,
-}
-
-impl GlobalState {
-    pub fn new(svm: LiteSVM, epoch_info: &EpochInfo, rpc_url: &str) -> Self {
-        Self {
-            svm,
-            transactions: HashMap::new(),
-            perf_samples: VecDeque::new(),
-            transactions_processed: 0,
-            epoch_info: epoch_info.clone(),
-            rpc_url: rpc_url.to_string(),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
-pub enum EntryStatus {
+pub enum SurfnetTransactionStatus {
     Received,
     Processed(TransactionWithStatusMeta),
 }
 
-impl EntryStatus {
+impl SurfnetTransactionStatus {
     pub fn expect_processed(&self) -> &TransactionWithStatusMeta {
         match &self {
-            EntryStatus::Received => unreachable!(),
-            EntryStatus::Processed(status) => status,
+            SurfnetTransactionStatus::Received => unreachable!(),
+            SurfnetTransactionStatus::Processed(status) => status,
         }
     }
 }
@@ -79,10 +51,9 @@ impl TransactionWithStatusMeta {
     }
 }
 
-impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMeta {
-    fn into(self) -> EncodedConfirmedTransactionWithStatusMeta {
-        let slot = self.0;
-        let TransactionWithStatusMeta(_slot, tx, meta, err) = self;
+impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMeta {
+    fn from(val: TransactionWithStatusMeta) -> Self {
+        let TransactionWithStatusMeta(slot, tx, meta, err) = val;
 
         let (header, account_keys, instructions) = match &tx.message {
             VersionedMessage::Legacy(message) => (
@@ -96,7 +67,7 @@ impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMe
                     .collect(),
             ),
             VersionedMessage::V0(message) => (
-                message.header.clone(),
+                message.header,
                 message.account_keys.iter().map(|k| k.to_string()).collect(),
                 message
                     .instructions
@@ -137,15 +108,18 @@ impl Into<EncodedConfirmedTransactionWithStatusMeta> for TransactionWithStatusMe
                                 index: i as u8,
                                 instructions: ixs
                                     .iter()
-                                    .map(|ix| {
-                                        UiInstruction::Compiled(UiCompiledInstruction {
-                                            program_id_index: ix.instruction.program_id_index,
-                                            accounts: ix.instruction.accounts.clone(),
-                                            data: String::from_utf8(ix.instruction.data.clone())
-                                                .unwrap(),
-                                            stack_height: Some(ix.stack_height as u32),
-                                        })
-                                    })
+                                    .map(
+                                        |InnerInstruction {
+                                             instruction,
+                                             stack_height,
+                                         }| {
+                                            UiInstruction::Compiled(UiCompiledInstruction::from(
+                                                instruction,
+                                                // todo: concerned by this cast, we must be getting something wrong upstream
+                                                Some(*stack_height as u32),
+                                            ))
+                                        },
+                                    )
                                     .collect(),
                             })
                             .collect(),

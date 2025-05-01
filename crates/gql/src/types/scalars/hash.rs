@@ -1,10 +1,9 @@
 use std::{fmt, ops::Deref, str::FromStr};
 
+use blake3::Hash as SolHash;
 use juniper::{GraphQLScalar, InputValue, ScalarValue, Value};
-use serde::{Deserialize, Serialize};
-use solana_sdk::blake3::Hash as SolHash;
 
-#[derive(Clone, Debug, Deserialize, Eq, GraphQLScalar, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, GraphQLScalar, PartialEq)]
 #[graphql(parse_token(String), description = "A 32-byte hash", name = "Hash")]
 pub struct Hash(pub SolHash);
 
@@ -39,7 +38,7 @@ impl Deref for Hash {
     type Target = str;
 
     fn deref(&self) -> &str {
-        std::str::from_utf8(self.0.as_ref()).expect("invalid hash")
+        std::str::from_utf8(self.0.as_bytes()).expect("invalid hash")
     }
 }
 

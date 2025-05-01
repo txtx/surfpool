@@ -14,6 +14,7 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 
 use super::not_implemented_err_async;
 use super::RunloopContext;
+use super::State;
 
 #[rpc]
 pub trait AccountsScan {
@@ -474,12 +475,19 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
 
     fn get_supply(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         _config: Option<RpcSupplyConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSupply>>> {
-        Box::pin(async {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let svm_reader = svm_locker.read().await;
+            let slot = svm_reader.get_latest_absolute_slot();
             Ok(RpcResponse {
-                context: RpcResponseContext::new(0),
+                context: RpcResponseContext::new(slot),
                 value: RpcSupply {
                     total: 1,
                     circulating: 0,

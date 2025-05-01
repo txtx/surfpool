@@ -1,9 +1,11 @@
 use super::{not_implemented_err, RunloopContext};
-use crate::rpc::{utils::verify_pubkey, State};
-use jsonrpc_core::{futures::future, BoxFuture, Error, Result};
+use crate::{
+    rpc::{utils::verify_pubkey, State},
+    surfnet::GetAccountStrategy,
+};
+use jsonrpc_core::{futures::future, BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_client::{
-    nonblocking::rpc_client::RpcClient,
     rpc_config::{
         RpcContextConfig, RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig,
         RpcLeaderScheduleConfigWrapper,
@@ -13,7 +15,7 @@ use solana_client::{
         RpcVoteAccountStatus,
     },
 };
-use solana_clock::{Clock, Slot};
+use solana_clock::Slot;
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -583,45 +585,30 @@ impl Minimal for SurfpoolMinimalRpc {
     ) -> BoxFuture<Result<RpcResponse<u64>>> {
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
-            Err(e) => return Box::pin(future::err(e)),
+            Err(e) => return e.into(),
         };
 
-        let state_reader = match meta.get_state() {
+        let svm_locker = match meta.get_svm_locker() {
             Ok(res) => res,
             Err(e) => return Box::pin(future::err(e.into())),
         };
-        let account = state_reader.svm.get_account(&pubkey);
-
-        // Drop the lock on the state while we fetch accounts
-        let absolute_slot = state_reader.epoch_info.absolute_slot;
-        let rpc_client = RpcClient::new(state_reader.rpc_url.clone());
-        drop(state_reader);
 
         Box::pin(async move {
-            let account = if let None = account {
-                // Fetch and save the missing account
-                if let Some(fetched_account) = rpc_client.get_account(&pubkey).await.ok() {
-                    let mut state_reader = meta.get_state_mut()?;
-                    state_reader
-                        .svm
-                        .set_account(pubkey, fetched_account.clone())
-                        .map_err(|err| {
-                            Error::invalid_params(format!(
-                                "failed to save fetched account {pubkey:?}: {err:?}"
-                            ))
-                        })?;
-
-                    Some(fetched_account)
-                } else {
-                    None
-                }
-            } else {
-                account
+            let mut svm_writer = svm_locker.write().await;
+            let res = svm_writer
+                .get_account_mut(
+                    &pubkey,
+                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                )
+                .await?;
+            let balance = match res {
+                Some(account) => account.lamports,
+                None => 0,
             };
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(absolute_slot),
-                value: account.map(|account| account.lamports).unwrap_or(0),
+                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                value: balance,
             })
         })
     }
@@ -631,17 +618,15 @@ impl Minimal for SurfpoolMinimalRpc {
         meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<EpochInfo> {
-        let state_reader = meta.get_state()?;
-        Ok(state_reader.epoch_info.clone())
+        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
+            .map_err(Into::into)
     }
 
     fn get_genesis_hash(&self, _meta: Self::Metadata) -> Result<String> {
         not_implemented_err()
     }
 
-    fn get_health(&self, meta: Self::Metadata) -> Result<String> {
-        let _state_reader = meta.get_state()?;
-
+    fn get_health(&self, _meta: Self::Metadata) -> Result<String> {
         // todo: we could check the time from the state clock and compare
         Ok("ok".to_string())
     }
@@ -651,9 +636,8 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_slot(&self, meta: Self::Metadata, _config: Option<RpcContextConfig>) -> Result<Slot> {
-        let state_reader = meta.get_state()?;
-        let clock: Clock = state_reader.svm.get_sysvar();
-        Ok(clock.slot.into())
+        meta.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot().into())
+            .map_err(Into::into)
     }
 
     fn get_block_height(
@@ -661,8 +645,8 @@ impl Minimal for SurfpoolMinimalRpc {
         meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<u64> {
-        let state_reader = meta.get_state()?;
-        Ok(state_reader.epoch_info.block_height)
+        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.block_height)
+            .map_err(Into::into)
     }
 
     fn get_highest_snapshot_slot(&self, _meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
@@ -674,8 +658,8 @@ impl Minimal for SurfpoolMinimalRpc {
         meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<u64> {
-        let state_reader = meta.get_state()?;
-        Ok(state_reader.transactions_processed as u64)
+        meta.with_svm_reader(|svm_reader| svm_reader.transactions_processed as u64)
+            .map_err(Into::into)
     }
 
     fn get_version(&self, _: Self::Metadata) -> Result<SurfpoolRpcVersionInfo> {
@@ -756,10 +740,9 @@ mod tests {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let transactions_processed = setup
             .context
-            .state
-            .read()
-            .map(|s| s.transactions_processed)
-            .unwrap();
+            .surfnet_svm
+            .blocking_read()
+            .transactions_processed;
         let result = setup.rpc.get_transaction_count(Some(setup.context), None);
         assert_eq!(result.unwrap(), transactions_processed);
     }

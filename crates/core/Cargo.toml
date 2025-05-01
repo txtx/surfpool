@@ -20,6 +20,7 @@ bs58 = "0.5.1"
 chrono = "0.4"
 crossbeam = "0.8.4"
 crossbeam-channel = "0.5.14"
+hex = { workspace = true}
 hiro-system-kit = { version = "0.3.4" }
 ipc-channel = { workspace = true }
 itertools = "0.14.0"
@@ -74,6 +75,7 @@ json5 = "0.4.1"
 txtx-addon-network-svm-types = { workspace = true }
 uuid = "1.7.0"
 blake3 = "1.8.2"
+anyhow = "1.0.98"
 
 [dev-dependencies]
 test-case = "^3.3.1"

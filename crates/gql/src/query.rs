@@ -36,22 +36,24 @@ impl GraphQLType<DefaultScalarValue> for DynamicQuery {
         for (name, schema_spec) in spec.entries.iter() {
             let filter = registry.arg::<Option<SubgraphFilterSpec>>("where", &schema_spec.filter);
             let field = registry
-                .field::<&[DynamicSchemaSpec]>(name, &schema_spec)
+                .field::<&[DynamicSchemaSpec]>(name, schema_spec)
                 .argument(filter);
             fields.push(field);
         }
         registry
-            .build_object_type::<DynamicQuery>(&spec, &fields)
+            .build_object_type::<DynamicQuery>(spec, &fields)
             .into_meta()
     }
 }
+
+pub type MemoryStoreEntry = (Uuid, Vec<SubgraphSpec>);
 
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     /// A map of subgraph UUIDs to their names
     pub subgraph_name_lookup: Arc<RwLock<BTreeMap<Uuid, String>>>,
     /// A map of subgraph names to their entries
-    pub entries_store: Arc<RwLock<BTreeMap<String, (Uuid, Vec<SubgraphSpec>)>>>,
+    pub entries_store: Arc<RwLock<BTreeMap<String, MemoryStoreEntry>>>,
     // A broadcaster for entry updates
     // pub entries_broadcaster: tokio::sync::broadcast::Sender<SubgraphDataEntryUpdate>,
 }
@@ -66,6 +68,12 @@ impl MemoryStore {
     }
 }
 
+impl Default for MemoryStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Dataloader for MemoryStore {
     fn fetch_entries_from_subgraph(
         &self,
@@ -73,12 +81,10 @@ impl Dataloader for MemoryStore {
         _executor: &Executor<DataloaderContext>,
         _schema: &DynamicSchemaSpec,
     ) -> Result<Vec<SubgraphSpec>, FieldError> {
-        let subgraph_db = self.entries_store.read().map_err(|err| {
-            FieldError::new(
-                format!("error: {}", err.to_string()),
-                juniper::Value::null(),
-            )
-        })?;
+        let subgraph_db = self
+            .entries_store
+            .read()
+            .map_err(|err| FieldError::new(format!("error: {}", err), juniper::Value::null()))?;
 
         if let Some((_, entries)) = subgraph_db.get(subgraph_name) {
             Ok(entries.clone())
@@ -97,11 +103,8 @@ impl Dataloader for MemoryStore {
         let mut lookup = self.subgraph_name_lookup.write().map_err(|err_ctx| {
             format!("{err_ctx}: Failed to acquire write lock on subgraph name lookup")
         })?;
-        lookup.insert(subgraph_uuid.clone(), subgraph_name.to_case(Case::Camel));
-        entries_store.insert(
-            subgraph_name.to_case(Case::Camel),
-            (subgraph_uuid.clone(), vec![]),
-        );
+        lookup.insert(subgraph_uuid, subgraph_name.to_case(Case::Camel));
+        entries_store.insert(subgraph_name.to_case(Case::Camel), (subgraph_uuid, vec![]));
         Ok(())
     }
 

@@ -198,13 +198,6 @@ impl StartSimnet {
     }
 
     pub fn rpc_config(&self) -> RpcConfig {
-        let remote_rpc_url = match &self.network {
-            Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
-            Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
-            Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
-            None => self.rpc_url.clone(),
-        };
-
         RpcConfig {
             bind_host: self.network_host.clone(),
             bind_port: self.simnet_port,
@@ -222,7 +215,7 @@ impl StartSimnet {
         SimnetConfig {
             remote_rpc_url,
             slot_time: self.slot_time,
-            runloop_trigger_mode: surfpool_types::RunloopTriggerMode::Clock,
+            block_production_mode: surfpool_types::BlockProductionMode::Clock,
             airdrop_addresses,
             airdrop_token_amount: self.airdrop_token_amount,
         }
@@ -373,7 +366,7 @@ pub fn main() {
 
 async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     match opts.command {
-        Command::Simnet(cmd) => simnet::handle_start_simnet_command(&cmd, ctx).await,
+        Command::Simnet(cmd) => simnet::handle_start_local_surfnet_command(&cmd, ctx).await,
         Command::Completions(cmd) => generate_completion_helpers(&cmd),
         Command::Run(cmd) => handle_execute_runbook_command(cmd).await,
         Command::List(cmd) => handle_list_command(cmd, ctx).await,

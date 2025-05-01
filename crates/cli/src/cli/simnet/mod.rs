@@ -1,3 +1,17 @@
+use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_EXPLORER_PORT};
+use crate::{
+    http::start_subgraph_and_explorer_server,
+    runbook::execute_runbook,
+    scaffold::{detect_program_frameworks, scaffold_iac_layout},
+    tui,
+};
+use crossbeam::channel::{Select, Sender};
+use notify::{
+    event::{CreateKind, DataChange, ModifyKind},
+    Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
+};
+use solana_keypair::Keypair;
+use solana_signer::Signer;
 use std::{
     path::Path,
     sync::{
@@ -7,35 +21,23 @@ use std::{
     thread::sleep,
     time::Duration,
 };
-
-use crate::{
-    http::start_subgraph_and_explorer_server,
-    runbook::execute_runbook,
-    scaffold::{detect_program_frameworks, scaffold_iac_layout},
-    tui,
-};
-
-use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_EXPLORER_PORT};
-use crossbeam::channel::{Select, Sender};
-use notify::{
-    event::{CreateKind, DataChange, ModifyKind},
-    Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
-};
-use solana_keypair::Keypair;
-use solana_signer::Signer;
-use surfpool_core::start_simnet;
+use surfpool_core::{start_local_surfnet, surfnet::SurfnetSvm};
 use surfpool_types::{SimnetEvent, SubgraphEvent};
 use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
     types::frontend::BlockEvent,
 };
 
-pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Result<(), String> {
+pub async fn handle_start_local_surfnet_command(
+    cmd: &StartSimnet,
+    ctx: &Context,
+) -> Result<(), String> {
     // We start the simnet as soon as possible, as it needs to be ready for deployments
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
-    let (simnet_events_tx, simnet_events_rx) = crossbeam::channel::unbounded();
     let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
+    let simnet_events_tx = surfnet_svm.simnet_events_tx.clone();
 
     // Check aidrop addresses
     let (mut airdrop_addresses, airdrop_errors) = cmd.get_airdrop_addresses();
@@ -83,15 +85,16 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
     let ctx_copy = ctx.clone();
     let simnet_commands_tx_copy = simnet_commands_tx.clone();
     let config_copy = config.clone();
-    let simnet_events_tx_copy = simnet_events_tx.clone();
+
     let _handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
-            let future = start_simnet(
+            let future = start_local_surfnet(
+                surfnet_svm,
                 config_copy,
                 subgraph_commands_tx,
-                simnet_events_tx_copy,
                 simnet_commands_tx_copy,
                 simnet_commands_rx,
+                geyser_events_rx,
             );
             if let Err(e) = hiro_system_kit::nestable_block_on(future) {
                 error!(ctx_copy.expect_logger(), "Simnet exited with error: {e}");
@@ -106,7 +109,7 @@ pub async fn handle_start_simnet_command(cmd: &StartSimnet, ctx: &Context) -> Re
         match simnet_events_rx.recv() {
             Ok(SimnetEvent::Aborted(error)) => return Err(error),
             Ok(SimnetEvent::Shutdown) => return Ok(()),
-            Ok(SimnetEvent::Ready) => break,
+            Ok(SimnetEvent::Connected(_)) | Ok(SimnetEvent::Ready) => break,
             _other => continue,
         }
     }
@@ -253,6 +256,7 @@ fn log_events(
                         return Err(error);
                     }
                     SimnetEvent::Ready => {}
+                    SimnetEvent::Connected(_rpc_url) => {}
                     SimnetEvent::Shutdown => {
                         break;
                     }
