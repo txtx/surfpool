@@ -35,12 +35,12 @@ pub enum TransactionConfirmationStatus {
     Finalized,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum BlockProductionMode {
     #[default]
     Clock,
-    Manual,
     Transaction,
+    Manual,
 }
 
 #[derive(Debug, Clone)]
@@ -284,4 +284,48 @@ impl Default for RpcConfig {
             bind_port: 8899,
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SvmSimnetInitializationRequest {
+    pub domain: String,
+    pub block_production_mode: BlockProductionMode,
+    pub datasource_rpc_url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum SvmSimnetCommand {
+    Init(SvmSimnetInitializationRequest),
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CreateNetworkRequest {
+    pub workspace_id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub datasource_rpc_url: String,
+    pub block_production_mode: BlockProductionMode,
+}
+
+impl CreateNetworkRequest {
+    pub fn new(
+        workspace_id: Uuid,
+        name: String,
+        description: Option<String>,
+        datasource_rpc_url: String,
+        block_production_mode: BlockProductionMode,
+    ) -> Self {
+        Self {
+            workspace_id,
+            name,
+            description,
+            datasource_rpc_url,
+            block_production_mode: block_production_mode,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CreateNetworkResponse {
+    pub rpc_url: String,
 }
