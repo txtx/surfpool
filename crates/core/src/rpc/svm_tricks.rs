@@ -58,7 +58,7 @@ impl AccountUpdate {
                 owner: verify_pubkey(&self.owner.clone().unwrap())?,
                 executable: self.executable.unwrap(),
                 rent_epoch: self.rent_epoch.unwrap(),
-                data: self.data.clone().unwrap(),
+                data: self.expect_hex_data()?,
             }))
         } else {
             Ok(None)
@@ -69,7 +69,7 @@ impl AccountUpdate {
         if let Some(lamports) = self.lamports {
             account.lamports = lamports;
         }
-        if let Some(owner) = self.owner {
+        if let Some(owner) = &self.owner {
             account.owner = verify_pubkey(&owner)?;
         }
         if let Some(executable) = self.executable {
@@ -78,10 +78,16 @@ impl AccountUpdate {
         if let Some(rent_epoch) = self.rent_epoch {
             account.rent_epoch = rent_epoch;
         }
-        if let Some(data) = &self.data {
-            account.data = data.clone();
+        if let Some(_) = &self.data {
+            account.data = self.expect_hex_data()?;
         }
         Ok(())
+    }
+
+    pub fn expect_hex_data(&self) -> Result<Vec<u8>> {
+        let data = self.data.as_ref().expect("missing expected data field");
+        hex::decode(data)
+            .map_err(|e| Error::invalid_params(format!("Invalid hex data provided: {}", e)))
     }
 }
 

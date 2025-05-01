@@ -9242,6 +9242,7 @@ dependencies = [
  "chrono",
  "crossbeam",
  "crossbeam-channel",
+ "hex",
  "hiro-system-kit",
  "ipc-channel",
  "itertools 0.14.0",
@@ -10002,9 +10003,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-cloud"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4377bab66d6b1c5aa1ddd391d4acf8d43390f2b717f1881f9c8c74e0be831192"
+checksum = "fc0df98d01446d782a8650f7d16e4cf84e2a93f4c84616f2f00f077fc6213bc7"
 dependencies = [
  "actix-cors",
  "actix-web",
