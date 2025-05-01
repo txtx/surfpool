@@ -9242,6 +9242,7 @@ dependencies = [
  "chrono",
  "crossbeam",
  "crossbeam-channel",
+ "hex",
  "hiro-system-kit",
  "ipc-channel",
  "itertools 0.14.0",
