@@ -1,4 +1,4 @@
-use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_EXPLORER_PORT};
+use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_CONSOLE_URL, DEFAULT_EXPLORER_PORT};
 use crate::{
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
@@ -10,6 +10,7 @@ use notify::{
     event::{CreateKind, DataChange, ModifyKind},
     Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
 };
+use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use std::{
@@ -27,6 +28,13 @@ use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
     types::frontend::BlockEvent,
 };
+use txtx_gql::kit::reqwest;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CheckVersionResponse {
+    pub latest: String,
+    pub deprecation_notice: Option<String>,
+}
 
 pub async fn handle_start_local_surfnet_command(
     cmd: &StartSimnet,
@@ -129,6 +137,21 @@ pub async fn handle_start_local_surfnet_command(
             }
         }
     };
+
+    // Non blocking check for new versions
+    let local_version = env!("CARGO_PKG_VERSION");
+    let response = reqwest::get(format!(
+        "{}/api/versions?v=/{}",
+        DEFAULT_CONSOLE_URL, local_version
+    ))
+    .await;
+    if let Ok(response) = response {
+        if let Ok(body) = response.json::<CheckVersionResponse>().await {
+            if let Some(deprecation_notice) = body.deprecation_notice {
+                let _ = simnet_events_tx.send(SimnetEvent::warn(format!("{}", deprecation_notice)));
+            }
+        }
+    }
 
     // Start frontend - kept on main thread
     if cmd.no_tui {

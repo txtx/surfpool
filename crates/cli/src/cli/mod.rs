@@ -33,8 +33,7 @@ pub const DEFAULT_ID_SVC_URL: &str = "https://id.txtx.run/v1";
 pub const DEFAULT_AUTH_SVC_URL: &str = "https://auth.txtx.run";
 pub const DEFAULT_CONSOLE_URL: &str = "https://cloud.txtx.run";
 pub const DEFAULT_SVM_GQL_URL: &str = "https://svm-cloud.gql.txtx.run/v1/graphql";
-pub const DEFAULT_SVM_CLOUD_API_URL: &str =
-    "https://3zsafgw57plgwwvv3ddt5mucnu0nioih.lambda-url.us-east-1.on.aws/v1/surfnets";
+pub const DEFAULT_SVM_CLOUD_API_URL: &str = "https://svm-cloud-api.txtx.run/v1/surfnets";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
 pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
 pub const DEFAULT_AIRDROPPED_KEYPAIR_PATH: &str = "~/.config/solana/id.json";
