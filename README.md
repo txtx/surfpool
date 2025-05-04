@@ -91,6 +91,8 @@ We are actively developing Surfpool and welcome contributions from the community
 
 - Explore and contribute to open issues: [GitHub Issues](https://github.com/txtx/surfpool/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22help%20wanted%22)
 
-- Join discussions and collaborate via our [Telegram Channel](https://t.me/surfpool)
+- Join the discussion on [Discord](https://discord.gg/VxZhMqdd)
+
+- Get releases updates via [Xl](https://x.com/txtx_sol) or [Telegram Channel](https://t.me/surfpool)
 
 Your contributions help shape the future of Surfpool, making it an essential tool for Solana developers worldwide.
