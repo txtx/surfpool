@@ -43,9 +43,12 @@ pub const DEFAULT_AIRDROPPED_KEYPAIR_PATH: &str = "~/.config/solana/id.json";
 /// because by default, snaps run in a confined environment where the home directory is not
 /// the user's actual home directory.
 fn get_home_dir() -> PathBuf {
+    println!("getting home dir");
     if let Ok(real_home) = env::var("SNAP_REAL_HOME") {
+        println!("found snap real home: {}", real_home);
         PathBuf::from(real_home)
     } else {
+        println!("falling back to dirs::home_dir()");
         dirs::home_dir().unwrap()
     }
 }
