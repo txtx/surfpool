@@ -46,7 +46,9 @@ fn get_home_dir() -> PathBuf {
     println!("getting home dir");
     if let Ok(real_home) = env::var("SNAP_REAL_HOME") {
         println!("found snap real home: {}", real_home);
-        PathBuf::from(real_home)
+        let path_buf = PathBuf::from(real_home);
+        println!("resolved home dir: {:?}", path_buf);
+        path_buf
     } else {
         println!("falling back to dirs::home_dir()");
         dirs::home_dir().unwrap()
@@ -190,14 +192,19 @@ impl StartSimnet {
 
         for keypair_path in self.airdrop_keypair_path.iter() {
             println!("keypair path: {}", keypair_path);
-            let resolved = if keypair_path.starts_with("~") {
+            let path = if keypair_path.starts_with("~") {
                 println!("keypair path starts with ~, resolving to home directory");
-                get_home_dir().join(&keypair_path[1..])
+                println!(
+                    "joining home directory with keypair path: {}",
+                    &keypair_path[1..]
+                );
+                let joined = get_home_dir().join(&keypair_path[1..]);
+                println!("resolved keypair path: {:?}", joined);
+                joined
             } else {
                 println!("keypair path does not start with ~, using as is");
                 PathBuf::from(keypair_path.clone())
             };
-            let path = PathBuf::from(resolved);
             match Keypair::read_from_file(&path) {
                 Ok(pubkey) => {
                     airdrop_addresses.push(pubkey.pubkey());
