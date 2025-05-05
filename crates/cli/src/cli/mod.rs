@@ -189,9 +189,12 @@ impl StartSimnet {
         }
 
         for keypair_path in self.airdrop_keypair_path.iter() {
+            println!("keypair path: {}", keypair_path);
             let resolved = if keypair_path.starts_with("~") {
+                println!("keypair path starts with ~, resolving to home directory");
                 get_home_dir().join(&keypair_path[1..])
             } else {
+                println!("keypair path does not start with ~, using as is");
                 PathBuf::from(keypair_path.clone())
             };
             let path = PathBuf::from(resolved);
