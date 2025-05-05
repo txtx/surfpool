@@ -42,16 +42,16 @@ pub const DEFAULT_AIRDROPPED_KEYPAIR_PATH: &str = "~/.config/solana/id.json";
 /// We set out snap build to set this environment variable to the real home directory,
 /// because by default, snaps run in a confined environment where the home directory is not
 /// the user's actual home directory.
-fn get_home_dir() -> PathBuf {
+fn get_home_dir() -> String {
     println!("getting home dir");
     if let Ok(real_home) = env::var("SNAP_REAL_HOME") {
         println!("found snap real home: {}", real_home);
         let path_buf = PathBuf::from(real_home);
         println!("resolved home dir: {:?}", path_buf);
-        path_buf
+        path_buf.display().to_string()
     } else {
         println!("falling back to dirs::home_dir()");
-        dirs::home_dir().unwrap()
+        dirs::home_dir().unwrap().display().to_string()
     }
 }
 
@@ -198,13 +198,14 @@ impl StartSimnet {
                     "joining home directory with keypair path: {}",
                     &keypair_path[1..]
                 );
-                let joined = get_home_dir().join(&keypair_path[1..]);
+                let joined = format!("{}{}", get_home_dir(), &keypair_path[1..]);
                 println!("resolved keypair path: {:?}", joined);
                 joined
             } else {
                 println!("keypair path does not start with ~, using as is");
-                PathBuf::from(keypair_path.clone())
+                keypair_path.clone()
             };
+            let path = PathBuf::from(path);
             match Keypair::read_from_file(&path) {
                 Ok(pubkey) => {
                     airdrop_addresses.push(pubkey.pubkey());
