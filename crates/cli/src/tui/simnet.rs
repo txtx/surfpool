@@ -282,7 +282,12 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         app.events.push_front((EventType::Warning, dt, log));
                     }
                     SimnetEvent::TransactionReceived(_dt, _transaction) => {}
-                    SimnetEvent::TransactionProcessed(_dt, _meta, _err) => {
+                    SimnetEvent::TransactionProcessed(dt, meta, _err) => {
+                        if app.include_debug_logs {
+                            for log in meta.logs {
+                                app.events.push_front((EventType::Debug, dt, log));
+                            }
+                        }
                         app.successful_transactions += 1;
                     }
                     SimnetEvent::BlockHashExpired => {}
