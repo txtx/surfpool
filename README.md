@@ -93,6 +93,6 @@ We are actively developing Surfpool and welcome contributions from the community
 
 - Join the discussion on [Discord](https://discord.gg/VxZhMqdd)
 
-- Get releases updates via [Xl](https://x.com/txtx_sol) or [Telegram Channel](https://t.me/surfpool)
+- Get releases updates via [X](https://x.com/txtx_sol) or [Telegram Channel](https://t.me/surfpool)
 
 Your contributions help shape the future of Surfpool, making it an essential tool for Solana developers worldwide.
