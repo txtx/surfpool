@@ -699,23 +699,15 @@ impl SurfnetSvm {
         // svm cache, fetch them from the RPC, and insert them locally
         let accounts = match &transaction.message {
             VersionedMessage::Legacy(message) => message.account_keys.clone(),
-            VersionedMessage::V0(message) => { 
+            VersionedMessage::V0(message) => {
                 let alts = message.address_table_lookups.clone();
                 let mut acc_keys = message.account_keys.clone();
-                  if !alts.is_empty() {
-                    let mut alt_pubkeys = 
-                    alts
-                   .iter()
-                   .map(|msg| msg.account_key)
-                   .collect::<Vec<_>>();
-                   acc_keys.append(&mut alt_pubkeys);
-                   acc_keys
-                  } else {
-                    acc_keys
-                  }
-            },
+                let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
+                acc_keys.append(&mut alt_pubkeys);
+                acc_keys
+            }
         };
-        
+
         let _ = self
             .get_multiple_accounts_mut(
                 &accounts,
