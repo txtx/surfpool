@@ -4,7 +4,7 @@ use hiro_system_kit::{self, Logger};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
-use std::{fs::File, path::PathBuf, process, str::FromStr};
+use std::{env, fs::File, path::PathBuf, process, str::FromStr};
 use surfpool_types::{RpcConfig, SimnetConfig, SubgraphConfig, SurfpoolConfig};
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -37,6 +37,19 @@ pub const DEFAULT_SVM_CLOUD_API_URL: &str = "https://svm-cloud-api.txtx.run/v1/s
 pub const DEFAULT_RUNBOOK: &str = "deployment";
 pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
 pub const DEFAULT_AIRDROPPED_KEYPAIR_PATH: &str = "~/.config/solana/id.json";
+
+/// Gets the user's home directory, accounting for the Snap confinement environment.
+/// We set out snap build to set this environment variable to the real home directory,
+/// because by default, snaps run in a confined environment where the home directory is not
+/// the user's actual home directory.
+fn get_home_dir() -> String {
+    if let Ok(real_home) = env::var("SNAP_REAL_HOME") {
+        let path_buf = PathBuf::from(real_home);
+        path_buf.display().to_string()
+    } else {
+        dirs::home_dir().unwrap().display().to_string()
+    }
+}
 
 impl Context {
     #[allow(dead_code)]
@@ -174,16 +187,13 @@ impl StartSimnet {
         }
 
         for keypair_path in self.airdrop_keypair_path.iter() {
-            let resolved = if keypair_path.starts_with("~") {
-                format!(
-                    "{}{}",
-                    dirs::home_dir().unwrap().display(),
-                    &keypair_path[1..]
-                )
+            let path = if keypair_path.starts_with("~") {
+                let joined = format!("{}{}", get_home_dir(), &keypair_path[1..]);
+                joined
             } else {
                 keypair_path.clone()
             };
-            let path = PathBuf::from(resolved);
+            let path = PathBuf::from(path);
             match Keypair::read_from_file(&path) {
                 Ok(pubkey) => {
                     airdrop_addresses.push(pubkey.pubkey());
