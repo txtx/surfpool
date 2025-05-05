@@ -93,7 +93,7 @@ pub fn scaffold_iac_layout(
         ..ColorfulTheme::default()
     };
     let selection = MultiSelect::with_theme(&theme)
-        .with_prompt("Programs to deploy (all by default):")
+        .with_prompt("Select the programs to deploy (all by default):")
         .items_checked(
             &programs
                 .iter()
