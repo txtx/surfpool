@@ -528,13 +528,13 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
     ])
     .split(area);
 
-    let symbol = ['⠈', '⠘', '⠸', '⠼', '⠾', '⠿', '⠷', '⠧', '⠇', '⠃', '⠁', '⠀'];
-    let cursor = symbol[app.slot() % 12];
+    let symbol = ["⢎ ", "⠎⠁", "⠊⠑", "⠈⠱", " ⡱", "⢀⡰", "⢄⡠", "⢆⡀"];
+    let cursor = symbol[app.slot() % symbol.len()];
     let title = Block::new()
         .padding(Padding::symmetric(4, 4))
         .borders(Borders::NONE)
         .title(Line::from(format!(
-            "{} Processing incoming transactions",
+            "{} Transaction processor unit running",
             cursor
         )));
     f.render_widget(title, rects[0]);

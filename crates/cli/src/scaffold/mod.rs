@@ -92,10 +92,14 @@ pub fn scaffold_iac_layout(
         hint_style: Style::new().cyan(),
         ..ColorfulTheme::default()
     };
-
     let selection = MultiSelect::with_theme(&theme)
-        .with_prompt("Programs to deploy:")
-        .items(&programs.iter().map(|p| p.name.as_str()).collect::<Vec<_>>())
+        .with_prompt("Programs to deploy (all by default):")
+        .items_checked(
+            &programs
+                .iter()
+                .map(|p| (p.name.as_str(), true))
+                .collect::<Vec<_>>(),
+        )
         .interact()
         .map_err(|e| format!("unable to select programs to deploy: {e}"))?;
 
