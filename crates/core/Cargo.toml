@@ -19,7 +19,7 @@ bincode = { workspace = true }
 bs58 = "0.5.1"
 chrono = "0.4"
 crossbeam = "0.8.4"
-crossbeam-channel = "0.5.14"
+crossbeam-channel = { workspace = true }
 hex = { workspace = true}
 hiro-system-kit = { version = "0.3.4" }
 ipc-channel = { workspace = true }

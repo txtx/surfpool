@@ -282,7 +282,12 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         app.events.push_front((EventType::Warning, dt, log));
                     }
                     SimnetEvent::TransactionReceived(_dt, _transaction) => {}
-                    SimnetEvent::TransactionProcessed(_dt, _meta, _err) => {
+                    SimnetEvent::TransactionProcessed(dt, meta, _err) => {
+                        if deployment_completed {
+                            for log in meta.logs {
+                                app.events.push_front((EventType::Debug, dt, log));
+                            }
+                        }
                         app.successful_transactions += 1;
                     }
                     SimnetEvent::BlockHashExpired => {}
@@ -528,8 +533,8 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
     ])
     .split(area);
 
-    let symbol = ['⠈', '⠘', '⠸', '⠼', '⠾', '⠿', '⠷', '⠧', '⠇', '⠃', '⠁', '⠀'];
-    let cursor = symbol[app.slot() % 12];
+    let symbol = ["⢎ ", "⠎⠁", "⠊⠑", "⠈⠱", " ⡱", "⢀⡰", "⢄⡠", "⢆⡀"];
+    let cursor = symbol[app.slot() % symbol.len()];
     let title = Block::new()
         .padding(Padding::symmetric(4, 4))
         .borders(Borders::NONE)
