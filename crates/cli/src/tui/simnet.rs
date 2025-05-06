@@ -539,7 +539,7 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
         .padding(Padding::symmetric(4, 4))
         .borders(Borders::NONE)
         .title(Line::from(format!(
-            "{} Transaction processor unit running",
+            "{} Processing incoming transactions",
             cursor
         )));
     f.render_widget(title, rects[0]);
