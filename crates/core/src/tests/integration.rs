@@ -7,11 +7,11 @@ use jsonrpc_core_client::transports::http;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
-    compiled_instruction::CompiledInstruction, v0::MessageAddressTableLookup,v0,Message,
+    compiled_instruction::CompiledInstruction, v0, v0::MessageAddressTableLookup, Message,
     MessageHeader, VersionedMessage,
 };
 use solana_native_token::LAMPORTS_PER_SOL;
-use solana_pubkey::{pubkey,Pubkey};
+use solana_pubkey::{pubkey, Pubkey};
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
@@ -23,10 +23,11 @@ use surfpool_types::{
 use tokio::task;
 
 use crate::{
+    litesvm::LiteSVM,
     rpc::{full::FullClient, minimal::MinimalClient},
     runloops::start_local_surfnet_runloop,
     surfnet::SurfnetSvm,
-    tests::helpers::get_free_port,
+    tests::helpers::{get_free_port, TestSetup},
 };
 
 #[tokio::test]
@@ -276,7 +277,7 @@ async fn test_add_alt_fetching() {
     let pk = payer.pubkey();
     // let recent_blockhash = full_client
     // .get_latest_blockhash(None)
-    // .await 
+    // .await
     // .map(|r| {
     //     Hash::from_str(r.value.blockhash.as_str()).expect("Failed to deserialize blockhash")
     // }).expect("Failed to get blockhash");
@@ -309,7 +310,8 @@ async fn test_add_alt_fetching() {
             pubkey!("GGztQqQ6pCPaJQnNpXBgELr5cs3WwDakRbh1iEMzjgSJ"),
             pubkey!("GZsNmWKbqhMYtdSkkvMdEyQF9k5mLmP7tTKYWZjcHVPE"),
         ],
-        recent_blockhash:Hash::from_str("FhJTgaF1K8M8o6fVvGEaJp5SGwwZv9azWRCsiWiqsX8c").expect("Failed to deserialize blockhash"),
+        recent_blockhash: Hash::from_str("FhJTgaF1K8M8o6fVvGEaJp5SGwwZv9azWRCsiWiqsX8c")
+            .expect("Failed to deserialize blockhash"),
         instructions: vec![
             CompiledInstruction {
                 program_id_index: 11,
@@ -424,8 +426,8 @@ async fn test_add_alt_fetching() {
         Err(err) => println!("err {}", err),
     };
 
-     // Wait for all transactions to be received
-     let _ = task::spawn_blocking(move || {
+    // Wait for all transactions to be received
+    let _ = task::spawn_blocking(move || {
         let mut processed = 0;
         let expected = 1;
         loop {
@@ -441,19 +443,6 @@ async fn test_add_alt_fetching() {
     })
     .await;
 
-    // //////////////////////////////////////////////////////
-    // let inner = LiteSVM::new()
-    // .with_blockhash_check(false); // we might need this 
-
-    // //initialize a testSetup with a liteSVM instance 
-    // let svm_setup = new_with_svm(NetworkType::Mainnet, inner);
-
-    // //access the liteSVM instance 
-    // let state_reader = svm_setup.context.surfnet_svm.blocking_read().inner;
-
-    // //process the mock versioned tx we have 
-    // process_txs(vec![mock_tx]);
-
     //get all the account keys + the address lookup tables from the txn
     let alts = mock_msg.address_table_lookups.clone();
     let mut acc_keys = mock_msg.account_keys.clone();
@@ -461,10 +450,10 @@ async fn test_add_alt_fetching() {
     acc_keys.append(&mut alt_pubkeys);
 
     //inner.get_account returns an Option<Account> assert that none of them are None
-    assert!( 
-        acc_keys.iter().all(|key| {
-           surfnet_svm.inner.get_account(key).is_some()
-         }),  
+    assert!(
+        acc_keys
+            .iter()
+            .all(|key| { surfnet_svm.inner.get_account(key).is_some() }),
         "account not found"
     );
 }

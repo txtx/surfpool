@@ -883,3 +883,7 @@ impl SurfnetSvm {
         Ok(())
     }
 }
+
+// impl Clone for SurfnetSvm {
+
+// }
