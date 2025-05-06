@@ -154,7 +154,7 @@ jobs:
       - name: Download OpenSSL (windows)
         if: matrix.os == 'windows-latest'
         run: |
-          Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL_Light-3_0_13.exe -OutFile openssl-installer.exe
+          Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL_Light-3_0_16.exe -OutFile openssl-installer.exe
           Start-Process -Wait -FilePath .\openssl-installer.exe -ArgumentList "/silent", "/verysilent", "/dir=C:\OpenSSL"
           
       - name: Set Env Vars for OpenSSL (windows)
