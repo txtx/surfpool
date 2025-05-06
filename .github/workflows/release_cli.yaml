@@ -161,6 +161,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           echo "OPENSSL_DIR=C:\OpenSSL" >> $env:GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=C:\OpenSSL\lib\VC" >> $env:GITHUB_ENV
           echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
 
       - name: Configure artifact names
