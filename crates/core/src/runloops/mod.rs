@@ -15,7 +15,7 @@ use tokio::sync::RwLock;
 use crate::{
     rpc::{
         self, accounts_data::AccountsData, accounts_scan::AccountsScan, admin::AdminRpc,
-        bank_data::BankData, full::Full, minimal::Minimal, svm_tricks::SvmTricksRpc,
+        bank_data::BankData, full::Full, minimal::Minimal, surfnet_cheatcodes::SvmTricksRpc,
         SurfpoolMiddleware,
     },
     surfnet::{GeyserEvent, SurfnetSvm},
@@ -374,7 +374,7 @@ async fn start_rpc_server_runloop(
     io.extend_with(rpc::accounts_data::SurfpoolAccountsDataRpc.to_delegate());
     io.extend_with(rpc::accounts_scan::SurfpoolAccountsScanRpc.to_delegate());
     io.extend_with(rpc::bank_data::SurfpoolBankDataRpc.to_delegate());
-    io.extend_with(rpc::svm_tricks::SurfpoolSvmTricksRpc.to_delegate());
+    io.extend_with(rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc.to_delegate());
     io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());
 
     if !config.plugin_config_path.is_empty() {

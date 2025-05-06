@@ -222,7 +222,7 @@ pub trait SvmTricksRpc {
     /// {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
-    ///   "method": "svm_setAccount",
+    ///   "method": "surfnet_setAccount",
     ///   "params": ["account_pubkey", {"lamports": 1000, "data": "base58string", "owner": "program_pubkey"}]
     /// }
     /// ```
@@ -242,7 +242,7 @@ pub trait SvmTricksRpc {
     ///
     /// # See Also
     /// - `getAccount`, `getAccountInfo`, `getAccountBalance`
-    #[rpc(meta, name = "svm_setAccount")]
+    #[rpc(meta, name = "surfnet_setAccount")]
     fn set_account(
         &self,
         meta: Self::Metadata,
@@ -270,7 +270,7 @@ pub trait SvmTricksRpc {
     /// {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
-    ///   "method": "svm_setTokenAccount",
+    ///   "method": "surfnet_setTokenAccount",
     ///   "params": ["owner_pubkey", "mint_pubkey", {"amount": 1000, "state": "initialized"}]
     /// }
     /// ```
@@ -290,7 +290,7 @@ pub trait SvmTricksRpc {
     ///
     /// # See Also
     /// - `getTokenAccountInfo`, `getTokenAccountBalance`, `getTokenAccountDelegate`
-    #[rpc(meta, name = "svm_setTokenAccount")]
+    #[rpc(meta, name = "surfnet_setTokenAccount")]
     fn set_token_account(
         &self,
         meta: Self::Metadata,
@@ -301,8 +301,8 @@ pub trait SvmTricksRpc {
     ) -> BoxFuture<Result<RpcResponse<()>>>;
 }
 
-pub struct SurfpoolSvmTricksRpc;
-impl SvmTricksRpc for SurfpoolSvmTricksRpc {
+pub struct SurfnetCheatcodesRpc;
+impl SvmTricksRpc for SurfnetCheatcodesRpc {
     type Metadata = Option<RunloopContext>;
 
     fn set_account(
