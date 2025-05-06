@@ -142,13 +142,26 @@ jobs:
           echo "SDKROOT=$(xcrun -sdk macosx --show-sdk-path)" >> $GITHUB_ENV
           echo "MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx --show-sdk-platform-version)" >> $GITHUB_ENV
 
-      - name: Configure macos openssl
+      - name: Configure openssl (macos)
         if: matrix.os == 'macos-latest' && matrix.architecture == 'x64'
         run: |
           brew install openssl@1.1
           echo "OPENSSL_DIR=$(brew --prefix openssl@1.1)" >> $GITHUB_ENV
           echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl@1.1)/include" >> $GITHUB_ENV
           echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@1.1)/lib" >> $GITHUB_ENV
+
+
+      - name: Download OpenSSL (windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL_Light-3_0_13.exe -OutFile openssl-installer.exe
+          Start-Process -Wait -FilePath .\openssl-installer.exe -ArgumentList "/silent", "/verysilent", "/dir=C:\OpenSSL"
+          
+      - name: Set Env Vars for OpenSSL (windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          echo "OPENSSL_DIR=C:\OpenSSL" >> $env:GITHUB_ENV
+          echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
 
       - name: Configure artifact names
         shell: bash
