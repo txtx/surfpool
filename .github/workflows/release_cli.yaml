@@ -151,17 +151,36 @@ jobs:
           echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@1.1)/lib" >> $GITHUB_ENV
 
 
-      - name: Download OpenSSL (windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL-3_0_16.exe -OutFile openssl-installer.exe
-          Start-Process -Wait -FilePath .\openssl-installer.exe -ArgumentList "/silent", "/verysilent", "/dir=C:\OpenSSL"
+      # - name: Download OpenSSL (windows)
+      #   if: matrix.os == 'windows-latest'
+      #   run: |
+      #     Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL-3_0_16.exe -OutFile openssl-installer.exe
+      #     Start-Process -Wait -FilePath .\openssl-installer.exe -ArgumentList "/silent", "/verysilent", "/dir=C:\OpenSSL"
           
-      - name: Set Env Vars for OpenSSL (windows)
+      # - name: Set Env Vars for OpenSSL (windows)
+      #   if: matrix.os == 'windows-latest'
+      #   run: |
+      #     echo "OPENSSL_DIR=C:\OpenSSL" >> $env:GITHUB_ENV
+      #     echo "OPENSSL_LIB_DIR=C:\OpenSSL\lib\VC" >> $env:GITHUB_ENV
+      #     echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
+
+      - name: Cache vcpkg (windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/cache@v3
+        with:
+          path: |
+            C:\vcpkg
+          key: ${{ runner.os }}-vcpkg-openssl
+
+      - name: Setup vcpkg and install OpenSSL (windows)
         if: matrix.os == 'windows-latest'
         run: |
-          echo "OPENSSL_DIR=C:\OpenSSL" >> $env:GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=C:\OpenSSL\lib\VC" >> $env:GITHUB_ENV
+          git clone https://github.com/microsoft/vcpkg C:\vcpkg
+          cd C:\vcpkg
+          .\bootstrap-vcpkg.bat
+          .\vcpkg install openssl:x64-windows
+          
+          echo "OPENSSL_DIR=C:\vcpkg\installed\x64-windows" >> $env:GITHUB_ENV
           echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
 
       - name: Configure artifact names
