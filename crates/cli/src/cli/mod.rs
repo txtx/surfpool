@@ -30,8 +30,7 @@ pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
 pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
 pub const DEFAULT_ID_SVC_URL: &str = "https://id.txtx.run/v1";
-pub const DEFAULT_AUTH_SVC_URL: &str = "https://auth.txtx.run";
-pub const DEFAULT_CONSOLE_URL: &str = "https://cloud.txtx.run";
+pub const DEFAULT_CLOUD_URL: &str = "https://cloud.txtx.run";
 pub const DEFAULT_SVM_GQL_URL: &str = "https://svm-cloud.gql.txtx.run/v1/graphql";
 pub const DEFAULT_SVM_CLOUD_API_URL: &str = "https://svm-cloud-api.txtx.run/v1/surfnets";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
@@ -437,7 +436,7 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
         CloudCommand::Login(cmd) => {
             txtx_cloud::login::handle_login_command(
                 &cmd,
-                DEFAULT_AUTH_SVC_URL,
+                DEFAULT_CLOUD_URL,
                 DEFAULT_TXTX_PORT,
                 DEFAULT_ID_SVC_URL,
             )
@@ -445,7 +444,7 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
         }
         CloudCommand::Start(cmd) => {
             cmd.start(
-                DEFAULT_AUTH_SVC_URL,
+                DEFAULT_CLOUD_URL,
                 DEFAULT_TXTX_PORT,
                 DEFAULT_ID_SVC_URL,
                 DEFAULT_SVM_GQL_URL,
