@@ -26,7 +26,7 @@ use txtx_core::kit::types::frontend::BlockEvent;
 use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};
 
 const HELP_TEXT: &str = "(Esc) quit | (↑) move up | (↓) move down";
-const SURFPOOL_LINK: &str = "Help: https://docs.surfpool.run/surfpool/tui";
+const SURFPOOL_LINK: &str = "Need help? https://docs.surfpool.run/tui";
 
 const ITEM_HEIGHT: usize = 1;
 
@@ -49,7 +49,7 @@ impl ColorTheme {
             background: tailwind::SLATE.c950,
             accent: color.c400,
             primary: color.c500,
-            secondary: color.c700,
+            secondary: color.c300,
             white: tailwind::SLATE.c200,
             gray: tailwind::SLATE.c500,
             error: tailwind::RED.c400,
@@ -96,10 +96,15 @@ impl App {
         local_rpc_url: &str,
         breaker: Option<Keypair>,
     ) -> App {
+        let palette = if remote_rpc_url.contains("helius") {
+            palette::tailwind::RED
+        } else {
+            palette::tailwind::EMERALD
+        };
         App {
             state: TableState::default().with_selected(0),
             scroll_state: ScrollbarState::new(5 * ITEM_HEIGHT),
-            colors: ColorTheme::new(&palette::tailwind::EMERALD),
+            colors: ColorTheme::new(&palette),
             simnet_events_rx,
             simnet_commands_tx,
             clock: Clock::default(),
@@ -154,9 +159,9 @@ impl App {
         *self.state.offset_mut() = new_offset;
     }
 
-    pub fn set_colors(&mut self) {
-        self.colors = ColorTheme::new(&tailwind::EMERALD)
-    }
+    // pub fn set_colors(&mut self) {
+    //     self.colors = ColorTheme::new(&tailwind::EMERALD)
+    // }
 }
 
 pub fn start_app(
@@ -410,7 +415,6 @@ fn ui(f: &mut Frame, app: &mut App) {
         Constraint::Length(3),
     ])
     .split(f.area());
-    app.set_colors();
 
     let default_style = Style::new()
         .fg(app.colors.secondary)
@@ -486,12 +490,12 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
     let infos = vec![
         Line::from(vec![
             Span::styled("۬", app.colors.white),
-            Span::styled("RPC     ", app.colors.gray),
+            Span::styled("Surfnet   ", app.colors.gray),
             Span::styled(&app.local_rpc_url, app.colors.white),
         ]),
         Line::from(vec![
             Span::styled("۬", app.colors.white),
-            Span::styled("Source  ", app.colors.gray),
+            Span::styled("Provider  ", app.colors.gray),
             Span::styled(&app.remote_rpc_url, app.colors.white),
         ]),
         Line::from(vec![Span::styled("۬-", app.colors.gray)]),
