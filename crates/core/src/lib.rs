@@ -16,6 +16,8 @@ pub mod runloops;
 pub mod surfnet;
 pub mod types;
 
+use std::sync::Arc;
+
 use crossbeam_channel::{Receiver, Sender};
 pub use jsonrpc_core;
 pub use jsonrpc_http_server;
@@ -23,6 +25,7 @@ pub use litesvm;
 pub use solana_rpc_client;
 use surfnet::{GeyserEvent, SurfnetSvm};
 use surfpool_types::{SimnetCommand, SubgraphCommand, SurfpoolConfig};
+use tokio::sync::RwLock;
 use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
@@ -34,8 +37,9 @@ pub async fn start_local_surfnet(
     simnet_commands_rx: Receiver<SimnetCommand>,
     geyser_events_rx: Receiver<GeyserEvent>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
     runloops::start_local_surfnet_runloop(
-        surfnet_svm,
+        svm_locker,
         config,
         subgraph_commands_tx,
         simnet_commands_tx,
