@@ -226,7 +226,7 @@ pub fn scaffold_iac_layout(
         manifest_location
     };
 
-    let default_solana_keypair_path = resolve_path(DEFAULT_SOLANA_KEYPAIR_PATH)
+    let default_solana_keypair_path = resolve_path(&DEFAULT_SOLANA_KEYPAIR_PATH)
         .display()
         .to_string();
 

@@ -36,10 +36,15 @@ pub const DEFAULT_SVM_GQL_URL: &str = "https://svm-cloud.gql.txtx.run/v1/graphql
 pub const DEFAULT_SVM_CLOUD_API_URL: &str = "https://svm-cloud-api.txtx.run/v1/surfnets";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
 pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
-#[cfg(not(windows))]
-pub const DEFAULT_SOLANA_KEYPAIR_PATH: &str = "~/.config/solana/id.json";
-#[cfg(windows)]
-pub const DEFAULT_SOLANA_KEYPAIR_PATH: &str = "~\\.config\\solana\\id.json";
+
+lazy_static::lazy_static! {
+    pub static ref DEFAULT_SOLANA_KEYPAIR_PATH: String = {
+        PathBuf::from("~").join(".config").join("solana")
+            .join("id.json")
+            .display()
+            .to_string()
+    };
+}
 
 /// Gets the user's home directory, accounting for the Snap confinement environment.
 /// We set out snap build to set this environment variable to the real home directory,
@@ -158,7 +163,7 @@ pub struct StartSimnet {
     #[arg(long = "airdrop-amount", short = 'q', default_value = DEFAULT_AIRDROP_AMOUNT)]
     pub airdrop_token_amount: u64,
     /// List of keypair paths to airdrop
-    #[arg(long = "airdrop-keypair-path", short = 'k', default_value = DEFAULT_SOLANA_KEYPAIR_PATH)]
+    #[arg(long = "airdrop-keypair-path", short = 'k', default_value = DEFAULT_SOLANA_KEYPAIR_PATH.as_str())]
     pub airdrop_keypair_path: Vec<String>,
     /// Disable explorer (default: false)
     #[clap(long = "no-explorer")]
