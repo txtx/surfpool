@@ -31,6 +31,7 @@ dirs = "6.0.0"
 hiro-system-kit = "0.3.1"
 juniper_actix = { version = "0.6.0", features = ["subscriptions"] }
 juniper_graphql_ws = { version = "0.4.0", features = ["graphql-transport-ws"] }
+lazy_static = "1.5.0"
 mime_guess = "2.0.4"
 mustache = "0.9.0"
 notify = { version = "8.0.0" }

@@ -9200,6 +9200,7 @@ dependencies = [
  "hiro-system-kit",
  "juniper_actix 0.6.0",
  "juniper_graphql_ws",
+ "lazy_static",
  "mime_guess",
  "mustache",
  "notify",

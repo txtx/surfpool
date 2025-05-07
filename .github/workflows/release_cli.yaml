@@ -58,10 +58,10 @@ jobs:
             platform: linux
             target: x86_64-unknown-linux-gnu
             architecture: x64
-          # - os: windows-latest
-          #   platform: windows
-          #   target: x86_64-pc-windows-msvc
-          #   architecture: x64
+          - os: windows-latest
+            platform: windows
+            target: x86_64-pc-windows-msvc
+            architecture: x64
           - os: macos-latest
             platform: darwin
             target: aarch64-apple-darwin
@@ -93,6 +93,14 @@ jobs:
           nhost_region: ${{ secrets.NHOST_REGION }}
           nhost_subdomain: ${{ secrets.NHOST_SUBDOMAIN }}
           working_directory: "txtx-supervisor-ui"
+
+      # install supervisor dependencies (windows)
+      - name: "Install dotenv-cli (windows)"
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd txtx-supervisor-ui
+          npm i -g dotenv-cli
+          cd ..
 
       - name: Build Supervisor UI
         run: |
@@ -134,13 +142,46 @@ jobs:
           echo "SDKROOT=$(xcrun -sdk macosx --show-sdk-path)" >> $GITHUB_ENV
           echo "MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx --show-sdk-platform-version)" >> $GITHUB_ENV
 
-      - name: Configure macos openssl
+      - name: Configure openssl (macos)
         if: matrix.os == 'macos-latest' && matrix.architecture == 'x64'
         run: |
           brew install openssl@1.1
           echo "OPENSSL_DIR=$(brew --prefix openssl@1.1)" >> $GITHUB_ENV
           echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl@1.1)/include" >> $GITHUB_ENV
           echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@1.1)/lib" >> $GITHUB_ENV
+
+
+      # - name: Download OpenSSL (windows)
+      #   if: matrix.os == 'windows-latest'
+      #   run: |
+      #     Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL-3_0_16.exe -OutFile openssl-installer.exe
+      #     Start-Process -Wait -FilePath .\openssl-installer.exe -ArgumentList "/silent", "/verysilent", "/dir=C:\OpenSSL"
+          
+      # - name: Set Env Vars for OpenSSL (windows)
+      #   if: matrix.os == 'windows-latest'
+      #   run: |
+      #     echo "OPENSSL_DIR=C:\OpenSSL" >> $env:GITHUB_ENV
+      #     echo "OPENSSL_LIB_DIR=C:\OpenSSL\lib\VC" >> $env:GITHUB_ENV
+      #     echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
+
+      - name: Cache vcpkg (windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/cache@v3
+        with:
+          path: |
+            C:\vcpkg
+          key: ${{ runner.os }}-vcpkg-openssl
+
+      - name: Setup vcpkg and install OpenSSL (windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          git clone https://github.com/microsoft/vcpkg C:\vcpkg
+          cd C:\vcpkg
+          .\bootstrap-vcpkg.bat
+          .\vcpkg install openssl:x64-windows
+          
+          echo "OPENSSL_DIR=C:\vcpkg\installed\x64-windows" >> $env:GITHUB_ENV
+          echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
 
       - name: Configure artifact names
         shell: bash
@@ -156,6 +197,12 @@ jobs:
       - name: Compress cargo artifact (not windows)
         if: matrix.os != 'windows-latest'
         run: tar -C target/${{ matrix.target }}/release -zcvf surfpool-${{ env.SHORT_TARGET_NAME }}.tar.gz surfpool
+
+      - name: Compress artifact (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run:
+          tar -czf surfpool-${{ env.SHORT_TARGET_NAME }}.tar.gz -C target/${{ matrix.target }}/release surfpool.exe
 
       - name: Store SHA256 Hash of Tar (Linux x64)
         if: matrix.platform == 'linux'
@@ -178,6 +225,13 @@ jobs:
       # Separate uploads to prevent paths from being preserved
       - name: Upload cargo artifacts (not windows)
         if: matrix.os != 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: surfpool-${{ env.SHORT_TARGET_NAME }}
+          path: surfpool-${{ env.SHORT_TARGET_NAME }}.tar.gz
+          
+      - name: Upload tar archive (Windows)
+        if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: surfpool-${{ env.SHORT_TARGET_NAME }}

@@ -36,19 +36,38 @@ pub const DEFAULT_SVM_GQL_URL: &str = "https://svm-cloud.gql.txtx.run/v1/graphql
 pub const DEFAULT_SVM_CLOUD_API_URL: &str = "https://svm-cloud-api.txtx.run/v1/surfnets";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
 pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
-pub const DEFAULT_AIRDROPPED_KEYPAIR_PATH: &str = "~/.config/solana/id.json";
+
+lazy_static::lazy_static! {
+    pub static ref DEFAULT_SOLANA_KEYPAIR_PATH: String = {
+        PathBuf::from("~").join(".config").join("solana")
+            .join("id.json")
+            .display()
+            .to_string()
+    };
+}
 
 /// Gets the user's home directory, accounting for the Snap confinement environment.
 /// We set out snap build to set this environment variable to the real home directory,
 /// because by default, snaps run in a confined environment where the home directory is not
 /// the user's actual home directory.
-fn get_home_dir() -> String {
+pub fn get_home_dir() -> String {
     if let Ok(real_home) = env::var("SNAP_REAL_HOME") {
         let path_buf = PathBuf::from(real_home);
         path_buf.display().to_string()
     } else {
         dirs::home_dir().unwrap().display().to_string()
     }
+}
+
+/// Resolves a path, expanding the `~` to the user's home directory if present.
+pub fn resolve_path(path: &str) -> PathBuf {
+    let path = if path.starts_with("~") {
+        let joined = format!("{}{}", get_home_dir(), &path[1..]);
+        joined
+    } else {
+        path.to_string()
+    };
+    PathBuf::from(path)
 }
 
 impl Context {
@@ -144,7 +163,7 @@ pub struct StartSimnet {
     #[arg(long = "airdrop-amount", short = 'q', default_value = DEFAULT_AIRDROP_AMOUNT)]
     pub airdrop_token_amount: u64,
     /// List of keypair paths to airdrop
-    #[arg(long = "airdrop-keypair-path", short = 'k', default_value = DEFAULT_AIRDROPPED_KEYPAIR_PATH)]
+    #[arg(long = "airdrop-keypair-path", short = 'k', default_value = DEFAULT_SOLANA_KEYPAIR_PATH.as_str())]
     pub airdrop_keypair_path: Vec<String>,
     /// Disable explorer (default: false)
     #[clap(long = "no-explorer")]
@@ -187,13 +206,7 @@ impl StartSimnet {
         }
 
         for keypair_path in self.airdrop_keypair_path.iter() {
-            let path = if keypair_path.starts_with("~") {
-                let joined = format!("{}{}", get_home_dir(), &keypair_path[1..]);
-                joined
-            } else {
-                keypair_path.clone()
-            };
-            let path = PathBuf::from(path);
+            let path = resolve_path(keypair_path);
             match Keypair::read_from_file(&path) {
                 Ok(pubkey) => {
                     airdrop_addresses.push(pubkey.pubkey());
