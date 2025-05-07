@@ -3,7 +3,9 @@ use std::fmt;
 use clap::{builder::PossibleValue, Parser, ValueEnum};
 use dialoguer::{console::Style, theme::ColorfulTheme, Input, Select};
 use surfpool_types::{BlockProductionMode, CreateNetworkRequest, CreateNetworkResponse};
-use txtx_cloud::{auth::AuthConfig, workspace::get_user_workspaces, LoginCommand};
+use txtx_cloud::{
+    auth::AuthConfig, login::pat_login, workspace::fetch_svm_workspaces, LoginCommand,
+};
 use txtx_gql::kit::{reqwest, uuid::Uuid};
 
 use crate::cli::DEFAULT_RPC_URL;
@@ -89,7 +91,7 @@ impl CloudStartCommand {
         svm_gql_url: &str,
         svm_cloud_api_url: &str,
     ) -> Result<(), String> {
-        let auth_config = match AuthConfig::read_from_system_config()
+        let mut auth_config = match AuthConfig::read_from_system_config()
             .map_err(|e| format!("failed to authenticate user: {e}"))?
         {
             Some(auth_config) => auth_config,
@@ -114,7 +116,7 @@ impl CloudStartCommand {
         };
 
         auth_config
-            .refresh_session_if_needed(&id_service_url, &auth_config.pat)
+            .refresh_session_if_needed(&id_service_url)
             .await?;
 
         let theme = ColorfulTheme {
@@ -123,9 +125,30 @@ impl CloudStartCommand {
             ..ColorfulTheme::default()
         };
 
-        let workspaces = get_user_workspaces(&auth_config.access_token, svm_gql_url)
+        let mut workspaces = fetch_svm_workspaces(&auth_config.access_token, svm_gql_url)
             .await
             .map_err(|e| format!("failed to get available workspaces: {}", e))?;
+
+        if workspaces.is_empty() {
+            if let Some(pat) = auth_config.pat {
+                let jwt_manager = txtx_cloud::auth::jwt::JwtManager::initialize(id_service_url)
+                    .await
+                    .map_err(|e| format!("Failed to initialize JWT manager: {}", e))?;
+
+                // Retry, this time with a brand new refresh token
+                let auth_config = pat_login(&id_service_url, &jwt_manager, &pat)
+                    .await
+                    .map_err(|e| format!("failed to login with PAT: {}", e))?;
+
+                workspaces = fetch_svm_workspaces(&auth_config.access_token, svm_gql_url)
+                    .await
+                    .map_err(|e| format!("failed to get available workspaces: {}", e))?;
+
+                if workspaces.is_empty() {
+                    return Err("no workspaces found".to_string());
+                }
+            }
+        }
 
         let (workspace_names, workspace_ids): (Vec<String>, Vec<Uuid>) = workspaces
             .iter()
@@ -137,7 +160,7 @@ impl CloudStartCommand {
             .items(&workspace_names)
             .default(0)
             .interact()
-            .map_err(|e| format!("unable to get workspace: {e}"))?;
+            .map_err(|e| format!("unable to fetch workspaces: {e}"))?;
 
         let workspace_id = workspace_ids[selected_workspace_idx];
 

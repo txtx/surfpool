@@ -1,14 +1,15 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use solana_client::rpc_client::SerializableTransaction;
+use solana_message::v0::MessageAddressTableLookup;
 use solana_message::VersionedMessage;
 use solana_sdk::{inner_instruction::InnerInstruction, transaction::VersionedTransaction};
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionConfirmationStatus,
-    TransactionStatus, UiCompiledInstruction, UiInnerInstructions, UiInstruction, UiMessage,
-    UiRawMessage, UiReturnDataEncoding, UiTransaction, UiTransactionReturnData,
-    UiTransactionStatusMeta,
+    TransactionStatus, UiAddressTableLookup, UiCompiledInstruction, UiInnerInstructions,
+    UiInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
+    UiTransactionReturnData, UiTransactionStatusMeta,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 use surfpool_types::TransactionMetadata;
@@ -75,6 +76,7 @@ impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMe
                     // TODO: use stack height
                     .map(|ix| UiCompiledInstruction::from(ix, None))
                     .collect(),
+                // message.address_table_lookups.iter().map(|msg| msg.account_key).collect::<Vec<_>>(), not sure about this yet
             ),
         };
 
@@ -88,7 +90,15 @@ impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMe
                         account_keys,
                         recent_blockhash: tx.get_recent_blockhash().to_string(),
                         instructions,
-                        address_table_lookups: None, // TODO: use lookup table
+                        address_table_lookups: match tx.message {
+                            VersionedMessage::Legacy(_) => None,
+                            VersionedMessage::V0(ref msg) => Some(
+                                msg.address_table_lookups
+                                    .iter()
+                                    .map(|matl| UiAddressTableLookup::from(matl))
+                                    .collect::<Vec<UiAddressTableLookup>>(),
+                            ),
+                        },
                     }),
                 }),
                 meta: Some(UiTransactionStatusMeta {
