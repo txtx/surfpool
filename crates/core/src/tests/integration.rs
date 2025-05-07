@@ -7,28 +7,47 @@ use jsonrpc_core_client::transports::http;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
-    compiled_instruction::CompiledInstruction, v0, v0::MessageAddressTableLookup, Message,
-    MessageHeader, VersionedMessage,
+    v0::{self},
+    AddressLookupTableAccount, Message, VersionedMessage,
 };
 use solana_native_token::LAMPORTS_PER_SOL;
 use solana_pubkey::{pubkey, Pubkey};
+use solana_sdk::system_instruction::transfer;
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
-use std::{str::FromStr, time::Duration};
+use std::{str::FromStr, sync::Arc, time::Duration};
 use surfpool_types::{
     types::{BlockProductionMode, RpcConfig, SimnetConfig},
     SimnetEvent, SurfpoolConfig,
 };
-use tokio::task;
+use tokio::{sync::RwLock, task};
 
 use crate::{
-    litesvm::LiteSVM,
     rpc::{full::FullClient, minimal::MinimalClient},
     runloops::start_local_surfnet_runloop,
     surfnet::SurfnetSvm,
-    tests::helpers::{get_free_port, TestSetup},
+    tests::helpers::get_free_port,
 };
+
+fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<SimnetEvent>) {
+    let mut ready = false;
+    let mut connected = false;
+    loop {
+        match simnet_events_rx.recv() {
+            Ok(SimnetEvent::Ready) => {
+                ready = true;
+            }
+            Ok(SimnetEvent::Connected(_)) => {
+                connected = true;
+            }
+            _ => (),
+        }
+        if ready && connected {
+            break;
+        }
+    }
+}
 
 #[tokio::test]
 async fn test_simnet_ready() {
@@ -43,10 +62,11 @@ async fn test_simnet_ready() {
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
-            surfnet_svm,
+            svm_locker,
             config,
             subgraph_commands_tx,
             simnet_commands_tx,
@@ -85,10 +105,11 @@ async fn test_simnet_ticks() {
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let (test_tx, test_rx) = unbounded();
+    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
-            surfnet_svm,
+            svm_locker,
             config,
             subgraph_commands_tx,
             simnet_commands_tx,
@@ -146,10 +167,11 @@ async fn test_simnet_some_sol_transfers() {
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
-            surfnet_svm,
+            svm_locker,
             config,
             subgraph_commands_tx,
             simnet_commands_tx,
@@ -161,12 +183,7 @@ async fn test_simnet_some_sol_transfers() {
         }
     });
 
-    loop {
-        match simnet_events_rx.recv() {
-            Ok(SimnetEvent::Ready) | Ok(SimnetEvent::Connected(_)) => break,
-            _ => (),
-        }
-    }
+    wait_for_ready_and_connected(&simnet_events_rx);
 
     let minimal_client =
         http::connect::<MinimalClient>(format!("http://{bind_host}:{bind_port}").as_str())
@@ -269,97 +286,17 @@ async fn test_simnet_some_sol_transfers() {
     );
 }
 
-//Sample jupiter CPI swap txn that uses ALTs, the purpose is to test whether the ALT accounts
-//are getting fetched as part of the accounts that surfpool fetches to store locally
+// This test is pretty minimal for lookup tables at this point.
+// We are creating a v0 transaction with a lookup table that does exist on mainnet,
+// and sending that tx to surfpool. We are verifying that the transaction is processed
+// and that the lookup table is fetched from mainnet and added to the accounts in the SVM.
+// However, we are not actually setting up a tx that will use the lookup table internally,
+// we are kind of just trusting that LiteSVM will do its job here.
 #[tokio::test]
 async fn test_add_alt_fetching() {
     let payer = Keypair::new();
     let pk = payer.pubkey();
-    // let recent_blockhash = full_client
-    // .get_latest_blockhash(None)
-    // .await
-    // .map(|r| {
-    //     Hash::from_str(r.value.blockhash.as_str()).expect("Failed to deserialize blockhash")
-    // }).expect("Failed to get blockhash");
-    let mock_msg = v0::Message {
-        header: MessageHeader {
-            num_required_signatures: 1,
-            num_readonly_signed_accounts: 0,
-            num_readonly_unsigned_accounts: 11,
-        },
-        account_keys: vec![
-            pk, // this is the payer address
-            pubkey!("g7dD1FHSemkUQrX1Eak37wzvDjscgBW2pFCENwjLdMX"),
-            pubkey!("7svh6D6s1eqT9WNSZ3zad9LN5STRBYP7jJnyY3xeE9Fr"),
-            pubkey!("B4rJzJ4N7EbXvxn9KHpbDudZGDHBU94Dv9CACN3PKctq"),
-            pubkey!("CTDshrXhSQwiVdavX1ZKHtXMevrRa8JVgShdNgvcU37H"),
-            pubkey!("DVCeozFGbe6ew3eWTnZByjHeYqTq1cvbrB7JJhkLxaRJ"),
-            pubkey!("HY8dzcqGXeRo1pb9wmboJME87k3pYmnPhMjdHcfmM4be"),
-            pubkey!("HkphEpUqnFBxBuCPEq5j1HA9L8EwmsmRT6UcFKziptM1"),
-            pubkey!("Hua38wowX7fRVUzj4i8meQAyoqVRuFRaLkhTHCnqZ81x"),
-            pubkey!("JANiiyQqkoH5RqQAhZzQTE4aDWbWobaXv9V9pnxqSGjy"),
-            pubkey!("11111111111111111111111111111111"),
-            pubkey!("ComputeBudget111111111111111111111111111111"),
-            pubkey!("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
-            pubkey!("LMMGrBSX84ZC519PSBkppyVdT4XfM3VP3hw4XLXqhrf"),
-            pubkey!("ZJpqR6zydcs7bw2YHzCVyDf3A2PajQHctAPhfZ1UDj5"),
-            pubkey!("6YawcNeZ74tRyCv4UfGydYMr7eho7vbUR6ScVffxKAb3"),
-            pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"),
-            pubkey!("Cd8JNmh6iBHJR2RXKJMLe5NRqYmpkYco7anoar1DWFyy"),
-            pubkey!("D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf"),
-            pubkey!("GGztQqQ6pCPaJQnNpXBgELr5cs3WwDakRbh1iEMzjgSJ"),
-            pubkey!("GZsNmWKbqhMYtdSkkvMdEyQF9k5mLmP7tTKYWZjcHVPE"),
-        ],
-        recent_blockhash: Hash::from_str("FhJTgaF1K8M8o6fVvGEaJp5SGwwZv9azWRCsiWiqsX8c")
-            .expect("Failed to deserialize blockhash"),
-        instructions: vec![
-            CompiledInstruction {
-                program_id_index: 11,
-                accounts: vec![],
-                data: vec![2, 192, 92, 21, 0],
-            },
-            CompiledInstruction {
-                program_id_index: 11,
-                accounts: vec![],
-                data: vec![3, 64, 13, 3, 0, 0, 0, 0, 0],
-            },
-            CompiledInstruction {
-                program_id_index: 16,
-                accounts: vec![0, 8, 4, 38, 10, 30],
-                data: vec![1],
-            },
-            CompiledInstruction {
-                program_id_index: 16,
-                accounts: vec![0, 3, 14, 38, 10, 30],
-                data: vec![1],
-            },
-            CompiledInstruction {
-                program_id_index: 13,
-                accounts: vec![
-                    29, 30, 38, 30, 4, 6, 8, 3, 14, 16, 12, 30, 19, 17, 9, 1, 5, 2, 29, 38, 12, 12,
-                    18, 12, 37, 27, 20, 15, 25, 26, 1, 7, 28, 28, 36, 19, 30, 32, 19, 7, 5, 21, 22,
-                    23, 24, 35, 31, 34, 33, 30,
-                ],
-                data: vec![
-                    248, 198, 158, 145, 225, 117, 135, 200, 41, 0, 0, 0, 193, 32, 155, 51, 65, 214,
-                    156, 129, 0, 2, 0, 0, 0, 58, 1, 100, 0, 1, 56, 100, 1, 2, 128, 132, 30, 0, 0,
-                    0, 0, 0, 145, 159, 4, 0, 0, 0, 0, 0, 50, 0, 0, 232, 3, 0, 0, 0, 0, 0, 0,
-                ],
-            },
-        ],
-        address_table_lookups: vec![
-            MessageAddressTableLookup {
-                account_key: pubkey!("5KcPJehcpBLcPde2UhmY4dE9zCrv2r9AKFmW5CGtY1io"),
-                writable_indexes: vec![110, 185, 112, 117],
-                readonly_indexes: vec![13, 0, 118, 113, 115, 116, 120],
-            },
-            MessageAddressTableLookup {
-                account_key: pubkey!("E1iuryq4fcxyqfQZginfahXTyBC3XmDNsVjSDukkyUrc"),
-                writable_indexes: vec![119, 118, 120, 121],
-                readonly_indexes: vec![122, 117, 83],
-            },
-        ],
-    };
+
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
     let airdrop_token_amount = LAMPORTS_PER_SOL;
@@ -381,10 +318,12 @@ async fn test_add_alt_fetching() {
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
 
+    let moved_svm_locker = svm_locker.clone();
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
-            surfnet_svm,
+            moved_svm_locker,
             config,
             subgraph_commands_tx,
             simnet_commands_tx,
@@ -396,60 +335,87 @@ async fn test_add_alt_fetching() {
         }
     });
 
-    loop {
-        match simnet_events_rx.recv() {
-            Ok(SimnetEvent::Ready) | Ok(SimnetEvent::Connected(_)) => break,
-            _ => (),
-        }
-    }
+    wait_for_ready_and_connected(&simnet_events_rx);
 
     let full_client =
         http::connect::<FullClient>(format!("http://{bind_host}:{bind_port}").as_str())
             .await
             .expect("Failed to connect to Surfpool");
 
-    let Ok(tx) = VersionedTransaction::try_new(VersionedMessage::V0(mock_msg.clone()), &[&payer])
-    else {
-        // return Box::pin(future::err(Error::invalid_params("tx")));
-        panic!("Invalid transaction parameters");
+    let recent_blockhash = full_client
+        .get_latest_blockhash(None)
+        .await
+        .map(|r| {
+            Hash::from_str(r.value.blockhash.as_str()).expect("Failed to deserialize blockhash")
+        })
+        .expect("Failed to get blockhash");
+
+    let random_address = pubkey!("7zdYkYf7yD83j3TLXmkhxn6LjQP9y9bQ4pjfpquP8Hqw");
+
+    let instruction = transfer(&pk, &random_address, 100);
+
+    let alt_address = pubkey!("5KcPJehcpBLcPde2UhmY4dE9zCrv2r9AKFmW5CGtY1io"); // a mainnet lookup table
+
+    let address_lookup_table_account = AddressLookupTableAccount {
+        key: alt_address,
+        addresses: vec![random_address],
     };
 
+    let tx = VersionedTransaction::try_new(
+        VersionedMessage::V0(
+            v0::Message::try_compile(
+                &payer.pubkey(),
+                &[instruction],
+                &[address_lookup_table_account],
+                recent_blockhash,
+            )
+            .expect("Failed to compile message"),
+        ),
+        &[payer],
+    )
+    .expect("Failed to create transaction");
+
     let Ok(encoded) = bincode::serialize(&tx) else {
-        // return Box::pin(future::err(Error::invalid_params("encoded")));
         panic!("Failed to serialize transaction");
     };
     let data = bs58::encode(encoded).into_string();
 
-    // Box::pin(future::ready(Ok(full_client.send_transaction(data, None))));
     let _ = match full_client.send_transaction(data, None).await {
-        Ok(res) => println!("result {}", res),
-        Err(err) => println!("err {}", err),
+        Ok(res) => println!("Send transaction result: {}", res),
+        Err(err) => println!("Send transaction error result: {}", err),
     };
 
     // Wait for all transactions to be received
     let _ = task::spawn_blocking(move || {
         let mut processed = 0;
         let expected = 1;
+        let mut alt_updated = false;
         loop {
             match simnet_events_rx.recv() {
                 Ok(SimnetEvent::TransactionProcessed(..)) => processed += 1,
+                Ok(SimnetEvent::AccountUpdate(_, account)) => {
+                    if account == alt_address {
+                        alt_updated = true;
+                    }
+                }
                 _ => (),
             }
 
-            if processed == expected {
+            if processed == expected && alt_updated {
                 break;
             }
         }
     })
     .await;
 
-    //get all the account keys + the address lookup tables from the txn
-    let alts = mock_msg.address_table_lookups.clone();
-    let mut acc_keys = mock_msg.account_keys.clone();
+    // get all the account keys + the address lookup tables from the txn
+    let alts = tx.message.address_table_lookups().clone().unwrap();
+    let mut acc_keys = tx.message.static_account_keys().to_vec();
     let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
     acc_keys.append(&mut alt_pubkeys);
 
-    //inner.get_account returns an Option<Account> assert that none of them are None
+    let surfnet_svm = svm_locker.read().await;
+    // inner.get_account returns an Option<Account>; assert that none of them are None
     assert!(
         acc_keys
             .iter()
