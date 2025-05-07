@@ -1,7 +1,7 @@
 use super::{not_implemented_err, RunloopContext};
 use crate::{
     rpc::{utils::verify_pubkey, State},
-    surfnet::GetAccountStrategy,
+    surfnet::{GetAccountStrategy, FINALIZATION_SLOT_THRESHOLD},
 };
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use jsonrpc_derive::rpc;
@@ -10,12 +10,14 @@ use solana_client::{
         RpcContextConfig, RpcGetVoteAccountsConfig, RpcLeaderScheduleConfig,
         RpcLeaderScheduleConfigWrapper,
     },
+    rpc_custom_error::RpcCustomError,
     rpc_response::{
         RpcIdentity, RpcLeaderSchedule, RpcResponseContext, RpcSnapshotSlotInfo,
         RpcVoteAccountStatus,
     },
 };
 use solana_clock::Slot;
+use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -635,9 +637,31 @@ impl Minimal for SurfpoolMinimalRpc {
         not_implemented_err()
     }
 
-    fn get_slot(&self, meta: Self::Metadata, _config: Option<RpcContextConfig>) -> Result<Slot> {
-        meta.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot().into())
-            .map_err(Into::into)
+    fn get_slot(&self, meta: Self::Metadata, config: Option<RpcContextConfig>) -> Result<Slot> {
+        let config = config.unwrap_or_default();
+        let slot = match config.commitment.unwrap_or_default().commitment {
+            CommitmentLevel::Processed => meta
+                .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+                .map_err(Into::<jsonrpc_core::Error>::into)?,
+            CommitmentLevel::Confirmed => meta
+                .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot() - 1)
+                .map_err(Into::<jsonrpc_core::Error>::into)?,
+            CommitmentLevel::Finalized => meta
+                .with_svm_reader(|svm_reader| {
+                    svm_reader.get_latest_absolute_slot() - FINALIZATION_SLOT_THRESHOLD
+                })
+                .map_err(Into::<jsonrpc_core::Error>::into)?,
+        };
+        if let Some(min_context_slot) = config.min_context_slot {
+            if slot < min_context_slot {
+                return Err(RpcCustomError::MinContextSlotNotReached {
+                    context_slot: min_context_slot,
+                }
+                .into());
+            }
+        }
+
+        Ok(slot)
     }
 
     fn get_block_height(

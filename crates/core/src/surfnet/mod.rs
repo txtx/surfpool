@@ -33,7 +33,7 @@ use surfpool_types::{
     SimnetEvent, TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
 };
 
-pub const FINALIZATION_SLOT_THRESHOLD: u64 = 2;
+pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
 
 // #[cfg(clippy)]
 // const SUBGRAPH_PLUGIN_BYTES: &[u8] = &[0];
