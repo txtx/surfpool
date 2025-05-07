@@ -80,6 +80,8 @@ pub async fn start_local_surfnet_runloop(
 
     let (clock_event_rx, clock_command_tx) = start_clock_runloop(simnet_config.slot_time);
 
+    let _ = simnet_events_tx_cc.send(SimnetEvent::Ready);
+
     start_block_production_runloop(
         clock_event_rx,
         clock_command_tx,
