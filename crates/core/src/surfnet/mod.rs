@@ -303,6 +303,9 @@ impl SurfnetSvm {
     ///
     /// * `Ok(())` on success, or an error if the operation fails.
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
+        let _ = self
+            .simnet_events_tx
+            .send(SimnetEvent::account_update(pubkey.clone()));
         self.inner
             .set_account(*pubkey, account)
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))
@@ -410,11 +413,10 @@ impl SurfnetSvm {
                                     )
                                     .await?;
                                 if let Some(program_data) = res {
-                                    let _ =
-                                        self.inner.set_account(program_data_address, program_data);
+                                    let _ = self.set_account(&program_data_address, program_data);
                                 }
                             }
-                            let _ = self.inner.set_account(pubkey.clone(), account.clone());
+                            let _ = self.set_account(pubkey, account.clone());
                         }
 
                         (res.value, factory)
@@ -505,10 +507,10 @@ impl SurfnetSvm {
                                 )
                                 .await?;
                             if let Some(program_data) = res {
-                                let _ = self.inner.set_account(program_data_address, program_data);
+                                let _ = self.set_account(&program_data_address, program_data);
                             }
                         }
-                        let _ = self.inner.set_account(pubkey, remote_account);
+                        let _ = self.set_account(&pubkey, remote_account);
                     }
                 }
 
@@ -883,7 +885,3 @@ impl SurfnetSvm {
         Ok(())
     }
 }
-
-// impl Clone for SurfnetSvm {
-
-// }

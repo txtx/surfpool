@@ -214,7 +214,7 @@ impl CloudStartCommand {
             }
         };
 
-        println!("{} Spining up your hosted Surfnet...", yellow!("→"));
+        println!("{} Spinning up your hosted Surfnet...", yellow!("→"));
         let request = CreateNetworkRequest::new(
             workspace_id,
             name,

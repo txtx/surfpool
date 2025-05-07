@@ -40,7 +40,7 @@ use surfpool_types::{SimnetCommand, SimnetEvent, SubgraphCommand, SurfpoolConfig
 const BLOCKHASH_SLOT_TTL: u64 = 75;
 
 pub async fn start_local_surfnet_runloop(
-    mut surfnet_svm: SurfnetSvm,
+    svm_locker: Arc<RwLock<SurfnetSvm>>,
     config: SurfpoolConfig,
     subgraph_commands_tx: Sender<SubgraphCommand>,
     simnet_commands_tx: Sender<SimnetCommand>,
@@ -51,13 +51,13 @@ pub async fn start_local_surfnet_runloop(
         return Ok(());
     };
     let block_production_mode = simnet.block_production_mode.clone();
+
+    let mut surfnet_svm = svm_locker.write().await;
     surfnet_svm.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
     let _ = surfnet_svm.connect(&simnet.remote_rpc_url).await?;
-
-    // Question: can the value `slots_in_epoch` fluctuate over time?
-
     let simnet_events_tx_cc = surfnet_svm.simnet_events_tx.clone();
-    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
+    drop(surfnet_svm);
+
     let (plugin_manager_commands_rx, _rpc_handle) =
         start_rpc_server_runloop(&config, &simnet_commands_tx, svm_locker.clone()).await?;
 
@@ -79,6 +79,8 @@ pub async fn start_local_surfnet_runloop(
     }
 
     let (clock_event_rx, clock_command_tx) = start_clock_runloop(simnet_config.slot_time);
+
+    let _ = simnet_events_tx_cc.send(SimnetEvent::Ready);
 
     start_block_production_runloop(
         clock_event_rx,

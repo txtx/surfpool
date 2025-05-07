@@ -1,6 +1,5 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use solana_client::rpc_client::SerializableTransaction;
-use solana_message::v0::MessageAddressTableLookup;
 use solana_message::VersionedMessage;
 use solana_sdk::{inner_instruction::InnerInstruction, transaction::VersionedTransaction};
 use solana_transaction_error::TransactionError;
@@ -76,7 +75,6 @@ impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMe
                     // TODO: use stack height
                     .map(|ix| UiCompiledInstruction::from(ix, None))
                     .collect(),
-                // message.address_table_lookups.iter().map(|msg| msg.account_key).collect::<Vec<_>>(), not sure about this yet
             ),
         };
 
