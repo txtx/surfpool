@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, io::Write, sync::Arc};
 
 use crossbeam::channel;
 use dialoguer::{console::Style, theme::ColorfulTheme, Confirm};
@@ -13,15 +13,21 @@ use txtx_core::{
         types::{diagnostics::Diagnostic, frontend::BlockEvent, AuthorizationContext},
         Addon,
     },
-    manifest::{file::read_runbooks_from_manifest, RunbookStateLocation, WorkspaceManifest},
+    manifest::{
+        file::{read_runbook_from_location, read_runbooks_from_manifest},
+        RunbookStateLocation, WorkspaceManifest,
+    },
     runbook::{ConsolidatedChanges, SynthesizedChange},
     start_supervised_runbook_runloop, start_unsupervised_runbook_runloop,
     std::StdAddon,
-    types::{Runbook, RunbookSnapshotContext},
+    types::{Runbook, RunbookSnapshotContext, RunbookSources},
     utils::try_write_outputs_to_file,
 };
 
-use txtx_gql::kit::{indexmap::IndexMap, types::cloud_interface::CloudServiceContext};
+use txtx_gql::kit::{
+    indexmap::IndexMap,
+    types::{cloud_interface::CloudServiceContext, frontend::ProgressBarStatusColor},
+};
 #[cfg(feature = "supervisor_ui")]
 use txtx_supervisor_ui::cloud_relayer::RelayerChannelEvent;
 
@@ -44,7 +50,7 @@ pub fn load_workspace_manifest_from_manifest_path(
 
 pub async fn handle_execute_runbook_command(cmd: ExecuteRunbook) -> Result<(), String> {
     let (simnet_events_tx, simnet_events_rx) = channel::unbounded();
-    let (progress_tx, _) = channel::unbounded();
+    let (progress_tx, progress_rx) = channel::unbounded();
 
     let _ = hiro_system_kit::thread_named("Runbook Execution Event Loop").spawn(move || {
         while let Ok(msg) = simnet_events_rx.recv() {
@@ -66,9 +72,73 @@ pub async fn handle_execute_runbook_command(cmd: ExecuteRunbook) -> Result<(), S
         }
     });
 
+    let _ = hiro_system_kit::thread_named("Runbook Progress Event Loop").spawn(move || {
+        while let Ok(msg) = progress_rx.recv() {
+            match msg {
+                BlockEvent::UpdateProgressBarStatus(update) => {
+                    match update.new_status.status_color {
+                        ProgressBarStatusColor::Yellow => {
+                            print!(
+                                "\r{} {} {:<150}{}",
+                                yellow!("→"),
+                                yellow!(format!("{}", update.new_status.status)),
+                                update.new_status.message,
+                                if update.new_status.status.starts_with("Pending") {
+                                    ""
+                                } else {
+                                    "\n"
+                                }
+                            );
+                        }
+                        ProgressBarStatusColor::Green => {
+                            print!(
+                                "\r{} {} {:<150}\n",
+                                green!("✓"),
+                                green!(format!("{}", update.new_status.status)),
+                                update.new_status.message,
+                            );
+                        }
+                        ProgressBarStatusColor::Red => {
+                            print!(
+                                "\r{} {} {:<150}\n",
+                                red!("x"),
+                                red!(format!("{}", update.new_status.status)),
+                                update.new_status.message,
+                            );
+                        }
+                        ProgressBarStatusColor::Purple => {
+                            print!(
+                                "\r{} {} {:<150}\n",
+                                purple!("→"),
+                                purple!(format!("{}", update.new_status.status)),
+                                update.new_status.message,
+                            );
+                        }
+                    };
+                    std::io::stdout().flush().unwrap();
+                }
+                BlockEvent::RunbookCompleted => {
+                    println!("{} Runbook execution complete", green!("✓"));
+                }
+                _ => {}
+            }
+        }
+    });
+
     execute_runbook(progress_tx, simnet_events_tx, cmd).await?;
 
     Ok(())
+}
+
+pub async fn load_runbook_from_file_path(
+    file_path: &str,
+) -> Result<(String, Runbook, RunbookSources), String> {
+    let location = FileLocation::from_path_string(file_path)?;
+    let (runbook_name, runbook, runbook_sources) =
+        read_runbook_from_location(&location, &None, &None, None)?;
+
+    // Select first runbook by default
+    Ok((runbook_name, runbook, runbook_sources))
 }
 
 pub async fn execute_runbook(
@@ -81,13 +151,18 @@ pub async fn execute_runbook(
     let runbook_selector = vec![runbook_id.clone()];
     let mut runbooks =
         read_runbooks_from_manifest(&manifest, &cmd.environment, Some(&runbook_selector))?;
-    let top_level_inputs_map = manifest.get_runbook_inputs(&cmd.environment, &cmd.inputs, None)?;
 
-    let Some((mut runbook, runbook_sources, _, runbook_state_location)) =
-        runbooks.swap_remove(&runbook_id)
-    else {
-        return Err(format!("Runbook {} not found", runbook_id));
-    };
+    let (mut runbook, runbook_sources, _, runbook_state_location) =
+        match runbooks.swap_remove(&runbook_id) {
+            Some(res) => res,
+            None => {
+                let (runbook_name, runbook, sources) =
+                    load_runbook_from_file_path(&cmd.runbook).await?;
+                (runbook, sources, runbook_name, None)
+            }
+        };
+
+    let top_level_inputs_map = manifest.get_runbook_inputs(&cmd.environment, &cmd.inputs, None)?;
 
     let authorization_context = AuthorizationContext::new(manifest.location.clone().unwrap());
     let cloud_svc_context = CloudServiceContext::new(Some(Arc::new(
