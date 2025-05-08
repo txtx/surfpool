@@ -14,7 +14,10 @@ use txtx_core::{
     templates::{build_manifest_data, TXTX_MANIFEST_TEMPLATE, TXTX_README_TEMPLATE},
 };
 
-use crate::types::Framework;
+use crate::{
+    cli::{resolve_path, DEFAULT_SOLANA_KEYPAIR_PATH},
+    types::Framework,
+};
 
 mod anchor;
 mod native;
@@ -92,10 +95,14 @@ pub fn scaffold_iac_layout(
         hint_style: Style::new().cyan(),
         ..ColorfulTheme::default()
     };
-
     let selection = MultiSelect::with_theme(&theme)
-        .with_prompt("Programs to deploy:")
-        .items(&programs.iter().map(|p| p.name.as_str()).collect::<Vec<_>>())
+        .with_prompt("Select the programs to deploy (all by default):")
+        .items_checked(
+            &programs
+                .iter()
+                .map(|p| (p.name.as_str(), true))
+                .collect::<Vec<_>>(),
+        )
         .interact()
         .map_err(|e| format!("unable to select programs to deploy: {e}"))?;
 
@@ -223,13 +230,17 @@ pub fn scaffold_iac_layout(
         manifest_location
     };
 
+    let default_solana_keypair_path = resolve_path(&DEFAULT_SOLANA_KEYPAIR_PATH)
+        .display()
+        .to_string();
+
     manifest.environments.insert(
         "localnet".into(),
         indexmap! {
             "network_id".to_string() => "localnet".to_string(),
             "rpc_api_url".to_string() => "http://127.0.0.1:8899".to_string(),
-            "payer_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
-            "authority_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
+            "payer_keypair_json".to_string() => default_solana_keypair_path.clone(),
+            "authority_keypair_json".to_string() => default_solana_keypair_path.clone(),
         },
     );
     manifest.environments.insert(
@@ -237,8 +248,8 @@ pub fn scaffold_iac_layout(
         indexmap! {
             "network_id".to_string() => "devnet".to_string(),
             "rpc_api_url".to_string() => "https://api.devnet.solana.com".to_string(),
-            "payer_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
-            "authority_keypair_json".to_string() => "~/.config/solana/id.json".to_string(),
+            "payer_keypair_json".to_string() => default_solana_keypair_path.clone(),
+            "authority_keypair_json".to_string() => default_solana_keypair_path.clone(),
         },
     );
 

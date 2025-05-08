@@ -33,7 +33,7 @@ use surfpool_types::{
     SimnetEvent, TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
 };
 
-pub const FINALIZATION_SLOT_THRESHOLD: u64 = 2;
+pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
 
 // #[cfg(clippy)]
 // const SUBGRAPH_PLUGIN_BYTES: &[u8] = &[0];
@@ -303,6 +303,9 @@ impl SurfnetSvm {
     ///
     /// * `Ok(())` on success, or an error if the operation fails.
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
+        let _ = self
+            .simnet_events_tx
+            .send(SimnetEvent::account_update(pubkey.clone()));
         self.inner
             .set_account(*pubkey, account)
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))
@@ -410,11 +413,10 @@ impl SurfnetSvm {
                                     )
                                     .await?;
                                 if let Some(program_data) = res {
-                                    let _ =
-                                        self.inner.set_account(program_data_address, program_data);
+                                    let _ = self.set_account(&program_data_address, program_data);
                                 }
                             }
-                            let _ = self.inner.set_account(pubkey.clone(), account.clone());
+                            let _ = self.set_account(pubkey, account.clone());
                         }
 
                         (res.value, factory)
@@ -505,10 +507,10 @@ impl SurfnetSvm {
                                 )
                                 .await?;
                             if let Some(program_data) = res {
-                                let _ = self.inner.set_account(program_data_address, program_data);
+                                let _ = self.set_account(&program_data_address, program_data);
                             }
                         }
-                        let _ = self.inner.set_account(pubkey, remote_account);
+                        let _ = self.set_account(&pubkey, remote_account);
                     }
                 }
 
@@ -699,8 +701,15 @@ impl SurfnetSvm {
         // svm cache, fetch them from the RPC, and insert them locally
         let accounts = match &transaction.message {
             VersionedMessage::Legacy(message) => message.account_keys.clone(),
-            VersionedMessage::V0(message) => message.account_keys.clone(),
+            VersionedMessage::V0(message) => {
+                let alts = message.address_table_lookups.clone();
+                let mut acc_keys = message.account_keys.clone();
+                let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
+                acc_keys.append(&mut alt_pubkeys);
+                acc_keys
+            }
         };
+
         let _ = self
             .get_multiple_accounts_mut(
                 &accounts,

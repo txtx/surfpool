@@ -1,4 +1,4 @@
-use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_CONSOLE_URL, DEFAULT_EXPLORER_PORT};
+use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_CLOUD_URL, DEFAULT_EXPLORER_PORT};
 use crate::{
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
@@ -142,7 +142,7 @@ pub async fn handle_start_local_surfnet_command(
     let local_version = env!("CARGO_PKG_VERSION");
     let response = reqwest::get(format!(
         "{}/api/versions?v=/{}",
-        DEFAULT_CONSOLE_URL, local_version
+        DEFAULT_CLOUD_URL, local_version
     ))
     .await;
     if let Ok(response) = response {
@@ -265,12 +265,18 @@ fn log_events(
                             );
                         }
                     }
-                    SimnetEvent::TransactionProcessed(_dt, _meta, _err) => {
+                    SimnetEvent::TransactionProcessed(_dt, meta, _err) => {
                         if deployment_completed {
                             info!(
                                 ctx.expect_logger(),
-                                "Transaction processed {}", _meta.signature
+                                "Transaction processed {}", meta.signature
                             );
+                            for log in meta.logs {
+                                info!(
+                                    ctx.expect_logger(),
+                                    "Transaction logs {}: {}", meta.signature, log
+                                );
+                            }
                         }
                     }
                     SimnetEvent::BlockHashExpired => {}
