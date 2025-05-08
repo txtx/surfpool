@@ -13,11 +13,14 @@ use txtx_core::{
         types::{diagnostics::Diagnostic, frontend::BlockEvent, AuthorizationContext},
         Addon,
     },
-    manifest::{file::read_runbooks_from_manifest, RunbookStateLocation, WorkspaceManifest},
+    manifest::{
+        file::{read_runbook_from_location, read_runbooks_from_manifest},
+        RunbookStateLocation, WorkspaceManifest,
+    },
     runbook::{ConsolidatedChanges, SynthesizedChange},
     start_supervised_runbook_runloop, start_unsupervised_runbook_runloop,
     std::StdAddon,
-    types::{Runbook, RunbookSnapshotContext},
+    types::{Runbook, RunbookSnapshotContext, RunbookSources},
     utils::try_write_outputs_to_file,
 };
 
@@ -127,6 +130,17 @@ pub async fn handle_execute_runbook_command(cmd: ExecuteRunbook) -> Result<(), S
     Ok(())
 }
 
+pub async fn load_runbook_from_file_path(
+    file_path: &str,
+) -> Result<(String, Runbook, RunbookSources), String> {
+    let location = FileLocation::from_path_string(file_path)?;
+    let (runbook_name, runbook, runbook_sources) =
+        read_runbook_from_location(&location, &None, &None, None)?;
+
+    // Select first runbook by default
+    Ok((runbook_name, runbook, runbook_sources))
+}
+
 pub async fn execute_runbook(
     progress_tx: Sender<BlockEvent>,
     simnet_events_tx: crossbeam::channel::Sender<SimnetEvent>,
@@ -137,13 +151,18 @@ pub async fn execute_runbook(
     let runbook_selector = vec![runbook_id.clone()];
     let mut runbooks =
         read_runbooks_from_manifest(&manifest, &cmd.environment, Some(&runbook_selector))?;
-    let top_level_inputs_map = manifest.get_runbook_inputs(&cmd.environment, &cmd.inputs, None)?;
 
-    let Some((mut runbook, runbook_sources, _, runbook_state_location)) =
-        runbooks.swap_remove(&runbook_id)
-    else {
-        return Err(format!("Runbook {} not found", runbook_id));
-    };
+    let (mut runbook, runbook_sources, _, runbook_state_location) =
+        match runbooks.swap_remove(&runbook_id) {
+            Some(res) => res,
+            None => {
+                let (runbook_name, runbook, sources) =
+                    load_runbook_from_file_path(&cmd.runbook).await?;
+                (runbook, sources, runbook_name, None)
+            }
+        };
+
+    let top_level_inputs_map = manifest.get_runbook_inputs(&cmd.environment, &cmd.inputs, None)?;
 
     let authorization_context = AuthorizationContext::new(manifest.location.clone().unwrap());
     let cloud_svc_context = CloudServiceContext::new(Some(Arc::new(
