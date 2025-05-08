@@ -16,6 +16,15 @@ Surfpool provides a blazing-fast, developer-friendly simulation of Solana Mainne
 
 Whether you're developing, debugging, or educating yourself on Solana, Surfpool gives you an instant, self-contained network that dynamically fetches missing Mainnet data as needed—no more manual account setups.
 
+## Surfpool in action: 101 Series 
+
+<a href="https://www.youtube.com/playlist?list=PL0FMgRjJMRzO1FdunpMS-aUS4GNkgyr3T">
+  <picture>
+    <source srcset="https://raw.githubusercontent.com/txtx/surfpool/main/doc/assets/youtube.png">
+    <img alt="Surfpool 101 series" style="max-width: 100%;">
+  </picture>
+</a>
+
 ## Features
 
 - Fast & Lightweight – Runs smoothly on any machine without heavy system requirements.
