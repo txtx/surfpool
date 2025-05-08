@@ -245,7 +245,10 @@ pub async fn configure_supervised_execution(
     let (block_broadcaster, _) = tokio::sync::broadcast::channel(5);
     let block_store = Arc::new(RwLock::new(BTreeMap::new()));
     let (kill_loops_tx, kill_loops_rx) = channel::bounded(1);
+    #[cfg(feature = "supervisor_ui")]
     let (action_item_events_tx, action_item_events_rx) = tokio::sync::broadcast::channel(32);
+    #[cfg(not(feature = "supervisor_ui"))]
+    let (_, action_item_events_rx) = tokio::sync::broadcast::channel(32);
 
     let moved_block_tx = block_tx.clone();
     let moved_kill_loops_tx = kill_loops_tx.clone();
