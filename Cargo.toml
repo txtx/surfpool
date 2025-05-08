@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 description = "Surfpool is the best place to train before surfing Solana."
 license = "Apache-2.0"
@@ -65,14 +65,6 @@ solana-transaction-error = { version = "2.2.1", features = ["serde"]}
 solana-transaction-status = { version = "2.2.2" }
 solana-version = "2.2.1"
 spl-associated-token-account =  "6.0.0"
-# txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit", features = ["wasm"]}
-# txtx-addon-network-svm = { package = "txtx-addon-network-svm", path = "../txtx/addons/svm/core" }
-# txtx-addon-network-svm-types = { package = "txtx-addon-network-svm-types", path = "../txtx/addons/svm/types" }
-# txtx-core = { path = "../txtx/crates/txtx-core" }
-# txtx-gql = { path = "../txtx/crates/txtx-gql" }
-# txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
-# txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui", default-features = false, features = ["bin_build"] }
-# txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
 txtx-addon-kit = { version = "0.2.12", features = ["wasm"] }
 txtx-core = { version = "0.2.14" }
 txtx-addon-network-svm = { version = "0.1.19" }
@@ -81,3 +73,12 @@ txtx-gql = { version = "0.2.6" }
 txtx-supervisor-ui = { version = "0.1.4", default-features = false, features = ["crates_build"]}
 txtx-cloud = "0.1.4"
 uuid = "1.15.1"
+
+# [patch.crates-io]
+# txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
+# txtx-core = { path = "../txtx/crates/txtx-core" }
+# txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
+# txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
+# txtx-gql = { path = "../txtx/crates/txtx-gql" }
+# txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
+# txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
