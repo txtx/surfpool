@@ -26,7 +26,7 @@ use txtx_core::kit::types::frontend::BlockEvent;
 use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};
 
 const HELP_TEXT: &str = "(Esc) quit | (↑) move up | (↓) move down";
-const SURFPOOL_LINK: &str = "Help: https://docs.surfpool.run/surfpool/tui";
+const SURFPOOL_LINK: &str = "Need help? https://docs.surfpool.run/tui";
 
 const ITEM_HEIGHT: usize = 1;
 
@@ -49,7 +49,7 @@ impl ColorTheme {
             background: tailwind::SLATE.c950,
             accent: color.c400,
             primary: color.c500,
-            secondary: color.c700,
+            secondary: color.c300,
             white: tailwind::SLATE.c200,
             gray: tailwind::SLATE.c500,
             error: tailwind::RED.c400,
@@ -84,6 +84,7 @@ struct App {
     remote_rpc_url: String,
     local_rpc_url: String,
     breaker: Option<Keypair>,
+    paused: bool,
 }
 
 impl App {
@@ -96,10 +97,15 @@ impl App {
         local_rpc_url: &str,
         breaker: Option<Keypair>,
     ) -> App {
+        let palette = if remote_rpc_url.contains("helius") {
+            palette::tailwind::RED
+        } else {
+            palette::tailwind::EMERALD
+        };
         App {
             state: TableState::default().with_selected(0),
             scroll_state: ScrollbarState::new(5 * ITEM_HEIGHT),
-            colors: ColorTheme::new(&palette::tailwind::EMERALD),
+            colors: ColorTheme::new(&palette),
             simnet_events_rx,
             simnet_commands_tx,
             clock: Clock::default(),
@@ -119,6 +125,7 @@ impl App {
             remote_rpc_url: remote_rpc_url.to_string(),
             local_rpc_url: format!("http://{}", local_rpc_url),
             breaker,
+            paused: false,
         }
     }
 
@@ -154,9 +161,9 @@ impl App {
         *self.state.offset_mut() = new_offset;
     }
 
-    pub fn set_colors(&mut self) {
-        self.colors = ColorTheme::new(&tailwind::EMERALD)
-    }
+    // pub fn set_colors(&mut self) {
+    //     self.colors = ColorTheme::new(&tailwind::EMERALD)
+    // }
 }
 
 pub fn start_app(
@@ -217,137 +224,138 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
         let mut selector = Select::new();
         let mut handles = vec![];
 
-        selector.recv(&app.simnet_events_rx);
-        if !deployment_completed {
-            for rx in app.deploy_progress_rx.iter() {
-                handles.push(selector.recv(rx));
+        {
+            selector.recv(&app.simnet_events_rx);
+            if !deployment_completed {
+                for rx in app.deploy_progress_rx.iter() {
+                    handles.push(selector.recv(rx));
+                }
+            }
+
+            let oper = selector.try_select();
+            if let Ok(oper) = oper {
+                match oper.index() {
+                    0 => match oper.recv(&app.simnet_events_rx) {
+                        Ok(event) => match event {
+                            SimnetEvent::AccountUpdate(dt, account) => {
+                                app.events.push_front((
+                                    EventType::Success,
+                                    dt,
+                                    format!("Account {} retrieved from Mainnet", account),
+                                ));
+                            }
+                            SimnetEvent::PluginLoaded(plugin_name) => {
+                                app.events.push_front((
+                                    EventType::Success,
+                                    Local::now(),
+                                    format!("Plugin {} successfully loaded", plugin_name),
+                                ));
+                            }
+                            SimnetEvent::EpochInfoUpdate(epoch_info) => {
+                                app.epoch_info = epoch_info;
+                                app.events.push_front((
+                                    EventType::Success,
+                                    Local::now(),
+                                    format!(
+                                        "Connection established at Slot {} / Epoch {}.",
+                                        app.epoch_info.epoch, app.epoch_info.slot_index
+                                    ),
+                                ));
+                            }
+                            SimnetEvent::ClockUpdate(clock) => {
+                                app.clock = clock;
+                                if app.include_debug_logs {
+                                    app.events.push_front((
+                                        EventType::Debug,
+                                        Local::now(),
+                                        format!(
+                                            "Clock ticking (epoch {}, slot {})",
+                                            app.clock.epoch, app.clock.slot
+                                        ),
+                                    ));
+                                }
+                            }
+                            SimnetEvent::ErrorLog(dt, log) => {
+                                app.events.push_front((EventType::Failure, dt, log));
+                            }
+                            SimnetEvent::InfoLog(dt, log) => {
+                                app.events.push_front((EventType::Info, dt, log));
+                            }
+                            SimnetEvent::DebugLog(dt, log) => {
+                                if app.include_debug_logs {
+                                    app.events.push_front((EventType::Debug, dt, log));
+                                }
+                            }
+                            SimnetEvent::WarnLog(dt, log) => {
+                                app.events.push_front((EventType::Warning, dt, log));
+                            }
+                            SimnetEvent::TransactionReceived(_dt, _transaction) => {}
+                            SimnetEvent::TransactionProcessed(dt, meta, _err) => {
+                                if deployment_completed {
+                                    for log in meta.logs {
+                                        app.events.push_front((EventType::Debug, dt, log));
+                                    }
+                                }
+                                app.successful_transactions += 1;
+                            }
+                            SimnetEvent::BlockHashExpired => {}
+                            SimnetEvent::Aborted(_error) => {
+                                break;
+                            }
+                            SimnetEvent::Ready => {}
+                            SimnetEvent::Connected(_) => {}
+                            SimnetEvent::Shutdown => {
+                                break;
+                            }
+                        },
+                        Err(_) => break,
+                    },
+                    i => match oper.recv(&app.deploy_progress_rx[i - 1]) {
+                        Ok(event) => {
+                            if let BlockEvent::UpdateProgressBarStatus(update) = event {
+                                match update.new_status.status_color {
+                                    ProgressBarStatusColor::Yellow => {
+                                        app.status_bar_message = Some(format!(
+                                            "{}: {}",
+                                            update.new_status.status, update.new_status.message
+                                        ));
+                                    }
+                                    ProgressBarStatusColor::Green => {
+                                        app.status_bar_message = None;
+                                        app.events.push_front((
+                                            EventType::Info,
+                                            Local::now(),
+                                            update.new_status.message,
+                                        ));
+                                    }
+                                    ProgressBarStatusColor::Red => {
+                                        app.status_bar_message = None;
+                                        app.events.push_front((
+                                            EventType::Failure,
+                                            Local::now(),
+                                            update.new_status.message,
+                                        ));
+                                    }
+                                    ProgressBarStatusColor::Purple => {
+                                        app.status_bar_message = None;
+                                        app.events.push_front((
+                                            EventType::Info,
+                                            Local::now(),
+                                            update.new_status.message,
+                                        ));
+                                    }
+                                };
+                            }
+                        }
+                        Err(_) => {
+                            deployment_completed = true;
+                        }
+                    },
+                }
             }
         }
 
-        let oper = selector.select();
-
-        match oper.index() {
-            0 => match oper.recv(&app.simnet_events_rx) {
-                Ok(event) => match event {
-                    SimnetEvent::AccountUpdate(dt, account) => {
-                        app.events.push_front((
-                            EventType::Success,
-                            dt,
-                            format!("Account {} retrieved from Mainnet", account),
-                        ));
-                    }
-                    SimnetEvent::PluginLoaded(plugin_name) => {
-                        app.events.push_front((
-                            EventType::Success,
-                            Local::now(),
-                            format!("Plugin {} successfully loaded", plugin_name),
-                        ));
-                    }
-                    SimnetEvent::EpochInfoUpdate(epoch_info) => {
-                        app.epoch_info = epoch_info;
-                        app.events.push_front((
-                            EventType::Success,
-                            Local::now(),
-                            format!(
-                                "Connection established at Slot {} / Epoch {}.",
-                                app.epoch_info.epoch, app.epoch_info.slot_index
-                            ),
-                        ));
-                    }
-                    SimnetEvent::ClockUpdate(clock) => {
-                        app.clock = clock;
-                        if app.include_debug_logs {
-                            app.events.push_front((
-                                EventType::Debug,
-                                Local::now(),
-                                format!(
-                                    "Clock ticking (epoch {}, slot {})",
-                                    app.clock.epoch, app.clock.slot
-                                ),
-                            ));
-                        }
-                    }
-                    SimnetEvent::ErrorLog(dt, log) => {
-                        app.events.push_front((EventType::Failure, dt, log));
-                    }
-                    SimnetEvent::InfoLog(dt, log) => {
-                        app.events.push_front((EventType::Info, dt, log));
-                    }
-                    SimnetEvent::DebugLog(dt, log) => {
-                        if app.include_debug_logs {
-                            app.events.push_front((EventType::Debug, dt, log));
-                        }
-                    }
-                    SimnetEvent::WarnLog(dt, log) => {
-                        app.events.push_front((EventType::Warning, dt, log));
-                    }
-                    SimnetEvent::TransactionReceived(_dt, _transaction) => {}
-                    SimnetEvent::TransactionProcessed(dt, meta, _err) => {
-                        if deployment_completed {
-                            for log in meta.logs {
-                                app.events.push_front((EventType::Debug, dt, log));
-                            }
-                        }
-                        app.successful_transactions += 1;
-                    }
-                    SimnetEvent::BlockHashExpired => {}
-                    SimnetEvent::Aborted(_error) => {
-                        break;
-                    }
-                    SimnetEvent::Ready => {}
-                    SimnetEvent::Connected(_) => {}
-                    SimnetEvent::Shutdown => {
-                        break;
-                    }
-                },
-                Err(_) => break,
-            },
-            i => match oper.recv(&app.deploy_progress_rx[i - 1]) {
-                Ok(event) => {
-                    if let BlockEvent::UpdateProgressBarStatus(update) = event {
-                        match update.new_status.status_color {
-                            ProgressBarStatusColor::Yellow => {
-                                app.status_bar_message = Some(format!(
-                                    "{}: {}",
-                                    update.new_status.status, update.new_status.message
-                                ));
-                            }
-                            ProgressBarStatusColor::Green => {
-                                app.status_bar_message = None;
-                                app.events.push_front((
-                                    EventType::Info,
-                                    Local::now(),
-                                    update.new_status.message,
-                                ));
-                            }
-                            ProgressBarStatusColor::Red => {
-                                app.status_bar_message = None;
-                                app.events.push_front((
-                                    EventType::Failure,
-                                    Local::now(),
-                                    update.new_status.message,
-                                ));
-                            }
-                            ProgressBarStatusColor::Purple => {
-                                app.status_bar_message = None;
-                                app.events.push_front((
-                                    EventType::Info,
-                                    Local::now(),
-                                    update.new_status.message,
-                                ));
-                            }
-                        };
-                    }
-                }
-                Err(_) => {
-                    deployment_completed = true;
-                }
-            },
-        }
-
-        terminal.draw(|f| ui(f, &mut app))?;
-
-        if event::poll(Duration::from_millis(3))? {
+        if event::poll(Duration::from_millis(5))? {
             if let Event::Key(key_event) = event::read()? {
                 if key_event.kind == KeyEventKind::Press {
                     use KeyCode::*;
@@ -373,8 +381,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             let _ = app
                                 .simnet_commands_tx
                                 .send(SimnetCommand::UpdateClock(ClockCommand::Toggle));
+                            app.paused = !app.paused;
                         }
-
                         Tab => {
                             let _ = app
                                 .simnet_commands_tx
@@ -399,6 +407,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                 }
             }
         }
+
+        terminal.draw(|f| ui(f, &mut app))?;
     }
     Ok(())
 }
@@ -410,7 +420,6 @@ fn ui(f: &mut Frame, app: &mut App) {
         Constraint::Length(3),
     ])
     .split(f.area());
-    app.set_colors();
 
     let default_style = Style::new()
         .fg(app.colors.secondary)
@@ -486,12 +495,12 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
     let infos = vec![
         Line::from(vec![
             Span::styled("۬", app.colors.white),
-            Span::styled("RPC     ", app.colors.gray),
+            Span::styled("Surfnet   ", app.colors.gray),
             Span::styled(&app.local_rpc_url, app.colors.white),
         ]),
         Line::from(vec![
             Span::styled("۬", app.colors.white),
-            Span::styled("Source  ", app.colors.gray),
+            Span::styled("Provider  ", app.colors.gray),
             Span::styled(&app.remote_rpc_url, app.colors.white),
         ]),
         Line::from(vec![Span::styled("۬-", app.colors.gray)]),
@@ -533,15 +542,25 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
     ])
     .split(area);
 
-    let symbol = ["⢎ ", "⠎⠁", "⠊⠑", "⠈⠱", " ⡱", "⢀⡰", "⢄⡠", "⢆⡀"];
-    let cursor = symbol[app.slot() % symbol.len()];
+    let (title, color) = if !app.paused {
+        let symbol = ["⢎ ", "⠎⠁", "⠊⠑", "⠈⠱", " ⡱", "⢀⡰", "⢄⡠", "⢆⡀"];
+        let cursor = symbol[app.slot() % symbol.len()];
+        (
+            format!("{} Processing incoming transactions", cursor),
+            app.colors.accent,
+        )
+    } else {
+        (
+            "Transaction processing paused".to_string(),
+            app.colors.warning,
+        )
+    };
+
     let title = Block::new()
         .padding(Padding::symmetric(4, 4))
         .borders(Borders::NONE)
-        .title(Line::from(format!(
-            "{} Processing incoming transactions",
-            cursor
-        )));
+        .style(Style::new().fg(color))
+        .title(Line::from(title));
     f.render_widget(title, rects[0]);
 
     let rows = app.events.iter().map(|(event_type, dt, log)| {
