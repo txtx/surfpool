@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, io::Write, sync::Arc};
 
 use crossbeam::channel;
 use dialoguer::{console::Style, theme::ColorfulTheme, Confirm};
@@ -21,7 +21,10 @@ use txtx_core::{
     utils::try_write_outputs_to_file,
 };
 
-use txtx_gql::kit::{indexmap::IndexMap, types::cloud_interface::CloudServiceContext};
+use txtx_gql::kit::{
+    indexmap::IndexMap,
+    types::{cloud_interface::CloudServiceContext, frontend::ProgressBarStatusColor},
+};
 #[cfg(feature = "supervisor_ui")]
 use txtx_supervisor_ui::cloud_relayer::RelayerChannelEvent;
 
@@ -44,7 +47,7 @@ pub fn load_workspace_manifest_from_manifest_path(
 
 pub async fn handle_execute_runbook_command(cmd: ExecuteRunbook) -> Result<(), String> {
     let (simnet_events_tx, simnet_events_rx) = channel::unbounded();
-    let (progress_tx, _) = channel::unbounded();
+    let (progress_tx, progress_rx) = channel::unbounded();
 
     let _ = hiro_system_kit::thread_named("Runbook Execution Event Loop").spawn(move || {
         while let Ok(msg) = simnet_events_rx.recv() {
@@ -60,6 +63,59 @@ pub async fn handle_execute_runbook_command(cmd: ExecuteRunbook) -> Result<(), S
                 }
                 SimnetEvent::DebugLog(_, msg) => {
                     println!("{}", msg);
+                }
+                _ => {}
+            }
+        }
+    });
+
+    let _ = hiro_system_kit::thread_named("Runbook Progress Event Loop").spawn(move || {
+        while let Ok(msg) = progress_rx.recv() {
+            match msg {
+                BlockEvent::UpdateProgressBarStatus(update) => {
+                    match update.new_status.status_color {
+                        ProgressBarStatusColor::Yellow => {
+                            print!(
+                                "\r{} {} {:<150}{}",
+                                yellow!("→"),
+                                yellow!(format!("{}", update.new_status.status)),
+                                update.new_status.message,
+                                if update.new_status.status.starts_with("Pending") {
+                                    ""
+                                } else {
+                                    "\n"
+                                }
+                            );
+                        }
+                        ProgressBarStatusColor::Green => {
+                            print!(
+                                "\r{} {} {:<150}\n",
+                                green!("✓"),
+                                green!(format!("{}", update.new_status.status)),
+                                update.new_status.message,
+                            );
+                        }
+                        ProgressBarStatusColor::Red => {
+                            print!(
+                                "\r{} {} {:<150}\n",
+                                red!("x"),
+                                red!(format!("{}", update.new_status.status)),
+                                update.new_status.message,
+                            );
+                        }
+                        ProgressBarStatusColor::Purple => {
+                            print!(
+                                "\r{} {} {:<150}\n",
+                                purple!("→"),
+                                purple!(format!("{}", update.new_status.status)),
+                                update.new_status.message,
+                            );
+                        }
+                    };
+                    std::io::stdout().flush().unwrap();
+                }
+                BlockEvent::RunbookCompleted => {
+                    println!("{} Runbook execution complete", green!("✓"));
                 }
                 _ => {}
             }
