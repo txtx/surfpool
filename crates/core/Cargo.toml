@@ -28,6 +28,8 @@ jsonrpc-core = "18.0.0"
 jsonrpc-core-client = { version = "18.0.0", features = ["http"] }
 jsonrpc-derive = "18.0.0"
 jsonrpc-http-server = "18.0.0"
+jsonrpc-pubsub = "18.0.0"
+jsonrpc-ws-server = "18.0.0"
 litesvm = { workspace = true }
 log = "0.4.22"
 serde = { workspace = true }

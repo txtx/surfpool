@@ -1,9 +1,10 @@
+use jsonrpc_pubsub::{PubSubHandler, Session};
 use solana_message::{v0::LoadedAddresses, SimpleAddressLoader};
 use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
 use solana_transaction_status::{InnerInstruction, InnerInstructions, TransactionStatusMeta};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     sync::Arc,
     thread::{sleep, JoinHandle},
@@ -16,9 +17,10 @@ use crate::{
     rpc::{
         self, accounts_data::AccountsData, accounts_scan::AccountsScan, admin::AdminRpc,
         bank_data::BankData, full::Full, minimal::Minimal, surfnet_cheatcodes::SvmTricksRpc,
-        SurfpoolMiddleware,
+        ws::Rpc, RunloopContext, SurfpoolMiddleware, SurfpoolWebsocketMeta,
+        SurfpoolWebsocketMiddleware,
     },
-    surfnet::{GeyserEvent, SurfnetSvm},
+    surfnet::{GeyserEvent, SignatureSubscriptionType, SurfnetSvm},
     PluginManagerCommand,
 };
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
@@ -32,6 +34,7 @@ use ipc_channel::{
 };
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
+use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
 use surfpool_types::{
     BlockProductionMode, ClockCommand, ClockEvent, SchemaDataSourcingEvent, SubgraphPluginConfig,
 };
@@ -56,10 +59,11 @@ pub async fn start_local_surfnet_runloop(
     surfnet_svm.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
     let _ = surfnet_svm.connect(&simnet.remote_rpc_url).await?;
     let simnet_events_tx_cc = surfnet_svm.simnet_events_tx.clone();
+
     drop(surfnet_svm);
 
-    let (plugin_manager_commands_rx, _rpc_handle) =
-        start_rpc_server_runloop(&config, &simnet_commands_tx, svm_locker.clone()).await?;
+    let (plugin_manager_commands_rx, _rpc_handle, _ws_handle) =
+        start_rpc_servers_runloop(&config, &simnet_commands_tx, svm_locker.clone()).await?;
 
     let simnet_config = simnet.clone();
 
@@ -134,6 +138,14 @@ pub async fn start_block_production_runloop(
                     }
                     SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
                         let mut svm_writer = svm_locker.write().await;
+                        let signature = transaction.signatures[0];
+                        let slot = svm_writer.latest_epoch_info.absolute_slot;
+                        svm_writer.notify_signature_subscribers(
+                            SignatureSubscriptionType::received(),
+                            &signature,
+                            slot,
+                            None,
+                        );
                         svm_writer.process_transaction(transaction, status_tx ,skip_preflight).await?;
                     }
                     SimnetCommand::Terminate(_) => {
@@ -350,11 +362,18 @@ fn start_geyser_runloop(
     Ok(handle)
 }
 
-async fn start_rpc_server_runloop(
+async fn start_rpc_servers_runloop(
     config: &SurfpoolConfig,
     simnet_commands_tx: &Sender<SimnetCommand>,
     svm_locker: Arc<RwLock<SurfnetSvm>>,
-) -> Result<(Receiver<PluginManagerCommand>, JoinHandle<()>), String> {
+) -> Result<
+    (
+        Receiver<PluginManagerCommand>,
+        JoinHandle<()>,
+        JoinHandle<()>,
+    ),
+    String,
+> {
     let (plugin_manager_commands_tx, plugin_manager_commands_rx) = unbounded();
     let simnet_events_tx = svm_locker.read().await.simnet_events_tx.clone();
 
@@ -364,13 +383,25 @@ async fn start_rpc_server_runloop(
         &plugin_manager_commands_tx,
         &config.rpc,
     );
+
+    let rpc_handle =
+        start_http_rpc_server_runloop(config, middleware.clone(), simnet_events_tx.clone()).await?;
+    let ws_handle = start_ws_rpc_server_runloop(config, middleware, simnet_events_tx).await?;
+    Ok((plugin_manager_commands_rx, rpc_handle, ws_handle))
+}
+
+async fn start_http_rpc_server_runloop(
+    config: &SurfpoolConfig,
+    middleware: SurfpoolMiddleware,
+    simnet_events_tx: Sender<SimnetEvent>,
+) -> Result<JoinHandle<()>, String> {
     let server_bind: SocketAddr = config
         .rpc
         .get_socket_address()
         .parse::<SocketAddr>()
         .map_err(|e| e.to_string())?;
 
-    let mut io = MetaIoHandler::with_middleware(middleware);
+    let mut io = MetaIoHandler::with_middleware(middleware.clone());
     io.extend_with(rpc::minimal::SurfpoolMinimalRpc.to_delegate());
     io.extend_with(rpc::full::SurfpoolFullRpc.to_delegate());
     io.extend_with(rpc::accounts_data::SurfpoolAccountsDataRpc.to_delegate());
@@ -406,5 +437,81 @@ async fn start_rpc_server_runloop(
             let _ = simnet_events_tx.send(SimnetEvent::Shutdown);
         })
         .map_err(|e| format!("Failed to spawn RPC Handler thread: {:?}", e))?;
-    Ok((plugin_manager_commands_rx, _handle))
+
+    Ok(_handle)
+}
+async fn start_ws_rpc_server_runloop(
+    config: &SurfpoolConfig,
+    middleware: SurfpoolMiddleware,
+    simnet_events_tx: Sender<SimnetEvent>,
+) -> Result<JoinHandle<()>, String> {
+    let ws_server_bind: SocketAddr = config
+        .rpc
+        .get_ws_address()
+        .parse::<SocketAddr>()
+        .map_err(|e| e.to_string())?;
+
+    let uid = std::sync::atomic::AtomicUsize::new(0);
+    let subscription_map = Arc::new(std::sync::RwLock::new(HashMap::new()));
+    let ws_middleware = SurfpoolWebsocketMiddleware::new(middleware.clone(), None);
+
+    let mut rpc_io = PubSubHandler::new(MetaIoHandler::with_middleware(ws_middleware));
+
+    let _ws_handle = hiro_system_kit::thread_named("WebSocket RPC Handler")
+        .spawn(move || {
+            // The pubsub handler needs to be able to run async tasks, so we create a Tokio runtime here
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to build Tokio runtime");
+
+            let tokio_handle = runtime.handle();
+            rpc_io.extend_with(
+                rpc::ws::SurfpoolWsRpc {
+                    uid,
+                    active: subscription_map,
+                    tokio_handle: tokio_handle.clone(),
+                }
+                .to_delegate(),
+            );
+            runtime.block_on(async move {
+                let server = match WsServerBuilder::new(rpc_io)
+                    .session_meta_extractor(move |ctx: &RequestContext| {
+                        // Create meta from context + session
+                        let runloop_context = RunloopContext {
+                            id: None,
+                            surfnet_svm: middleware.surfnet_svm.clone(),
+                            simnet_commands_tx: middleware.simnet_commands_tx.clone(),
+                            plugin_manager_commands_tx: middleware
+                                .plugin_manager_commands_tx
+                                .clone(),
+                        };
+                        Some(SurfpoolWebsocketMeta::new(
+                            runloop_context,
+                            Some(Arc::new(Session::new(ctx.sender()))),
+                        ))
+                    })
+                    .start(&ws_server_bind)
+                {
+                    Ok(server) => server,
+                    Err(e) => {
+                        let _ = simnet_events_tx.send(SimnetEvent::Aborted(format!(
+                            "Failed to start WebSocket RPC server: {:?}",
+                            e
+                        )));
+                        return;
+                    }
+                };
+                // The server itself is blocking, so spawn it in a separate thread if needed
+                tokio::task::spawn_blocking(move || {
+                    server.wait().unwrap();
+                })
+                .await
+                .ok();
+
+                let _ = simnet_events_tx.send(SimnetEvent::Shutdown);
+            });
+        })
+        .map_err(|e| format!("Failed to spawn WebSocket RPC Handler thread: {:?}", e))?;
+    Ok(_ws_handle)
 }

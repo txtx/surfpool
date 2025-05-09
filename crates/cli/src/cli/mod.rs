@@ -22,8 +22,9 @@ pub struct Context {
 }
 
 pub const DEFAULT_SLOT_TIME_MS: &str = "400";
-pub const DEFAULT_EXPLORER_PORT: &str = "8900";
+pub const DEFAULT_EXPLORER_PORT: &str = "8901";
 pub const DEFAULT_SIMNET_PORT: &str = "8899";
+pub const DEFAULT_WS_PORT: &str = "8900";
 pub const DEFAULT_TXTX_PORT: &str = "8488";
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
@@ -131,6 +132,9 @@ pub struct StartSimnet {
     /// Set the Simnet RPC port
     #[arg(long = "port", short = 'p', default_value = DEFAULT_SIMNET_PORT)]
     pub simnet_port: u16,
+    /// Set the Simnet WS port
+    #[arg(long = "ws-port", short = 'w', default_value = DEFAULT_WS_PORT)]
+    pub ws_port: u16,
     /// Set the Simnet host address
     #[arg(long = "host", short = 'o', default_value = DEFAULT_NETWORK_HOST)]
     pub network_host: String,
@@ -226,6 +230,7 @@ impl StartSimnet {
         RpcConfig {
             bind_host: self.network_host.clone(),
             bind_port: self.simnet_port,
+            ws_port: self.ws_port,
         }
     }
 

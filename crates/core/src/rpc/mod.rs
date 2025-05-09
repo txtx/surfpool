@@ -4,6 +4,7 @@ use jsonrpc_core::{
     futures::future::Either, middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware,
     Request, Response,
 };
+use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -16,6 +17,7 @@ pub mod full;
 pub mod minimal;
 pub mod surfnet_cheatcodes;
 pub mod utils;
+pub mod ws;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum RpcHealthStatus {
@@ -81,10 +83,10 @@ impl State for Option<RunloopContext> {
         let Some(ctx) = self else {
             return Err(SurfpoolError::no_locker());
         };
-        let read_lock = ctx.surfnet_svm.clone();
+        let write_lock = ctx.surfnet_svm.clone();
         let res = tokio::task::block_in_place(move || {
-            let mut read_guard = read_lock.blocking_write();
-            writer(&mut read_guard)
+            let mut write_guard = write_lock.blocking_write();
+            writer(&mut write_guard)
         });
         Ok(res)
     }
@@ -143,6 +145,113 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
         });
         Either::Left(Box::pin(next(request, meta).map(move |res| res)))
+    }
+}
+
+#[derive(Clone)]
+pub struct SurfpoolWebsocketMiddleware {
+    pub surfpool_middleware: SurfpoolMiddleware,
+    pub session: Option<Arc<Session>>,
+}
+
+impl SurfpoolWebsocketMiddleware {
+    pub fn new(surfpool_middleware: SurfpoolMiddleware, session: Option<Arc<Session>>) -> Self {
+        Self {
+            surfpool_middleware,
+            session,
+        }
+    }
+}
+
+impl Middleware<Option<SurfpoolWebsocketMeta>> for SurfpoolWebsocketMiddleware {
+    type Future = FutureResponse;
+    type CallFuture = middleware::NoopCallFuture;
+
+    fn on_request<F, X>(
+        &self,
+        request: Request,
+        meta: Option<SurfpoolWebsocketMeta>,
+        next: F,
+    ) -> Either<Self::Future, X>
+    where
+        F: FnOnce(Request, Option<SurfpoolWebsocketMeta>) -> X + Send,
+        X: Future<Output = Option<Response>> + Send + 'static,
+    {
+        let runloop_context = RunloopContext {
+            id: None,
+            surfnet_svm: self.surfpool_middleware.surfnet_svm.clone(),
+            simnet_commands_tx: self.surfpool_middleware.simnet_commands_tx.clone(),
+            plugin_manager_commands_tx: self.surfpool_middleware.plugin_manager_commands_tx.clone(),
+        };
+        let session = meta
+            .as_ref()
+            .and_then(|m| m.session.clone())
+            .or(self.session.clone());
+        let meta = Some(SurfpoolWebsocketMeta::new(runloop_context, session));
+        Either::Left(Box::pin(next(request, meta).map(move |res| res)))
+    }
+}
+
+#[derive(Clone)]
+pub struct SurfpoolWebsocketMeta {
+    pub runloop_context: RunloopContext,
+    pub session: Option<Arc<Session>>,
+}
+
+impl SurfpoolWebsocketMeta {
+    pub fn new(runloop_context: RunloopContext, session: Option<Arc<Session>>) -> Self {
+        Self {
+            runloop_context: runloop_context,
+            session,
+        }
+    }
+}
+
+impl State for Option<SurfpoolWebsocketMeta> {
+    fn get_svm_locker(&self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError> {
+        let Some(ctx) = self else {
+            return Err(SurfpoolError::no_locker());
+        };
+        Ok(ctx.runloop_context.surfnet_svm.clone())
+    }
+
+    fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, SurfpoolError>
+    where
+        F: Fn(&SurfnetSvm) -> T + Send + Sync,
+        T: Send + 'static,
+    {
+        let Some(ctx) = self else {
+            return Err(SurfpoolError::no_locker());
+        };
+        let read_lock = ctx.runloop_context.surfnet_svm.clone();
+        let res = tokio::task::block_in_place(move || {
+            let read_guard = read_lock.blocking_read();
+            reader(&read_guard)
+        });
+        Ok(res)
+    }
+
+    fn with_svm_writer<T, F>(&self, writer: F) -> Result<T, SurfpoolError>
+    where
+        F: Fn(&mut SurfnetSvm) -> T + Send + Sync,
+        T: Send + 'static,
+    {
+        let Some(ctx) = self else {
+            return Err(SurfpoolError::no_locker());
+        };
+        let write_lock = ctx.runloop_context.surfnet_svm.clone();
+        let res = tokio::task::block_in_place(move || {
+            let mut write_guard = write_lock.blocking_write();
+            writer(&mut write_guard)
+        });
+        Ok(res)
+    }
+}
+
+impl Metadata for SurfpoolWebsocketMeta {}
+impl PubSubMetadata for SurfpoolWebsocketMeta {
+    fn session(&self) -> Option<Arc<jsonrpc_pubsub::Session>> {
+        self.session.clone()
     }
 }
 

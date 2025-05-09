@@ -262,11 +262,15 @@ pub struct SubgraphConfig {}
 pub struct RpcConfig {
     pub bind_host: String,
     pub bind_port: u16,
+    pub ws_port: u16,
 }
 
 impl RpcConfig {
     pub fn get_socket_address(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
+    }
+    pub fn get_ws_address(&self) -> String {
+        format!("{}:{}", self.bind_host, self.ws_port)
     }
 }
 
@@ -282,6 +286,7 @@ impl Default for RpcConfig {
         Self {
             bind_host: "127.0.0.1".to_string(),
             bind_port: 8899,
+            ws_port: 8900,
         }
     }
 }
