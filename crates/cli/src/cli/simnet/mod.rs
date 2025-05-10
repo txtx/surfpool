@@ -216,10 +216,7 @@ fn log_events(
             0 => match oper.recv(&simnet_events_rx) {
                 Ok(event) => match event {
                     SimnetEvent::AccountUpdate(_dt, account) => {
-                        info!(
-                            ctx.expect_logger(),
-                            "Account {} retrieved from Mainnet", account
-                        );
+                        info!(ctx.expect_logger(), "Account {} updated", account);
                     }
                     SimnetEvent::PluginLoaded(plugin_name) => {
                         info!(

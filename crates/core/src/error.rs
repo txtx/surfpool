@@ -82,7 +82,7 @@ impl SurfpoolError {
     {
         let mut error = Error::internal_error();
         error.data = Some(json!(format!(
-            "Failed to set account {} in remote: {}",
+            "Failed to set account {}: {}",
             pubkey,
             e.to_string()
         )));

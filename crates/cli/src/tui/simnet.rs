@@ -241,7 +241,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 app.events.push_front((
                                     EventType::Success,
                                     dt,
-                                    format!("Account {} retrieved from Mainnet", account),
+                                    format!("Account {} updated", account),
                                 ));
                             }
                             SimnetEvent::PluginLoaded(plugin_name) => {
