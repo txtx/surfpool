@@ -304,11 +304,13 @@ impl SurfnetSvm {
     /// * `Ok(())` on success, or an error if the operation fails.
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
         let _ = self
+            .inner
+            .set_account(*pubkey, account)
+            .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+        let _ = self
             .simnet_events_tx
             .send(SimnetEvent::account_update(pubkey.clone()));
-        self.inner
-            .set_account(*pubkey, account)
-            .map_err(|e| SurfpoolError::set_account(*pubkey, e))
+        Ok(())
     }
 
     /// Retrieves an account for the specified public key based on the given strategy.
