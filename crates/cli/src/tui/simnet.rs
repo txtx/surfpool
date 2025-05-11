@@ -257,8 +257,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     EventType::Success,
                                     Local::now(),
                                     format!(
-                                        "Connection established at Slot {} / Epoch {}.",
-                                        app.epoch_info.epoch, app.epoch_info.slot_index
+                                        "Connection established at Slot index {} Slot {} / Epoch {}.",
+                                        app.epoch_info.slot_index,app.epoch_info.absolute_slot,app.epoch_info.epoch,
                                     ),
                                 ));
                             }
