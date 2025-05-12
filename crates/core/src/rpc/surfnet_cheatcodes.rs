@@ -299,6 +299,14 @@ pub trait SvmTricksRpc {
         update: TokenAccountUpdate,
         token_program: Option<String>,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
+
+    #[rpc(meta, name = "surfnet_cloneProgramAccount")]
+    fn clone_program_account(
+        &self,
+        meta: Self::Metadata,
+        source_program_id: String,
+        destination_program_id: String,
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
 }
 
 pub struct SurfnetCheatcodesRpc;
@@ -451,5 +459,48 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 value: (),
             })
         });
+    }
+
+    /// Clones a program account from one program ID to another.
+    /// A program account contains a pointer to a program data account, which is a PDA derived from the program ID.
+    /// So, when cloning a program account, we need to clone the program data account as well.
+    ///
+    /// This method will:
+    ///  1. Get the program account for the source program ID.
+    ///  2. Get the program data account for the source program ID.
+    ///  3. Calculate the program data address for the destination program ID.
+    ///  4. Set the destination program account's data to point to the calculated destination program address.
+    ///  5. Copy the source program data account to the destination program data account.
+    fn clone_program_account(
+        &self,
+        meta: Self::Metadata,
+        source_program_id: String,
+        destination_program_id: String,
+    ) -> BoxFuture<Result<RpcResponse<()>>> {
+        let source_program_id = match verify_pubkey(&source_program_id) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+        let destination_program_id = match verify_pubkey(&destination_program_id) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let mut svm_writer = svm_locker.write().await;
+            svm_writer
+                .clone_program_account(&source_program_id, &destination_program_id)
+                .await?;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                value: (),
+            })
+        })
     }
 }

@@ -39,7 +39,7 @@ Whether you're developing, debugging, or educating yourself on Solana, Surfpool 
 
 ## Installation
 
-Install Surfpool CLI with:
+Install pre-built binaries:
 
 ```console
 # macOS (Homebrew)
@@ -48,6 +48,18 @@ brew install txtx/taps/surfpool
 # Linux (Snapstore)
 snap install surfpool
 ```
+
+
+Install from source:
+
+```console
+# Clone repo
+git clone https://github.com/txtx/surfpool.git
+
+# Build
+cargo surfpool-install
+```
+
 
 Verify installation:
 

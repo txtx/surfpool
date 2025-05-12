@@ -10,6 +10,9 @@ use litesvm::{
     LiteSVM,
 };
 use solana_account::Account;
+use solana_account_decoder::parse_bpf_loader::{
+    parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram,
+};
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
@@ -20,7 +23,8 @@ use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_sdk::{
-    bpf_loader_upgradeable::get_program_data_address, system_instruction,
+    bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
+    system_instruction,
     transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
@@ -193,6 +197,15 @@ impl SurfnetSvm {
         let _ = self
             .simnet_events_tx
             .send(SimnetEvent::EpochInfoUpdate(epoch_info.clone()));
+
+        let clock: Clock = Clock {
+            slot: self.latest_epoch_info.absolute_slot, //.slot_index,
+            epoch: self.latest_epoch_info.epoch,
+            unix_timestamp: Utc::now().timestamp(),
+            epoch_start_timestamp: 0, // todo
+            leader_schedule_epoch: 0, // todo
+        };
+        self.inner.set_sysvar(&clock);
         Ok(epoch_info)
     }
 
@@ -337,11 +350,13 @@ impl SurfnetSvm {
     /// * `Ok(())` on success, or an error if the operation fails.
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
         let _ = self
+            .inner
+            .set_account(*pubkey, account)
+            .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+        let _ = self
             .simnet_events_tx
             .send(SimnetEvent::account_update(pubkey.clone()));
-        self.inner
-            .set_account(*pubkey, account)
-            .map_err(|e| SurfpoolError::set_account(*pubkey, e))
+        Ok(())
     }
 
     /// Retrieves an account for the specified public key based on the given strategy.
@@ -888,7 +903,7 @@ impl SurfnetSvm {
             self.latest_epoch_info.epoch += 1;
         }
         let clock: Clock = Clock {
-            slot: self.latest_epoch_info.slot_index,
+            slot: self.latest_epoch_info.absolute_slot, //.slot_index,
             epoch: self.latest_epoch_info.epoch,
             unix_timestamp: Utc::now().timestamp(),
             epoch_start_timestamp: 0, // todo
@@ -987,5 +1002,56 @@ impl SurfnetSvm {
                 self.signature_subscriptions.insert(*signature, remaining);
             }
         }
+    }
+
+    pub async fn clone_program_account(
+        &mut self,
+        source_program_id: &Pubkey,
+        destination_program_id: &Pubkey,
+    ) -> Result<(), SurfpoolError> {
+        let source_program_account = self
+            .get_account(
+                &source_program_id,
+                GetAccountStrategy::LocalThenConnectionOrDefault(None),
+            )
+            .await?
+            .ok_or_else(|| SurfpoolError::account_not_found(&source_program_id))?;
+
+        let BpfUpgradeableLoaderAccountType::Program(UiProgram {
+            program_data: source_program_data_address,
+        }) = parse_bpf_upgradeable_loader(&source_program_account.data).map_err(|e| {
+            SurfpoolError::invalid_program_account(source_program_id, e.to_string())
+        })?
+        else {
+            return Err(SurfpoolError::expected_program_account(&source_program_id));
+        };
+
+        let source_program_data_address = Pubkey::from_str_const(&source_program_data_address);
+
+        let destination_program_data_address = get_program_data_address(&destination_program_id);
+
+        // create a new program account that has the `program_data` field set to the
+        // destination program data address
+        let mut new_program_account = source_program_account;
+        new_program_account.data = bincode::serialize(&UpgradeableLoaderState::Program {
+            programdata_address: destination_program_data_address,
+        })
+        .map_err(|e| SurfpoolError::internal(format!("Failed to serialize program data: {}", e)))?;
+
+        let source_program_data_account = self
+            .get_account(
+                &source_program_data_address,
+                GetAccountStrategy::LocalThenConnectionOrDefault(None),
+            )
+            .await?
+            .ok_or_else(|| SurfpoolError::account_not_found(source_program_data_address))?;
+
+        self.set_account(
+            &destination_program_data_address,
+            source_program_data_account,
+        )?;
+
+        self.set_account(&destination_program_id, new_program_account)?;
+        Ok(())
     }
 }
