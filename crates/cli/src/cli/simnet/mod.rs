@@ -148,7 +148,7 @@ pub async fn handle_start_local_surfnet_command(
     if let Ok(response) = response {
         if let Ok(body) = response.json::<CheckVersionResponse>().await {
             if let Some(deprecation_notice) = body.deprecation_notice {
-                let _ = simnet_events_tx.send(SimnetEvent::warn(format!("{}", deprecation_notice)));
+                let _ = simnet_events_tx.send(SimnetEvent::warn(deprecation_notice.to_string()));
             }
         }
     }

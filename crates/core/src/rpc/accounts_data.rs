@@ -417,17 +417,15 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                 .await?;
             let mut ui_accounts = vec![];
             for (account, pubkey) in accounts.into_iter().zip(pubkeys) {
-                let ui_account = match account {
-                    None => None,
-                    Some(account) => Some(encode_ui_account(
+                ui_accounts.push(account.map(|account| {
+                    encode_ui_account(
                         &pubkey,
                         &account,
                         config.encoding.unwrap_or(UiAccountEncoding::Base64),
                         None,
                         config.data_slice,
-                    )),
-                };
-                ui_accounts.push(ui_account);
+                    )
+                }));
             }
 
             Ok(RpcResponse {

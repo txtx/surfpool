@@ -1352,17 +1352,16 @@ impl Full for SurfpoolFullRpc {
     ) -> Result<Vec<RpcPerfSample>> {
         let limit = limit.unwrap_or(720);
         if limit > 720 {
-            return Err(Error::invalid_params("Invalid limit; max 720").into());
+            return Err(Error::invalid_params("Invalid limit; max 720"));
         }
 
         meta.with_svm_reader(|svm_reader| {
-            let samples = svm_reader
+            svm_reader
                 .perf_samples
                 .iter()
-                .map(|e| e.clone())
                 .take(limit)
-                .collect::<Vec<_>>();
-            samples
+                .cloned()
+                .collect::<Vec<_>>()
         })
         .map_err(Into::into)
     }
@@ -1398,11 +1397,7 @@ impl Full for SurfpoolFullRpc {
                     Ok(res) => res,
                     Err(_e) => return Err(Error::internal_error()),
                 };
-                let entry = match res {
-                    Some((_, status)) => Some(status),
-                    None => None,
-                };
-                responses.push(entry);
+                responses.push(res.map(|(_, status)| status));
             }
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
@@ -1428,10 +1423,9 @@ impl Full for SurfpoolFullRpc {
     ) -> Result<String> {
         let pubkey = verify_pubkey(&pubkey_str)?;
         let res = meta.with_svm_writer(|svm_writer| {
-            let tx_result = svm_writer.airdrop(&pubkey, lamports).map_err(|err| {
+            svm_writer.airdrop(&pubkey, lamports).map_err(|err| {
                 Error::invalid_params(format!("failed to send transaction: {err:?}"))
-            });
-            tx_result
+            })
         })??;
         Ok(res.signature.to_string())
     }
@@ -1462,10 +1456,9 @@ impl Full for SurfpoolFullRpc {
         };
 
         let (status_update_tx, status_update_rx) = crossbeam_channel::bounded(1);
-        let _ = ctx
-            .simnet_commands_tx
+        ctx.simnet_commands_tx
             .send(SimnetCommand::TransactionReceived(
-                ctx.id.clone(),
+                ctx.id,
                 unsanitized_tx,
                 status_update_tx,
                 config.skip_preflight,
@@ -1480,7 +1473,7 @@ impl Full for SurfpoolFullRpc {
                     data: None,
                     message: format!(
                         "Transaction simulation failed: {}: {} log messages:\n{}",
-                        e.0.to_string(),
+                        e.0,
                         e.1.logs.len(),
                         e.1.logs.iter().map(|l| l.to_string()).join("\n")
                     ),
@@ -1492,7 +1485,7 @@ impl Full for SurfpoolFullRpc {
                     data: None,
                     message: format!(
                         "Transaction execution failed: {}: {} log messages:\n{}",
-                        e.0.to_string(),
+                        e.0,
                         e.1.logs.len(),
                         e.1.logs.iter().map(|l| l.to_string()).join("\n")
                     ),
@@ -1502,7 +1495,7 @@ impl Full for SurfpoolFullRpc {
             Err(e) => {
                 return Err(Error {
                     data: None,
-                    message: format!("Failed to process transaction: {}", e.to_string()),
+                    message: format!("Failed to process transaction: {e}"),
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
             }

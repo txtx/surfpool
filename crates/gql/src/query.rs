@@ -112,7 +112,7 @@ impl Dataloader for MemoryStore {
         let lookup = self
             .subgraph_name_lookup
             .write()
-            .map_err(|_| format!("Failed to acquire write lock on subgraph name lookup"))
+            .map_err(|_| "Failed to acquire write lock on subgraph name lookup".to_string())
             .ok()?;
         lookup.get(subgraph_uuid).map(|e| e.to_string())
     }
@@ -125,7 +125,7 @@ impl Dataloader for MemoryStore {
         let mut store = self
             .entries_store
             .write()
-            .map_err(|_| format!("Failed to acquire write lock on subgraph name lookup"))?;
+            .map_err(|_| "Failed to acquire write lock on subgraph name lookup".to_string())?;
         let (_, entries) = store.get_mut(subgraph_name).unwrap();
         entries.push(entry);
         Ok(())
@@ -157,7 +157,7 @@ impl GraphQLValue<DefaultScalarValue> for DynamicQuery {
     type TypeInfo = SchemaDataSource;
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
-        <DynamicQuery as GraphQLType<DefaultScalarValue>>::name(&info)
+        <DynamicQuery as GraphQLType<DefaultScalarValue>>::name(info)
     }
 }
 
@@ -195,6 +195,12 @@ impl GraphQLValueAsync<DefaultScalarValue> for DynamicQuery {
 #[derive(Clone, Debug)]
 pub struct SchemaDataSource {
     pub entries: HashMap<String, DynamicSchemaSpec>,
+}
+
+impl Default for SchemaDataSource {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SchemaDataSource {

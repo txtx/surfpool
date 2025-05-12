@@ -38,18 +38,14 @@ pub struct DynamicSchemaSpec {
 impl DynamicSchemaSpec {
     pub fn from_request(uuid: &Uuid, request: &SubgraphRequest) -> Self {
         let name = request.subgraph_name.to_case(Case::Pascal);
-        let fields: Vec<_> = request
-            .fields
-            .iter()
-            .map(|f| FieldMetadata::new(&f))
-            .collect();
+        let fields: Vec<_> = request.fields.iter().map(FieldMetadata::new).collect();
         Self {
             name: name.clone(),
             filter: SubgraphFilterSpec {
                 name: format!("{}Filter", name),
                 fields: fields.clone(),
             },
-            subgraph_uuid: uuid.clone(),
+            subgraph_uuid: *uuid,
             description: request.subgraph_description.clone(),
             fields,
         }
@@ -63,7 +59,7 @@ impl DynamicSchemaSpec {
                 name: format!("{}Filter", name),
                 fields: payload.fields.clone(),
             },
-            subgraph_uuid: payload.subgraph_uuid.clone(),
+            subgraph_uuid: payload.subgraph_uuid,
             description: payload.description.clone(),
             fields: payload.fields.clone(),
         }
@@ -106,7 +102,7 @@ impl GraphQLType<DefaultScalarValue> for DynamicSchemaSpec {
             fields.push(field);
         }
 
-        let mut object_meta = registry.build_object_type::<Self>(&spec, &fields);
+        let mut object_meta = registry.build_object_type::<Self>(spec, &fields);
         if let Some(description) = &spec.description {
             object_meta = object_meta.description(description.as_str());
         }

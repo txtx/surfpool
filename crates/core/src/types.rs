@@ -16,7 +16,7 @@ use surfpool_types::TransactionMetadata;
 #[derive(Debug, Clone)]
 pub enum SurfnetTransactionStatus {
     Received,
-    Processed(TransactionWithStatusMeta),
+    Processed(Box<TransactionWithStatusMeta>),
 }
 
 impl SurfnetTransactionStatus {
@@ -57,7 +57,7 @@ impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMe
 
         let (header, account_keys, instructions) = match &tx.message {
             VersionedMessage::Legacy(message) => (
-                message.header.clone(),
+                message.header,
                 message.account_keys.iter().map(|k| k.to_string()).collect(),
                 message
                     .instructions
@@ -93,7 +93,7 @@ impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMe
                             VersionedMessage::V0(ref msg) => Some(
                                 msg.address_table_lookups
                                     .iter()
-                                    .map(|matl| UiAddressTableLookup::from(matl))
+                                    .map(UiAddressTableLookup::from)
                                     .collect::<Vec<UiAddressTableLookup>>(),
                             ),
                         },

@@ -364,7 +364,7 @@ impl CreateNetworkRequest {
             name,
             description,
             datasource_rpc_url,
-            block_production_mode: block_production_mode,
+            block_production_mode,
         }
     }
 }

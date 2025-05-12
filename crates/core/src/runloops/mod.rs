@@ -379,7 +379,7 @@ async fn start_rpc_servers_runloop(
 
     let middleware = SurfpoolMiddleware::new(
         svm_locker,
-        &simnet_commands_tx,
+        simnet_commands_tx,
         &plugin_manager_commands_tx,
         &config.rpc,
     );
