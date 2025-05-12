@@ -11,8 +11,10 @@ use solana_client::rpc_config::RpcSignatureSubscribeConfig;
 use solana_client::rpc_response::{
     ProcessedSignatureResult, ReceivedSignatureResult, RpcResponseContext, RpcSignatureResult,
 };
+use solana_commitment_config::CommitmentLevel;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
+use solana_transaction_status::TransactionConfirmationStatus;
 
 use crate::surfnet::SignatureSubscriptionType;
 
@@ -75,6 +77,11 @@ impl Rpc for SurfpoolWsRpc {
             }
         };
         let config = config.unwrap_or_default();
+        let subscription_type = if config.enable_received_notification.unwrap_or(false) {
+            SignatureSubscriptionType::Received
+        } else {
+            SignatureSubscriptionType::Commitment(config.commitment.unwrap_or_default().commitment)
+        };
 
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
@@ -93,75 +100,90 @@ impl Rpc for SurfpoolWsRpc {
                 Err(_) => panic!(),
             };
 
-            let mut writer = svm_locker.write().await;
+            // get the signature from the SVM to see if it's already been processed
+            let res = {
+                let svm_reader = svm_locker.read().await;
+                match svm_reader.get_transaction(&signature, None).await {
+                    Ok(res) => res,
+                    Err(e) => {
+                        let error = Error {
+                            code: ErrorCode::InvalidParams,
+                            message: format!("Failed to get transaction from remote: {}", e),
+                            data: None,
+                        };
 
-            let res = match writer.get_transaction(&signature, None).await {
-                Ok(res) => res,
-                Err(e) => {
-                    let error = Error {
-                        code: ErrorCode::InvalidParams,
-                        message: format!("Failed to get transaction from remote: {}", e),
-                        data: None,
-                    };
-                    if let Some(sink) = active.write().unwrap().get(&sub_id) {
-                        let _ = sink.notify(Err(error));
+                        if let Some(sink) = active.write().unwrap().get(&sub_id) {
+                            let _ = sink.notify(Err(error));
+                        }
+
+                        return;
                     }
-
-                    return;
                 }
             };
 
+            // if we already had the transaction, check if its confirmation status matches the desired status set by the subscription
+            // if so, notify the user and complete the subscription
+            // otherwise, subscribe to the transaction updates
             if let Some((_, tx)) = res {
-                if let Some(sink) = active.write().unwrap().get(&sub_id) {
-                    let _ = sink.notify(Ok(RpcResponse {
-                        context: RpcResponseContext::new(tx.slot),
-                        value: RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
-                            err: None,
-                        }),
-                    }));
-                }
-            } else {
-                let subscription_type = if config.enable_received_notification.unwrap_or(false) {
-                    SignatureSubscriptionType::Received
-                } else {
-                    SignatureSubscriptionType::Commitment(
-                        config.commitment.unwrap_or_default().commitment,
+                match (&subscription_type, tx.confirmation_status) {
+                    (&SignatureSubscriptionType::Received, _)
+                    | (
+                        &SignatureSubscriptionType::Commitment(CommitmentLevel::Processed),
+                        Some(TransactionConfirmationStatus::Processed),
                     )
-                };
-                let rx =
-                    writer.subscribe_for_signature_updates(&signature, subscription_type.clone());
-
-                loop {
-                    if active.read().unwrap().get(&sub_id).is_none() {
+                    | (
+                        &SignatureSubscriptionType::Commitment(CommitmentLevel::Confirmed),
+                        Some(TransactionConfirmationStatus::Confirmed),
+                    )
+                    | (
+                        &SignatureSubscriptionType::Commitment(CommitmentLevel::Finalized),
+                        Some(TransactionConfirmationStatus::Finalized),
+                    ) => {
+                        if let Some(sink) = active.write().unwrap().remove(&sub_id) {
+                            let _ = sink.notify(Ok(RpcResponse {
+                                context: RpcResponseContext::new(tx.slot),
+                                value: RpcSignatureResult::ProcessedSignature(
+                                    ProcessedSignatureResult { err: None },
+                                ),
+                            }));
+                        }
                         return;
-                    } else if let Ok((slot, some_err)) = rx.try_recv() {
+                    }
+                    _ => {}
+                }
+            }
+
+            // update our surfnet SVM to subscribe to the signature updates
+            let rx = {
+                let mut svm_writer = svm_locker.write().await;
+                svm_writer.subscribe_for_signature_updates(&signature, subscription_type.clone())
+            };
+
+            loop {
+                if let Ok((slot, some_err)) = rx.try_recv() {
+                    if let Some(sink) = active.write().unwrap().remove(&sub_id) {
                         match subscription_type {
                             SignatureSubscriptionType::Received => {
-                                if let Some(sink) = active.write().unwrap().get(&sub_id) {
-                                    let _ = sink.notify(Ok(RpcResponse {
-                                        context: RpcResponseContext::new(slot),
-                                        value: RpcSignatureResult::ReceivedSignature(
-                                            ReceivedSignatureResult::ReceivedSignature,
-                                        ),
-                                    }));
-                                    return;
-                                }
+                                let _ = sink.notify(Ok(RpcResponse {
+                                    context: RpcResponseContext::new(slot),
+                                    value: RpcSignatureResult::ReceivedSignature(
+                                        ReceivedSignatureResult::ReceivedSignature,
+                                    ),
+                                }));
                             }
                             SignatureSubscriptionType::Commitment(_) => {
-                                if let Some(sink) = active.write().unwrap().get(&sub_id) {
-                                    let _ = sink.notify(Ok(RpcResponse {
-                                        context: RpcResponseContext::new(slot),
-                                        value: RpcSignatureResult::ProcessedSignature(
-                                            ProcessedSignatureResult { err: some_err },
-                                        ),
-                                    }));
-                                    return;
-                                }
+                                let _ = sink.notify(Ok(RpcResponse {
+                                    context: RpcResponseContext::new(slot),
+                                    value: RpcSignatureResult::ProcessedSignature(
+                                        ProcessedSignatureResult { err: some_err },
+                                    ),
+                                }));
                             }
                         }
                     }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    return;
                 }
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
             }
         });
     }
