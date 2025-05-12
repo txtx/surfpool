@@ -189,6 +189,45 @@ impl SimnetEvent {
     pub fn account_update(pubkey: Pubkey) -> Self {
         Self::AccountUpdate(Local::now(), pubkey)
     }
+
+    pub fn account_update_msg(&self) -> String {
+        match self {
+            SimnetEvent::AccountUpdate(_, pubkey) => {
+                format!("Account {} updated.", pubkey)
+            }
+            _ => unreachable!("This function should only be called for AccountUpdate events"),
+        }
+    }
+
+    pub fn epoch_info_update_msg(&self) -> String {
+        match self {
+            SimnetEvent::EpochInfoUpdate(epoch_info) => {
+                format!(
+                    "Connection established. Epoch {} / Slot index {} / Slot {}.",
+                    epoch_info.epoch, epoch_info.slot_index, epoch_info.absolute_slot
+                )
+            }
+            _ => unreachable!("This function should only be called for EpochInfoUpdate events"),
+        }
+    }
+
+    pub fn plugin_loaded_msg(&self) -> String {
+        match self {
+            SimnetEvent::PluginLoaded(plugin_name) => {
+                format!("Plugin {} successfully loaded.", plugin_name)
+            }
+            _ => unreachable!("This function should only be called for PluginLoaded events"),
+        }
+    }
+
+    pub fn clock_update_msg(&self) -> String {
+        match self {
+            SimnetEvent::ClockUpdate(clock) => {
+                format!("Clock ticking (epoch {}, slot {})", clock.epoch, clock.slot)
+            }
+            _ => unreachable!("This function should only be called for ClockUpdate events"),
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -215,29 +215,18 @@ fn log_events(
         match oper.index() {
             0 => match oper.recv(&simnet_events_rx) {
                 Ok(event) => match event {
-                    SimnetEvent::AccountUpdate(_dt, account) => {
-                        info!(ctx.expect_logger(), "Account {} updated", account);
+                    SimnetEvent::AccountUpdate(_dt, _) => {
+                        info!(ctx.expect_logger(), "{}", event.account_update_msg());
                     }
-                    SimnetEvent::PluginLoaded(plugin_name) => {
-                        info!(
-                            ctx.expect_logger(),
-                            "Plugin {} successfully loaded", plugin_name
-                        );
+                    SimnetEvent::PluginLoaded(_) => {
+                        info!(ctx.expect_logger(), "{}", event.plugin_loaded_msg());
                     }
-                    SimnetEvent::EpochInfoUpdate(epoch_info) => {
-                        info!(
-                            ctx.expect_logger(),
-                            "Connection established. Epoch {}, Slot {}.",
-                            epoch_info.epoch,
-                            epoch_info.slot_index
-                        );
+                    SimnetEvent::EpochInfoUpdate(_) => {
+                        info!(ctx.expect_logger(), "{}", event.epoch_info_update_msg());
                     }
-                    SimnetEvent::ClockUpdate(clock) => {
+                    SimnetEvent::ClockUpdate(_) => {
                         if include_debug_logs {
-                            info!(
-                                ctx.expect_logger(),
-                                "Clock ticking (epoch {}, slot {})", clock.epoch, clock.slot
-                            );
+                            info!(ctx.expect_logger(), "{}", event.clock_update_msg());
                         }
                     }
                     SimnetEvent::ErrorLog(_dt, log) => {
