@@ -236,64 +236,60 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
             if let Ok(oper) = oper {
                 match oper.index() {
                     0 => match oper.recv(&app.simnet_events_rx) {
-                        Ok(event) => match event {
-                            SimnetEvent::AccountUpdate(dt, account) => {
+                        Ok(event) => match &event {
+                            SimnetEvent::AccountUpdate(dt, _account) => {
                                 app.events.push_front((
                                     EventType::Success,
-                                    dt,
-                                    format!("Account {} updated", account),
+                                    *dt,
+                                    event.account_update_msg(),
                                 ));
                             }
-                            SimnetEvent::PluginLoaded(plugin_name) => {
+                            SimnetEvent::PluginLoaded(_) => {
                                 app.events.push_front((
                                     EventType::Success,
                                     Local::now(),
-                                    format!("Plugin {} successfully loaded", plugin_name),
+                                    event.plugin_loaded_msg(),
                                 ));
                             }
                             SimnetEvent::EpochInfoUpdate(epoch_info) => {
-                                app.epoch_info = epoch_info;
+                                app.epoch_info = epoch_info.clone();
                                 app.events.push_front((
                                     EventType::Success,
                                     Local::now(),
-                                    format!(
-                                        "Connection established at Slot index {} Slot {} / Epoch {}.",
-                                        app.epoch_info.slot_index,app.epoch_info.absolute_slot,app.epoch_info.epoch,
-                                    ),
+                                    event.epoch_info_update_msg(),
                                 ));
                             }
                             SimnetEvent::ClockUpdate(clock) => {
-                                app.clock = clock;
+                                app.clock = clock.clone();
                                 if app.include_debug_logs {
                                     app.events.push_front((
                                         EventType::Debug,
                                         Local::now(),
-                                        format!(
-                                            "Clock ticking (epoch {}, slot {})",
-                                            app.clock.epoch, app.clock.slot
-                                        ),
+                                        event.clock_update_msg(),
                                     ));
                                 }
                             }
                             SimnetEvent::ErrorLog(dt, log) => {
-                                app.events.push_front((EventType::Failure, dt, log));
+                                app.events
+                                    .push_front((EventType::Failure, *dt, log.clone()));
                             }
                             SimnetEvent::InfoLog(dt, log) => {
-                                app.events.push_front((EventType::Info, dt, log));
+                                app.events.push_front((EventType::Info, *dt, log.clone()));
                             }
                             SimnetEvent::DebugLog(dt, log) => {
                                 if app.include_debug_logs {
-                                    app.events.push_front((EventType::Debug, dt, log));
+                                    app.events.push_front((EventType::Debug, *dt, log.clone()));
                                 }
                             }
                             SimnetEvent::WarnLog(dt, log) => {
-                                app.events.push_front((EventType::Warning, dt, log));
+                                app.events
+                                    .push_front((EventType::Warning, *dt, log.clone()));
                             }
                             SimnetEvent::TransactionReceived(_dt, _transaction) => {}
                             SimnetEvent::TransactionProcessed(dt, meta, _err) => {
                                 if deployment_completed {
-                                    for log in meta.logs {
-                                        app.events.push_front((EventType::Debug, dt, log));
+                                    for log in meta.logs.iter() {
+                                        app.events.push_front((EventType::Debug, *dt, log.clone()));
                                     }
                                 }
                                 app.successful_transactions += 1;
