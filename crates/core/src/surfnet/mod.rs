@@ -168,9 +168,6 @@ impl SurfnetSvm {
             epoch_start_timestamp: 0, // todo
             leader_schedule_epoch: 0, // todo
         };
-        let _ = self
-            .simnet_events_tx
-            .send(SimnetEvent::ClockUpdate(clock.clone()));
         self.inner.set_sysvar(&clock);
         Ok(epoch_info)
     }
