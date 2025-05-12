@@ -13,14 +13,9 @@ use serde::Serialize;
 use serde::{Deserialize, Deserializer, Serializer};
 use serde_with::{serde_as, BytesOrString};
 use solana_account::Account;
-use solana_account_decoder::parse_bpf_loader::{
-    parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram,
-};
 use solana_client::rpc_response::RpcResponseContext;
 use solana_clock::Epoch;
-use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState};
 use solana_sdk::program_option::COption;
 use solana_sdk::program_pack::Pack;
 use solana_sdk::system_program;
@@ -498,65 +493,9 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
         Box::pin(async move {
             let mut svm_writer = svm_locker.write().await;
-            let source_program_account = svm_writer
-                .get_account(
-                    &source_program_id,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
-                )
-                .await?
-                .ok_or_else(|| {
-                    Error::invalid_params(format!("Account {} not found", source_program_id))
-                })?;
-
-            let BpfUpgradeableLoaderAccountType::Program(UiProgram {
-                program_data: source_program_data_address,
-            }) = parse_bpf_upgradeable_loader(&source_program_account.data).map_err(|e| {
-                Error::invalid_params(format!(
-                    "Invalid program source account {}: {}",
-                    source_program_id, e
-                ))
-            })?
-            else {
-                return Err(Error::invalid_params(format!(
-                    "Account {} is not a program account",
-                    source_program_id
-                )));
-            };
-
-            let source_program_data_address = Pubkey::from_str_const(&source_program_data_address);
-
-            let destination_program_data_address =
-                get_program_data_address(&destination_program_id);
-
-            // create a new program account that has the `program_data` field set to the
-            // destination program data address
-            let mut new_program_account = source_program_account;
-            new_program_account.data = bincode::serialize(&UpgradeableLoaderState::Program {
-                programdata_address: destination_program_data_address,
-            })
-            .map_err(|e| {
-                Error::invalid_params(format!("Failed to serialize program data: {}", e))
-            })?;
-
-            let source_program_data_account = svm_writer
-                .get_account(
-                    &source_program_data_address,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
-                )
-                .await?
-                .ok_or_else(|| {
-                    Error::invalid_params(format!(
-                        "Program data account {} not found",
-                        source_program_data_address
-                    ))
-                })?;
-
-            svm_writer.set_account(
-                &destination_program_data_address,
-                source_program_data_account,
-            )?;
-
-            svm_writer.set_account(&destination_program_id, new_program_account)?;
+            svm_writer
+                .clone_program_account(&source_program_id, &destination_program_id)
+                .await?;
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),

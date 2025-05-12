@@ -10,6 +10,9 @@ use litesvm::{
     LiteSVM,
 };
 use solana_account::Account;
+use solana_account_decoder::parse_bpf_loader::{
+    parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram,
+};
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_commitment_config::CommitmentConfig;
@@ -20,7 +23,8 @@ use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_sdk::{
-    bpf_loader_upgradeable::get_program_data_address, system_instruction,
+    bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
+    system_instruction,
     transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
@@ -882,6 +886,57 @@ impl SurfnetSvm {
         self.transactions_queued_for_finalization
             .append(&mut requeue);
 
+        Ok(())
+    }
+
+    pub async fn clone_program_account(
+        &mut self,
+        source_program_id: &Pubkey,
+        destination_program_id: &Pubkey,
+    ) -> Result<(), SurfpoolError> {
+        let source_program_account = self
+            .get_account(
+                &source_program_id,
+                GetAccountStrategy::LocalThenConnectionOrDefault(None),
+            )
+            .await?
+            .ok_or_else(|| SurfpoolError::account_not_found(&source_program_id))?;
+
+        let BpfUpgradeableLoaderAccountType::Program(UiProgram {
+            program_data: source_program_data_address,
+        }) = parse_bpf_upgradeable_loader(&source_program_account.data).map_err(|e| {
+            SurfpoolError::invalid_program_account(source_program_id, e.to_string())
+        })?
+        else {
+            return Err(SurfpoolError::expected_program_account(&source_program_id));
+        };
+
+        let source_program_data_address = Pubkey::from_str_const(&source_program_data_address);
+
+        let destination_program_data_address = get_program_data_address(&destination_program_id);
+
+        // create a new program account that has the `program_data` field set to the
+        // destination program data address
+        let mut new_program_account = source_program_account;
+        new_program_account.data = bincode::serialize(&UpgradeableLoaderState::Program {
+            programdata_address: destination_program_data_address,
+        })
+        .map_err(|e| SurfpoolError::internal(format!("Failed to serialize program data: {}", e)))?;
+
+        let source_program_data_account = self
+            .get_account(
+                &source_program_data_address,
+                GetAccountStrategy::LocalThenConnectionOrDefault(None),
+            )
+            .await?
+            .ok_or_else(|| SurfpoolError::account_not_found(source_program_data_address))?;
+
+        self.set_account(
+            &destination_program_data_address,
+            source_program_data_account,
+        )?;
+
+        self.set_account(&destination_program_id, new_program_account)?;
         Ok(())
     }
 }

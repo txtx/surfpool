@@ -1,4 +1,4 @@
-use std::{future::Future, pin::Pin};
+use std::{fmt::Display, future::Future, pin::Pin};
 
 use crossbeam_channel::TrySendError;
 use serde::Serialize;
@@ -127,6 +127,41 @@ impl SurfpoolError {
         D: Serialize,
     {
         let mut error = Error::invalid_params(format!("Invalid signature {signature}"));
+        error.data = Some(json!(data));
+        Self(error)
+    }
+
+    pub fn invalid_program_account<P, D>(program_id: P, data: D) -> Self
+    where
+        P: Display,
+        D: Serialize,
+    {
+        let mut error = Error::invalid_params(format!("Invalid program account {program_id}"));
+        error.data = Some(json!(data));
+        Self(error)
+    }
+
+    pub fn expected_program_account<P>(program_id: P) -> Self
+    where
+        P: Display,
+    {
+        let error = Error::invalid_params(format!("Account {program_id} is not a program account"));
+        Self(error)
+    }
+
+    pub fn account_not_found<P>(pubkey: P) -> Self
+    where
+        P: Display,
+    {
+        let error = Error::invalid_params(format!("Account {pubkey} not found"));
+        Self(error)
+    }
+
+    pub fn internal<D>(data: D) -> Self
+    where
+        D: Serialize,
+    {
+        let mut error = Error::internal_error();
         error.data = Some(json!(data));
         Self(error)
     }
