@@ -199,7 +199,7 @@ impl SurfnetSvm {
             .send(SimnetEvent::EpochInfoUpdate(epoch_info.clone()));
 
         let clock: Clock = Clock {
-            slot: self.latest_epoch_info.absolute_slot, //.slot_index,
+            slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
             unix_timestamp: Utc::now().timestamp(),
             epoch_start_timestamp: 0, // todo
@@ -903,7 +903,7 @@ impl SurfnetSvm {
             self.latest_epoch_info.epoch += 1;
         }
         let clock: Clock = Clock {
-            slot: self.latest_epoch_info.absolute_slot, //.slot_index,
+            slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
             unix_timestamp: Utc::now().timestamp(),
             epoch_start_timestamp: 0, // todo
