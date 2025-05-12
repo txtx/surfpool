@@ -61,8 +61,8 @@ pub fn get_home_dir() -> String {
 
 /// Resolves a path, expanding the `~` to the user's home directory if present.
 pub fn resolve_path(path: &str) -> PathBuf {
-    let path = if path.starts_with("~") {
-        let joined = format!("{}{}", get_home_dir(), &path[1..]);
+    let path = if let Some(stripped) = path.strip_prefix("~") {
+        let joined = format!("{}{}", get_home_dir(), stripped);
         joined
     } else {
         path.to_string()

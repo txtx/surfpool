@@ -682,7 +682,7 @@ impl Minimal for SurfpoolMinimalRpc {
         meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<u64> {
-        meta.with_svm_reader(|svm_reader| svm_reader.transactions_processed as u64)
+        meta.with_svm_reader(|svm_reader| svm_reader.transactions_processed)
             .map_err(Into::into)
     }
 

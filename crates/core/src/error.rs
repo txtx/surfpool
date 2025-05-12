@@ -35,7 +35,7 @@ impl std::fmt::Display for SurfpoolError {
         } = &self.0;
 
         let core = if code.description().eq(message) {
-            format!("{}", code.description())
+            code.description()
         } else {
             format!("{}: {}", code.description(), message)
         };
@@ -54,9 +54,9 @@ impl<T> From<SurfpoolError> for Pin<Box<dyn Future<Output = Result<T>> + Send>> 
     }
 }
 
-impl<T> Into<SurfpoolError> for TrySendError<T> {
-    fn into(self) -> SurfpoolError {
-        SurfpoolError::from_try_send_error(self)
+impl<T> From<TrySendError<T>> for SurfpoolError {
+    fn from(val: TrySendError<T>) -> Self {
+        SurfpoolError::from_try_send_error(val)
     }
 }
 

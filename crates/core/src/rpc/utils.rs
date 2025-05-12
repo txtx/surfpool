@@ -28,10 +28,10 @@ pub fn convert_transaction_metadata_from_canonical(
     transaction_metadata: &TransactionMetadata,
 ) -> surfpool_types::TransactionMetadata {
     surfpool_types::TransactionMetadata {
-        signature: transaction_metadata.signature.clone(),
+        signature: transaction_metadata.signature,
         logs: transaction_metadata.logs.clone(),
         inner_instructions: transaction_metadata.inner_instructions.clone(),
-        compute_units_consumed: transaction_metadata.compute_units_consumed.clone(),
+        compute_units_consumed: transaction_metadata.compute_units_consumed,
         return_data: transaction_metadata.return_data.clone(),
     }
 }

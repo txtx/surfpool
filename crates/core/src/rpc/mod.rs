@@ -201,7 +201,7 @@ pub struct SurfpoolWebsocketMeta {
 impl SurfpoolWebsocketMeta {
     pub fn new(runloop_context: RunloopContext, session: Option<Arc<Session>>) -> Self {
         Self {
-            runloop_context: runloop_context,
+            runloop_context,
             session,
         }
     }

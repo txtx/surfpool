@@ -116,7 +116,7 @@ impl CloudStartCommand {
         };
 
         auth_config
-            .refresh_session_if_needed(&id_service_url)
+            .refresh_session_if_needed(id_service_url)
             .await?;
 
         let theme = ColorfulTheme {
@@ -136,7 +136,7 @@ impl CloudStartCommand {
                     .map_err(|e| format!("Failed to initialize JWT manager: {}", e))?;
 
                 // Retry, this time with a brand new refresh token
-                let auth_config = pat_login(&id_service_url, &jwt_manager, &pat)
+                let auth_config = pat_login(id_service_url, &jwt_manager, &pat)
                     .await
                     .map_err(|e| format!("failed to login with PAT: {}", e))?;
 

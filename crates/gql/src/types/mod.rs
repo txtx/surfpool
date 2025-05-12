@@ -45,7 +45,7 @@ impl GraphQLType<DefaultScalarValue> for SubgraphSpec {
             fields.push(field);
         }
         registry
-            .build_object_type::<[SubgraphSpec]>(&spec, &fields)
+            .build_object_type::<[SubgraphSpec]>(spec, &fields)
             .into_meta()
     }
 }
@@ -107,10 +107,10 @@ pub struct SubgraphDataEntryUpdate {
 }
 
 impl SubgraphDataEntryUpdate {
-    pub fn new(name: &String, entry: &SubgraphDataEntry) -> Self {
+    pub fn new(name: &str, entry: &SubgraphDataEntry) -> Self {
         Self {
             entry: entry.clone(),
-            name: name.clone(),
+            name: name.to_owned(),
         }
     }
 }

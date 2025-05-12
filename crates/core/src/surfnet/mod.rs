@@ -83,13 +83,7 @@ pub struct SurfnetSvm {
     pub latest_epoch_info: EpochInfo,
     pub simnet_events_tx: Sender<SimnetEvent>,
     pub geyser_events_tx: Sender<GeyserEvent>,
-    pub signature_subscriptions: HashMap<
-        Signature,
-        Vec<(
-            SignatureSubscriptionType,
-            Sender<(Slot, Option<TransactionError>)>,
-        )>,
-    >,
+    pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -97,6 +91,11 @@ pub enum SurfnetDataConnection {
     Offline,
     Connected(String, EpochInfo),
 }
+
+pub type SignatureSubscriptionData = (
+    SignatureSubscriptionType,
+    Sender<(Slot, Option<TransactionError>)>,
+);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SignatureSubscriptionType {
@@ -226,7 +225,7 @@ impl SurfnetSvm {
             let slot = self.latest_epoch_info.absolute_slot;
             self.transactions.insert(
                 tx_result.signature,
-                SurfnetTransactionStatus::Processed(TransactionWithStatusMeta(
+                SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
                     slot,
                     VersionedTransaction::try_new(
                         VersionedMessage::Legacy(Message::new(
@@ -240,9 +239,9 @@ impl SurfnetSvm {
                         &[airdrop_keypair],
                     )
                     .unwrap(),
-                    convert_transaction_metadata_from_canonical(&tx_result),
+                    convert_transaction_metadata_from_canonical(tx_result),
                     None,
-                )),
+                ))),
             );
         }
         res
@@ -256,7 +255,7 @@ impl SurfnetSvm {
     /// * `addresses` - A vector of `Pubkey` recipients.
     pub fn airdrop_pubkeys(&mut self, lamports: u64, addresses: &[Pubkey]) {
         for recipient in addresses.iter() {
-            let _ = self.airdrop(&recipient, lamports);
+            let _ = self.airdrop(recipient, lamports);
             let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
                 "Genesis airdrop successful {}: {}",
                 recipient, lamports
@@ -349,13 +348,12 @@ impl SurfnetSvm {
     ///
     /// * `Ok(())` on success, or an error if the operation fails.
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
-        let _ = self
-            .inner
+        self.inner
             .set_account(*pubkey, account)
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
         let _ = self
             .simnet_events_tx
-            .send(SimnetEvent::account_update(pubkey.clone()));
+            .send(SimnetEvent::account_update(*pubkey));
         Ok(())
     }
 
@@ -497,7 +495,7 @@ impl SurfnetSvm {
     /// in `Some`; otherwise, `None` will be returned for the missing accounts.
     pub async fn get_multiple_accounts_mut(
         &mut self,
-        pubkeys: &Vec<Pubkey>,
+        pubkeys: &[Pubkey],
         strategy: GetAccountStrategy,
     ) -> Result<Vec<Option<Account>>, SurfpoolError> {
         // Ensure consistency between connection and strategy
@@ -601,7 +599,7 @@ impl SurfnetSvm {
     > {
         let mut tx = self
             .transactions
-            .get(&signature)
+            .get(signature)
             .map(|entry| entry.expect_processed().clone().into());
 
         if tx.is_none() && self.is_connected() {
@@ -620,7 +618,7 @@ impl SurfnetSvm {
                 slot: tx.slot,
                 confirmations: Some((self.get_latest_absolute_slot() - tx.slot) as usize),
                 status: tx.transaction.clone().meta.map_or(Ok(()), |m| m.status),
-                err: tx.transaction.clone().meta.map(|m| m.err).flatten(),
+                err: tx.transaction.clone().meta.and_then(|m| m.err),
                 confirmation_status: Some(
                     solana_transaction_status::TransactionConfirmationStatus::Confirmed,
                 ),
@@ -669,12 +667,12 @@ impl SurfnetSvm {
 
                 self.transactions.insert(
                     transaction_meta.signature,
-                    SurfnetTransactionStatus::Processed(TransactionWithStatusMeta(
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
                         self.get_latest_absolute_slot(),
                         tx,
                         transaction_meta.clone(),
                         None,
-                    )),
+                    ))),
                 );
                 let _ = self
                     .simnet_events_tx
@@ -779,7 +777,7 @@ impl SurfnetSvm {
                 Err(res) => {
                     let _ = self.simnet_events_tx.try_send(SimnetEvent::error(format!(
                         "Transaction simulation failed: {}",
-                        res.err.to_string()
+                        res.err
                     )));
                     (
                         convert_transaction_metadata_from_canonical(&res.meta),
@@ -974,7 +972,7 @@ impl SurfnetSvm {
         let (tx, rx) = unbounded();
         self.signature_subscriptions
             .entry(*signature)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push((subscription_type, tx));
         rx
     }
@@ -1011,11 +1009,11 @@ impl SurfnetSvm {
     ) -> Result<(), SurfpoolError> {
         let source_program_account = self
             .get_account(
-                &source_program_id,
+                source_program_id,
                 GetAccountStrategy::LocalThenConnectionOrDefault(None),
             )
             .await?
-            .ok_or_else(|| SurfpoolError::account_not_found(&source_program_id))?;
+            .ok_or_else(|| SurfpoolError::account_not_found(source_program_id))?;
 
         let BpfUpgradeableLoaderAccountType::Program(UiProgram {
             program_data: source_program_data_address,
@@ -1023,12 +1021,12 @@ impl SurfnetSvm {
             SurfpoolError::invalid_program_account(source_program_id, e.to_string())
         })?
         else {
-            return Err(SurfpoolError::expected_program_account(&source_program_id));
+            return Err(SurfpoolError::expected_program_account(source_program_id));
         };
 
         let source_program_data_address = Pubkey::from_str_const(&source_program_data_address);
 
-        let destination_program_data_address = get_program_data_address(&destination_program_id);
+        let destination_program_data_address = get_program_data_address(destination_program_id);
 
         // create a new program account that has the `program_data` field set to the
         // destination program data address
@@ -1051,7 +1049,7 @@ impl SurfnetSvm {
             source_program_data_account,
         )?;
 
-        self.set_account(&destination_program_id, new_program_account)?;
+        self.set_account(destination_program_id, new_program_account)?;
         Ok(())
     }
 }

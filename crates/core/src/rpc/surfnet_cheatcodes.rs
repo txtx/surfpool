@@ -70,7 +70,7 @@ impl AccountUpdate {
             account.lamports = lamports;
         }
         if let Some(owner) = &self.owner {
-            account.owner = verify_pubkey(&owner)?;
+            account.owner = verify_pubkey(owner)?;
         }
         if let Some(executable) = self.executable {
             account.executable = executable;
@@ -78,7 +78,7 @@ impl AccountUpdate {
         if let Some(rent_epoch) = self.rent_epoch {
             account.rent_epoch = rent_epoch;
         }
-        if let Some(_) = &self.data {
+        if self.data.is_some() {
             account.data = self.expect_hex_data()?;
         }
         Ok(())
@@ -148,7 +148,7 @@ impl Serialize for SetSomeAccount {
         S: Serializer,
     {
         match self {
-            SetSomeAccount::Account(val) => serializer.serialize_str(&val),
+            SetSomeAccount::Account(val) => serializer.serialize_str(val),
             SetSomeAccount::NoAccount => serializer.serialize_str("null"),
         }
     }
@@ -407,7 +407,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Err(e) => return Box::pin(future::err(e.into())),
         };
 
-        return Box::pin(async move {
+        Box::pin(async move {
             let mut svm_writer = svm_locker.write().await;
             let mut token_account = svm_writer
                 .get_account(
@@ -445,9 +445,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                     Error::invalid_params(format!("Failed to unpack token account data: {}", e))
                 })?;
 
-            if let Err(e) = update.apply(&mut token_account_data) {
-                return Err(e);
-            };
+            update.apply(&mut token_account_data)?;
 
             let mut final_account_bytes = [0; TokenAccount::LEN];
             token_account_data.pack_into_slice(&mut final_account_bytes);
@@ -458,7 +456,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
                 value: (),
             })
-        });
+        })
     }
 
     /// Clones a program account from one program ID to another.

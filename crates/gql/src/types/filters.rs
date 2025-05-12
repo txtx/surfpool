@@ -31,9 +31,9 @@ impl GraphQLType<DefaultScalarValue> for SubgraphFilterSpec {
 
         for field in spec.fields.iter() {
             if field.is_bool() {
-                args.push(registry.arg::<Option<BooleanFilter>>(&field.data.display_name, &spec));
+                args.push(registry.arg::<Option<BooleanFilter>>(&field.data.display_name, spec));
             } else if field.is_string() {
-                args.push(registry.arg::<Option<StringFilter>>(&field.data.display_name, &spec));
+                args.push(registry.arg::<Option<StringFilter>>(&field.data.display_name, spec));
             } else if field.is_number() {
                 args.push(registry.arg::<Option<NumericFilter>>(
                     &field.data.display_name,
@@ -244,7 +244,7 @@ pub fn build_number_filter_argument<'r>(
     filter: &str,
 ) -> Argument<'r, DefaultScalarValue> {
     Argument::new(
-        &filter,
+        filter,
         juniper::Type::Named(std::borrow::Cow::Borrowed("i128")),
     )
     .description(&format!(
@@ -258,7 +258,7 @@ pub fn build_string_filter_argument<'r>(
     filter: &str,
 ) -> Argument<'r, DefaultScalarValue> {
     Argument::new(
-        &filter,
+        filter,
         juniper::Type::Named(std::borrow::Cow::Borrowed("String")),
     )
     .description(&format!(
