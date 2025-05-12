@@ -4,7 +4,7 @@ use crate::{
     types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 use chrono::Utc;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use litesvm::{
     types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult},
     LiteSVM,
@@ -15,7 +15,7 @@ use solana_account_decoder::parse_bpf_loader::{
 };
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
-use solana_commitment_config::CommitmentConfig;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
 use solana_hash::Hash;
@@ -29,6 +29,7 @@ use solana_sdk::{
 };
 use solana_signature::Signature;
 use solana_signer::Signer;
+use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiTransactionEncoding,
 };
@@ -82,12 +83,43 @@ pub struct SurfnetSvm {
     pub latest_epoch_info: EpochInfo,
     pub simnet_events_tx: Sender<SimnetEvent>,
     pub geyser_events_tx: Sender<GeyserEvent>,
+    pub signature_subscriptions: HashMap<
+        Signature,
+        Vec<(
+            SignatureSubscriptionType,
+            Sender<(Slot, Option<TransactionError>)>,
+        )>,
+    >,
 }
 
 #[derive(PartialEq, Eq)]
 pub enum SurfnetDataConnection {
     Offline,
     Connected(String, EpochInfo),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SignatureSubscriptionType {
+    Received,
+    Commitment(CommitmentLevel),
+}
+
+impl SignatureSubscriptionType {
+    pub fn received() -> Self {
+        SignatureSubscriptionType::Received
+    }
+
+    pub fn processed() -> Self {
+        SignatureSubscriptionType::Commitment(CommitmentLevel::Processed)
+    }
+
+    pub fn confirmed() -> Self {
+        SignatureSubscriptionType::Commitment(CommitmentLevel::Confirmed)
+    }
+
+    pub fn finalized() -> Self {
+        SignatureSubscriptionType::Commitment(CommitmentLevel::Finalized)
+    }
 }
 
 impl SurfnetSvm {
@@ -132,6 +164,7 @@ impl SurfnetSvm {
                 },
                 transactions_queued_for_confirmation: VecDeque::new(),
                 transactions_queued_for_finalization: VecDeque::new(),
+                signature_subscriptions: HashMap::new(),
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -573,10 +606,12 @@ impl SurfnetSvm {
 
         if tx.is_none() && self.is_connected() {
             let client = self.expected_rpc_client();
-            let entry = client
-                .get_transaction(signature, encoding.unwrap_or(UiTransactionEncoding::Json))
-                .await?;
-            tx = Some(entry);
+            if let Ok(entry) = client
+                .get_transaction(signature, encoding.unwrap_or(UiTransactionEncoding::Base64))
+                .await
+            {
+                tx = Some(entry);
+            }
         }
 
         let mut response = None;
@@ -712,6 +747,8 @@ impl SurfnetSvm {
             }
         }
 
+        let signature = transaction.signatures[0];
+
         // find accounts that are needed for this transaction but are missing from the local
         // svm cache, fetch them from the RPC, and insert them locally
         let accounts = match &transaction.message {
@@ -754,12 +791,18 @@ impl SurfnetSvm {
             if let Some(e) = &err {
                 let _ = status_tx
                     .try_send(TransactionStatusEvent::SimulationFailure((e.clone(), meta)));
+                self.notify_signature_subscribers(
+                    SignatureSubscriptionType::processed(),
+                    &signature,
+                    self.latest_epoch_info.absolute_slot,
+                    Some(e.clone()),
+                );
                 return Ok(());
             }
         }
 
         // send the transaction to the SVM
-        match self.send_transaction(transaction.clone()) {
+        let err = match self.send_transaction(transaction.clone()) {
             Ok(res) => {
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res);
                 let _ = self.geyser_events_tx.send(GeyserEvent::NewTransaction(
@@ -772,6 +815,7 @@ impl SurfnetSvm {
                 ));
                 self.transactions_queued_for_confirmation
                     .push_back((transaction, status_tx));
+                None
             }
             Err(res) => {
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res.meta);
@@ -780,11 +824,19 @@ impl SurfnetSvm {
                     res.err
                 )));
                 let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((
-                    res.err,
+                    res.err.clone(),
                     transaction_meta,
                 )));
+                Some(res.err)
             }
         };
+
+        self.notify_signature_subscribers(
+            SignatureSubscriptionType::processed(),
+            &signature,
+            self.latest_epoch_info.absolute_slot,
+            err,
+        );
         Ok(())
     }
 
@@ -812,20 +864,28 @@ impl SurfnetSvm {
     /// and the system's state remains consistent with the passage of time.
     pub fn confirm_transactions(&mut self) -> Result<(), SurfpoolError> {
         let num_transactions = self.transactions_queued_for_confirmation.len();
+
+        self.latest_epoch_info.slot_index += 1;
+        self.latest_epoch_info.absolute_slot += 1;
+        let slot = self.latest_epoch_info.slot_index;
+
         while let Some((tx, status_tx)) = self.transactions_queued_for_confirmation.pop_front() {
             let _ = status_tx.try_send(TransactionStatusEvent::Success(
                 TransactionConfirmationStatus::Confirmed,
             ));
             // .map_err(Into::into)?;
-
+            let signature = tx.signatures[0];
             let finalized_at = self.latest_epoch_info.absolute_slot + FINALIZATION_SLOT_THRESHOLD;
             self.transactions_queued_for_finalization
                 .push_back((finalized_at, tx, status_tx));
-        }
 
-        self.latest_epoch_info.slot_index += 1;
-        self.latest_epoch_info.absolute_slot += 1;
-        let slot = self.latest_epoch_info.slot_index;
+            self.notify_signature_subscribers(
+                SignatureSubscriptionType::confirmed(),
+                &signature,
+                slot,
+                None,
+            );
+        }
 
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
@@ -881,16 +941,22 @@ impl SurfnetSvm {
     pub fn finalize_transactions(&mut self) -> Result<(), SurfpoolError> {
         let current_slot = self.latest_epoch_info.absolute_slot;
         let mut requeue = VecDeque::new();
-        while let Some((finalized_at, _tx, status_tx)) =
+        while let Some((finalized_at, tx, status_tx)) =
             self.transactions_queued_for_finalization.pop_front()
         {
             if current_slot >= finalized_at {
                 let _ = status_tx.try_send(TransactionStatusEvent::Success(
                     TransactionConfirmationStatus::Finalized,
                 ));
+                self.notify_signature_subscribers(
+                    SignatureSubscriptionType::finalized(),
+                    &tx.signatures[0],
+                    self.latest_epoch_info.absolute_slot,
+                    None,
+                );
                 // .map_err(Into::into)?;
             } else {
-                requeue.push_back((finalized_at, _tx, status_tx));
+                requeue.push_back((finalized_at, tx, status_tx));
             }
         }
         // Requeue any transactions that are not yet finalized
@@ -898,6 +964,44 @@ impl SurfnetSvm {
             .append(&mut requeue);
 
         Ok(())
+    }
+
+    pub fn subscribe_for_signature_updates(
+        &mut self,
+        signature: &Signature,
+        subscription_type: SignatureSubscriptionType,
+    ) -> Receiver<(Slot, Option<TransactionError>)> {
+        let (tx, rx) = unbounded();
+        self.signature_subscriptions
+            .entry(*signature)
+            .or_insert_with(Vec::new)
+            .push((subscription_type, tx));
+        rx
+    }
+
+    pub fn notify_signature_subscribers(
+        &mut self,
+        status: SignatureSubscriptionType,
+        signature: &Signature,
+        slot: Slot,
+        err: Option<TransactionError>,
+    ) {
+        let mut remaining = vec![];
+        if let Some(subscriptions) = self.signature_subscriptions.remove(signature) {
+            for (subscription_type, tx) in subscriptions {
+                if status.eq(&subscription_type) {
+                    if tx.send((slot, err.clone())).is_err() {
+                        // The receiver has been dropped, so we can skip notifying
+                        continue;
+                    }
+                } else {
+                    remaining.push((subscription_type, tx));
+                }
+            }
+            if !remaining.is_empty() {
+                self.signature_subscriptions.insert(*signature, remaining);
+            }
+        }
     }
 
     pub async fn clone_program_account(
