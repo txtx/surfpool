@@ -1,3 +1,4 @@
+use crate::error::SurfpoolError;
 use crate::error::SurfpoolResult;
 use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
@@ -6,6 +7,8 @@ use crate::surfnet::GetAccountStrategy;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
+use serde::Deserialize;
+use solana_account_decoder::parse_token::UiTokenAccount;
 use solana_account_decoder::parse_token::UiTokenAmount;
 use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
 use solana_client::rpc_config::RpcAccountInfoConfig;
@@ -15,6 +18,7 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_runtime::commitment::BlockCommitmentArray;
+use solana_sdk::program_pack::Pack;
 
 use super::{not_implemented_err, RunloopContext};
 
@@ -276,7 +280,7 @@ pub trait AccountsData {
         meta: Self::Metadata,
         pubkey_str: String,
         commitment: Option<CommitmentConfig>,
-    ) -> Result<RpcResponse<UiTokenAmount>>;
+    ) -> BoxFuture<Result<RpcResponse<Option<UiTokenAmount>>>>;
 
     /// Returns the total supply of a token, given its mint address.
     ///
@@ -451,11 +455,40 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
     fn get_token_account_balance(
         &self,
-        _meta: Self::Metadata,
-        _pubkey_str: String,
+        meta: Self::Metadata,
+        pubkey_str: String,
         _commitment: Option<CommitmentConfig>,
-    ) -> Result<RpcResponse<UiTokenAmount>> {
-        not_implemented_err()
+    ) -> BoxFuture<Result<RpcResponse<Option<UiTokenAmount>>>> {
+        let pubkey = match verify_pubkey(&pubkey_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let mut svm_writer = svm_locker.write().await;
+            let some_account = svm_writer
+                .get_account_mut(
+                    &pubkey,
+                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                )
+                .await?;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                value: {
+                    some_account.and_then(|account| {
+                        bincode::deserialize::<UiTokenAccount>(&account.data)
+                            .ok()
+                            .map(|token| token.token_amount)
+                    })
+                },
+            })
+        })
     }
 
     fn get_token_supply(
