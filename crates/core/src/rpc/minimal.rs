@@ -801,7 +801,7 @@ mod tests {
         assert!(result.feature_set.is_some());
         assert_eq!(
             result.surfnet_version,
-            format!("surfpool_v{}", SURFPOOL_VERSION)
+            format!("{}", SURFPOOL_VERSION)
         );
     }
 
