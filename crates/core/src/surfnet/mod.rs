@@ -13,7 +13,10 @@ use solana_account::Account;
 use solana_account_decoder::parse_bpf_loader::{
     parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram,
 };
-use solana_client::{nonblocking::rpc_client::RpcClient, rpc_response::RpcPerfSample};
+use solana_client::{
+    nonblocking::rpc_client::RpcClient, rpc_client::SerializableTransaction,
+    rpc_response::RpcPerfSample,
+};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
@@ -31,7 +34,10 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiTransactionEncoding,
+    EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction,
+    EncodedTransactionWithStatusMeta, TransactionStatus, UiAddressTableLookup,
+    UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
+    UiTransactionEncoding,
 };
 use std::collections::{HashMap, VecDeque};
 use surfpool_types::{
@@ -64,6 +70,34 @@ pub enum GeyserEvent {
     NewTransaction(VersionedTransaction, TransactionMetadata, Slot),
 }
 
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
+pub struct BlockIdentifier {
+    pub index: u64,
+    pub hash: String,
+}
+
+impl BlockIdentifier {
+    pub fn zero() -> Self {
+        Self::new(0, "")
+    }
+
+    pub fn new(index: u64, hash: &str) -> Self {
+        Self {
+            index,
+            hash: hash.to_string(),
+        }
+    }
+}
+
+pub struct BlockHeader {
+    pub hash: String,
+    pub previous_blockhash: String,
+    pub parent_slot: Slot,
+    pub block_time: i64,
+    pub block_height: u64,
+    pub signatures: Vec<Signature>,
+}
+
 /// `SurfnetSvm` provides a lightweight Solana Virtual Machine (SVM) for testing and simulation.
 ///
 /// It supports a local in-memory blockchain state,
@@ -72,6 +106,8 @@ pub enum GeyserEvent {
 /// It also exposes channels to listen for simulation events (`SimnetEvent`) and Geyser plugin events (`GeyserEvent`).
 pub struct SurfnetSvm {
     pub inner: LiteSVM,
+    pub chain_tip: BlockIdentifier,
+    pub blocks: HashMap<Slot, BlockHeader>,
     pub transactions: HashMap<Signature, SurfnetTransactionStatus>,
     pub transactions_queued_for_confirmation:
         VecDeque<(VersionedTransaction, Sender<TransactionStatusEvent>)>,
@@ -147,6 +183,8 @@ impl SurfnetSvm {
         (
             Self {
                 inner,
+                chain_tip: BlockIdentifier::zero(),
+                blocks: HashMap::new(),
                 transactions: HashMap::new(),
                 perf_samples: VecDeque::new(),
                 transactions_processed: 0,
@@ -291,7 +329,7 @@ impl SurfnetSvm {
     }
 
     #[allow(deprecated)]
-    pub fn new_blockhash(&mut self) {
+    fn new_blockhash(&mut self) -> BlockIdentifier {
         // cache th current blockhashes
         let blockhashes = self
             .inner
@@ -327,6 +365,10 @@ impl SurfnetSvm {
         self.inner.set_sysvar(
             &solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes::from_iter(entries),
         );
+        BlockIdentifier::new(
+            self.chain_tip.index + 1,
+            latest_entry.blockhash.to_string().as_str(),
+        )
     }
 
     pub fn check_blockhash_is_recent(&self, recent_blockhash: &Hash) -> bool {
@@ -838,6 +880,148 @@ impl SurfnetSvm {
         Ok(())
     }
 
+    pub fn confirm_current_block(&mut self) -> Result<(), SurfpoolError> {
+        // Confirm processed transactions
+        let confirmed_signatures = self.confirm_transactions()?;
+        let num_transactions = confirmed_signatures.len() as u64;
+
+        // Update chain tip
+        let previous_chain_tip = self.chain_tip.clone();
+        self.chain_tip = self.new_blockhash();
+
+        self.blocks.insert(
+            self.get_latest_absolute_slot(),
+            BlockHeader {
+                hash: self.chain_tip.hash.clone(),
+                previous_blockhash: previous_chain_tip.hash.clone(),
+                block_time: chrono::Utc::now().timestamp_millis(),
+                block_height: self.chain_tip.index,
+                parent_slot: self.get_latest_absolute_slot(),
+                signatures: confirmed_signatures,
+            },
+        );
+
+        // Update perf samples
+        if self.perf_samples.len() > 30 {
+            self.perf_samples.pop_back();
+        }
+        self.perf_samples.push_front(RpcPerfSample {
+            slot: self.latest_epoch_info.slot_index,
+            num_slots: 1,
+            sample_period_secs: 1,
+            num_transactions,
+            num_non_vote_transactions: None,
+        });
+
+        // Increment slot, block height, and epoch
+        self.latest_epoch_info.slot_index += 1;
+        self.latest_epoch_info.block_height = self.chain_tip.index;
+        self.latest_epoch_info.absolute_slot += 1;
+        if self.latest_epoch_info.slot_index > self.latest_epoch_info.slots_in_epoch {
+            self.latest_epoch_info.slot_index = 0;
+            self.latest_epoch_info.epoch += 1;
+        }
+        let clock: Clock = Clock {
+            slot: self.latest_epoch_info.absolute_slot,
+            epoch: self.latest_epoch_info.epoch,
+            unix_timestamp: Utc::now().timestamp(),
+            epoch_start_timestamp: 0, // todo
+            leader_schedule_epoch: 0, // todo
+        };
+
+        let _ = self
+            .simnet_events_tx
+            .send(SimnetEvent::ClockUpdate(clock.clone()));
+        self.inner.set_sysvar(&clock);
+
+        // Finalize confirmed transactions
+        self.finalize_transactions()?;
+
+        Ok(())
+    }
+
+    pub fn get_block_at_slot(&self, slot: Slot) -> Option<UiConfirmedBlock> {
+        // Retrieve block
+        let block = self.blocks.get(&slot)?;
+
+        // Retrieve parent block
+
+        // Retrieve transactions
+        let mut transactions = vec![];
+        for signature in block.signatures.iter() {
+            let Some(TransactionWithStatusMeta(_slot, tx, _meta, _err)) = self
+                .transactions
+                .get(&signature)
+                .map(|t| t.expect_processed().clone())
+            else {
+                continue;
+            };
+
+            let (header, account_keys, instructions) = match &tx.message {
+                VersionedMessage::Legacy(message) => (
+                    message.header.clone(),
+                    message.account_keys.iter().map(|k| k.to_string()).collect(),
+                    message
+                        .instructions
+                        .iter()
+                        // TODO: use stack height
+                        .map(|ix| UiCompiledInstruction::from(ix, None))
+                        .collect(),
+                ),
+                VersionedMessage::V0(message) => (
+                    message.header,
+                    message.account_keys.iter().map(|k| k.to_string()).collect(),
+                    message
+                        .instructions
+                        .iter()
+                        // TODO: use stack height
+                        .map(|ix| UiCompiledInstruction::from(ix, None))
+                        .collect(),
+                ),
+            };
+
+            let transaction = EncodedTransactionWithStatusMeta {
+                transaction: EncodedTransaction::Json(UiTransaction {
+                    signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
+                    message: UiMessage::Raw(UiRawMessage {
+                        header,
+                        account_keys,
+                        recent_blockhash: tx.get_recent_blockhash().to_string(),
+                        instructions,
+                        address_table_lookups: match tx.message {
+                            VersionedMessage::Legacy(_) => None,
+                            VersionedMessage::V0(ref msg) => Some(
+                                msg.address_table_lookups
+                                    .iter()
+                                    .map(|matl| UiAddressTableLookup::from(matl))
+                                    .collect::<Vec<UiAddressTableLookup>>(),
+                            ),
+                        },
+                    }),
+                }),
+                meta: None,
+                version: None,
+            };
+            // let transaction = EncodedTransaction::Json(UiTransaction::from(res));
+            transactions.push(transaction);
+        }
+
+        // Construct block
+        let block = UiConfirmedBlock {
+            blockhash: block.hash.clone(),
+            previous_blockhash: block.previous_blockhash.clone(),
+            rewards: None,
+            num_reward_partitions: None,
+            block_time: Some(block.block_time),
+            block_height: Some(block.block_height),
+            parent_slot: block.parent_slot,
+            transactions: Some(transactions),
+            signatures: Some(block.signatures.iter().map(|t| t.to_string()).collect()),
+        };
+
+        Some(block)
+    }
+
     /// Confirms transactions that are queued for confirmation.
     ///
     /// This function processes all transactions in the confirmation queue, sending a confirmation
@@ -860,11 +1044,8 @@ impl SurfnetSvm {
     ///
     /// This function is typically called periodically to ensure that transactions are confirmed
     /// and the system's state remains consistent with the passage of time.
-    pub fn confirm_transactions(&mut self) -> Result<(), SurfpoolError> {
-        let num_transactions = self.transactions_queued_for_confirmation.len();
-
-        self.latest_epoch_info.slot_index += 1;
-        self.latest_epoch_info.absolute_slot += 1;
+    fn confirm_transactions(&mut self) -> Result<Vec<Signature>, SurfpoolError> {
+        let mut confirmed_transactions = vec![];
         let slot = self.latest_epoch_info.slot_index;
 
         while let Some((tx, status_tx)) = self.transactions_queued_for_confirmation.pop_front() {
@@ -883,35 +1064,10 @@ impl SurfnetSvm {
                 slot,
                 None,
             );
+            confirmed_transactions.push(signature);
         }
 
-        if self.perf_samples.len() > 30 {
-            self.perf_samples.pop_back();
-        }
-        self.perf_samples.push_front(RpcPerfSample {
-            slot,
-            num_slots: 1,
-            sample_period_secs: 1,
-            num_transactions: num_transactions as u64,
-            num_non_vote_transactions: None,
-        });
-
-        if self.latest_epoch_info.slot_index > self.latest_epoch_info.slots_in_epoch {
-            self.latest_epoch_info.slot_index = 0;
-            self.latest_epoch_info.epoch += 1;
-        }
-        let clock: Clock = Clock {
-            slot: self.latest_epoch_info.absolute_slot,
-            epoch: self.latest_epoch_info.epoch,
-            unix_timestamp: Utc::now().timestamp(),
-            epoch_start_timestamp: 0, // todo
-            leader_schedule_epoch: 0, // todo
-        };
-        let _ = self
-            .simnet_events_tx
-            .send(SimnetEvent::ClockUpdate(clock.clone()));
-        self.inner.set_sysvar(&clock);
-        Ok(())
+        Ok(confirmed_transactions)
     }
 
     /// Finalizes transactions that are queued for finalization.
@@ -936,7 +1092,7 @@ impl SurfnetSvm {
     ///
     /// * `Ok(())` on successful processing of the finalization queue.
     /// * `Err(SurfpoolError)` if an error occurs during processing.
-    pub fn finalize_transactions(&mut self) -> Result<(), SurfpoolError> {
+    fn finalize_transactions(&mut self) -> Result<(), SurfpoolError> {
         let current_slot = self.latest_epoch_info.absolute_slot;
         let mut requeue = VecDeque::new();
         while let Some((finalized_at, tx, status_tx)) =

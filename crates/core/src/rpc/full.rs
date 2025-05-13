@@ -1616,11 +1616,19 @@ impl Full for SurfpoolFullRpc {
 
     fn get_block(
         &self,
-        _meta: Self::Metadata,
-        _slot: Slot,
+        meta: Self::Metadata,
+        slot: Slot,
         _config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
-        Box::pin(async { Ok(None) })
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let svm_reader = svm_locker.read().await;
+            Ok(svm_reader.get_block_at_slot(slot))
+        })
     }
 
     fn get_block_time(
