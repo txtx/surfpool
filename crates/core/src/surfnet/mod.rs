@@ -89,6 +89,15 @@ impl BlockIdentifier {
     }
 }
 
+pub struct BlockHeader {
+    pub hash: String,
+    pub previous_blockhash: String,
+    pub parent_slot: Slot,
+    pub block_time: i64,
+    pub block_height: u64,
+    pub signatures: Vec<Signature>,
+}
+
 /// `SurfnetSvm` provides a lightweight Solana Virtual Machine (SVM) for testing and simulation.
 ///
 /// It supports a local in-memory blockchain state,
@@ -98,7 +107,7 @@ impl BlockIdentifier {
 pub struct SurfnetSvm {
     pub inner: LiteSVM,
     pub chain_tip: BlockIdentifier,
-    pub blocks: HashMap<BlockIdentifier, Vec<Signature>>,
+    pub blocks: HashMap<Slot, BlockHeader>,
     pub transactions: HashMap<Signature, SurfnetTransactionStatus>,
     pub transactions_queued_for_confirmation:
         VecDeque<(VersionedTransaction, Sender<TransactionStatusEvent>)>,
@@ -357,7 +366,7 @@ impl SurfnetSvm {
             &solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes::from_iter(entries),
         );
         BlockIdentifier::new(
-            self.get_latest_absolute_slot(),
+            self.chain_tip.index + 1,
             latest_entry.blockhash.to_string().as_str(),
         )
     }
@@ -871,34 +880,78 @@ impl SurfnetSvm {
         Ok(())
     }
 
-    pub fn finalize_current_block(&mut self) -> Result<(), SurfpoolError> {
-        let confirmed_transactions = self.confirm_transactions()?;
+    pub fn confirm_current_block(&mut self) -> Result<(), SurfpoolError> {
+        // Confirm processed transactions
+        let confirmed_signatures = self.confirm_transactions()?;
+        let num_transactions = confirmed_signatures.len() as u64;
+
+        // Update chain tip
+        let previous_chain_tip = self.chain_tip.clone();
+        self.chain_tip = self.new_blockhash();
+
+        self.blocks.insert(
+            self.get_latest_absolute_slot(),
+            BlockHeader {
+                hash: self.chain_tip.hash.clone(),
+                previous_blockhash: previous_chain_tip.hash.clone(),
+                block_time: chrono::Utc::now().timestamp_millis(),
+                block_height: self.chain_tip.index,
+                parent_slot: self.get_latest_absolute_slot(),
+                signatures: confirmed_signatures,
+            },
+        );
+
+        // Update perf samples
+        if self.perf_samples.len() > 30 {
+            self.perf_samples.pop_back();
+        }
+        self.perf_samples.push_front(RpcPerfSample {
+            slot: self.latest_epoch_info.slot_index,
+            num_slots: 1,
+            sample_period_secs: 1,
+            num_transactions,
+            num_non_vote_transactions: None,
+        });
+        
+        // Increment slot, block height, and epoch
+        self.latest_epoch_info.slot_index += 1;
+        self.latest_epoch_info.block_height = self.chain_tip.index;
+        self.latest_epoch_info.absolute_slot += 1;
+        if self.latest_epoch_info.slot_index > self.latest_epoch_info.slots_in_epoch {
+            self.latest_epoch_info.slot_index = 0;
+            self.latest_epoch_info.epoch += 1;
+        }
+        let clock: Clock = Clock {
+            slot: self.latest_epoch_info.absolute_slot,
+            epoch: self.latest_epoch_info.epoch,
+            unix_timestamp: Utc::now().timestamp(),
+            epoch_start_timestamp: 0, // todo
+            leader_schedule_epoch: 0, // todo
+        };
+
+        let _ = self
+            .simnet_events_tx
+            .send(SimnetEvent::ClockUpdate(clock.clone()));
+        self.inner.set_sysvar(&clock);
+
+        // Finalize confirmed transactions
         self.finalize_transactions()?;
-        let chain_tip = self.new_blockhash();
-        self.blocks
-            .insert(chain_tip.clone(), confirmed_transactions);
-        self.chain_tip = chain_tip;
+
         Ok(())
     }
 
     pub fn get_transactions_included_in_block(&self, slot: Slot) -> Option<UiConfirmedBlock> {
         // Retrieve block
-        let block = self.blocks.iter().find(|(k, _)| k.index == slot);
-        let parent_block = self.blocks.iter().find(|(k, _)| k.index == (slot - 1));
-        let (Some((block_identifier, signatures)), Some((parent_block_identifier, _))) =
-            (block, parent_block)
-        else {
-            return None;
-        };
+        let block = self.blocks.get(&slot)?;
 
         // Retrieve parent block
 
         // Retrieve transactions
         let mut transactions = vec![];
-        for signature in signatures {
+        for signature in block.signatures.iter() {
             let Some(TransactionWithStatusMeta(_slot, tx, _meta, _err)) = self
                 .transactions
-                .get(signature)
+                .get(&signature)
                 .map(|t| t.expect_processed().clone())
             else {
                 continue;
@@ -955,15 +1008,15 @@ impl SurfnetSvm {
 
         // Construct block
         let block = UiConfirmedBlock {
-            blockhash: block_identifier.hash.clone(),
-            previous_blockhash: parent_block_identifier.hash.clone(),
+            blockhash: block.hash.clone(),
+            previous_blockhash: block.previous_blockhash.clone(),
             rewards: None,
             num_reward_partitions: None,
-            block_time: None,
-            block_height: None,
-            parent_slot: slot - 1,
+            block_time: Some(block.block_time),
+            block_height: Some(block.block_height),
+            parent_slot: block.parent_slot,
             transactions: Some(transactions),
-            signatures: Some(signatures.iter().map(|t| t.to_string()).collect()),
+            signatures: Some(block.signatures.iter().map(|t| t.to_string()).collect()),
         };
 
         Some(block)
@@ -992,10 +1045,7 @@ impl SurfnetSvm {
     /// This function is typically called periodically to ensure that transactions are confirmed
     /// and the system's state remains consistent with the passage of time.
     fn confirm_transactions(&mut self) -> Result<Vec<Signature>, SurfpoolError> {
-        let num_transactions = self.transactions_queued_for_confirmation.len();
         let mut confirmed_transactions = vec![];
-        self.latest_epoch_info.slot_index += 1;
-        self.latest_epoch_info.absolute_slot += 1;
         let slot = self.latest_epoch_info.slot_index;
 
         while let Some((tx, status_tx)) = self.transactions_queued_for_confirmation.pop_front() {
@@ -1017,32 +1067,6 @@ impl SurfnetSvm {
             confirmed_transactions.push(signature);
         }
 
-        if self.perf_samples.len() > 30 {
-            self.perf_samples.pop_back();
-        }
-        self.perf_samples.push_front(RpcPerfSample {
-            slot,
-            num_slots: 1,
-            sample_period_secs: 1,
-            num_transactions: num_transactions as u64,
-            num_non_vote_transactions: None,
-        });
-
-        if self.latest_epoch_info.slot_index > self.latest_epoch_info.slots_in_epoch {
-            self.latest_epoch_info.slot_index = 0;
-            self.latest_epoch_info.epoch += 1;
-        }
-        let clock: Clock = Clock {
-            slot: self.latest_epoch_info.absolute_slot,
-            epoch: self.latest_epoch_info.epoch,
-            unix_timestamp: Utc::now().timestamp(),
-            epoch_start_timestamp: 0, // todo
-            leader_schedule_epoch: 0, // todo
-        };
-        let _ = self
-            .simnet_events_tx
-            .send(SimnetEvent::ClockUpdate(clock.clone()));
-        self.inner.set_sysvar(&clock);
         Ok(confirmed_transactions)
     }
 

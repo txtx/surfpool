@@ -158,7 +158,7 @@ pub async fn start_block_production_runloop(
         {
             if do_produce_block {
                 let mut svm_writer = svm_locker.write().await;
-                svm_writer.finalize_current_block()?;
+                svm_writer.confirm_current_block()?;
             }
         }
     }

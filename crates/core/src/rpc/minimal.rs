@@ -440,7 +440,7 @@ pub trait Minimal {
     /// {
     ///   "jsonrpc": "2.0",
     ///   "result": {
-    ///     "surfpool_version": "1.2.3",
+    ///     "surfnet_version": "1.2.3",
     ///     "solana_core": "1.9.0",
     ///     "feature_set": 12345
     ///   },
@@ -690,7 +690,7 @@ impl Minimal for SurfpoolMinimalRpc {
         let version = solana_version::Version::default();
 
         Ok(SurfpoolRpcVersionInfo {
-            surfnet_version: format!("surfpool_v{}", SURFPOOL_VERSION),
+            surfnet_version: format!("{}", SURFPOOL_VERSION),
             solana_core: version.to_string(),
             feature_set: Some(version.feature_set),
         })
