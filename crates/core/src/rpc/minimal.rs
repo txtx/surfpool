@@ -26,7 +26,7 @@ const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[serde(rename_all = "kebab-case")]
 pub struct SurfpoolRpcVersionInfo {
     /// The current version of surfpool
-    pub surfpool_version: String,
+    pub surfnet_version: String,
     /// The current version of solana-core
     pub solana_core: String,
     /// first 4 bytes of the FeatureSet identifier
@@ -690,7 +690,7 @@ impl Minimal for SurfpoolMinimalRpc {
         let version = solana_version::Version::default();
 
         Ok(SurfpoolRpcVersionInfo {
-            surfpool_version: format!("surfpool_v{}", SURFPOOL_VERSION),
+            surfnet_version: format!("surfpool_v{}", SURFPOOL_VERSION),
             solana_core: version.to_string(),
             feature_set: Some(version.feature_set),
         })
@@ -800,7 +800,7 @@ mod tests {
         assert!(!result.solana_core.is_empty());
         assert!(result.feature_set.is_some());
         assert_eq!(
-            result.surfpool_version,
+            result.surfnet_version,
             format!("surfpool_v{}", SURFPOOL_VERSION)
         );
     }
