@@ -799,10 +799,7 @@ mod tests {
         let result = setup.rpc.get_version(Some(setup.context)).unwrap();
         assert!(!result.solana_core.is_empty());
         assert!(result.feature_set.is_some());
-        assert_eq!(
-            result.surfnet_version,
-            format!("{}", SURFPOOL_VERSION)
-        );
+        assert_eq!(result.surfnet_version, format!("{}", SURFPOOL_VERSION));
     }
 
     #[test]

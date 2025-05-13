@@ -912,7 +912,7 @@ impl SurfnetSvm {
             num_transactions,
             num_non_vote_transactions: None,
         });
-        
+
         // Increment slot, block height, and epoch
         self.latest_epoch_info.slot_index += 1;
         self.latest_epoch_info.block_height = self.chain_tip.index;
@@ -940,7 +940,10 @@ impl SurfnetSvm {
         Ok(())
     }
 
-    pub fn get_transactions_included_in_block_at_slot(&self, slot: Slot) -> Option<UiConfirmedBlock> {
+    pub fn get_transactions_included_in_block_at_slot(
+        &self,
+        slot: Slot,
+    ) -> Option<UiConfirmedBlock> {
         // Retrieve block
         let block = self.blocks.get(&slot)?;
 
