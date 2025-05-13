@@ -1627,7 +1627,7 @@ impl Full for SurfpoolFullRpc {
 
         Box::pin(async move {
             let svm_reader = svm_locker.read().await;
-            Ok(svm_reader.get_transactions_included_in_block(slot))
+            Ok(svm_reader.get_transactions_included_in_block_at_slot(slot))
         })
     }
 

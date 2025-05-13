@@ -940,7 +940,7 @@ impl SurfnetSvm {
         Ok(())
     }
 
-    pub fn get_transactions_included_in_block(&self, slot: Slot) -> Option<UiConfirmedBlock> {
+    pub fn get_transactions_included_in_block_at_slot(&self, slot: Slot) -> Option<UiConfirmedBlock> {
         // Retrieve block
         let block = self.blocks.get(&slot)?;
 
