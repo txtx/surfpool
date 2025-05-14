@@ -13,6 +13,7 @@ use solana_account::Account;
 use solana_account_decoder::parse_bpf_loader::{
     parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram,
 };
+use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
     nonblocking::rpc_client::RpcClient, rpc_client::SerializableTransaction,
     rpc_response::RpcPerfSample,
@@ -23,7 +24,10 @@ use solana_epoch_info::EpochInfo;
 use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
 use solana_hash::Hash;
 use solana_keypair::Keypair;
-use solana_message::{Message, VersionedMessage};
+use solana_message::{
+    v0::{LoadedAddresses, MessageAddressTableLookup},
+    Message, VersionedMessage,
+};
 use solana_pubkey::Pubkey;
 use solana_sdk::{
     bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
@@ -379,6 +383,63 @@ impl SurfnetSvm {
             .any(|entry| entry.blockhash == *recent_blockhash)
     }
 
+    pub async fn load_lookup_table_addresses(
+        &self,
+        address_table_lookup: &MessageAddressTableLookup,
+    ) -> Result<LoadedAddresses, SurfpoolError> {
+        let table_account = self
+            .get_account(
+                &address_table_lookup.account_key,
+                GetAccountStrategy::LocalThenConnectionOrDefault(None),
+            )
+            .await?
+            .ok_or_else(|| SurfpoolError::account_not_found(address_table_lookup.account_key))?;
+
+        if &table_account.owner == &solana_sdk_ids::address_lookup_table::id() {
+            let slot_hashes = self
+                .inner
+                .get_sysvar::<solana_sdk::sysvar::slot_hashes::SlotHashes>();
+            let current_slot = self
+                .inner
+                .get_sysvar::<solana_sdk::sysvar::clock::Clock>().slot;
+            //let current_slot = self.get_latest_absolute_slot(); // or should i use this?
+            let data = &table_account.data.clone();
+            let lookup_table =
+                AddressLookupTable::deserialize(data).map_err(|_ix_err| {
+                    SurfpoolError::invalid_account_data(
+                        address_table_lookup.account_key,
+                        table_account.data,
+                        Some("Attempted to lookup addresses from an invalid account"),
+                    )
+                })?;
+
+            Ok(LoadedAddresses {
+                writable: lookup_table
+                    .lookup(
+                        current_slot,
+                        &address_table_lookup.writable_indexes,
+                        &slot_hashes,
+                    )
+                    .map_err(|_ix_err| {
+                        SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
+                    })?,
+                readonly: lookup_table
+                    .lookup(
+                        current_slot,
+                        &address_table_lookup.readonly_indexes,
+                        &slot_hashes,
+                    )
+                    .map_err(|_ix_err| {
+                        SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
+                    })?,
+            })
+        } else {
+            Err(SurfpoolError::invalid_account_owner(
+                table_account.owner,
+                Some("Attempted to lookup addresses from an account owned by the wrong program"),
+            ))
+        }
+    }
     /// Sets an account in the local SVM state.
     ///
     /// # Arguments
@@ -797,7 +858,10 @@ impl SurfnetSvm {
                 let alts = message.address_table_lookups.clone();
                 let mut acc_keys = message.account_keys.clone();
                 let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
+                let table_entries = alts.iter().map(|msg| self.load_lookup_table_addresses(msg));
                 acc_keys.append(&mut alt_pubkeys);
+                acc_keys.append(&mut table_entries.readonly);
+                acc_keys.append(&mut table_entries.writable);
                 acc_keys
             }
         };
