@@ -43,6 +43,7 @@ use std::collections::{HashMap, VecDeque};
 use surfpool_types::{
     SimnetEvent, TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
 };
+use crate::rpc::surfnet_cheatcodes::ComputeUnitsEstimationResult;
 
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
 
@@ -680,13 +681,30 @@ impl SurfnetSvm {
     /// # Parameters
     ///
     /// - `tx`: The transaction to send for processing.
+    /// - `cu_analysis_enabled`: A boolean indicating whether compute unit analysis is enabled.
     ///
     /// # Returns
     ///
     /// Returns a `Result`:
     /// - `Ok(res)` if the transaction was successfully sent and processed, containing the result of the transaction.
     /// - `Err(tx_failure)` if the transaction failed, containing the error information.
-    pub fn send_transaction(&mut self, tx: VersionedTransaction) -> TransactionResult {
+    pub fn send_transaction(
+        &mut self,
+        tx: VersionedTransaction,
+        cu_analysis_enabled: bool,
+    ) -> TransactionResult {
+        if cu_analysis_enabled {
+            let estimation_result = self.estimate_compute_units(&tx);
+            let _ = self.simnet_events_tx.try_send(SimnetEvent::info(format!(
+                "CU Estimation for tx {}: Consumed = {}, Success = {}, Logs = {:?}, Error = {:?}",
+                tx.signatures.get(0).map_or_else(|| "N/A".to_string(), |s| s.to_string()),
+                estimation_result.compute_units_consumed,
+                estimation_result.success,
+                estimation_result.log_messages,
+                estimation_result.error_message
+            )));
+        }
+
         self.transactions_processed += 1;
 
         if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
@@ -733,6 +751,37 @@ impl SurfnetSvm {
                     ));
                 Err(tx_failure)
             }
+        }
+    }
+
+    /// Estimates the compute units that a given transaction will consume by simulating it.
+    /// This does not commit any state changes to the SVM.
+    pub fn estimate_compute_units(
+        &self,
+        transaction: &VersionedTransaction,
+    ) -> ComputeUnitsEstimationResult {
+        if !self.check_blockhash_is_recent(transaction.message.recent_blockhash()) {
+            return ComputeUnitsEstimationResult {
+                success: false,
+                compute_units_consumed: 0,
+                log_messages: None,
+                error_message: Some(solana_transaction_error::TransactionError::BlockhashNotFound.to_string()),
+            };
+        }
+
+        match self.inner.simulate_transaction(transaction.clone()) {
+            Ok(sim_info) => ComputeUnitsEstimationResult {
+                success: true,
+                compute_units_consumed: sim_info.meta.compute_units_consumed,
+                log_messages: Some(sim_info.meta.logs),
+                error_message: None,
+            },
+            Err(failed_meta) => ComputeUnitsEstimationResult {
+                success: false,
+                compute_units_consumed: failed_meta.meta.compute_units_consumed,
+                log_messages: Some(failed_meta.meta.logs),
+                error_message: Some(failed_meta.err.to_string()),
+            },
         }
     }
 
@@ -842,7 +891,7 @@ impl SurfnetSvm {
         }
 
         // send the transaction to the SVM
-        let err = match self.send_transaction(transaction.clone()) {
+        let err = match self.send_transaction(transaction.clone(), false /* cu_analysis_enabled */) {
             Ok(res) => {
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res);
                 let _ = self.geyser_events_tx.send(GeyserEvent::NewTransaction(

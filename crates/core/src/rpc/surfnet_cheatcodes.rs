@@ -22,6 +22,7 @@ use solana_sdk::system_program;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
 use surfpool_types::SimnetEvent;
+use solana_sdk::transaction::VersionedTransaction;
 
 use super::RunloopContext;
 
@@ -200,6 +201,17 @@ impl TokenAccountUpdate {
     }
 }
 
+/// Result structure for compute units estimation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputeUnitsEstimationResult {
+    pub success: bool,
+    pub compute_units_consumed: u64,
+    pub log_messages: Option<Vec<String>>,
+    pub error_message: Option<String>,
+    
+}
+
 #[rpc]
 pub trait SvmTricksRpc {
     type Metadata;
@@ -210,7 +222,7 @@ pub trait SvmTricksRpc {
     /// and rent epoch of a given account.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client’s request context.
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `pubkey`: The public key of the account to be updated, as a base-58 encoded string.
     /// - `update`: The `AccountUpdate` struct containing the fields to update the account.
     ///
@@ -256,7 +268,7 @@ pub trait SvmTricksRpc {
     /// including the token amount, delegate, state, delegated amount, and close authority.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client’s request context.
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `owner`: The base-58 encoded public key of the token account's owner.
     /// - `mint`: The base-58 encoded public key of the token mint (e.g., the token type).
     /// - `update`: The `TokenAccountUpdate` struct containing the fields to update the token account.
@@ -307,6 +319,35 @@ pub trait SvmTricksRpc {
         source_program_id: String,
         destination_program_id: String,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
+
+    /// Estimates the compute units that a given transaction will consume.
+    ///
+    /// This method simulates the transaction without committing its state changes
+    /// and returns an estimation of the compute units used, along with logs and
+    /// potential errors.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request.
+    /// - `transaction_data`: A base64 encoded string of the `VersionedTransaction`.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<ComputeUnitsEstimationResult>` containing the estimation details.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_estimateComputeUnits",
+    ///   "params": ["base64_encoded_transaction_string"]
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_estimateComputeUnits")]
+    fn estimate_compute_units(
+        &self,
+        meta: Self::Metadata,
+        transaction_data: String, // Base64 encoded VersionedTransaction
+    ) -> BoxFuture<Result<RpcResponse<ComputeUnitsEstimationResult>>>;
 }
 
 pub struct SurfnetCheatcodesRpc;
@@ -498,6 +539,45 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
                 value: (),
+            })
+        })
+    }
+
+    fn estimate_compute_units(
+        &self,
+        meta: Self::Metadata,
+        transaction_data_b64: String,
+    ) -> BoxFuture<Result<RpcResponse<ComputeUnitsEstimationResult>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        let transaction_bytes = match base64::decode(&transaction_data_b64) {
+            Ok(bytes) => bytes,
+            Err(e) => return Box::pin(future::err(Error::invalid_params(format!(
+                "Invalid base64 for transaction data: {}",
+                e
+            )))),
+        };
+
+        let transaction: VersionedTransaction = match bincode::deserialize(&transaction_bytes) {
+            Ok(tx) => tx,
+            Err(e) => return Box::pin(future::err(Error::invalid_params(format!(
+                "Failed to deserialize transaction: {}",
+                e
+            )))),
+        };
+
+        Box::pin(async move {
+            let svm_reader = svm_locker.read().await; // Using read lock
+
+            // This estimate_compute_units method needs to be added to SurfnetSvm
+            let estimation_result = svm_reader.estimate_compute_units(&transaction);
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
+                value: estimation_result,
             })
         })
     }
