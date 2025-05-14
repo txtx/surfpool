@@ -546,6 +546,7 @@ mod tests {
     use solana_sdk::program_pack::Pack;
     use spl_token::state::{Account as TokenAccount, AccountState};
 
+    #[ignore = "connection-required"]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_token_account_balance() {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
