@@ -1,3 +1,4 @@
+use crate::error::SurfpoolError;
 use crate::error::SurfpoolResult;
 use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
@@ -6,7 +7,9 @@ use crate::surfnet::GetAccountStrategy;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use solana_account_decoder::parse_token::UiTokenAccount;
+use solana_account_decoder::parse_account_data::SplTokenAdditionalDataV2;
+use solana_account_decoder::parse_token::parse_token_v3;
+use solana_account_decoder::parse_token::TokenAccountType;
 use solana_account_decoder::parse_token::UiTokenAmount;
 use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
 use solana_client::rpc_config::RpcAccountInfoConfig;
@@ -16,6 +19,9 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_runtime::commitment::BlockCommitmentArray;
+use solana_sdk::program_pack::Pack;
+use spl_token::state::Account as TokenAccount;
+use spl_token::state::Mint;
 
 use super::{not_implemented_err, RunloopContext};
 
@@ -342,6 +348,7 @@ pub trait AccountsData {
     ) -> Result<RpcResponse<UiTokenAmount>>;
 }
 
+#[derive(Clone)]
 pub struct SurfpoolAccountsDataRpc;
 impl AccountsData for SurfpoolAccountsDataRpc {
     type Metadata = Option<RunloopContext>;
@@ -475,13 +482,45 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                 )
                 .await?;
 
+            let (token_account, token_account_slice) = some_account
+                .and_then(|account| {
+                    let t = TokenAccount::unpack(&account.data).ok()?;
+                    Some((t, account.data))
+                })
+                .ok_or(SurfpoolError::get_account(
+                    pubkey,
+                    "Error fetching token account",
+                ))?;
+
+            let mint_account = svm_writer
+                .get_account(
+                    &token_account.mint,
+                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                )
+                .await?;
+
+            let token_decimals = mint_account
+                .and_then(|account| Mint::unpack(&account.data).ok())
+                .ok_or(SurfpoolError::get_account(
+                    pubkey,
+                    "Error fetching token mint account",
+                ))?
+                .decimals;
+
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
                 value: {
-                    some_account.and_then(|account| {
-                        bincode::deserialize::<UiTokenAccount>(&account.data)
-                            .ok()
-                            .map(|token| token.token_amount)
+                    parse_token_v3(
+                        &token_account_slice,
+                        Some(&SplTokenAdditionalDataV2 {
+                            decimals: token_decimals,
+                            ..Default::default()
+                        }),
+                    )
+                    .ok()
+                    .and_then(|t| match t {
+                        TokenAccountType::Account(account) => Some(account.token_amount),
+                        _ => None,
                     })
                 },
             })
@@ -495,5 +534,109 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         _commitment: Option<CommitmentConfig>,
     ) -> Result<RpcResponse<UiTokenAmount>> {
         not_implemented_err()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::helpers::TestSetup;
+    use solana_account::Account;
+    use solana_pubkey::Pubkey;
+    use solana_sdk::program_pack::Pack;
+    use spl_token::state::{Account as TokenAccount, AccountState};
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_token_account_balance() {
+        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
+
+        let mint_pk = Pubkey::new_unique();
+
+        let minimum_rent = setup
+            .context
+            .surfnet_svm
+            .write()
+            .await
+            .inner
+            .minimum_balance_for_rent_exemption(Mint::LEN);
+
+        let mut data = [0; Mint::LEN];
+
+        let default = Mint {
+            decimals: 6,
+            supply: 1000000000000000,
+            is_initialized: true,
+            ..Default::default()
+        };
+        default.pack_into_slice(&mut data);
+
+        let mint_account = Account {
+            lamports: minimum_rent,
+            owner: spl_token::ID,
+            executable: false,
+            rent_epoch: 0,
+            data: data.to_vec(),
+        };
+
+        setup
+            .context
+            .surfnet_svm
+            .write()
+            .await
+            .set_account(&mint_pk, mint_account)
+            .unwrap();
+
+        let token_account_pk = Pubkey::new_unique();
+
+        let minimum_rent = setup
+            .context
+            .surfnet_svm
+            .write()
+            .await
+            .inner
+            .minimum_balance_for_rent_exemption(TokenAccount::LEN);
+
+        let mut data = [0; TokenAccount::LEN];
+
+        let default = TokenAccount {
+            mint: mint_pk,
+            owner: spl_token::ID,
+            state: AccountState::Initialized,
+            amount: 100 * 1000000,
+            ..Default::default()
+        };
+        default.pack_into_slice(&mut data);
+
+        let token_account = Account {
+            lamports: minimum_rent,
+            owner: spl_token::ID,
+            executable: false,
+            rent_epoch: 0,
+            data: data.to_vec(),
+        };
+
+        setup
+            .context
+            .surfnet_svm
+            .write()
+            .await
+            .set_account(&token_account_pk, token_account)
+            .unwrap();
+
+        let res = setup
+            .rpc
+            .get_token_account_balance(Some(setup.context), token_account_pk.to_string(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            res.value.unwrap(),
+            UiTokenAmount {
+                amount: String::from("100000000"),
+                decimals: 6,
+                ui_amount: Some(100.0),
+                ui_amount_string: String::from("100")
+            }
+        );
     }
 }
