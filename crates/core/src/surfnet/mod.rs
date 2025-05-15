@@ -1,3 +1,4 @@
+use crate::rpc::surfnet_cheatcodes::ComputeUnitsEstimationResult;
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
@@ -49,7 +50,6 @@ use std::iter::zip;
 use surfpool_types::{
     SimnetEvent, TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
 };
-use crate::rpc::surfnet_cheatcodes::ComputeUnitsEstimationResult;
 
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
 
@@ -758,13 +758,14 @@ impl SurfnetSvm {
     ) -> TransactionResult {
         if cu_analysis_enabled {
             let estimation_result = self.estimate_compute_units(&tx);
-            let _ = self.simnet_events_tx.try_send(SimnetEvent::info(format!(
+            let _ =
+                self.simnet_events_tx.try_send(SimnetEvent::info(format!(
                 "CU Estimation for tx: {} | Consumed: {} | Success: {} | Logs: {:?} | Error: {:?}",
                 tx.signatures.get(0).map_or_else(|| "N/A".to_string(), |s| s.to_string()),
                 estimation_result.compute_units_consumed,
                 estimation_result.success,
                 estimation_result.log_messages,
-                estimation_result.error_message.unwrap_or_else(|| "None".to_string())
+                estimation_result.error_message
             )));
         }
 
@@ -828,7 +829,9 @@ impl SurfnetSvm {
                 success: false,
                 compute_units_consumed: 0,
                 log_messages: None,
-                error_message: Some(solana_transaction_error::TransactionError::BlockhashNotFound.to_string()),
+                error_message: Some(
+                    solana_transaction_error::TransactionError::BlockhashNotFound.to_string(),
+                ),
             };
         }
 
@@ -969,34 +972,35 @@ impl SurfnetSvm {
         }
 
         // send the transaction to the SVM
-        let err = match self.send_transaction(transaction.clone(), false /* cu_analysis_enabled */) {
-            Ok(res) => {
-                let transaction_meta = convert_transaction_metadata_from_canonical(&res);
-                let _ = self.geyser_events_tx.send(GeyserEvent::NewTransaction(
-                    transaction.clone(),
-                    transaction_meta.clone(),
-                    self.latest_epoch_info.absolute_slot,
-                ));
-                let _ = status_tx.try_send(TransactionStatusEvent::Success(
-                    TransactionConfirmationStatus::Processed,
-                ));
-                self.transactions_queued_for_confirmation
-                    .push_back((transaction, status_tx));
-                None
-            }
-            Err(res) => {
-                let transaction_meta = convert_transaction_metadata_from_canonical(&res.meta);
-                let _ = self.simnet_events_tx.try_send(SimnetEvent::error(format!(
-                    "Transaction execution failed: {}",
-                    res.err
-                )));
-                let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((
-                    res.err.clone(),
-                    transaction_meta,
-                )));
-                Some(res.err)
-            }
-        };
+        let err =
+            match self.send_transaction(transaction.clone(), false /* cu_analysis_enabled */) {
+                Ok(res) => {
+                    let transaction_meta = convert_transaction_metadata_from_canonical(&res);
+                    let _ = self.geyser_events_tx.send(GeyserEvent::NewTransaction(
+                        transaction.clone(),
+                        transaction_meta.clone(),
+                        self.latest_epoch_info.absolute_slot,
+                    ));
+                    let _ = status_tx.try_send(TransactionStatusEvent::Success(
+                        TransactionConfirmationStatus::Processed,
+                    ));
+                    self.transactions_queued_for_confirmation
+                        .push_back((transaction, status_tx));
+                    None
+                }
+                Err(res) => {
+                    let transaction_meta = convert_transaction_metadata_from_canonical(&res.meta);
+                    let _ = self.simnet_events_tx.try_send(SimnetEvent::error(format!(
+                        "Transaction execution failed: {}",
+                        res.err
+                    )));
+                    let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((
+                        res.err.clone(),
+                        transaction_meta,
+                    )));
+                    Some(res.err)
+                }
+            };
 
         self.notify_signature_subscribers(
             SignatureSubscriptionType::processed(),

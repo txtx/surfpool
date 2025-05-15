@@ -4,6 +4,7 @@ use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
 use crate::surfnet::GetAccountStrategy;
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use jsonrpc_core::futures::future;
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::{Error, Result};
@@ -19,11 +20,10 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::program_option::COption;
 use solana_sdk::program_pack::Pack;
 use solana_sdk::system_program;
+use solana_sdk::transaction::VersionedTransaction;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
 use surfpool_types::SimnetEvent;
-use solana_sdk::transaction::VersionedTransaction;
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 use super::RunloopContext;
 
@@ -210,7 +210,6 @@ pub struct ComputeUnitsEstimationResult {
     pub compute_units_consumed: u64,
     pub log_messages: Option<Vec<String>>,
     pub error_message: Option<String>,
-    
 }
 
 #[rpc]
@@ -567,10 +566,12 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
         let transaction: VersionedTransaction = match bincode::deserialize(&transaction_bytes) {
             Ok(tx) => tx,
-            Err(e) => return Box::pin(future::err(Error::invalid_params(format!(
-                "Failed to deserialize transaction: {}",
-                e
-            )))),
+            Err(e) => {
+                return Box::pin(future::err(Error::invalid_params(format!(
+                    "Failed to deserialize transaction: {}",
+                    e
+                ))));
+            }
         };
 
         Box::pin(async move {
