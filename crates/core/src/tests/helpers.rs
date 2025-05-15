@@ -107,21 +107,21 @@ where
             match state_writer.send_transaction(tx.clone()) {
                 Ok(res) => state_writer.transactions.insert(
                     tx.signatures[0],
-                    SurfnetTransactionStatus::Processed(TransactionWithStatusMeta(
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
                         0,
                         tx,
                         convert_transaction_metadata_from_canonical(&res),
                         None,
-                    )),
+                    ))),
                 ),
                 Err(e) => state_writer.transactions.insert(
                     tx.signatures[0],
-                    SurfnetTransactionStatus::Processed(TransactionWithStatusMeta(
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
                         0,
                         tx,
                         convert_transaction_metadata_from_canonical(&e.meta),
                         Some(e.err),
-                    )),
+                    ))),
                 ),
             };
         }
