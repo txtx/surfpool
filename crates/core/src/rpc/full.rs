@@ -1158,7 +1158,7 @@ pub trait Full {
 
     /// Returns the estimated fee required to submit a given transaction message.
     ///
-    /// This method takes a base64-encoded `Message` (the serialized form of a transaction’s message),
+    /// This method takes a base64-encoded `Message` (the serialized form of a transaction's message),
     /// and returns the fee in lamports that would be charged for processing that message,
     /// assuming it was submitted as a transaction.
     ///
