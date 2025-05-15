@@ -212,6 +212,18 @@ pub struct ComputeUnitsEstimationResult {
     pub error_message: Option<String>,
 }
 
+//The enum for storing the profiling results and in the future we can add other variants here
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProfileResult {
+    ComputeUnits(ComputeUnitsEstimationResult),
+    // We can add other variants here in the future, e.g.:
+    // MemoryUsage(MemoryUsageResult),
+    // InstructionTrace(InstructionTraceResult),
+    // Signature(SignatureResult),
+    // PriorityFee(PriorityFeeResult)
+}
+
 #[rpc]
 pub trait SvmTricksRpc {
     type Metadata;
@@ -329,6 +341,7 @@ pub trait SvmTricksRpc {
     /// ## Parameters
     /// - `meta`: Metadata passed with the request.
     /// - `transaction_data`: A base64 encoded string of the `VersionedTransaction`.
+    /// - `tag`: An optional tag for the transaction.
     ///
     /// ## Returns
     /// A `RpcResponse<ComputeUnitsEstimationResult>` containing the estimation details.
@@ -339,7 +352,7 @@ pub trait SvmTricksRpc {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
     ///   "method": "surfnet_profileTransaction",
-    ///   "params": ["base64_encoded_transaction_string"]
+    ///   "params": ["base64_encoded_transaction_string", "optional_tag"]
     /// }
     /// ```
     #[rpc(meta, name = "surfnet_profileTransaction")]
@@ -347,7 +360,23 @@ pub trait SvmTricksRpc {
         &self,
         meta: Self::Metadata,
         transaction_data: String, // Base64 encoded VersionedTransaction
+        tag: Option<String>,      // Optional tag for the transaction
     ) -> BoxFuture<Result<RpcResponse<ComputeUnitsEstimationResult>>>;
+
+    /// Retrieves all profiling results for a given tag.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request.
+    /// - `tag`: The tag to retrieve profiling results for.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<Vec<ProfileResult>>` containing the profiling results.
+    #[rpc(meta, name = "surfnet_getProfileResults")]
+    fn get_profile_results(
+        &self,
+        meta: Self::Metadata,
+        tag: String,
+    ) -> BoxFuture<Result<RpcResponse<Vec<ProfileResult>>>>;
 }
 
 pub struct SurfnetCheatcodesRpc;
@@ -547,6 +576,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         &self,
         meta: Self::Metadata,
         transaction_data_b64: String,
+        tag: Option<String>,
     ) -> BoxFuture<Result<RpcResponse<ComputeUnitsEstimationResult>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
@@ -575,14 +605,57 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         };
 
         Box::pin(async move {
-            let svm_reader = svm_locker.read().await; // Using read lock
+            let mut svm_writer = svm_locker.write().await;
 
-            // This estimate_compute_units method needs to be added to SurfnetSvm
-            let estimation_result = svm_reader.estimate_compute_units(&transaction);
+            let estimation_result = svm_writer.estimate_compute_units(&transaction);
+
+            if let Some(tag_str) = tag {
+                if estimation_result.success {
+                    svm_writer
+                        .tagged_profiling_results
+                        .entry(tag_str.clone())
+                        .or_default()
+                        .push(ProfileResult::ComputeUnits(estimation_result.clone()));
+                    // Send an event that a tagged transaction was profiled
+                    let _ = svm_writer
+                        .simnet_events_tx
+                        .try_send(SimnetEvent::info(format!(
+                            "Tagged transaction profiled. Tag: {}, Signature: {}, CU: {}",
+                            tag_str,
+                            transaction.signatures[0],
+                            estimation_result.compute_units_consumed
+                        )));
+                }
+            }
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                value: estimation_result,
+            })
+        })
+    }
+
+    fn get_profile_results(
+        &self,
+        meta: Self::Metadata,
+        tag: String,
+    ) -> BoxFuture<Result<RpcResponse<Vec<ProfileResult>>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let svm_reader = svm_locker.read().await;
+            let results = svm_reader
+                .tagged_profiling_results
+                .get(&tag)
+                .cloned()
+                .unwrap_or_default();
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
-                value: estimation_result,
+                value: results,
             })
         })
     }

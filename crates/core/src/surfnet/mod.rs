@@ -1,4 +1,4 @@
-use crate::rpc::surfnet_cheatcodes::ComputeUnitsEstimationResult;
+use crate::rpc::surfnet_cheatcodes::{ComputeUnitsEstimationResult, ProfileResult};
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
@@ -127,6 +127,7 @@ pub struct SurfnetSvm {
     pub simnet_events_tx: Sender<SimnetEvent>,
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
+    pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -209,6 +210,7 @@ impl SurfnetSvm {
                 transactions_queued_for_confirmation: VecDeque::new(),
                 transactions_queued_for_finalization: VecDeque::new(),
                 signature_subscriptions: HashMap::new(),
+                tagged_profiling_results: HashMap::new(),
             },
             simnet_events_rx,
             geyser_events_rx,
