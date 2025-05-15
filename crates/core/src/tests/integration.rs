@@ -490,8 +490,8 @@ async fn test_surfnet_estimate_compute_units() {
     assert!(response.is_ok(), "RPC call failed: {:?}", response.err());
     let rpc_response_value = response.unwrap().value;
 
-    assert!(rpc_response_value.success, "CU estimation should be successful");
-    assert!(rpc_response_value.compute_units_consumed > 0, "Compute units consumed should be greater than 0");
+    assert!(rpc_response_value.success, "CU estimation failed");
+    assert!(rpc_response_value.compute_units_consumed > 0, "Invalid compute units consumed");
     assert!(rpc_response_value.error_message.is_none(), "Error message should be None. Got: {:?}", rpc_response_value.error_message);
     assert!(rpc_response_value.log_messages.is_some(), "Log messages should be present");
 

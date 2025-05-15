@@ -759,12 +759,12 @@ impl SurfnetSvm {
         if cu_analysis_enabled {
             let estimation_result = self.estimate_compute_units(&tx);
             let _ = self.simnet_events_tx.try_send(SimnetEvent::info(format!(
-                "CU Estimation for tx {}: Consumed = {}, Success = {}, Logs = {:?}, Error = {:?}",
+                "CU Estimation for tx: {} | Consumed: {} | Success: {} | Logs: {:?} | Error: {:?}",
                 tx.signatures.get(0).map_or_else(|| "N/A".to_string(), |s| s.to_string()),
                 estimation_result.compute_units_consumed,
                 estimation_result.success,
                 estimation_result.log_messages,
-                estimation_result.error_message
+                estimation_result.error_message.unwrap_or_else(|| "None".to_string())
             )));
         }
 

@@ -23,6 +23,7 @@ use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
 use surfpool_types::SimnetEvent;
 use solana_sdk::transaction::VersionedTransaction;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 use super::RunloopContext;
 
@@ -553,12 +554,15 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Err(e) => return e.into(),
         };
 
-        let transaction_bytes = match base64::decode(&transaction_data_b64) {
+        let transaction_bytes = match STANDARD.decode(&transaction_data_b64) {
             Ok(bytes) => bytes,
-            Err(e) => return Box::pin(future::err(Error::invalid_params(format!(
-                "Invalid base64 for transaction data: {}",
-                e
-            )))),
+            Err(e) => {
+                log::error!("Base64 decoding failed: {}", e);
+                return Box::pin(future::err(Error::invalid_params(format!(
+                    "Invalid base64 for transaction data: {}",
+                    e
+                ))));
+            }
         };
 
         let transaction: VersionedTransaction = match bincode::deserialize(&transaction_bytes) {
