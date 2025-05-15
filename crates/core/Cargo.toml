@@ -39,6 +39,7 @@ serde_json = { workspace = true }
 serde_with = { workspace = true }
 solana-account = { workspace = true }
 solana-account-decoder = { workspace = true }
+solana-address-lookup-table-interface = { workspace = true }
 solana-blake3-hasher = { workspace = true }
 solana-client = { workspace = true }
 solana-clock = { workspace = true }
@@ -51,11 +52,13 @@ solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-native-token = { workspace = true }
 solana-packet  = { workspace = true }
+solana-program-runtime = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-runtime = { workspace = true }
 solana-sdk = { workspace = true }
+solana-sdk-ids = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-system-interface = { workspace = true }

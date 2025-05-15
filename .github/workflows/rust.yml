@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Rustup install rustfmt
-        run: rustup component add rustfmt
+        run: rustup component add rustfmt clippy
       - name: Run Cargo fmt
         run: cargo fmt --all -- --check
       - name: Run Cargo clippy

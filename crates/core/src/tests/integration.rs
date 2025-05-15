@@ -1,3 +1,4 @@
+use crate::error::SurfpoolError;
 use crossbeam_channel::unbounded;
 use jsonrpc_core::{
     futures::future::{self, join_all},
@@ -296,11 +297,11 @@ async fn test_simnet_some_sol_transfers() {
 // This test is pretty minimal for lookup tables at this point.
 // We are creating a v0 transaction with a lookup table that does exist on mainnet,
 // and sending that tx to surfpool. We are verifying that the transaction is processed
-// and that the lookup table is fetched from mainnet and added to the accounts in the SVM.
+// and that the lookup table and its entries are fetched from mainnet and added to the accounts in the SVM.
 // However, we are not actually setting up a tx that will use the lookup table internally,
 // we are kind of just trusting that LiteSVM will do its job here.
 #[tokio::test]
-async fn test_add_alt_fetching() {
+async fn test_add_alt_entries_fetching() {
     let payer = Keypair::new();
     let pk = payer.pubkey();
 
@@ -415,13 +416,29 @@ async fn test_add_alt_fetching() {
     })
     .await;
 
-    // get all the account keys + the address lookup tables from the txn
+    let surfnet_svm = svm_locker.read().await;
+
+    // get all the account keys + the address lookup tables + table_entries from the txn
     let alts = tx.message.address_table_lookups().clone().unwrap();
     let mut acc_keys = tx.message.static_account_keys().to_vec();
     let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
-    acc_keys.append(&mut alt_pubkeys);
+    let mut table_entries = join_all(alts.iter().map(|msg| async {
+        let loaded_addresses = surfnet_svm.load_lookup_table_addresses(msg).await?;
+        let mut combined = loaded_addresses.writable;
+        combined.extend(loaded_addresses.readonly);
+        Ok::<_, SurfpoolError>(combined)
+    }))
+    .await
+    .into_iter()
+    .collect::<Result<Vec<Vec<Pubkey>>, SurfpoolError>>()
+    .unwrap() // Result<Vec<Vec<Pubkey>>, _>
+    .into_iter()
+    .flatten()
+    .collect();
 
-    let surfnet_svm = svm_locker.read().await;
+    acc_keys.append(&mut alt_pubkeys);
+    acc_keys.append(&mut table_entries);
+
     // inner.get_account returns an Option<Account>; assert that none of them are None
     assert!(
         acc_keys
