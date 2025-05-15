@@ -338,11 +338,11 @@ pub trait SvmTricksRpc {
     /// {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
-    ///   "method": "surfnet_estimateComputeUnits",
+    ///   "method": "surfnet_profileTransaction",
     ///   "params": ["base64_encoded_transaction_string"]
     /// }
     /// ```
-    #[rpc(meta, name = "surfnet_estimateComputeUnits")]
+    #[rpc(meta, name = "surfnet_profileTransaction")]
     fn estimate_compute_units(
         &self,
         meta: Self::Metadata,
