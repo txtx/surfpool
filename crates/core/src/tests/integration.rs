@@ -424,7 +424,7 @@ async fn test_add_alt_entries_fetching() {
     .await
     .into_iter()
     .collect::<Result<Vec<Vec<Pubkey>>, SurfpoolError>>()
-    .unwrap()// Result<Vec<Vec<Pubkey>>, _>
+    .unwrap() // Result<Vec<Vec<Pubkey>>, _>
     .into_iter()
     .flatten()
     .collect();
@@ -436,7 +436,7 @@ async fn test_add_alt_entries_fetching() {
     assert!(
         acc_keys
             .iter()
-            .all(|key| { surfnet_svm.inner.get_account(key).is_some()}),
+            .all(|key| { surfnet_svm.inner.get_account(key).is_some() }),
         "account not found"
     );
 }
