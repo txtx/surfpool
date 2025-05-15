@@ -157,6 +157,46 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn invalid_account_data<P, D, M>(pubkey: P, data: D, message: Option<M>) -> Self
+    where
+        P: Display,
+        D: Serialize,
+        M: Display,
+    {
+        let base_msg = format!("invalid account data {pubkey}");
+        let full_msg = if let Some(msg) = message {
+            format!("{base_msg}: {msg}")
+        } else {
+            base_msg
+        };
+        let mut error = Error::invalid_params(full_msg);
+        error.data = Some(json!(data));
+        Self(error)
+    }
+
+    pub fn invalid_account_owner<P, M>(pubkey: P, message: Option<M>) -> Self
+    where
+        P: Display,
+        M: Display,
+    {
+        let base_msg = format!("invalid account owner {pubkey}");
+        let full_msg = if let Some(msg) = message {
+            format!("{base_msg}: {msg}")
+        } else {
+            base_msg
+        };
+        let mut error = Error::invalid_params(full_msg);
+        Self(error)
+    }
+    pub fn invalid_lookup_index<P>(pubkey: P) -> Self
+    where
+        P: Display,
+    {
+        let mut error =
+            Error::invalid_params(format!("Address lookup {pubkey} contains an invalid index"));
+        Self(error)
+    }
+
     pub fn internal<D>(data: D) -> Self
     where
         D: Serialize,

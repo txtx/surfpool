@@ -5,6 +5,7 @@ use crate::{
 };
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use jsonrpc_core::futures::future::{self, join_all};
 use litesvm::{
     types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult},
     LiteSVM,
@@ -13,6 +14,7 @@ use solana_account::Account;
 use solana_account_decoder::parse_bpf_loader::{
     parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram,
 };
+use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
     nonblocking::rpc_client::RpcClient, rpc_client::SerializableTransaction,
     rpc_response::RpcPerfSample,
@@ -23,7 +25,10 @@ use solana_epoch_info::EpochInfo;
 use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
 use solana_hash::Hash;
 use solana_keypair::Keypair;
-use solana_message::{Message, VersionedMessage};
+use solana_message::{
+    v0::{LoadedAddresses, MessageAddressTableLookup},
+    Message, VersionedMessage,
+};
 use solana_pubkey::Pubkey;
 use solana_sdk::{
     bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
@@ -40,6 +45,7 @@ use solana_transaction_status::{
     UiTransactionEncoding,
 };
 use std::collections::{HashMap, VecDeque};
+use std::iter::zip;
 use surfpool_types::{
     SimnetEvent, TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
 };
@@ -379,6 +385,63 @@ impl SurfnetSvm {
             .any(|entry| entry.blockhash == *recent_blockhash)
     }
 
+    pub async fn load_lookup_table_addresses(
+        &self,
+        address_table_lookup: &MessageAddressTableLookup,
+    ) -> Result<LoadedAddresses, SurfpoolError> {
+        let table_account = self
+            .get_account(
+                &address_table_lookup.account_key,
+                GetAccountStrategy::LocalThenConnectionOrDefault(None),
+            )
+            .await?
+            .ok_or_else(|| SurfpoolError::account_not_found(address_table_lookup.account_key))?;
+
+        if &table_account.owner == &solana_sdk_ids::address_lookup_table::id() {
+            let slot_hashes = self
+                .inner
+                .get_sysvar::<solana_sdk::sysvar::slot_hashes::SlotHashes>();
+            let current_slot = self
+                .inner
+                .get_sysvar::<solana_sdk::sysvar::clock::Clock>()
+                .slot;
+            //let current_slot = self.get_latest_absolute_slot(); // or should i use this?
+            let data = &table_account.data.clone();
+            let lookup_table = AddressLookupTable::deserialize(data).map_err(|_ix_err| {
+                SurfpoolError::invalid_account_data(
+                    address_table_lookup.account_key,
+                    table_account.data,
+                    Some("Attempted to lookup addresses from an invalid account"),
+                )
+            })?;
+
+            Ok(LoadedAddresses {
+                writable: lookup_table
+                    .lookup(
+                        current_slot,
+                        &address_table_lookup.writable_indexes,
+                        &slot_hashes,
+                    )
+                    .map_err(|_ix_err| {
+                        SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
+                    })?,
+                readonly: lookup_table
+                    .lookup(
+                        current_slot,
+                        &address_table_lookup.readonly_indexes,
+                        &slot_hashes,
+                    )
+                    .map_err(|_ix_err| {
+                        SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
+                    })?,
+            })
+        } else {
+            Err(SurfpoolError::invalid_account_owner(
+                table_account.owner,
+                Some("Attempted to lookup addresses from an account owned by the wrong program"),
+            ))
+        }
+    }
     /// Sets an account in the local SVM state.
     ///
     /// # Arguments
@@ -797,7 +860,22 @@ impl SurfnetSvm {
                 let alts = message.address_table_lookups.clone();
                 let mut acc_keys = message.account_keys.clone();
                 let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
+
+                let mut table_entries = join_all(alts.iter().map(|msg| async {
+                    let loaded_addresses = self.load_lookup_table_addresses(msg).await?;
+                    let mut combined = loaded_addresses.writable;
+                    combined.extend(loaded_addresses.readonly);
+                    Ok::<_, SurfpoolError>(combined)
+                }))
+                .await
+                .into_iter()
+                .collect::<Result<Vec<Vec<Pubkey>>, SurfpoolError>>()? // Result<Vec<Vec<Pubkey>>, _>
+                .into_iter()
+                .flatten()
+                .collect();
+
                 acc_keys.append(&mut alt_pubkeys);
+                acc_keys.append(&mut table_entries);
                 acc_keys
             }
         };
