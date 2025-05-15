@@ -51,7 +51,7 @@ use surfpool_types::{
 };
 
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
-
+pub const SLOTS_PER_EPOCH: u64 = 432000;
 // #[cfg(clippy)]
 // const SUBGRAPH_PLUGIN_BYTES: &[u8] = &[0];
 
@@ -200,7 +200,7 @@ impl SurfnetSvm {
                 latest_epoch_info: EpochInfo {
                     epoch: 0,
                     slot_index: 0,
-                    slots_in_epoch: 0,
+                    slots_in_epoch: SLOTS_PER_EPOCH,
                     absolute_slot: 0,
                     block_height: 0,
                     transaction_count: None,
