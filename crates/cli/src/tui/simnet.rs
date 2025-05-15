@@ -20,7 +20,7 @@ use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::Transaction;
 use std::{collections::VecDeque, error::Error, io, time::Duration};
-use surfpool_core::solana_rpc_client::rpc_client::RpcClient;
+use surfpool_core::{solana_rpc_client::rpc_client::RpcClient, surfnet::SLOTS_PER_EPOCH};
 use surfpool_types::{BlockProductionMode, ClockCommand, SimnetCommand, SimnetEvent};
 use txtx_core::kit::types::frontend::BlockEvent;
 use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};
@@ -112,7 +112,7 @@ impl App {
             epoch_info: EpochInfo {
                 epoch: 0,
                 slot_index: 0,
-                slots_in_epoch: 0,
+                slots_in_epoch: SLOTS_PER_EPOCH,
                 absolute_slot: 0,
                 block_height: 0,
                 transaction_count: None,
@@ -134,12 +134,9 @@ impl App {
     }
 
     pub fn epoch_progress(&self) -> u16 {
-        let current = self.slot() as u64;
-        let expected = self.epoch_info.slots_in_epoch;
-        if expected == 0 {
-            return 100;
-        }
-        ((current.min(expected) as f64 / expected as f64) * 100.0) as u16
+        let absolute = self.slot() as u64;
+        let progress = absolute.rem_euclid(self.epoch_info.slots_in_epoch) as u64;
+        ((progress as f64 / self.epoch_info.slots_in_epoch as f64) * 100.0) as u16
     }
 
     pub fn next(&mut self) {
