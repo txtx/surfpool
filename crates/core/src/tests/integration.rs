@@ -498,8 +498,7 @@ async fn test_surfnet_estimate_compute_units() {
 
     let mut found_cu_event = false;
     for _ in 0..10 { 
-        if let Ok(event) = simnet_rx_for_send.try_recv() {
-            // Corrected SimnetEvent pattern match to use InfoLog variant
+        if let Ok(event) = simnet_rx_for_send.try_recv() { 
             if let surfpool_types::SimnetEvent::InfoLog(_, msg) = event { 
                 if msg.starts_with("CU Estimation for tx") {
                     println!("Found CU estimation event: {}", msg);
