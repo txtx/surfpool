@@ -22,6 +22,13 @@ use surfpool_types::{
     SimnetEvent, SurfpoolConfig,
 };
 use tokio::{sync::RwLock, task};
+use crate::rpc::surfnet_cheatcodes::{SvmTricksRpc, ComputeUnitsEstimationResult};
+use jsonrpc_core::Result as JsonRpcResult;
+use solana_rpc_client_api::response::Response as RpcResponse;
+use crossbeam_channel::unbounded as crossbeam_unbounded;
+use crate::rpc::RunloopContext;
+use surfpool_types::SimnetCommand;
+use crate::PluginManagerCommand;
 
 use crate::{
     rpc::{full::FullClient, minimal::MinimalClient},
@@ -422,4 +429,86 @@ async fn test_add_alt_fetching() {
             .all(|key| { surfnet_svm.inner.get_account(key).is_some() }),
         "account not found"
     );
+}
+
+#[tokio::test]
+async fn test_surfnet_estimate_compute_units() {
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
+
+    let payer = Keypair::new(); 
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 1_000_000; 
+
+    svm_instance.airdrop(&payer.pubkey(), lamports_to_send * 2).unwrap();
+
+    let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let latest_blockhash = svm_instance.latest_blockhash();
+    let message = Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let tx = VersionedTransaction::try_new(
+        VersionedMessage::Legacy(message.clone()), 
+        &[&payer],
+    )
+    .unwrap();
+
+    let tx_bytes = bincode::serialize(&tx).unwrap();
+    let tx_b64 = base64::encode(&tx_bytes);
+
+    // Manually construct RunloopContext
+    let svm_locker_for_context = Arc::new(RwLock::new(svm_instance));
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        surfnet_svm: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+    };
+
+    let response: JsonRpcResult<RpcResponse<ComputeUnitsEstimationResult>> = rpc_server
+        .estimate_compute_units(Some(runloop_context), tx_b64)
+        .await;
+
+    assert!(response.is_ok(), "RPC call failed: {:?}", response.err());
+    let rpc_response_value = response.unwrap().value;
+
+    assert!(rpc_response_value.success, "CU estimation should be successful");
+    assert!(rpc_response_value.compute_units_consumed > 0, "Compute units consumed should be greater than 0");
+    assert!(rpc_response_value.error_message.is_none(), "Error message should be None. Got: {:?}", rpc_response_value.error_message);
+    assert!(rpc_response_value.log_messages.is_some(), "Log messages should be present");
+
+    // Test send_transaction with cu_analysis_enabled = true
+    // Create a new SVM instance for this part to avoid RwLock issues with the previous instance if it's still in runloop_context
+    let (mut svm_for_send, simnet_rx_for_send, _geyser_rx_for_send) = SurfnetSvm::new();
+    svm_for_send.airdrop(&payer.pubkey(), lamports_to_send * 2).unwrap();
+    
+    let latest_blockhash_for_send = svm_for_send.latest_blockhash();
+    let message_for_send = Message::new_with_blockhash(
+        &[transfer(&payer.pubkey(), &recipient, lamports_to_send)], 
+        Some(&payer.pubkey()),
+        &latest_blockhash_for_send
+    );
+    let tx_for_send = VersionedTransaction::try_new(
+        VersionedMessage::Legacy(message_for_send),
+        &[&payer],
+    ).unwrap();
+
+    let _send_result = svm_for_send.send_transaction(tx_for_send, true);
+
+    let mut found_cu_event = false;
+    for _ in 0..10 { 
+        if let Ok(event) = simnet_rx_for_send.try_recv() {
+            // Corrected SimnetEvent pattern match to use InfoLog variant
+            if let surfpool_types::SimnetEvent::InfoLog(_, msg) = event { 
+                if msg.starts_with("CU Estimation for tx") {
+                    println!("Found CU estimation event: {}", msg);
+                    found_cu_event = true;
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await; 
+    }
+    assert!(found_cu_event, "Did not find CU estimation SimnetEvent");
 }

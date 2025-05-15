@@ -104,24 +104,24 @@ where
     pub async fn process_txs(&mut self, txs: Vec<VersionedTransaction>) {
         for tx in txs {
             let mut state_writer = self.context.surfnet_svm.write().await;
-            match state_writer.send_transaction(tx.clone()) {
+            match state_writer.send_transaction(tx.clone(), false) {
                 Ok(res) => state_writer.transactions.insert(
                     tx.signatures[0],
-                    SurfnetTransactionStatus::Processed(TransactionWithStatusMeta(
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
                         0,
                         tx,
                         convert_transaction_metadata_from_canonical(&res),
                         None,
-                    )),
+                    ))),
                 ),
                 Err(e) => state_writer.transactions.insert(
                     tx.signatures[0],
-                    SurfnetTransactionStatus::Processed(TransactionWithStatusMeta(
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
                         0,
                         tx,
                         convert_transaction_metadata_from_canonical(&e.meta),
                         Some(e.err),
-                    )),
+                    ))),
                 ),
             };
         }
