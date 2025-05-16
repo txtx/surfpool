@@ -1,6 +1,5 @@
 use crate::error::SurfpoolError;
 use crate::rpc::surfnet_cheatcodes::SvmTricksRpc;
-use surfpool_types::types::ProfileResult as SurfpoolProfileResult;
 use crate::rpc::RunloopContext;
 use crate::PluginManagerCommand;
 use crossbeam_channel::unbounded;
@@ -25,6 +24,7 @@ use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use std::{str::FromStr, sync::Arc, time::Duration};
+use surfpool_types::types::ProfileResult as SurfpoolProfileResult;
 use surfpool_types::SimnetCommand;
 use surfpool_types::{
     types::{BlockProductionMode, RpcConfig, SimnetConfig},
@@ -485,11 +485,9 @@ async fn test_surfnet_estimate_compute_units() {
     };
 
     // Test with None tag
-    let response_no_tag_initial: JsonRpcResult<
-        RpcResponse<SurfpoolProfileResult>> =
-        rpc_server
-            .estimate_compute_units(Some(runloop_context.clone()), tx_b64.clone(), None)
-            .await;
+    let response_no_tag_initial: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+        .estimate_compute_units(Some(runloop_context.clone()), tx_b64.clone(), None)
+        .await;
 
     assert!(
         response_no_tag_initial.is_ok(),
@@ -504,27 +502,38 @@ async fn test_surfnet_estimate_compute_units() {
     );
     println!(
         "Initial CU estimation (no tag): consumed = {}, success = {}",
-        rpc_response_value_no_tag.compute_units.compute_units_consumed, rpc_response_value_no_tag.compute_units.success
+        rpc_response_value_no_tag
+            .compute_units
+            .compute_units_consumed,
+        rpc_response_value_no_tag.compute_units.success
     );
     assert!(
-        rpc_response_value_no_tag.compute_units.compute_units_consumed > 0,
+        rpc_response_value_no_tag
+            .compute_units
+            .compute_units_consumed
+            > 0,
         "Invalid compute units consumed for None tag"
     );
     assert!(
-        rpc_response_value_no_tag.compute_units.error_message.is_none(),
+        rpc_response_value_no_tag
+            .compute_units
+            .error_message
+            .is_none(),
         "Error message should be None for None tag. Got: {:?}",
         rpc_response_value_no_tag.compute_units.error_message
     );
     assert!(
-        rpc_response_value_no_tag.compute_units.log_messages.is_some(),
+        rpc_response_value_no_tag
+            .compute_units
+            .log_messages
+            .is_some(),
         "Log messages should be present for None tag"
     );
 
     // Test 1: Estimate with a tag and retrieve
     let tag1 = "test_tag_1".to_string();
     println!("\nTesting with tag: {}", tag1);
-    let response_tagged_1: JsonRpcResult<
-        RpcResponse<SurfpoolProfileResult>> = rpc_server
+    let response_tagged_1: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
         .estimate_compute_units(
             Some(runloop_context.clone()),
             tx_b64.clone(),
@@ -544,14 +553,14 @@ async fn test_surfnet_estimate_compute_units() {
     println!(
         "CU estimation (tag: {}): consumed = {}, success = {}",
         tag1,
-        rpc_response_tagged_1_value.compute_units.compute_units_consumed,
+        rpc_response_tagged_1_value
+            .compute_units
+            .compute_units_consumed,
         rpc_response_tagged_1_value.compute_units.success
     );
 
     println!("Retrieving profile results for tag: {}", tag1);
-    let results_response_tag1: JsonRpcResult<
-        RpcResponse<Vec<SurfpoolProfileResult>>,
-    > = rpc_server
+    let results_response_tag1: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> = rpc_server
         .get_profile_results(Some(runloop_context.clone()), tag1.clone())
         .await;
     assert!(
@@ -568,12 +577,19 @@ async fn test_surfnet_estimate_compute_units() {
     );
     assert_eq!(
         results_vec_tag1[0].compute_units.compute_units_consumed,
-        rpc_response_tagged_1_value.compute_units.compute_units_consumed
+        rpc_response_tagged_1_value
+            .compute_units
+            .compute_units_consumed
     );
-    assert_eq!(results_vec_tag1[0].compute_units.success, rpc_response_tagged_1_value.compute_units.success);
+    assert_eq!(
+        results_vec_tag1[0].compute_units.success,
+        rpc_response_tagged_1_value.compute_units.success
+    );
     println!(
         "Verified retrieved result for tag {}: CU = {}, success = {}",
-        tag1, results_vec_tag1[0].compute_units.compute_units_consumed, results_vec_tag1[0].compute_units.success
+        tag1,
+        results_vec_tag1[0].compute_units.compute_units_consumed,
+        results_vec_tag1[0].compute_units.success
     );
 
     // Test 2: Retrieve with a non-existent tag
@@ -582,11 +598,10 @@ async fn test_surfnet_estimate_compute_units() {
         "\nTesting retrieval with non-existent tag: {}",
         tag_non_existent
     );
-    let results_non_existent_response: JsonRpcResult<
-        RpcResponse<Vec<SurfpoolProfileResult>>,
-    > = rpc_server
-        .get_profile_results(Some(runloop_context.clone()), tag_non_existent.clone())
-        .await;
+    let results_non_existent_response: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> =
+        rpc_server
+            .get_profile_results(Some(runloop_context.clone()), tag_non_existent.clone())
+            .await;
     assert!(
         results_non_existent_response.is_ok(),
         "get_profile_results for non-existent tag failed"
@@ -604,8 +619,7 @@ async fn test_surfnet_estimate_compute_units() {
     // Test 3: Estimate multiple times with the same tag
     let tag2 = "test_tag_2".to_string();
     println!("\nTesting multiple estimations with tag: {}", tag2);
-    let response_tagged_2a: JsonRpcResult<
-        RpcResponse<SurfpoolProfileResult>> = rpc_server
+    let response_tagged_2a: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
         .estimate_compute_units(
             Some(runloop_context.clone()),
             tx_b64.clone(),
@@ -616,11 +630,12 @@ async fn test_surfnet_estimate_compute_units() {
     let cu_2a_profile_result = response_tagged_2a.unwrap().value;
     println!(
         "CU estimation 1 (tag: {}): consumed = {}, success = {}",
-        tag2, cu_2a_profile_result.compute_units.compute_units_consumed, cu_2a_profile_result.compute_units.success
+        tag2,
+        cu_2a_profile_result.compute_units.compute_units_consumed,
+        cu_2a_profile_result.compute_units.success
     );
 
-    let response_tagged_2b: JsonRpcResult<
-        RpcResponse<SurfpoolProfileResult>> = rpc_server
+    let response_tagged_2b: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
         .estimate_compute_units(
             Some(runloop_context.clone()),
             tx_b64.clone(),
@@ -631,13 +646,13 @@ async fn test_surfnet_estimate_compute_units() {
     let cu_2b_profile_result = response_tagged_2b.unwrap().value;
     println!(
         "CU estimation 2 (tag: {}): consumed = {}, success = {}",
-        tag2, cu_2b_profile_result.compute_units.compute_units_consumed, cu_2b_profile_result.compute_units.success
+        tag2,
+        cu_2b_profile_result.compute_units.compute_units_consumed,
+        cu_2b_profile_result.compute_units.success
     );
 
     println!("Retrieving profile results for tag: {}", tag2);
-    let results_response_tag2: JsonRpcResult<
-        RpcResponse<Vec<SurfpoolProfileResult>>,
-    > = rpc_server
+    let results_response_tag2: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> = rpc_server
         .get_profile_results(Some(runloop_context.clone()), tag2.clone())
         .await;
     assert!(
@@ -673,11 +688,9 @@ async fn test_surfnet_estimate_compute_units() {
         "\nTesting None tag again to ensure no interference with tag: {}",
         tag1
     );
-    let response_no_tag_again: JsonRpcResult<
-        RpcResponse<SurfpoolProfileResult>> =
-        rpc_server
-            .estimate_compute_units(Some(runloop_context.clone()), tx_b64.clone(), None)
-            .await;
+    let response_no_tag_again: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+        .estimate_compute_units(Some(runloop_context.clone()), tx_b64.clone(), None)
+        .await;
     assert!(
         response_no_tag_again.is_ok(),
         "RPC call with None tag (again) failed"
@@ -685,16 +698,17 @@ async fn test_surfnet_estimate_compute_units() {
     let rpc_response_no_tag_again_value = response_no_tag_again.unwrap().value; // consume it
     println!(
         "CU estimation (None tag again): consumed = {}, success = {}",
-        rpc_response_no_tag_again_value.compute_units.compute_units_consumed,
+        rpc_response_no_tag_again_value
+            .compute_units
+            .compute_units_consumed,
         rpc_response_no_tag_again_value.compute_units.success
     );
 
     println!("Retrieving profile results for tag: {} again", tag1);
-    let results_response_tag1_again: JsonRpcResult<
-        RpcResponse<Vec<SurfpoolProfileResult>>,
-    > = rpc_server
-        .get_profile_results(Some(runloop_context), tag1.clone()) // runloop_context can be consumed here if it's the last use
-        .await;
+    let results_response_tag1_again: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> =
+        rpc_server
+            .get_profile_results(Some(runloop_context), tag1.clone()) // runloop_context can be consumed here if it's the last use
+            .await;
     assert!(
         results_response_tag1_again.is_ok(),
         "get_profile_results for tag1 (again) failed"
@@ -712,12 +726,19 @@ async fn test_surfnet_estimate_compute_units() {
         tag1
     );
     assert_eq!(
-        results_vec_tag1_again[0].compute_units.compute_units_consumed,
-        rpc_response_tagged_1_value.compute_units.compute_units_consumed
+        results_vec_tag1_again[0]
+            .compute_units
+            .compute_units_consumed,
+        rpc_response_tagged_1_value
+            .compute_units
+            .compute_units_consumed
     );
     println!(
         "Verified retrieved result for tag {}: CU = {} (after None tag call)",
-        tag1, results_vec_tag1_again[0].compute_units.compute_units_consumed
+        tag1,
+        results_vec_tag1_again[0]
+            .compute_units
+            .compute_units_consumed
     );
 
     // Test send_transaction with cu_analysis_enabled = true

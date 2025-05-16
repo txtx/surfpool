@@ -23,8 +23,8 @@ use solana_sdk::system_program;
 use solana_sdk::transaction::VersionedTransaction;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
+use surfpool_types::types::{ComputeUnitsEstimationResult, ProfileResult};
 use surfpool_types::SimnetEvent;
-use surfpool_types::types::{ProfileResult, ComputeUnitsEstimationResult};
 
 use super::RunloopContext;
 
@@ -574,7 +574,9 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 };
                 return Box::pin(future::ok(RpcResponse {
                     context: RpcResponseContext::new(0),
-                    value: ProfileResult { compute_units: error_cu_result },
+                    value: ProfileResult {
+                        compute_units: error_cu_result,
+                    },
                 }));
             }
         };
@@ -590,7 +592,9 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 };
                 return Box::pin(future::ok(RpcResponse {
                     context: RpcResponseContext::new(0),
-                    value: ProfileResult { compute_units: error_cu_result },
+                    value: ProfileResult {
+                        compute_units: error_cu_result,
+                    },
                 }));
             }
         };
@@ -621,7 +625,9 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
-                value: ProfileResult { compute_units: estimation_result },
+                value: ProfileResult {
+                    compute_units: estimation_result,
+                },
             })
         })
     }

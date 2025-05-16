@@ -2,6 +2,7 @@ use blake3::Hash;
 use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver, Sender};
 // use litesvm::types::TransactionMetadata;
+use serde::{Deserialize, Serialize};
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
@@ -11,7 +12,6 @@ use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_context::TransactionReturnData;
 use solana_transaction_error::TransactionError;
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
-use serde::{Deserialize, Serialize};
 
 use std::{collections::HashMap, path::PathBuf};
 use txtx_addon_kit::types::types::Value;
@@ -168,7 +168,11 @@ pub enum SimnetEvent {
         Option<TransactionError>,
     ),
     AccountUpdate(DateTime<Local>, Pubkey),
-    TaggedProfile { result: ProfileResult, tag: String, timestamp: DateTime<Local> },
+    TaggedProfile {
+        result: ProfileResult,
+        tag: String,
+        timestamp: DateTime<Local>,
+    },
 }
 
 impl SimnetEvent {
@@ -213,7 +217,11 @@ impl SimnetEvent {
     }
 
     pub fn tagged_profile(result: ProfileResult, tag: String) -> Self {
-        Self::TaggedProfile { result, tag, timestamp: Local::now() }
+        Self::TaggedProfile {
+            result,
+            tag,
+            timestamp: Local::now(),
+        }
     }
 
     pub fn account_update_msg(&self) -> String {

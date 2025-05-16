@@ -1,4 +1,3 @@
-use surfpool_types::types::{ComputeUnitsEstimationResult, ProfileResult};
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
@@ -47,6 +46,7 @@ use solana_transaction_status::{
 };
 use std::collections::{HashMap, VecDeque};
 use std::iter::zip;
+use surfpool_types::types::{ComputeUnitsEstimationResult, ProfileResult};
 use surfpool_types::{
     SimnetEvent, TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
 };
