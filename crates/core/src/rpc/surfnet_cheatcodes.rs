@@ -24,6 +24,7 @@ use solana_sdk::transaction::VersionedTransaction;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
 use surfpool_types::SimnetEvent;
+use surfpool_types::types::{ProfileResult, ComputeUnitsEstimationResult};
 
 use super::RunloopContext;
 
@@ -202,28 +203,6 @@ impl TokenAccountUpdate {
     }
 }
 
-/// Result structure for compute units estimation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ComputeUnitsEstimationResult {
-    pub success: bool,
-    pub compute_units_consumed: u64,
-    pub log_messages: Option<Vec<String>>,
-    pub error_message: Option<String>,
-}
-
-//The enum for storing the profiling results and in the future we can add other variants here
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ProfileResult {
-    ComputeUnits(ComputeUnitsEstimationResult),
-    // We can add other variants here in the future, e.g.:
-    // MemoryUsage(MemoryUsageResult),
-    // InstructionTrace(InstructionTraceResult),
-    // Signature(SignatureResult),
-    // PriorityFee(PriorityFeeResult)
-}
-
 #[rpc]
 pub trait SvmTricksRpc {
     type Metadata;
@@ -344,7 +323,7 @@ pub trait SvmTricksRpc {
     /// - `tag`: An optional tag for the transaction.
     ///
     /// ## Returns
-    /// A `RpcResponse<ComputeUnitsEstimationResult>` containing the estimation details.
+    /// A `RpcResponse<ProfileResult>` containing the estimation details.
     ///
     /// ## Example Request
     /// ```json
@@ -361,7 +340,7 @@ pub trait SvmTricksRpc {
         meta: Self::Metadata,
         transaction_data: String, // Base64 encoded VersionedTransaction
         tag: Option<String>,      // Optional tag for the transaction
-    ) -> BoxFuture<Result<RpcResponse<ComputeUnitsEstimationResult>>>;
+    ) -> BoxFuture<Result<RpcResponse<ProfileResult>>>;
 
     /// Retrieves all profiling results for a given tag.
     ///
@@ -577,7 +556,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         meta: Self::Metadata,
         transaction_data_b64: String,
         tag: Option<String>,
-    ) -> BoxFuture<Result<RpcResponse<ComputeUnitsEstimationResult>>> {
+    ) -> BoxFuture<Result<RpcResponse<ProfileResult>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
@@ -587,20 +566,32 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Ok(bytes) => bytes,
             Err(e) => {
                 log::error!("Base64 decoding failed: {}", e);
-                return Box::pin(future::err(Error::invalid_params(format!(
-                    "Invalid base64 for transaction data: {}",
-                    e
-                ))));
+                let error_cu_result = ComputeUnitsEstimationResult {
+                    success: false,
+                    compute_units_consumed: 0,
+                    log_messages: None,
+                    error_message: Some(format!("Invalid base64 for transaction data: {}", e)),
+                };
+                return Box::pin(future::ok(RpcResponse {
+                    context: RpcResponseContext::new(0),
+                    value: ProfileResult { compute_units: error_cu_result },
+                }));
             }
         };
 
         let transaction: VersionedTransaction = match bincode::deserialize(&transaction_bytes) {
             Ok(tx) => tx,
             Err(e) => {
-                return Box::pin(future::err(Error::invalid_params(format!(
-                    "Failed to deserialize transaction: {}",
-                    e
-                ))));
+                let error_cu_result = ComputeUnitsEstimationResult {
+                    success: false,
+                    compute_units_consumed: 0,
+                    log_messages: None,
+                    error_message: Some(format!("Failed to deserialize transaction: {}", e)),
+                };
+                return Box::pin(future::ok(RpcResponse {
+                    context: RpcResponseContext::new(0),
+                    value: ProfileResult { compute_units: error_cu_result },
+                }));
             }
         };
 
@@ -611,26 +602,26 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
             if let Some(tag_str) = tag {
                 if estimation_result.success {
+                    let profile_result_to_store = ProfileResult {
+                        compute_units: estimation_result.clone(),
+                    };
                     svm_writer
                         .tagged_profiling_results
                         .entry(tag_str.clone())
                         .or_default()
-                        .push(ProfileResult::ComputeUnits(estimation_result.clone()));
-                    // Send an event that a tagged transaction was profiled
+                        .push(profile_result_to_store.clone());
                     let _ = svm_writer
                         .simnet_events_tx
-                        .try_send(SimnetEvent::info(format!(
-                            "Tagged transaction profiled. Tag: {}, Signature: {}, CU: {}",
-                            tag_str,
-                            transaction.signatures[0],
-                            estimation_result.compute_units_consumed
-                        )));
+                        .try_send(SimnetEvent::tagged_profile(
+                            profile_result_to_store,
+                            tag_str.clone(),
+                        ));
                 }
             }
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
-                value: estimation_result,
+                value: ProfileResult { compute_units: estimation_result },
             })
         })
     }

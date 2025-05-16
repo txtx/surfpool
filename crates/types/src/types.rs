@@ -11,6 +11,7 @@ use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_context::TransactionReturnData;
 use solana_transaction_error::TransactionError;
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
+use serde::{Deserialize, Serialize};
 
 use std::{collections::HashMap, path::PathBuf};
 use txtx_addon_kit::types::types::Value;
@@ -113,6 +114,26 @@ impl SubgraphEvent {
     }
 }
 
+/// Result structure for compute units estimation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputeUnitsEstimationResult {
+    pub success: bool,
+    pub compute_units_consumed: u64,
+    pub log_messages: Option<Vec<String>>,
+    pub error_message: Option<String>,
+}
+
+/// The struct for storing the profiling results.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileResult {
+    pub compute_units: ComputeUnitsEstimationResult,
+    // We can add other variants here in the future, e.g.:
+    // pub memory_usage: MemoryUsageResult,
+    // pub instruction_trace: InstructionTraceResult,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum SchemaDataSourcingEvent {
     Rountrip(Uuid),
@@ -147,6 +168,7 @@ pub enum SimnetEvent {
         Option<TransactionError>,
     ),
     AccountUpdate(DateTime<Local>, Pubkey),
+    TaggedProfile { result: ProfileResult, tag: String, timestamp: DateTime<Local> },
 }
 
 impl SimnetEvent {
@@ -188,6 +210,10 @@ impl SimnetEvent {
 
     pub fn account_update(pubkey: Pubkey) -> Self {
         Self::AccountUpdate(Local::now(), pubkey)
+    }
+
+    pub fn tagged_profile(result: ProfileResult, tag: String) -> Self {
+        Self::TaggedProfile { result, tag, timestamp: Local::now() }
     }
 
     pub fn account_update_msg(&self) -> String {

@@ -275,6 +275,7 @@ fn log_events(
                     SimnetEvent::Shutdown => {
                         break;
                     }
+                    SimnetEvent::TaggedProfile { .. } => todo!(),
                 },
                 Err(_e) => {
                     break;

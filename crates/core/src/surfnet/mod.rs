@@ -1,4 +1,4 @@
-use crate::rpc::surfnet_cheatcodes::{ComputeUnitsEstimationResult, ProfileResult};
+use surfpool_types::types::{ComputeUnitsEstimationResult, ProfileResult};
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,

@@ -300,6 +300,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             SimnetEvent::Shutdown => {
                                 break;
                             }
+                            &SimnetEvent::TaggedProfile { .. } => todo!(),
                         },
                         Err(_) => break,
                     },
