@@ -6,7 +6,8 @@ use crate::{
 };
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use jsonrpc_core::futures::future::{self, join_all};
+use jsonrpc_core::futures::future::join_all;
+use jsonrpc_core::Result as RpcError;
 use litesvm::{
     types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult},
     LiteSVM,
@@ -15,6 +16,7 @@ use solana_account::Account;
 use solana_account_decoder::parse_bpf_loader::{
     parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram,
 };
+use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding, UiDataSliceConfig};
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
     nonblocking::rpc_client::RpcClient, rpc_client::SerializableTransaction,
@@ -46,7 +48,6 @@ use solana_transaction_status::{
     UiTransactionEncoding,
 };
 use std::collections::{HashMap, VecDeque};
-use std::iter::zip;
 use surfpool_types::{
     SimnetEvent, TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
 };
@@ -60,11 +61,11 @@ pub const SLOTS_PER_EPOCH: u64 = 432000;
 // const SUBGRAPH_PLUGIN_BYTES: &[u8] =
 //     include_bytes!("../../../../target/release/libsurfpool_subgraph.dylib");
 
-pub type AccountFactory = Box<dyn Fn(&SurfnetSvm) -> Account + Send + Sync>;
+pub type AccountFactory = Box<dyn Fn(&SurfnetSvm) -> GetAccountResult + Send + Sync>;
 
 pub enum GetAccountStrategy {
     LocalOrDefault(Option<AccountFactory>),
-    LocalThenConnectionOrDefault(Option<AccountFactory>),
+    LocalThenConnectionOrDefault(Option<AccountFactory>, CommitmentConfig),
 }
 
 impl GetAccountStrategy {
@@ -144,6 +145,56 @@ pub type SignatureSubscriptionData = (
 pub enum SignatureSubscriptionType {
     Received,
     Commitment(CommitmentLevel),
+}
+
+#[derive(Clone)]
+pub enum GetAccountResult {
+    None,
+    FoundAccount(Pubkey, Account),
+    FoundProgramAccount((Pubkey, Account), (Pubkey, Option<Account>)),
+}
+
+impl GetAccountResult {
+    pub fn try_into_ui_account(
+        &self,
+        encoding: Option<UiAccountEncoding>,
+        data_slice: Option<UiDataSliceConfig>,
+    ) -> Option<UiAccount> {
+        match &self {
+            Self::None => None,
+            Self::FoundAccount(pubkey, account)
+            | Self::FoundProgramAccount((pubkey, account), _) => Some(encode_ui_account(
+                pubkey,
+                account,
+                encoding.unwrap_or(UiAccountEncoding::Base64),
+                None,
+                data_slice,
+            )),
+        }
+    }
+
+    pub fn expected_data(&self) -> &Vec<u8> {
+        match &self {
+            Self::None => unreachable!(),
+            Self::FoundAccount(_, account) | Self::FoundProgramAccount((_, account), _) => {
+                &account.data
+            }
+        }
+    }
+
+    pub fn apply_update<T>(&mut self, update: T) -> RpcError<()>
+    where
+        T: Fn(&mut Account) -> RpcError<()>,
+    {
+        match self {
+            Self::None => unreachable!(),
+            Self::FoundAccount(_, ref mut account)
+            | Self::FoundProgramAccount((_, ref mut account), _) => {
+                update(account)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl SignatureSubscriptionType {
@@ -389,14 +440,24 @@ impl SurfnetSvm {
     pub async fn load_lookup_table_addresses(
         &self,
         address_table_lookup: &MessageAddressTableLookup,
+        commitment_config: CommitmentConfig,
     ) -> Result<LoadedAddresses, SurfpoolError> {
-        let table_account = self
+        let res = self
             .get_account(
                 &address_table_lookup.account_key,
-                GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                GetAccountStrategy::LocalThenConnectionOrDefault(None, commitment_config),
             )
-            .await?
-            .ok_or_else(|| SurfpoolError::account_not_found(address_table_lookup.account_key))?;
+            .await?;
+
+        let table_account = match res {
+            GetAccountResult::FoundAccount(_, account) => account,
+            GetAccountResult::FoundProgramAccount((_, account), _) => account,
+            GetAccountResult::None => {
+                return Err(SurfpoolError::account_not_found(
+                    address_table_lookup.account_key,
+                ))
+            }
+        };
 
         if &table_account.owner == &solana_sdk_ids::address_lookup_table::id() {
             let slot_hashes = self
@@ -480,7 +541,7 @@ impl SurfnetSvm {
         &self,
         pubkey: &Pubkey,
         strategy: GetAccountStrategy,
-    ) -> Result<Option<Account>, SurfpoolError> {
+    ) -> Result<GetAccountResult, SurfpoolError> {
         // Ensure consistency between connection and strategy
         if !self.is_connected() && strategy.requires_connection() {
             return Err(SurfpoolError::get_account(
@@ -489,97 +550,57 @@ impl SurfnetSvm {
             ));
         }
 
-        let (result, factory) = match strategy {
+        let (result, factory) = match &strategy {
             GetAccountStrategy::LocalOrDefault(factory) => {
-                (self.inner.get_account(pubkey), factory)
+                let res = match self.inner.get_account(pubkey) {
+                    Some(account) => GetAccountResult::FoundAccount(*pubkey, account),
+                    None => GetAccountResult::None,
+                };
+                (res, factory)
             }
-            GetAccountStrategy::LocalThenConnectionOrDefault(factory) => {
+            GetAccountStrategy::LocalThenConnectionOrDefault(factory, commitment_config) => {
                 match self.inner.get_account(pubkey) {
-                    Some(entry) => (Some(entry), factory),
+                    Some(entry) => (GetAccountResult::FoundAccount(*pubkey, entry), factory),
                     None => {
                         let client = self.expected_rpc_client();
                         let res = client
-                            .get_account_with_commitment(pubkey, CommitmentConfig::confirmed())
-                            .await
-                            .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
-                        (res.value, factory)
-                    }
-                }
-            }
-        };
-        let account = match (result, factory) {
-            (None, Some(factory)) => Some(factory(self)),
-            (None, None) => None,
-            (Some(account), _) => Some(account),
-        };
-        Ok(account)
-    }
-
-    /// Retrieves a mutable account for the specified public key based on the given strategy.
-    ///
-    /// This function works similarly to `get_account`, but will mutate the underlying state with the Account.
-    /// Note: if the requested account is executable, the data account is also retrieved and stored.
-    ///
-    /// # Parameters
-    ///
-    /// - `pubkey`: The public key of the account to retrieve.
-    /// - `strategy`: The strategy to use for fetching the account (`LocalOrDefault`, `ConnectionOrDefault`, etc.).
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing an optional mutable account.
-    pub async fn get_account_mut(
-        &mut self,
-        pubkey: &Pubkey,
-        strategy: GetAccountStrategy,
-    ) -> Result<Option<Account>, SurfpoolError> {
-        // Ensure consistency between connection and strategy
-        if !self.is_connected() && strategy.requires_connection() {
-            return Err(SurfpoolError::get_account(
-                *pubkey,
-                "Attempt to retrieve remote data from an offline vm",
-            ));
-        }
-
-        let (result, factory) = match strategy {
-            GetAccountStrategy::LocalOrDefault(factory) => {
-                (self.inner.get_account(pubkey), factory)
-            }
-            GetAccountStrategy::LocalThenConnectionOrDefault(factory) => {
-                match self.inner.get_account(pubkey) {
-                    Some(entry) => (Some(entry), factory),
-                    None => {
-                        let client = self.expected_rpc_client();
-                        let res = client
-                            .get_account_with_commitment(pubkey, CommitmentConfig::confirmed())
+                            .get_account_with_commitment(pubkey, commitment_config.clone())
                             .await
                             .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
 
-                        if let Some(account) = &res.value {
-                            if account.executable {
-                                let program_data_address = get_program_data_address(pubkey);
-                                let res = self
-                                    .get_account(
-                                        &program_data_address,
-                                        GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                        match res.value {
+                            Some(account) => {
+                                if !account.executable {
+                                    (GetAccountResult::FoundAccount(*pubkey, account), factory)
+                                } else {
+                                    let program_data_address = get_program_data_address(pubkey);
+
+                                    let program_data = client
+                                        .get_account_with_commitment(
+                                            &program_data_address,
+                                            commitment_config.clone(),
+                                        )
+                                        .await
+                                        .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
+
+                                    (
+                                        GetAccountResult::FoundProgramAccount(
+                                            (*pubkey, account),
+                                            (program_data_address, program_data.value),
+                                        ),
+                                        factory,
                                     )
-                                    .await?;
-                                if let Some(program_data) = res {
-                                    let _ = self.set_account(&program_data_address, program_data);
                                 }
                             }
-                            let _ = self.set_account(pubkey, account.clone());
+                            None => (GetAccountResult::None, factory),
                         }
-
-                        (res.value, factory)
                     }
                 }
             }
         };
-        let account = match (result, factory) {
-            (None, Some(factory)) => Some(factory(self)),
-            (None, None) => None,
-            (Some(account), _) => Some(account),
+        let account = match (&result, factory) {
+            (GetAccountResult::None, Some(factory)) => factory(self),
+            _ => result,
         };
         Ok(account)
     }
@@ -599,11 +620,11 @@ impl SurfnetSvm {
     ///
     /// A `Result` containing a vector of `Option<Account>` for each requested public key. If the account is found, it is wrapped
     /// in `Some`; otherwise, `None` will be returned for the missing accounts.
-    pub async fn get_multiple_accounts_mut(
-        &mut self,
+    pub async fn get_multiple_accounts(
+        &self,
         pubkeys: &[Pubkey],
         strategy: GetAccountStrategy,
-    ) -> Result<Vec<Option<Account>>, SurfpoolError> {
+    ) -> Result<Vec<Option<GetAccountResult>>, SurfpoolError> {
         // Ensure consistency between connection and strategy
         if !self.is_connected() && strategy.requires_connection() {
             return Err(SurfpoolError::get_multiple_accounts(
@@ -615,22 +636,28 @@ impl SurfnetSvm {
             GetAccountStrategy::LocalOrDefault(_) => {
                 let mut accounts = vec![];
                 for pubkey in pubkeys.iter() {
-                    let account = self.inner.get_account(pubkey);
-                    accounts.push(account);
+                    let res = match self.inner.get_account(pubkey) {
+                        Some(account) => GetAccountResult::FoundAccount(*pubkey, account),
+                        None => GetAccountResult::None,
+                    };
+                    accounts.push(Some(res));
                 }
                 Ok(accounts)
             }
-            GetAccountStrategy::LocalThenConnectionOrDefault(_) => {
+            GetAccountStrategy::LocalThenConnectionOrDefault(_, commitment_config) => {
                 // Retrieve accounts missing locally
                 let mut missing_accounts = Vec::new();
                 let mut fetched_accounts = HashMap::new();
                 for pubkey in pubkeys.iter() {
                     match self.inner.get_account(pubkey) {
                         Some(entry) => {
-                            fetched_accounts.insert(pubkey, entry.clone());
+                            fetched_accounts.insert(
+                                pubkey,
+                                GetAccountResult::FoundAccount(*pubkey, entry.clone()),
+                            );
                         }
                         None => {
-                            missing_accounts.push(*pubkey);
+                            missing_accounts.push(pubkey.clone());
                         }
                     };
                 }
@@ -648,30 +675,58 @@ impl SurfnetSvm {
                     .get_multiple_accounts(&missing_accounts)
                     .await
                     .map_err(SurfpoolError::get_multiple_accounts)?;
-                for (pubkey, remote_account) in missing_accounts.into_iter().zip(remote_accounts) {
+                for (pubkey, remote_account) in missing_accounts.iter().zip(remote_accounts) {
                     if let Some(remote_account) = remote_account {
-                        if remote_account.executable {
+                        if !remote_account.executable {
+                            fetched_accounts.insert(
+                                &pubkey,
+                                GetAccountResult::FoundAccount(*pubkey, remote_account),
+                            );
+                        } else {
                             let program_data_address = get_program_data_address(&pubkey);
-                            let res = self
-                                .get_account(
+
+                            let program_data = client
+                                .get_account_with_commitment(
                                     &program_data_address,
-                                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                                    commitment_config.clone(),
                                 )
-                                .await?;
-                            if let Some(program_data) = res {
-                                let _ = self.set_account(&program_data_address, program_data);
-                            }
+                                .await
+                                .map_err(|e| SurfpoolError::get_account(pubkey.clone(), e))?;
+
+                            fetched_accounts.insert(
+                                &pubkey,
+                                GetAccountResult::FoundProgramAccount(
+                                    (*pubkey, remote_account),
+                                    (program_data_address, program_data.value),
+                                ),
+                            );
                         }
-                        let _ = self.set_account(&pubkey, remote_account);
                     }
                 }
 
                 let mut accounts = vec![];
                 for pubkey in pubkeys.iter() {
-                    let account = self.inner.get_account(pubkey);
+                    let account = fetched_accounts.remove(pubkey);
                     accounts.push(account);
                 }
                 Ok(accounts)
+            }
+        }
+    }
+
+    pub fn write_account_update(&mut self, account_update: GetAccountResult) {
+        match account_update {
+            GetAccountResult::None => {}
+            GetAccountResult::FoundAccount(pubkey, account)
+            | GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
+                self.inner.set_account(pubkey, account);
+            }
+            GetAccountResult::FoundProgramAccount(
+                (pubkey, account),
+                (data_pubkey, Some(data_account)),
+            ) => {
+                self.inner.set_account(data_pubkey, data_account);
+                self.inner.set_account(pubkey, account);
             }
         }
     }
@@ -886,6 +941,7 @@ impl SurfnetSvm {
         transaction: VersionedTransaction,
         status_tx: Sender<TransactionStatusEvent>,
         skip_preflight: bool,
+        commitment_config: CommitmentConfig,
     ) -> Result<(), SurfpoolError> {
         // verify valid signatures on the transaction
         {
@@ -914,7 +970,9 @@ impl SurfnetSvm {
                 let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
 
                 let mut table_entries = join_all(alts.iter().map(|msg| async {
-                    let loaded_addresses = self.load_lookup_table_addresses(msg).await?;
+                    let loaded_addresses = self
+                        .load_lookup_table_addresses(msg, commitment_config)
+                        .await?;
                     let mut combined = loaded_addresses.writable;
                     combined.extend(loaded_addresses.readonly);
                     Ok::<_, SurfpoolError>(combined)
@@ -932,12 +990,18 @@ impl SurfnetSvm {
             }
         };
 
-        let _ = self
-            .get_multiple_accounts_mut(
+        let account_updates = self
+            .get_multiple_accounts(
                 &accounts,
-                GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                GetAccountStrategy::LocalThenConnectionOrDefault(None, commitment_config),
             )
             .await?;
+
+        for account in account_updates.into_iter() {
+            if let Some(account) = account {
+                self.write_account_update(account);
+            }
+        }
 
         // if not skipping preflight, simulate the transaction
         if !skip_preflight {
@@ -1293,14 +1357,22 @@ impl SurfnetSvm {
         &mut self,
         source_program_id: &Pubkey,
         destination_program_id: &Pubkey,
+        commitment_config: CommitmentConfig,
     ) -> Result<(), SurfpoolError> {
-        let source_program_account = self
+        let res = self
             .get_account(
                 source_program_id,
-                GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                GetAccountStrategy::LocalThenConnectionOrDefault(None, commitment_config),
             )
-            .await?
-            .ok_or_else(|| SurfpoolError::account_not_found(source_program_id))?;
+            .await?;
+
+        let source_program_account = match res {
+            GetAccountResult::FoundAccount(_, account) => account,
+            GetAccountResult::FoundProgramAccount((_, account), _) => account,
+            GetAccountResult::None => {
+                return Err(SurfpoolError::account_not_found(source_program_id))
+            }
+        };
 
         let BpfUpgradeableLoaderAccountType::Program(UiProgram {
             program_data: source_program_data_address,
@@ -1323,13 +1395,22 @@ impl SurfnetSvm {
         })
         .map_err(|e| SurfpoolError::internal(format!("Failed to serialize program data: {}", e)))?;
 
-        let source_program_data_account = self
+        let res = self
             .get_account(
                 &source_program_data_address,
-                GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                GetAccountStrategy::LocalThenConnectionOrDefault(None, commitment_config),
             )
-            .await?
-            .ok_or_else(|| SurfpoolError::account_not_found(source_program_data_address))?;
+            .await?;
+
+        let source_program_data_account = match res {
+            GetAccountResult::FoundAccount(_, account) => account,
+            GetAccountResult::FoundProgramAccount((_, account), _) => account,
+            GetAccountResult::None => {
+                return Err(SurfpoolError::account_not_found(
+                    source_program_data_address,
+                ))
+            }
+        };
 
         self.set_account(
             &destination_program_data_address,

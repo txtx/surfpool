@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
-use crate::surfnet::GetAccountStrategy;
+use crate::surfnet::{GetAccountResult, GetAccountStrategy};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use jsonrpc_core::futures::future;
@@ -16,6 +16,7 @@ use serde_with::{serde_as, BytesOrString};
 use solana_account::Account;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_clock::Epoch;
+use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::program_option::COption;
 use solana_sdk::program_pack::Pack;
@@ -67,22 +68,25 @@ impl AccountUpdate {
         }
     }
     /// Apply the update to the account
-    pub fn apply(self, account: &mut Account) -> Result<()> {
-        if let Some(lamports) = self.lamports {
-            account.lamports = lamports;
-        }
-        if let Some(owner) = &self.owner {
-            account.owner = verify_pubkey(owner)?;
-        }
-        if let Some(executable) = self.executable {
-            account.executable = executable;
-        }
-        if let Some(rent_epoch) = self.rent_epoch {
-            account.rent_epoch = rent_epoch;
-        }
-        if self.data.is_some() {
-            account.data = self.expect_hex_data()?;
-        }
+    pub fn apply(self, account: &mut GetAccountResult) -> Result<()> {
+        account.apply_update(|account| {
+            if let Some(lamports) = self.lamports {
+                account.lamports = lamports;
+            }
+            if let Some(owner) = &self.owner {
+                account.owner = verify_pubkey(owner)?;
+            }
+            if let Some(executable) = self.executable {
+                account.executable = executable;
+            }
+            if let Some(rent_epoch) = self.rent_epoch {
+                account.rent_epoch = rent_epoch;
+            }
+            if self.data.is_some() {
+                account.data = self.expect_hex_data()?;
+            }
+            Ok(())
+        });
         Ok(())
     }
 
@@ -379,7 +383,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
             // if the account update is contains all fields, we can directly set the account
             let account_to_set = if let Some(account) = account_update {
-                account
+                GetAccountResult::FoundAccount(pubkey, account)
             } else {
                 // otherwise, we need to fetch the account and apply the update
                 let mut account_to_update = svm_writer
@@ -391,21 +395,21 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                                 "Account {pubkey} not found, creating a new account from default values"
                             )));
 
-                            Account {
+                            GetAccountResult::FoundAccount(pubkey, Account {
                                 lamports: 0,
                                 owner: system_program::id(),
                                 executable: false,
                                 rent_epoch: 0,
                                 data: vec![],
-                            }
-                        }))),
+                            })
+                        })), CommitmentConfig::confirmed()),
                     )
-                    .await?.unwrap();
+                    .await?;
 
                 update.apply(&mut account_to_update)?;
                 account_to_update
             };
-            svm_writer.set_account(&pubkey, account_to_set)?;
+            svm_writer.write_account_update(account_to_set);
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
@@ -470,19 +474,19 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                             ..Default::default()
                         };
                         default.pack_into_slice(&mut data);
-                        Account {
+                        GetAccountResult::FoundAccount(associated_token_account, Account {
                             lamports: minimum_rent,
                             owner: token_program_id,
                             executable: false,
                             rent_epoch: 0,
                             data: data.to_vec(),
-                        }
-                    }))),
+                        })
+                    })), CommitmentConfig::confirmed()),
                 )
-                .await?
-                .unwrap();
-            let mut token_account_data =
-                TokenAccount::unpack(&token_account.data).map_err(|e| {
+                .await?;
+
+            let mut token_account_data = TokenAccount::unpack(&token_account.expected_data())
+                .map_err(|e| {
                     Error::invalid_params(format!("Failed to unpack token account data: {}", e))
                 })?;
 
@@ -490,8 +494,11 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
             let mut final_account_bytes = [0; TokenAccount::LEN];
             token_account_data.pack_into_slice(&mut final_account_bytes);
-            token_account.data = final_account_bytes.to_vec();
-            svm_writer.set_account(&associated_token_account, token_account)?;
+            token_account.apply_update(|account| {
+                account.data = final_account_bytes.to_vec();
+                Ok(())
+            });
+            svm_writer.write_account_update(token_account);
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
@@ -533,7 +540,11 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         Box::pin(async move {
             let mut svm_writer = svm_locker.write().await;
             svm_writer
-                .clone_program_account(&source_program_id, &destination_program_id)
+                .clone_program_account(
+                    &source_program_id,
+                    &destination_program_id,
+                    CommitmentConfig::confirmed(),
+                )
                 .await?;
 
             Ok(RpcResponse {

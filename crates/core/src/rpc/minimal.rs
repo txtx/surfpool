@@ -1,7 +1,7 @@
 use super::{not_implemented_err, RunloopContext};
 use crate::{
     rpc::{utils::verify_pubkey, State},
-    surfnet::{GetAccountStrategy, FINALIZATION_SLOT_THRESHOLD},
+    surfnet::{GetAccountResult, GetAccountStrategy, FINALIZATION_SLOT_THRESHOLD},
 };
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use jsonrpc_derive::rpc;
@@ -17,7 +17,7 @@ use solana_client::{
     },
 };
 use solana_clock::Slot;
-use solana_commitment_config::CommitmentLevel;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -596,20 +596,31 @@ impl Minimal for SurfpoolMinimalRpc {
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            let res = svm_writer
-                .get_account_mut(
+            let svm_reader = svm_locker.read().await;
+            let latest_absolute_slot = svm_reader.get_latest_absolute_slot();
+            let account_update = svm_reader
+                .get_account(
                     &pubkey,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                    GetAccountStrategy::LocalThenConnectionOrDefault(
+                        None,
+                        CommitmentConfig::confirmed(),
+                    ),
                 )
                 .await?;
-            let balance = match res {
-                Some(account) => account.lamports,
-                None => 0,
+
+            {
+                let mut svm_writer = svm_locker.write().await;
+                svm_writer.write_account_update(account_update.clone());
+            }
+
+            let balance = match account_update {
+                GetAccountResult::FoundAccount(_, account)
+                | GetAccountResult::FoundProgramAccount((_, account), _) => account.lamports,
+                GetAccountResult::None => 0,
             };
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(latest_absolute_slot),
                 value: balance,
             })
         })

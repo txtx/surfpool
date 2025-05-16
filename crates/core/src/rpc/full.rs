@@ -21,6 +21,7 @@ use solana_client::{
     },
 };
 use solana_clock::UnixTimestamp;
+use solana_commitment_config::CommitmentConfig;
 use solana_message::VersionedMessage;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
@@ -1534,24 +1535,38 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            let _ = svm_writer
-                .get_multiple_accounts_mut(
-                    &pubkeys,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
-                )
-                .await;
-            svm_writer.inner.set_sigverify(config.sig_verify);
-            svm_writer
-                .inner
-                .set_blockhash_check(config.replace_recent_blockhash);
+            {
+                let svm_reader = svm_locker.read().await;
+                let account_updates = svm_reader
+                    .get_multiple_accounts(
+                        &pubkeys,
+                        GetAccountStrategy::LocalThenConnectionOrDefault(
+                            None,
+                            CommitmentConfig::confirmed(),
+                        ),
+                    )
+                    .await?;
+
+                let mut svm_writer = svm_locker.write().await;
+                for account_update in account_updates.into_iter() {
+                    if let Some(account_update) = account_update {
+                        svm_writer.write_account_update(account_update);
+                    }
+                }
+
+                svm_writer.inner.set_sigverify(config.sig_verify);
+                svm_writer
+                    .inner
+                    .set_blockhash_check(config.replace_recent_blockhash);
+            }
+            let svm_reader = svm_locker.read().await;
 
             let replacement_blockhash = Some(RpcBlockhash {
-                blockhash: svm_writer.latest_blockhash().to_string(),
-                last_valid_block_height: svm_writer.latest_epoch_info.block_height,
+                blockhash: svm_reader.latest_blockhash().to_string(),
+                last_valid_block_height: svm_reader.latest_epoch_info.block_height,
             });
 
-            let value = match svm_writer.inner.simulate_transaction(unsanitized_tx) {
+            let value = match svm_reader.inner.simulate_transaction(unsanitized_tx) {
                 Ok(tx_info) => {
                     let mut accounts = None;
                     if let Some(observed_accounts) = config.accounts {
@@ -1604,7 +1619,7 @@ impl Full for SurfpoolFullRpc {
             };
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
                 value,
             })
         })

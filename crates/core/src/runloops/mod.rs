@@ -1,4 +1,5 @@
 use jsonrpc_pubsub::{PubSubHandler, Session};
+use solana_commitment_config::CommitmentConfig;
 use solana_message::{v0::LoadedAddresses, SimpleAddressLoader};
 use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
@@ -146,7 +147,7 @@ pub async fn start_block_production_runloop(
                             slot,
                             None,
                         );
-                        svm_writer.process_transaction(transaction, status_tx ,skip_preflight).await?;
+                        svm_writer.process_transaction(transaction, status_tx, skip_preflight, CommitmentConfig::confirmed()).await?;
                     }
                     SimnetCommand::Terminate(_) => {
                         std::process::exit(0)

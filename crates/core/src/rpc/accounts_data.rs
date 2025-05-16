@@ -11,7 +11,7 @@ use solana_account_decoder::parse_account_data::SplTokenAdditionalDataV2;
 use solana_account_decoder::parse_token::parse_token_v3;
 use solana_account_decoder::parse_token::TokenAccountType;
 use solana_account_decoder::parse_token::UiTokenAmount;
-use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
+use solana_account_decoder::UiAccount;
 use solana_client::rpc_config::RpcAccountInfoConfig;
 use solana_client::rpc_response::RpcBlockCommitment;
 use solana_client::rpc_response::RpcResponseContext;
@@ -371,25 +371,25 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            let some_account = svm_writer
-                .get_account_mut(
+            let svm_reader = svm_locker.read().await;
+            let account_update = svm_reader
+                .get_account(
                     &pubkey,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                    GetAccountStrategy::LocalThenConnectionOrDefault(
+                        None,
+                        CommitmentConfig::confirmed(),
+                    ),
                 )
                 .await?;
 
+            {
+                let mut svm_writer = svm_locker.write().await;
+                svm_writer.write_account_update(account_update.clone());
+            }
+
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
-                value: some_account.map(|account| {
-                    encode_ui_account(
-                        &pubkey,
-                        &account,
-                        config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                        None,
-                        config.data_slice,
-                    )
-                }),
+                context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
+                value: account_update.try_into_ui_account(config.encoding, config.data_slice),
             })
         })
     }
@@ -416,28 +416,32 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            let accounts = svm_writer
-                .get_multiple_accounts_mut(
+            let svm_reader = svm_locker.read().await;
+            let account_updates = svm_reader
+                .get_multiple_accounts(
                     &pubkeys,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                    GetAccountStrategy::LocalThenConnectionOrDefault(
+                        None,
+                        CommitmentConfig::confirmed(),
+                    ),
                 )
                 .await?;
+
             let mut ui_accounts = vec![];
-            for (account, pubkey) in accounts.into_iter().zip(pubkeys) {
-                ui_accounts.push(account.map(|account| {
-                    encode_ui_account(
-                        &pubkey,
-                        &account,
-                        config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                        None,
-                        config.data_slice,
-                    )
-                }));
+            {
+                let mut svm_writer = svm_locker.write().await;
+                for account_update in account_updates.into_iter() {
+                    if let Some(account_update) = account_update {
+                        ui_accounts.push(
+                            account_update.try_into_ui_account(config.encoding, config.data_slice),
+                        );
+                        svm_writer.write_account_update(account_update);
+                    }
+                }
             }
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
                 value: ui_accounts,
             })
         })
@@ -461,68 +465,75 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         pubkey_str: String,
         _commitment: Option<CommitmentConfig>,
     ) -> BoxFuture<Result<RpcResponse<Option<UiTokenAmount>>>> {
-        let pubkey = match verify_pubkey(&pubkey_str) {
-            Ok(res) => res,
-            Err(e) => return e.into(),
-        };
+        unimplemented!()
+        // let pubkey = match verify_pubkey(&pubkey_str) {
+        //     Ok(res) => res,
+        //     Err(e) => return e.into(),
+        // };
 
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(locker) => locker,
-            Err(e) => return e.into(),
-        };
+        // let svm_locker = match meta.get_svm_locker() {
+        //     Ok(locker) => locker,
+        //     Err(e) => return e.into(),
+        // };
 
-        Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            let some_account = svm_writer
-                .get_account_mut(
-                    &pubkey,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
-                )
-                .await?;
+        // Box::pin(async move {
+        //     let svm_reader = svm_locker.read().await;
+        //     let account_update = svm_reader
+        //         .get_account(
+        //             &pubkey,
+        //             GetAccountStrategy::LocalThenConnectionOrDefault(
+        //                 None,
+        //                 CommitmentConfig::confirmed(),
+        //             ),
+        //         )
+        //         .await?;
 
-            let (token_account, token_account_slice) = some_account
-                .and_then(|account| {
-                    let t = TokenAccount::unpack(&account.data).ok()?;
-                    Some((t, account.data))
-                })
-                .ok_or(SurfpoolError::get_account(
-                    pubkey,
-                    "Error fetching token account",
-                ))?;
+        //     let (token_account, token_account_slice) = account_update
+        //         .and_then(|account| {
+        //             let t = TokenAccount::unpack(&account.data).ok()?;
+        //             Some((t, account.data))
+        //         })
+        //         .ok_or(SurfpoolError::get_account(
+        //             pubkey,
+        //             "Error fetching token account",
+        //         ))?;
 
-            let mint_account = svm_writer
-                .get_account(
-                    &token_account.mint,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
-                )
-                .await?;
+        //     let mint_account = svm_writer
+        //         .get_account(
+        //             &token_account.mint,
+        //             GetAccountStrategy::LocalThenConnectionOrDefault(
+        //                 None,
+        //                 CommitmentConfig::confirmed(),
+        //             ),
+        //         )
+        //         .await?;
 
-            let token_decimals = mint_account
-                .and_then(|account| Mint::unpack(&account.data).ok())
-                .ok_or(SurfpoolError::get_account(
-                    pubkey,
-                    "Error fetching token mint account",
-                ))?
-                .decimals;
+        //     let token_decimals = mint_account
+        //         .and_then(|account| Mint::unpack(&account.data).ok())
+        //         .ok_or(SurfpoolError::get_account(
+        //             pubkey,
+        //             "Error fetching token mint account",
+        //         ))?
+        //         .decimals;
 
-            Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
-                value: {
-                    parse_token_v3(
-                        &token_account_slice,
-                        Some(&SplTokenAdditionalDataV2 {
-                            decimals: token_decimals,
-                            ..Default::default()
-                        }),
-                    )
-                    .ok()
-                    .and_then(|t| match t {
-                        TokenAccountType::Account(account) => Some(account.token_amount),
-                        _ => None,
-                    })
-                },
-            })
-        })
+        //     Ok(RpcResponse {
+        //         context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+        //         value: {
+        //             parse_token_v3(
+        //                 &token_account_slice,
+        //                 Some(&SplTokenAdditionalDataV2 {
+        //                     decimals: token_decimals,
+        //                     ..Default::default()
+        //                 }),
+        //             )
+        //             .ok()
+        //             .and_then(|t| match t {
+        //                 TokenAccountType::Account(account) => Some(account.token_amount),
+        //                 _ => None,
+        //             })
+        //         },
+        //     })
+        // })
     }
 
     fn get_token_supply(

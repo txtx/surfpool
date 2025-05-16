@@ -10,6 +10,7 @@ use jsonrpc_core::{
     Error,
 };
 use jsonrpc_core_client::transports::http;
+use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
@@ -423,7 +424,9 @@ async fn test_add_alt_entries_fetching() {
     let mut acc_keys = tx.message.static_account_keys().to_vec();
     let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
     let mut table_entries = join_all(alts.iter().map(|msg| async {
-        let loaded_addresses = surfnet_svm.load_lookup_table_addresses(msg).await?;
+        let loaded_addresses = surfnet_svm
+            .load_lookup_table_addresses(msg, CommitmentConfig::confirmed())
+            .await?;
         let mut combined = loaded_addresses.writable;
         combined.extend(loaded_addresses.readonly);
         Ok::<_, SurfpoolError>(combined)
