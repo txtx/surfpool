@@ -23,6 +23,7 @@ use solana_sdk::system_program;
 use solana_sdk::transaction::VersionedTransaction;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
+use surfpool_types::types::{ComputeUnitsEstimationResult, ProfileResult};
 use surfpool_types::SimnetEvent;
 
 use super::RunloopContext;
@@ -202,16 +203,6 @@ impl TokenAccountUpdate {
     }
 }
 
-/// Result structure for compute units estimation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ComputeUnitsEstimationResult {
-    pub success: bool,
-    pub compute_units_consumed: u64,
-    pub log_messages: Option<Vec<String>>,
-    pub error_message: Option<String>,
-}
-
 #[rpc]
 pub trait SvmTricksRpc {
     type Metadata;
@@ -329,9 +320,10 @@ pub trait SvmTricksRpc {
     /// ## Parameters
     /// - `meta`: Metadata passed with the request.
     /// - `transaction_data`: A base64 encoded string of the `VersionedTransaction`.
+    /// - `tag`: An optional tag for the transaction.
     ///
     /// ## Returns
-    /// A `RpcResponse<ComputeUnitsEstimationResult>` containing the estimation details.
+    /// A `RpcResponse<ProfileResult>` containing the estimation details.
     ///
     /// ## Example Request
     /// ```json
@@ -339,7 +331,7 @@ pub trait SvmTricksRpc {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
     ///   "method": "surfnet_profileTransaction",
-    ///   "params": ["base64_encoded_transaction_string"]
+    ///   "params": ["base64_encoded_transaction_string", "optional_tag"]
     /// }
     /// ```
     #[rpc(meta, name = "surfnet_profileTransaction")]
@@ -347,7 +339,23 @@ pub trait SvmTricksRpc {
         &self,
         meta: Self::Metadata,
         transaction_data: String, // Base64 encoded VersionedTransaction
-    ) -> BoxFuture<Result<RpcResponse<ComputeUnitsEstimationResult>>>;
+        tag: Option<String>,      // Optional tag for the transaction
+    ) -> BoxFuture<Result<RpcResponse<ProfileResult>>>;
+
+    /// Retrieves all profiling results for a given tag.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request.
+    /// - `tag`: The tag to retrieve profiling results for.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<Vec<ProfileResult>>` containing the profiling results.
+    #[rpc(meta, name = "surfnet_getProfileResults")]
+    fn get_profile_results(
+        &self,
+        meta: Self::Metadata,
+        tag: String,
+    ) -> BoxFuture<Result<RpcResponse<Vec<ProfileResult>>>>;
 }
 
 pub struct SurfnetCheatcodesRpc;
@@ -547,7 +555,8 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         &self,
         meta: Self::Metadata,
         transaction_data_b64: String,
-    ) -> BoxFuture<Result<RpcResponse<ComputeUnitsEstimationResult>>> {
+        tag: Option<String>,
+    ) -> BoxFuture<Result<RpcResponse<ProfileResult>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
@@ -557,32 +566,93 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Ok(bytes) => bytes,
             Err(e) => {
                 log::error!("Base64 decoding failed: {}", e);
-                return Box::pin(future::err(Error::invalid_params(format!(
-                    "Invalid base64 for transaction data: {}",
-                    e
-                ))));
+                let error_cu_result = ComputeUnitsEstimationResult {
+                    success: false,
+                    compute_units_consumed: 0,
+                    log_messages: None,
+                    error_message: Some(format!("Invalid base64 for transaction data: {}", e)),
+                };
+                return Box::pin(future::ok(RpcResponse {
+                    context: RpcResponseContext::new(0),
+                    value: ProfileResult {
+                        compute_units: error_cu_result,
+                    },
+                }));
             }
         };
 
         let transaction: VersionedTransaction = match bincode::deserialize(&transaction_bytes) {
             Ok(tx) => tx,
             Err(e) => {
-                return Box::pin(future::err(Error::invalid_params(format!(
-                    "Failed to deserialize transaction: {}",
-                    e
-                ))));
+                let error_cu_result = ComputeUnitsEstimationResult {
+                    success: false,
+                    compute_units_consumed: 0,
+                    log_messages: None,
+                    error_message: Some(format!("Failed to deserialize transaction: {}", e)),
+                };
+                return Box::pin(future::ok(RpcResponse {
+                    context: RpcResponseContext::new(0),
+                    value: ProfileResult {
+                        compute_units: error_cu_result,
+                    },
+                }));
             }
         };
 
         Box::pin(async move {
-            let svm_reader = svm_locker.read().await; // Using read lock
+            let mut svm_writer = svm_locker.write().await;
 
-            // This estimate_compute_units method needs to be added to SurfnetSvm
-            let estimation_result = svm_reader.estimate_compute_units(&transaction);
+            let estimation_result = svm_writer.estimate_compute_units(&transaction);
+
+            if let Some(tag_str) = tag {
+                if estimation_result.success {
+                    let profile_result_to_store = ProfileResult {
+                        compute_units: estimation_result.clone(),
+                    };
+                    svm_writer
+                        .tagged_profiling_results
+                        .entry(tag_str.clone())
+                        .or_default()
+                        .push(profile_result_to_store.clone());
+                    let _ = svm_writer
+                        .simnet_events_tx
+                        .try_send(SimnetEvent::tagged_profile(
+                            profile_result_to_store,
+                            tag_str.clone(),
+                        ));
+                }
+            }
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                value: ProfileResult {
+                    compute_units: estimation_result,
+                },
+            })
+        })
+    }
+
+    fn get_profile_results(
+        &self,
+        meta: Self::Metadata,
+        tag: String,
+    ) -> BoxFuture<Result<RpcResponse<Vec<ProfileResult>>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let svm_reader = svm_locker.read().await;
+            let results = svm_reader
+                .tagged_profiling_results
+                .get(&tag)
+                .cloned()
+                .unwrap_or_default();
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
-                value: estimation_result,
+                value: results,
             })
         })
     }
