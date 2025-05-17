@@ -275,7 +275,14 @@ fn log_events(
                     SimnetEvent::Shutdown => {
                         break;
                     }
-                    SimnetEvent::TaggedProfile { .. } => todo!(),
+                    SimnetEvent::TaggedProfile { result, tag, timestamp: _ } => {
+                        info!(
+                            ctx.expect_logger(),
+                            "Profiled [{}]: {} CUs",
+                            tag,
+                            result.compute_units.compute_units_consumed
+                        );
+                    }
                 },
                 Err(_e) => {
                     break;
