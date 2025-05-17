@@ -1,6 +1,6 @@
 #![allow(unused_imports, unused_variables)]
 
-use crate::cli::Context;
+use crate::cli::{Context, DEFAULT_EXPLORER_PORT};
 use actix_cors::Cors;
 use actix_web::dev::ServerHandle;
 use actix_web::http::header::{self};
@@ -216,7 +216,7 @@ fn start_subgraph_runloop(
                                     format!("{err_ctx}: Failed to acquire write lock on gql context")
                                 })?;
                                 gql_context.register_subgraph(&request.subgraph_name, subgraph_uuid)?;
-                                let _ = sender.send("http://127.0.0.1:8900/gql/console".into());
+                                let _ = sender.send(format!("http://127.0.0.1:{}/gql/console", DEFAULT_EXPLORER_PORT));
                             }
                             SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
                                 observers.push(subgraph_observer_rx);

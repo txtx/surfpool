@@ -693,7 +693,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         meta: Self::Metadata,
         tag: String,
     ) -> BoxFuture<Result<RpcResponse<Vec<ProfileResult>>>> {
-        let svm_locker = match meta.get_svm_locker() {
+        let (svm_locker, _) = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };

@@ -49,13 +49,13 @@ use solana_transaction_status::{
     UiTransactionEncoding,
 };
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use std::iter::zip;
+use std::sync::Arc;
 use surfpool_types::types::{ComputeUnitsEstimationResult, ProfileResult};
 use surfpool_types::{
     SimnetEvent, TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
 };
+use tokio::sync::RwLock;
 
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
 pub const SLOTS_PER_EPOCH: u64 = 432000;

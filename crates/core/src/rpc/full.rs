@@ -1513,8 +1513,7 @@ impl Full for SurfpoolFullRpc {
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
             }
-            Ok(TransactionStatusEvent::Success(_)) => {
-            }
+            Ok(TransactionStatusEvent::Success(_)) => {}
         }
         Ok(signature.to_string())
     }
