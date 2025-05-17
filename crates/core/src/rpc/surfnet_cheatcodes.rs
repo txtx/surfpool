@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
-use crate::surfnet::GetAccountStrategy;
+use crate::surfnet::{GetAccountResult, GetAccountStrategy, SurfnetSvm};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use jsonrpc_core::futures::future;
@@ -16,6 +16,7 @@ use serde_with::{serde_as, BytesOrString};
 use solana_account::Account;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_clock::Epoch;
+use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::program_option::COption;
 use solana_sdk::program_pack::Pack;
@@ -68,22 +69,25 @@ impl AccountUpdate {
         }
     }
     /// Apply the update to the account
-    pub fn apply(self, account: &mut Account) -> Result<()> {
-        if let Some(lamports) = self.lamports {
-            account.lamports = lamports;
-        }
-        if let Some(owner) = &self.owner {
-            account.owner = verify_pubkey(owner)?;
-        }
-        if let Some(executable) = self.executable {
-            account.executable = executable;
-        }
-        if let Some(rent_epoch) = self.rent_epoch {
-            account.rent_epoch = rent_epoch;
-        }
-        if self.data.is_some() {
-            account.data = self.expect_hex_data()?;
-        }
+    pub fn apply(self, account: &mut GetAccountResult) -> Result<()> {
+        account.apply_update(|account| {
+            if let Some(lamports) = self.lamports {
+                account.lamports = lamports;
+            }
+            if let Some(owner) = &self.owner {
+                account.owner = verify_pubkey(owner)?;
+            }
+            if let Some(executable) = self.executable {
+                account.executable = executable;
+            }
+            if let Some(rent_epoch) = self.rent_epoch {
+                account.rent_epoch = rent_epoch;
+            }
+            if self.data.is_some() {
+                account.data = self.expect_hex_data()?;
+            }
+            Ok(())
+        });
         Ok(())
     }
 
@@ -377,46 +381,60 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Ok(res) => res,
         };
 
-        let svm_locker = match meta.get_svm_locker() {
+        let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-
             // if the account update is contains all fields, we can directly set the account
-            let account_to_set = if let Some(account) = account_update {
-                account
+            let (account_to_set, latest_absolute_slot) = if let Some(account) = account_update {
+                let svm_reader = svm_locker.read().await;
+                (
+                    GetAccountResult::FoundAccount(pubkey, account),
+                    svm_reader.get_latest_absolute_slot(),
+                )
             } else {
                 // otherwise, we need to fetch the account and apply the update
-                let mut account_to_update = svm_writer
-                    .get_account(
-                        &pubkey,
-                        GetAccountStrategy::LocalThenConnectionOrDefault(Some(Box::new(move |surfnet_svm| {
-                            // if the account does not exist locally or in the remote, create a new account with default values
-                            let _ = surfnet_svm.simnet_events_tx.send(SimnetEvent::info(format!(
-                                "Account {pubkey} not found, creating a new account from default values"
-                            )));
+                let (mut account_to_update, latest_absolute_slot) = SurfnetSvm::get_account(
+                    svm_locker.clone(),
+                    &pubkey,
+                    GetAccountStrategy::LocalThenConnectionOrDefault(
+                        Some(Box::new(move |_| {
+                            // let svm_reader = svm_locker.read().await;
+                            // // if the account does not exist locally or in the remote, create a new account with default values
+                            // let _ = surfnet_svm.simnet_events_tx.send(SimnetEvent::info(format!(
+                            //     "Account {pubkey} not found, creating a new account from default values"
+                            // )));
 
-                            Account {
-                                lamports: 0,
-                                owner: system_program::id(),
-                                executable: false,
-                                rent_epoch: 0,
-                                data: vec![],
-                            }
-                        }))),
-                    )
-                    .await?.unwrap();
+                            GetAccountResult::FoundAccount(
+                                pubkey,
+                                Account {
+                                    lamports: 0,
+                                    owner: system_program::id(),
+                                    executable: false,
+                                    rent_epoch: 0,
+                                    data: vec![],
+                                },
+                            )
+                        })),
+                        CommitmentConfig::confirmed(),
+                    ),
+                    &remote_rpc_url,
+                )
+                .await?;
 
                 update.apply(&mut account_to_update)?;
-                account_to_update
+                (account_to_update, latest_absolute_slot)
             };
-            svm_writer.set_account(&pubkey, account_to_set)?;
+
+            {
+                let mut svm_writer = svm_locker.write().await;
+                svm_writer.write_account_update(account_to_set);
+            }
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(latest_absolute_slot),
                 value: (),
             })
         })
@@ -451,46 +469,77 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         let associated_token_account =
             get_associated_token_address_with_program_id(&owner, &mint, &token_program_id);
 
-        let svm_locker = match meta.get_svm_locker() {
+        let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
             Ok(res) => res,
             Err(e) => return Box::pin(future::err(e.into())),
         };
 
         Box::pin(async move {
+            let (mut token_account, latest_absolute_slot) = SurfnetSvm::get_account(
+                svm_locker.clone(),
+                &associated_token_account,
+                GetAccountStrategy::LocalThenConnectionOrDefault(
+                    None,
+                    CommitmentConfig::confirmed(), //     Some(Box::new(move |svm_locker| {
+                                                   //         let minimum_rent = surfnet_svm
+                                                   //             .inner
+                                                   //             .minimum_balance_for_rent_exemption(TokenAccount::LEN);
+
+                                                   //         let mut data = [0; TokenAccount::LEN];
+                                                   //         let default = TokenAccount {
+                                                   //             mint,
+                                                   //             owner,
+                                                   //             state: AccountState::Initialized,
+                                                   //             ..Default::default()
+                                                   //         };
+                                                   //         default.pack_into_slice(&mut data);
+                                                   //         GetAccountResult::FoundAccount(
+                                                   //             associated_token_account,
+                                                   //             Account {
+                                                   //                 lamports: minimum_rent,
+                                                   //                 owner: token_program_id,
+                                                   //                 executable: false,
+                                                   //                 rent_epoch: 0,
+                                                   //                 data: data.to_vec(),
+                                                   //             },
+                                                   //         )
+                                                   //     })),
+                                                   // ),
+                ),
+                &remote_rpc_url,
+            )
+            .await?;
+
             let mut svm_writer = svm_locker.write().await;
-            let mut token_account = svm_writer
-                .get_account(
-                    &associated_token_account,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(Some(Box::new(move |surfnet_svm| {
-                        let _ = surfnet_svm.simnet_events_tx.send(SimnetEvent::info(
-                            format!("Associated token account {associated_token_account} not found, creating a new account from default values"),
-                        ));
 
-                        let minimum_rent = surfnet_svm
-                            .inner
-                            .minimum_balance_for_rent_exemption(TokenAccount::LEN);
+            if let GetAccountResult::None(_) = token_account {
+                // if the account does not exist, create a new account with default values
+                let minimum_rent = svm_writer
+                    .inner
+                    .minimum_balance_for_rent_exemption(TokenAccount::LEN);
 
-                        let mut data = [0; TokenAccount::LEN];
-                        let default = TokenAccount {
-                            mint,
-                            owner,
-                            state: AccountState::Initialized,
-                            ..Default::default()
-                        };
-                        default.pack_into_slice(&mut data);
-                        Account {
-                            lamports: minimum_rent,
-                            owner: token_program_id,
-                            executable: false,
-                            rent_epoch: 0,
-                            data: data.to_vec(),
-                        }
-                    }))),
-                )
-                .await?
-                .unwrap();
-            let mut token_account_data =
-                TokenAccount::unpack(&token_account.data).map_err(|e| {
+                let mut data = [0; TokenAccount::LEN];
+                let default = TokenAccount {
+                    mint,
+                    owner,
+                    state: AccountState::Initialized,
+                    ..Default::default()
+                };
+                default.pack_into_slice(&mut data);
+                token_account = GetAccountResult::FoundAccount(
+                    associated_token_account,
+                    Account {
+                        lamports: minimum_rent,
+                        owner: token_program_id,
+                        executable: false,
+                        rent_epoch: 0,
+                        data: data.to_vec(),
+                    },
+                );
+            }
+
+            let mut token_account_data = TokenAccount::unpack(&token_account.expected_data())
+                .map_err(|e| {
                     Error::invalid_params(format!("Failed to unpack token account data: {}", e))
                 })?;
 
@@ -498,11 +547,14 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
             let mut final_account_bytes = [0; TokenAccount::LEN];
             token_account_data.pack_into_slice(&mut final_account_bytes);
-            token_account.data = final_account_bytes.to_vec();
-            svm_writer.set_account(&associated_token_account, token_account)?;
+            token_account.apply_update(|account| {
+                account.data = final_account_bytes.to_vec();
+                Ok(())
+            });
+            svm_writer.write_account_update(token_account);
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(latest_absolute_slot),
                 value: (),
             })
         })
@@ -533,19 +585,23 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Err(e) => return e.into(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
+        let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            svm_writer
-                .clone_program_account(&source_program_id, &destination_program_id)
-                .await?;
+            let latest_absolute_slot = SurfnetSvm::clone_program_account(
+                svm_locker,
+                &source_program_id,
+                &destination_program_id,
+                CommitmentConfig::confirmed(),
+                &remote_rpc_url,
+            )
+            .await?;
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(latest_absolute_slot),
                 value: (),
             })
         })
@@ -557,7 +613,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         transaction_data_b64: String,
         tag: Option<String>,
     ) -> BoxFuture<Result<RpcResponse<ProfileResult>>> {
-        let svm_locker = match meta.get_svm_locker() {
+        let (svm_locker, _) = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
@@ -637,7 +693,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         meta: Self::Metadata,
         tag: String,
     ) -> BoxFuture<Result<RpcResponse<Vec<ProfileResult>>>> {
-        let svm_locker = match meta.get_svm_locker() {
+        let (svm_locker, _) = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };

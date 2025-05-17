@@ -11,7 +11,6 @@ categories = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# txtx-addon-kit = { version = "0.2.1" }
 futures = { version = "0.3.22", features = ["alloc"], default-features = false }
 uuid = { version = "1.6.1", features = ["serde", "v7"] }
 juniper = { version = "0.16.1", features = ["uuid"] }
@@ -21,6 +20,7 @@ surfpool-types = { workspace = true }
 # surfpool-types = { version = "0.2.0", default-features = false }
 convert_case = "0.8.0"
 txtx-addon-kit = { workspace = true }
+# txtx-addon-kit = { version = "0.2.1" }
 solana-pubkey = { workspace = true }
 solana-sdk = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }

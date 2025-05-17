@@ -4,6 +4,7 @@ use jsonrpc_core::{
     futures::future::Either, middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware,
     Request, Response,
 };
+use jsonrpc_http_server::hyper::client::connect;
 use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
 use std::sync::Arc;
@@ -34,12 +35,13 @@ pub struct RunloopContext {
     pub surfnet_svm: Arc<RwLock<SurfnetSvm>>,
     pub simnet_commands_tx: Sender<SimnetCommand>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
+    pub remote_rpc_url: String,
 }
 
 pub type SvmReadClosure<T> = Box<dyn Fn(&SurfnetSvm) -> T + Send + Sync>;
 
 trait State {
-    fn get_svm_locker(&self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError>;
+    fn get_svm_locker(&self) -> Result<(Arc<RwLock<SurfnetSvm>>, String), SurfpoolError>;
     fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, SurfpoolError>
     where
         F: Fn(&SurfnetSvm) -> T + Send + Sync,
@@ -51,12 +53,12 @@ trait State {
 }
 
 impl State for Option<RunloopContext> {
-    fn get_svm_locker(&self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError> {
+    fn get_svm_locker(&self) -> Result<(Arc<RwLock<SurfnetSvm>>, String), SurfpoolError> {
         // Retrieve svm state
         let Some(ctx) = self else {
             return Err(SurfpoolError::no_locker());
         };
-        Ok(ctx.surfnet_svm.clone())
+        Ok((ctx.surfnet_svm.clone(), ctx.remote_rpc_url.clone()))
     }
 
     fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, SurfpoolError>
@@ -94,6 +96,7 @@ impl State for Option<RunloopContext> {
 
 impl Metadata for RunloopContext {}
 
+use crate::surfnet::SurfnetDataConnection;
 use crate::PluginManagerCommand;
 use crate::{error::SurfpoolError, surfnet::SurfnetSvm};
 use jsonrpc_core::futures::FutureExt;
@@ -106,6 +109,7 @@ pub struct SurfpoolMiddleware {
     pub simnet_commands_tx: Sender<SimnetCommand>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub config: RpcConfig,
+    pub remote_rpc_url: String,
 }
 
 impl SurfpoolMiddleware {
@@ -114,12 +118,14 @@ impl SurfpoolMiddleware {
         simnet_commands_tx: &Sender<SimnetCommand>,
         plugin_manager_commands_tx: &Sender<PluginManagerCommand>,
         config: &RpcConfig,
+        remote_rpc_url: &str,
     ) -> Self {
         Self {
             surfnet_svm,
             simnet_commands_tx: simnet_commands_tx.clone(),
             plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
             config: config.clone(),
+            remote_rpc_url: remote_rpc_url.to_string(),
         }
     }
 }
@@ -143,6 +149,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             surfnet_svm: self.surfnet_svm.clone(),
             simnet_commands_tx: self.simnet_commands_tx.clone(),
             plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
+            remote_rpc_url: self.remote_rpc_url.clone(),
         });
         Either::Left(Box::pin(next(request, meta).map(move |res| res)))
     }
@@ -182,6 +189,7 @@ impl Middleware<Option<SurfpoolWebsocketMeta>> for SurfpoolWebsocketMiddleware {
             surfnet_svm: self.surfpool_middleware.surfnet_svm.clone(),
             simnet_commands_tx: self.surfpool_middleware.simnet_commands_tx.clone(),
             plugin_manager_commands_tx: self.surfpool_middleware.plugin_manager_commands_tx.clone(),
+            remote_rpc_url: self.surfpool_middleware.remote_rpc_url.clone(),
         };
         let session = meta
             .as_ref()
@@ -208,11 +216,14 @@ impl SurfpoolWebsocketMeta {
 }
 
 impl State for Option<SurfpoolWebsocketMeta> {
-    fn get_svm_locker(&self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError> {
+    fn get_svm_locker(&self) -> Result<(Arc<RwLock<SurfnetSvm>>, String), SurfpoolError> {
         let Some(ctx) = self else {
             return Err(SurfpoolError::no_locker());
         };
-        Ok(ctx.runloop_context.surfnet_svm.clone())
+        Ok((
+            ctx.runloop_context.surfnet_svm.clone(),
+            ctx.runloop_context.remote_rpc_url.clone(),
+        ))
     }
 
     fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, SurfpoolError>

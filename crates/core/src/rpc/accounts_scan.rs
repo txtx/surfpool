@@ -1,6 +1,10 @@
 use jsonrpc_core::BoxFuture;
+use jsonrpc_core::Error;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
+use solana_account_decoder::encode_ui_account;
+use solana_account_decoder::UiAccount;
+use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_config::{
     RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig, RpcSupplyConfig,
     RpcTokenAccountsFilter,
@@ -11,8 +15,18 @@ use solana_client::rpc_response::{
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_sdk::program_pack::Pack;
+use spl_associated_token_account::get_associated_token_address_with_program_id;
+use spl_token::state::Account as TokenAccount;
+use spl_token::state::Account;
+
+use crate::error::SurfpoolError;
+use crate::surfnet::GetAccountResult;
+use crate::surfnet::GetAccountStrategy;
+use crate::surfnet::SurfnetSvm;
 
 use super::not_implemented_err_async;
+use super::utils::verify_pubkey;
 use super::RunloopContext;
 use super::State;
 
@@ -478,7 +492,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         meta: Self::Metadata,
         _config: Option<RpcSupplyConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSupply>>> {
-        let svm_locker = match meta.get_svm_locker() {
+        let (svm_locker, _) = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
@@ -509,12 +523,94 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
 
     fn get_token_accounts_by_owner(
         &self,
-        _meta: Self::Metadata,
-        _owner_str: String,
-        _token_account_filter: RpcTokenAccountsFilter,
-        _config: Option<RpcAccountInfoConfig>,
+        meta: Self::Metadata,
+        owner_str: String,
+        token_account_filter: RpcTokenAccountsFilter,
+        config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>> {
-        not_implemented_err_async()
+        let config = config.unwrap_or_default();
+        let owner = match verify_pubkey(&owner_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+        Box::pin(async move {
+            match token_account_filter {
+                RpcTokenAccountsFilter::Mint(mint) => {
+                    let mint = verify_pubkey(&mint)?;
+
+                    let associated_token_address = get_associated_token_address_with_program_id(
+                        &owner,
+                        &mint,
+                        &spl_token::id(),
+                    );
+
+                    let (account_update, latest_absolute_slot) = SurfnetSvm::get_account(
+                        svm_locker.clone(),
+                        &associated_token_address,
+                        GetAccountStrategy::LocalThenConnectionOrDefault(
+                            None,
+                            config.commitment.unwrap_or_default(),
+                        ),
+                        &remote_rpc_url,
+                    )
+                    .await?;
+
+                    {
+                        let mut svm_writer = svm_locker.write().await;
+                        svm_writer.write_account_update(account_update.clone());
+                    }
+
+                    let token_account = account_update.map_account()?;
+
+                    let _ = TokenAccount::unpack(&token_account.data).map_err(|e| {
+                        Error::invalid_params(format!("Failed to unpack token account data: {}", e))
+                    })?;
+
+                    Ok(RpcResponse {
+                        context: RpcResponseContext::new(latest_absolute_slot),
+                        value: vec![RpcKeyedAccount {
+                            pubkey: associated_token_address.to_string(),
+                            account: encode_ui_account(
+                                &associated_token_address,
+                                &token_account,
+                                config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                                None,
+                                config.data_slice,
+                            ),
+                        }],
+                    })
+                }
+                RpcTokenAccountsFilter::ProgramId(program_id) => {
+                    let program_id = verify_pubkey(&program_id)?;
+
+                    let ((keyed_accounts, missing_pubkeys), latest_absolute_slot) =
+                        SurfnetSvm::get_all_token_accounts(
+                            svm_locker.clone(),
+                            owner,
+                            program_id,
+                            &remote_rpc_url,
+                        )
+                        .await?;
+
+                    if !missing_pubkeys.is_empty() {
+                        let mut svm_writer = svm_locker.write().await;
+                        for pubkey in missing_pubkeys {
+                            svm_writer.write_account_update(GetAccountResult::None(pubkey));
+                        }
+                    }
+
+                    Ok(RpcResponse {
+                        context: RpcResponseContext::new(latest_absolute_slot),
+                        value: keyed_accounts,
+                    })
+                }
+            }
+        })
     }
 
     fn get_token_accounts_by_delegate(

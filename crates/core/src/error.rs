@@ -101,6 +101,18 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn get_token_accounts<T>(owner: Pubkey, token_program: Pubkey, e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to get token accounts by owner {owner} for program {token_program}: {}",
+            e.to_string()
+        )));
+        Self(error)
+    }
+
     pub fn get_multiple_accounts<T>(e: T) -> Self
     where
         T: ToString,
