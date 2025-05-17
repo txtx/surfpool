@@ -1408,7 +1408,6 @@ impl Full for SurfpoolFullRpc {
                 last_latest_absolute_slot = latest_absolute_slot;
                 responses.push(res.map(|(_, status)| status));
             }
-            println!("returning signature statuses");
             Ok(RpcResponse {
                 context: RpcResponseContext::new(last_latest_absolute_slot),
                 value: responses,
@@ -1457,8 +1456,6 @@ impl Full for SurfpoolFullRpc {
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding)?;
         let signatures = unsanitized_tx.signatures.clone();
         let signature = signatures[0];
-
-        println!("decoded transaction");
         let Some(ctx) = meta else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
@@ -1477,10 +1474,8 @@ impl Full for SurfpoolFullRpc {
             .map_err(|_| RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             })?;
-        println!("tx received");
         match status_update_rx.recv() {
             Ok(TransactionStatusEvent::SimulationFailure(e)) => {
-                println!("simulation failed");
                 return Err(Error {
                     data: None,
                     message: format!(
@@ -1493,7 +1488,6 @@ impl Full for SurfpoolFullRpc {
                 });
             }
             Ok(TransactionStatusEvent::ExecutionFailure(e)) => {
-                println!("execution failed");
                 return Err(Error {
                     data: None,
                     message: format!(
@@ -1506,7 +1500,6 @@ impl Full for SurfpoolFullRpc {
                 });
             }
             Ok(TransactionStatusEvent::VerificationFailure(signature)) => {
-                println!("verification failed");
                 return Err(Error {
                     data: None,
                     message: format!("Transaction verification failed for transaction {signature}"),
@@ -1514,7 +1507,6 @@ impl Full for SurfpoolFullRpc {
                 });
             }
             Err(e) => {
-                println!("it failed");
                 return Err(Error {
                     data: None,
                     message: format!("Failed to process transaction: {e}"),
@@ -1522,7 +1514,6 @@ impl Full for SurfpoolFullRpc {
                 });
             }
             Ok(TransactionStatusEvent::Success(_)) => {
-                println!("Transaction sent successfully");
             }
         }
         Ok(signature.to_string())
@@ -1641,7 +1632,6 @@ impl Full for SurfpoolFullRpc {
                     replacement_blockhash,
                 },
             };
-            println!("returning simulated transaction result");
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
                 value,
@@ -1760,7 +1750,6 @@ impl Full for SurfpoolFullRpc {
                 blockhash: svm_reader.latest_blockhash().to_string(),
                 last_valid_block_height,
             };
-            println!("returning latest blockhash: {:?}", value);
             RpcResponse {
                 context: RpcResponseContext {
                     slot: svm_reader.get_latest_absolute_slot(),
