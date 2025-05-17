@@ -300,11 +300,14 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             SimnetEvent::Shutdown => {
                                 break;
                             }
-                            &SimnetEvent::TaggedProfile { ref result, ref tag, ref timestamp } => {
+                            &SimnetEvent::TaggedProfile {
+                                ref result,
+                                ref tag,
+                                ref timestamp,
+                            } => {
                                 let msg = format!(
                                     "Profiled [{}]: {} CUs",
-                                    tag,
-                                    result.compute_units.compute_units_consumed
+                                    tag, result.compute_units.compute_units_consumed
                                 );
                                 app.events.push_front((EventType::Info, *timestamp, msg));
                             }
