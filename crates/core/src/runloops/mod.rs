@@ -58,13 +58,18 @@ pub async fn start_local_surfnet_runloop(
 
     let mut surfnet_svm = svm_locker.write().await;
     surfnet_svm.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
-    let _ = surfnet_svm.connect(&simnet.remote_rpc_url).await?;
+    let _ = surfnet_svm.initialize(&simnet.remote_rpc_url).await?;
     let simnet_events_tx_cc = surfnet_svm.simnet_events_tx.clone();
 
     drop(surfnet_svm);
 
-    let (plugin_manager_commands_rx, _rpc_handle, _ws_handle) =
-        start_rpc_servers_runloop(&config, &simnet_commands_tx, svm_locker.clone()).await?;
+    let (plugin_manager_commands_rx, _rpc_handle, _ws_handle) = start_rpc_servers_runloop(
+        &config,
+        &simnet_commands_tx,
+        svm_locker.clone(),
+        &simnet.remote_rpc_url,
+    )
+    .await?;
 
     let simnet_config = simnet.clone();
 
@@ -93,6 +98,7 @@ pub async fn start_local_surfnet_runloop(
         simnet_commands_rx,
         svm_locker,
         block_production_mode,
+        &simnet.remote_rpc_url,
     )
     .await
 }
@@ -103,6 +109,7 @@ pub async fn start_block_production_runloop(
     simnet_commands_rx: Receiver<SimnetCommand>,
     svm_locker: Arc<RwLock<SurfnetSvm>>,
     mut block_production_mode: BlockProductionMode,
+    remote_rpc_url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let mut do_produce_block = false;
@@ -138,16 +145,7 @@ pub async fn start_block_production_runloop(
                         continue
                     }
                     SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
-                        let mut svm_writer = svm_locker.write().await;
-                        let signature = transaction.signatures[0];
-                        let slot = svm_writer.latest_epoch_info.absolute_slot;
-                        svm_writer.notify_signature_subscribers(
-                            SignatureSubscriptionType::received(),
-                            &signature,
-                            slot,
-                            None,
-                        );
-                        svm_writer.process_transaction(transaction, status_tx, skip_preflight, CommitmentConfig::confirmed()).await?;
+                        SurfnetSvm::process_transaction(svm_locker.clone(), transaction, status_tx, skip_preflight, CommitmentConfig::confirmed(), remote_rpc_url).await?;
                     }
                     SimnetCommand::Terminate(_) => {
                         std::process::exit(0)
@@ -365,6 +363,7 @@ async fn start_rpc_servers_runloop(
     config: &SurfpoolConfig,
     simnet_commands_tx: &Sender<SimnetCommand>,
     svm_locker: Arc<RwLock<SurfnetSvm>>,
+    remote_rpc_url: &str,
 ) -> Result<
     (
         Receiver<PluginManagerCommand>,
@@ -381,6 +380,7 @@ async fn start_rpc_servers_runloop(
         simnet_commands_tx,
         &plugin_manager_commands_tx,
         &config.rpc,
+        remote_rpc_url,
     );
 
     let rpc_handle =
@@ -484,6 +484,7 @@ async fn start_ws_rpc_server_runloop(
                             plugin_manager_commands_tx: middleware
                                 .plugin_manager_commands_tx
                                 .clone(),
+                            remote_rpc_url: middleware.remote_rpc_url.clone(),
                         };
                         Some(SurfpoolWebsocketMeta::new(
                             runloop_context,

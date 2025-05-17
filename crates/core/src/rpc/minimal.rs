@@ -1,7 +1,7 @@
 use super::{not_implemented_err, RunloopContext};
 use crate::{
     rpc::{utils::verify_pubkey, State},
-    surfnet::{GetAccountResult, GetAccountStrategy, FINALIZATION_SLOT_THRESHOLD},
+    surfnet::{GetAccountResult, GetAccountStrategy, SurfnetSvm, FINALIZATION_SLOT_THRESHOLD},
 };
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use jsonrpc_derive::rpc;
@@ -590,23 +590,24 @@ impl Minimal for SurfpoolMinimalRpc {
             Err(e) => return e.into(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
+        let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
             Ok(res) => res,
             Err(e) => return Box::pin(future::err(e.into())),
         };
 
         Box::pin(async move {
-            let svm_reader = svm_locker.read().await;
-            let latest_absolute_slot = svm_reader.get_latest_absolute_slot();
-            let account_update = svm_reader
-                .get_account(
+            let (account_update, latest_absolute_slot) = {
+                SurfnetSvm::get_account(
+                    svm_locker.clone(),
                     &pubkey,
                     GetAccountStrategy::LocalThenConnectionOrDefault(
                         None,
                         CommitmentConfig::confirmed(),
                     ),
+                    &remote_rpc_url,
                 )
-                .await?;
+                .await?
+            };
 
             {
                 let mut svm_writer = svm_locker.write().await;
@@ -616,7 +617,7 @@ impl Minimal for SurfpoolMinimalRpc {
             let balance = match account_update {
                 GetAccountResult::FoundAccount(_, account)
                 | GetAccountResult::FoundProgramAccount((_, account), _) => account.lamports,
-                GetAccountResult::None => 0,
+                GetAccountResult::None(_) => 0,
             };
 
             Ok(RpcResponse {

@@ -3,6 +3,7 @@ use crate::error::SurfpoolResult;
 use crate::rpc::utils::verify_pubkey;
 use crate::rpc::State;
 use crate::surfnet::GetAccountStrategy;
+use crate::surfnet::SurfnetSvm;
 
 use jsonrpc_core::BoxFuture;
 use jsonrpc_core::Result;
@@ -365,30 +366,31 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return e.into(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
+        let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let svm_reader = svm_locker.read().await;
-            let account_update = svm_reader
-                .get_account(
-                    &pubkey,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(
-                        None,
-                        CommitmentConfig::confirmed(),
-                    ),
-                )
-                .await?;
+            let (account_update, latest_absolute_slot) = SurfnetSvm::get_account(
+                svm_locker.clone(),
+                &pubkey,
+                GetAccountStrategy::LocalThenConnectionOrDefault(
+                    None,
+                    config.commitment.unwrap_or_default(),
+                ),
+                &remote_rpc_url,
+            )
+            .await?;
 
             {
                 let mut svm_writer = svm_locker.write().await;
+
                 svm_writer.write_account_update(account_update.clone());
             }
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(latest_absolute_slot),
                 value: account_update.try_into_ui_account(config.encoding, config.data_slice),
             })
         })
@@ -410,38 +412,36 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return e.into(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
+        let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let svm_reader = svm_locker.read().await;
-            let account_updates = svm_reader
-                .get_multiple_accounts(
-                    &pubkeys,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(
-                        None,
-                        CommitmentConfig::confirmed(),
-                    ),
-                )
-                .await?;
+            let (account_updates, latest_absolute_slot) = SurfnetSvm::get_multiple_accounts(
+                svm_locker.clone(),
+                &pubkeys,
+                GetAccountStrategy::LocalThenConnectionOrDefault(
+                    None,
+                    config.commitment.unwrap_or_default(),
+                ),
+                &remote_rpc_url,
+            )
+            .await?;
 
             let mut ui_accounts = vec![];
             {
                 let mut svm_writer = svm_locker.write().await;
                 for account_update in account_updates.into_iter() {
-                    if let Some(account_update) = account_update {
-                        ui_accounts.push(
-                            account_update.try_into_ui_account(config.encoding, config.data_slice),
-                        );
-                        svm_writer.write_account_update(account_update);
-                    }
+                    ui_accounts.push(
+                        account_update.try_into_ui_account(config.encoding, config.data_slice),
+                    );
+                    svm_writer.write_account_update(account_update);
                 }
             }
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(latest_absolute_slot),
                 value: ui_accounts,
             })
         })
