@@ -49,7 +49,6 @@ use solana_transaction_status::{
     UiTransactionEncoding,
 };
 use std::collections::{HashMap, VecDeque};
-use std::iter::zip;
 use std::sync::Arc;
 use surfpool_types::types::{ComputeUnitsEstimationResult, ProfileResult};
 use surfpool_types::{

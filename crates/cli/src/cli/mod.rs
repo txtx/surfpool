@@ -141,9 +141,9 @@ pub struct StartSimnet {
     /// Set the slot time
     #[arg(long = "slot-time", short = 's', default_value = DEFAULT_SLOT_TIME_MS)]
     pub slot_time: u64,
-    /// Set a custom RPC URL (cannot be used with --network)
-    #[arg(long = "rpc-url", short = 'u', default_value = DEFAULT_RPC_URL, conflicts_with = "network")]
-    pub rpc_url: String,
+    /// Set a datasource RPC URL (cannot be used with --network). Can also be set via SURFPOOL_DATASOURCE_RPC_URL.
+    #[arg(long = "rpc-url", short = 'u', conflicts_with = "network")]
+    pub rpc_url: Option<String>,
     /// Choose a predefined network (cannot be used with --rpc-url)
     #[arg(long = "network", short = 'n', value_enum, conflicts_with = "rpc_url")]
     pub network: Option<NetworkType>,
@@ -239,7 +239,13 @@ impl StartSimnet {
             Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
             Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
             Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
-            None => self.rpc_url.clone(),
+            None => match self.rpc_url {
+                Some(ref rpc_url) => rpc_url.clone(),
+                None => match env::var("SURFPOOL_DATASOURCE_RPC_URL") {
+                    Ok(value) => value,
+                    _ => DEFAULT_RPC_URL.to_string(),
+                },
+            },
         };
 
         SimnetConfig {
