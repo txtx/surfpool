@@ -98,9 +98,17 @@ impl App {
         breaker: Option<Keypair>,
     ) -> App {
         let palette = if remote_rpc_url.contains("helius") {
-            palette::tailwind::RED
+            palette::tailwind::EMERALD
         } else {
             palette::tailwind::EMERALD
+        };
+        let remote_rpc_host = {
+            let comps = remote_rpc_url
+                .to_string()
+                .split("?")
+                .map(|e| e.to_string())
+                .collect::<Vec<String>>();
+            comps.first().unwrap().to_string()
         };
         App {
             state: TableState::default().with_selected(0),
@@ -122,7 +130,7 @@ impl App {
             include_debug_logs,
             deploy_progress_rx,
             status_bar_message: None,
-            remote_rpc_url: remote_rpc_url.to_string(),
+            remote_rpc_url: remote_rpc_host.to_string(),
             local_rpc_url: format!("http://{}", local_rpc_url),
             breaker,
             paused: false,

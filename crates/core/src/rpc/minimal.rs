@@ -1,7 +1,7 @@
 use super::{not_implemented_err, RunloopContext};
 use crate::{
     rpc::{utils::verify_pubkey, State},
-    surfnet::{GetAccountStrategy, FINALIZATION_SLOT_THRESHOLD},
+    surfnet::{GetAccountResult, GetAccountStrategy, SurfnetSvm, FINALIZATION_SLOT_THRESHOLD},
 };
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use jsonrpc_derive::rpc;
@@ -17,7 +17,7 @@ use solana_client::{
     },
 };
 use solana_clock::Slot;
-use solana_commitment_config::CommitmentLevel;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -590,26 +590,38 @@ impl Minimal for SurfpoolMinimalRpc {
             Err(e) => return e.into(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
+        let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
             Ok(res) => res,
             Err(e) => return Box::pin(future::err(e.into())),
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            let res = svm_writer
-                .get_account_mut(
+            let (account_update, latest_absolute_slot) = {
+                SurfnetSvm::get_account(
+                    svm_locker.clone(),
                     &pubkey,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
+                    GetAccountStrategy::LocalThenConnectionOrDefault(
+                        None,
+                        CommitmentConfig::confirmed(),
+                    ),
+                    &remote_rpc_url,
                 )
-                .await?;
-            let balance = match res {
-                Some(account) => account.lamports,
-                None => 0,
+                .await?
+            };
+
+            {
+                let mut svm_writer = svm_locker.write().await;
+                svm_writer.write_account_update(account_update.clone());
+            }
+
+            let balance = match account_update {
+                GetAccountResult::FoundAccount(_, account)
+                | GetAccountResult::FoundProgramAccount((_, account), _) => account.lamports,
+                GetAccountResult::None(_) => 0,
             };
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(latest_absolute_slot),
                 value: balance,
             })
         })

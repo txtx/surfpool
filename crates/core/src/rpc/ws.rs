@@ -16,7 +16,7 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
 
-use crate::surfnet::SignatureSubscriptionType;
+use crate::surfnet::{SignatureSubscriptionType, SurfnetSvm};
 
 use super::{State, SurfpoolWebsocketMeta};
 
@@ -95,15 +95,21 @@ impl Rpc for SurfpoolWsRpc {
         self.tokio_handle.spawn(async move {
             active.write().unwrap().insert(sub_id.clone(), sink);
 
-            let svm_locker = match meta.get_svm_locker() {
+            let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
                 Ok(res) => res,
                 Err(_) => panic!(),
             };
 
             // get the signature from the SVM to see if it's already been processed
-            let res = {
-                let svm_reader = svm_locker.read().await;
-                match svm_reader.get_transaction(&signature, None).await {
+            let (res, _) = {
+                match SurfnetSvm::get_transaction(
+                    svm_locker.clone(),
+                    &signature,
+                    None,
+                    &remote_rpc_url,
+                )
+                .await
+                {
                     Ok(res) => res,
                     Err(e) => {
                         let error = Error {
