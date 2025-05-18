@@ -10222,9 +10222,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-supervisor-ui"
-version = "0.1.4"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "692e5d82a243cb58f7a1b7ab773d4f369bd4e30d5f75d978d504b93ebe28025e"
+checksum = "6c9cc6b2124116ce80b1e0d87726edda6ad9d492909be034ce1ba62d683f9cb8"
 dependencies = [
  "actix-cors",
  "actix-web",
