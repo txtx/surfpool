@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate serde_derive;
-
 // pub mod subgraph;
 pub mod types;
 
