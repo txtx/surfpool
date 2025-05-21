@@ -1,6 +1,7 @@
+use std::str::FromStr;
+
 use juniper::{GraphQLScalar, InputValue, ScalarValue, Value};
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, GraphQLScalar, PartialEq)]
 #[graphql(parse_token(String), description = "A 128-bit integer", name = "i128")]

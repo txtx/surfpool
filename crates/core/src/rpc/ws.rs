@@ -1,24 +1,28 @@
-use std::collections::HashMap;
-use std::str::FromStr;
-use std::sync::{atomic, Arc, RwLock};
+use std::{
+    collections::HashMap,
+    str::FromStr,
+    sync::{atomic, Arc, RwLock},
+};
 
-use jsonrpc_core::Result;
-use jsonrpc_core::{Error, ErrorCode};
+use jsonrpc_core::{Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_pubsub::typed::{Sink, Subscriber};
-use jsonrpc_pubsub::SubscriptionId;
-use solana_client::rpc_config::RpcSignatureSubscribeConfig;
-use solana_client::rpc_response::{
-    ProcessedSignatureResult, ReceivedSignatureResult, RpcResponseContext, RpcSignatureResult,
+use jsonrpc_pubsub::{
+    typed::{Sink, Subscriber},
+    SubscriptionId,
+};
+use solana_client::{
+    rpc_config::RpcSignatureSubscribeConfig,
+    rpc_response::{
+        ProcessedSignatureResult, ReceivedSignatureResult, RpcResponseContext, RpcSignatureResult,
+    },
 };
 use solana_commitment_config::CommitmentLevel;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
 
-use crate::surfnet::SignatureSubscriptionType;
-
 use super::{State, SurfpoolWebsocketMeta};
+use crate::surfnet::SignatureSubscriptionType;
 
 #[rpc]
 pub trait Rpc {

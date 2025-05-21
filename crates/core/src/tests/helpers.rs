@@ -1,10 +1,11 @@
 #![allow(dead_code)]
+use std::{net::TcpListener, sync::Arc};
+
 use crossbeam_channel::Sender;
 use litesvm::LiteSVM;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_sdk::transaction::VersionedTransaction;
-use std::sync::Arc;
 use surfpool_types::SimnetCommand;
 use tokio::sync::RwLock;
 
@@ -13,8 +14,6 @@ use crate::{
     surfnet::SurfnetSvm,
     types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
-
-use std::net::TcpListener;
 
 pub fn get_free_port() -> Result<u16, String> {
     let listener =

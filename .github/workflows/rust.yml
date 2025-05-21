@@ -14,10 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Rustup install rustfmt
-        run: rustup component add rustfmt clippy
+      - name: Rust install nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rustfmt
       - name: Run Cargo fmt
-        run: cargo fmt --all -- --check
+        run: cargo +nightly fmt --all -- --check
       - name: Run Cargo clippy
         run: cargo clippy --all-targets
   build:

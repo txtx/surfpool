@@ -1,13 +1,9 @@
-use crate::error::SurfpoolError;
-use crate::rpc::surfnet_cheatcodes::SvmTricksRpc;
-use crate::rpc::RunloopContext;
-use crate::PluginManagerCommand;
-use crossbeam_channel::unbounded;
-use crossbeam_channel::unbounded as crossbeam_unbounded;
-use jsonrpc_core::Result as JsonRpcResult;
+use std::{str::FromStr, sync::Arc, time::Duration};
+
+use crossbeam_channel::{unbounded, unbounded as crossbeam_unbounded};
 use jsonrpc_core::{
     futures::future::{self, join_all},
-    Error,
+    Error, Result as JsonRpcResult,
 };
 use jsonrpc_core_client::transports::http;
 use solana_hash::Hash;
@@ -23,20 +19,21 @@ use solana_sdk::system_instruction::transfer;
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
-use std::{str::FromStr, sync::Arc, time::Duration};
-use surfpool_types::types::ProfileResult as SurfpoolProfileResult;
-use surfpool_types::SimnetCommand;
 use surfpool_types::{
-    types::{BlockProductionMode, RpcConfig, SimnetConfig},
-    SimnetEvent, SurfpoolConfig,
+    types::{BlockProductionMode, ProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig},
+    SimnetCommand, SimnetEvent, SurfpoolConfig,
 };
 use tokio::{sync::RwLock, task};
 
 use crate::{
-    rpc::{full::FullClient, minimal::MinimalClient},
+    error::SurfpoolError,
+    rpc::{
+        full::FullClient, minimal::MinimalClient, surfnet_cheatcodes::SvmTricksRpc, RunloopContext,
+    },
     runloops::start_local_surfnet_runloop,
     surfnet::SurfnetSvm,
     tests::helpers::get_free_port,
+    PluginManagerCommand,
 };
 
 fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<SimnetEvent>) {

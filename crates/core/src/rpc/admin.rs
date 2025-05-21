@@ -1,21 +1,19 @@
-use crate::PluginManagerCommand;
-use jsonrpc_core::BoxFuture;
-use jsonrpc_core::Result;
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    time::{Duration, SystemTime},
+};
+
+use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
-use solana_client::rpc_config::RpcAccountIndex;
-use solana_client::rpc_custom_error::RpcCustomError;
+use solana_client::{rpc_config::RpcAccountIndex, rpc_custom_error::RpcCustomError};
 use solana_pubkey::Pubkey;
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::time::Duration;
-use std::time::SystemTime;
 use surfpool_types::SimnetCommand;
 use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
-use super::not_implemented_err;
-use super::not_implemented_err_async;
-use super::RunloopContext;
+use super::{not_implemented_err, not_implemented_err_async, RunloopContext};
+use crate::PluginManagerCommand;
 
 #[rpc]
 pub trait AdminRpc {

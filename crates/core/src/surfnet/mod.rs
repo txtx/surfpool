@@ -1,8 +1,8 @@
-use crate::{
-    error::{SurfpoolError, SurfpoolResult},
-    rpc::utils::convert_transaction_metadata_from_canonical,
-    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
+use std::{
+    collections::{HashMap, VecDeque},
+    iter::zip,
 };
+
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use jsonrpc_core::futures::future::{self, join_all};
@@ -44,11 +44,15 @@ use solana_transaction_status::{
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
     UiTransactionEncoding,
 };
-use std::collections::{HashMap, VecDeque};
-use std::iter::zip;
-use surfpool_types::types::{ComputeUnitsEstimationResult, ProfileResult};
 use surfpool_types::{
+    types::{ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionMetadata, TransactionStatusEvent,
+};
+
+use crate::{
+    error::{SurfpoolError, SurfpoolResult},
+    rpc::utils::convert_transaction_metadata_from_canonical,
+    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;

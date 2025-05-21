@@ -1,20 +1,19 @@
-use jsonrpc_core::BoxFuture;
-use jsonrpc_core::Result;
+use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
-use solana_client::rpc_config::{
-    RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig, RpcSupplyConfig,
-    RpcTokenAccountsFilter,
-};
-use solana_client::rpc_response::RpcResponseContext;
-use solana_client::rpc_response::{
-    OptionalContext, RpcAccountBalance, RpcKeyedAccount, RpcSupply, RpcTokenAccountBalance,
+use solana_client::{
+    rpc_config::{
+        RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig, RpcSupplyConfig,
+        RpcTokenAccountsFilter,
+    },
+    rpc_response::{
+        OptionalContext, RpcAccountBalance, RpcKeyedAccount, RpcResponseContext, RpcSupply,
+        RpcTokenAccountBalance,
+    },
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
-use super::not_implemented_err_async;
-use super::RunloopContext;
-use super::State;
+use super::{not_implemented_err_async, RunloopContext, State};
 
 #[rpc]
 pub trait AccountsScan {

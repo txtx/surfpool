@@ -1,8 +1,3 @@
-use super::{not_implemented_err, RunloopContext};
-use crate::{
-    rpc::{utils::verify_pubkey, State},
-    surfnet::{GetAccountStrategy, FINALIZATION_SLOT_THRESHOLD},
-};
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_client::{
@@ -20,6 +15,12 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
+
+use super::{not_implemented_err, RunloopContext};
+use crate::{
+    rpc::{utils::verify_pubkey, State},
+    surfnet::{GetAccountStrategy, FINALIZATION_SLOT_THRESHOLD},
+};
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]

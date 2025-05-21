@@ -1,8 +1,9 @@
 use std::pin::Pin;
 
-use crate::{query::DataloaderContext, types::SubgraphDataEntryUpdate};
 use futures::Stream;
 use juniper::{graphql_subscription, FieldError};
+
+use crate::{query::DataloaderContext, types::SubgraphDataEntryUpdate};
 
 type GqlEntriesStream =
     Pin<Box<dyn Stream<Item = Result<SubgraphDataEntryUpdate, FieldError>> + Send>>;
