@@ -18,10 +18,8 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
-      - name: Rust install stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      - name: Rustup install clippy
+        run: rustup component add clippy
       - name: Run Cargo fmt
         run: cargo +nightly fmt --all -- --check
       - name: Run Cargo clippy
