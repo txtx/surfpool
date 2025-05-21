@@ -184,14 +184,14 @@ impl SurfpoolError {
         } else {
             base_msg
         };
-        let mut error = Error::invalid_params(full_msg);
+        let error = Error::invalid_params(full_msg);
         Self(error)
     }
     pub fn invalid_lookup_index<P>(pubkey: P) -> Self
     where
         P: Display,
     {
-        let mut error =
+        let error =
             Error::invalid_params(format!("Address lookup {pubkey} contains an invalid index"));
         Self(error)
     }

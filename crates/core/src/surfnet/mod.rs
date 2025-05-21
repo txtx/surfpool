@@ -1,11 +1,8 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    iter::zip,
-};
+use std::collections::{HashMap, VecDeque};
 
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use jsonrpc_core::futures::future::{self, join_all};
+use jsonrpc_core::futures::future::join_all;
 use litesvm::{
     types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult},
     LiteSVM,
