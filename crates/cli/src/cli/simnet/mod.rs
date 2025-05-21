@@ -1,18 +1,3 @@
-use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_CLOUD_URL, DEFAULT_EXPLORER_PORT};
-use crate::{
-    http::start_subgraph_and_explorer_server,
-    runbook::execute_runbook,
-    scaffold::{detect_program_frameworks, scaffold_iac_layout},
-    tui,
-};
-use crossbeam::channel::{Select, Sender};
-use notify::{
-    event::{CreateKind, DataChange, ModifyKind},
-    Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
-};
-use serde::{Deserialize, Serialize};
-use solana_keypair::Keypair;
-use solana_signer::Signer;
 use std::{
     path::Path,
     sync::{
@@ -22,6 +7,15 @@ use std::{
     thread::sleep,
     time::Duration,
 };
+
+use crossbeam::channel::{Select, Sender};
+use notify::{
+    event::{CreateKind, DataChange, ModifyKind},
+    Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
+};
+use serde::{Deserialize, Serialize};
+use solana_keypair::Keypair;
+use solana_signer::Signer;
 use surfpool_core::{start_local_surfnet, surfnet::SurfnetSvm};
 use surfpool_types::{SimnetEvent, SubgraphEvent};
 use txtx_core::kit::{
@@ -29,6 +23,14 @@ use txtx_core::kit::{
     types::frontend::BlockEvent,
 };
 use txtx_gql::kit::reqwest;
+
+use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_CLOUD_URL, DEFAULT_EXPLORER_PORT};
+use crate::{
+    http::start_subgraph_and_explorer_server,
+    runbook::execute_runbook,
+    scaffold::{detect_program_frameworks, scaffold_iac_layout},
+    tui,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CheckVersionResponse {

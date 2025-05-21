@@ -1,3 +1,5 @@
+use std::{collections::VecDeque, error::Error, io, time::Duration};
+
 use chrono::{DateTime, Local};
 use crossbeam::channel::{unbounded, Select, Sender};
 use crossterm::{
@@ -19,11 +21,12 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::Transaction;
-use std::{collections::VecDeque, error::Error, io, time::Duration};
 use surfpool_core::{solana_rpc_client::rpc_client::RpcClient, surfnet::SLOTS_PER_EPOCH};
 use surfpool_types::{BlockProductionMode, ClockCommand, SimnetCommand, SimnetEvent};
-use txtx_core::kit::types::frontend::BlockEvent;
-use txtx_core::kit::{channel::Receiver, types::frontend::ProgressBarStatusColor};
+use txtx_core::kit::{
+    channel::Receiver,
+    types::frontend::{BlockEvent, ProgressBarStatusColor},
+};
 
 const HELP_TEXT: &str = "(Esc) quit | (↑) move up | (↓) move down";
 const SURFPOOL_LINK: &str = "Need help? https://docs.surfpool.run/tui";

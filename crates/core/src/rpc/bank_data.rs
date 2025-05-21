@@ -1,7 +1,9 @@
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use solana_client::rpc_config::{RpcBlockProductionConfig, RpcContextConfig};
-use solana_client::rpc_response::{RpcBlockProduction, RpcInflationGovernor, RpcInflationRate};
+use solana_client::{
+    rpc_config::{RpcBlockProductionConfig, RpcContextConfig},
+    rpc_response::{RpcBlockProduction, RpcInflationGovernor, RpcInflationRate},
+};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_schedule::EpochSchedule;

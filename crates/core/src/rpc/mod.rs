@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use blake3::Hash;
 use crossbeam_channel::Sender;
 use jsonrpc_core::{
@@ -6,7 +8,6 @@ use jsonrpc_core::{
 };
 use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub mod accounts_data;
@@ -94,11 +95,12 @@ impl State for Option<RunloopContext> {
 
 impl Metadata for RunloopContext {}
 
-use crate::PluginManagerCommand;
-use crate::{error::SurfpoolError, surfnet::SurfnetSvm};
-use jsonrpc_core::futures::FutureExt;
 use std::future::Future;
+
+use jsonrpc_core::futures::FutureExt;
 use surfpool_types::{types::RpcConfig, SimnetCommand};
+
+use crate::{error::SurfpoolError, surfnet::SurfnetSvm, PluginManagerCommand};
 
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {

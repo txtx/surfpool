@@ -1,24 +1,15 @@
-use crate::query::DataloaderContext;
-use crate::types::schema::DynamicSchemaSpec;
-use juniper::graphql_object;
-use juniper::meta::Field;
-use juniper::meta::MetaType;
-use juniper::Arguments;
-use juniper::DefaultScalarValue;
-use juniper::Executor;
-use juniper::FieldError;
-use juniper::GraphQLType;
-use juniper::GraphQLValue;
-use juniper::Registry;
-use scalars::bigint::BigInt;
-use scalars::hash::Hash;
-use scalars::pubkey::PublicKey;
-use scalars::slot::Slot;
+use juniper::{
+    graphql_object,
+    meta::{Field, MetaType},
+    Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue, Registry,
+};
+use scalars::{bigint::BigInt, hash::Hash, pubkey::PublicKey, slot::Slot};
 use surfpool_types::SubgraphDataEntry;
-use txtx_addon_kit::hex;
-use txtx_addon_kit::types::types::Value;
+use txtx_addon_kit::{hex, types::types::Value};
 use txtx_addon_network_svm_types::{SvmValue, SVM_PUBKEY};
 use uuid::Uuid;
+
+use crate::{query::DataloaderContext, types::schema::DynamicSchemaSpec};
 
 pub mod filters;
 pub mod scalars;

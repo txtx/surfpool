@@ -11,12 +11,11 @@ use txtx_addon_network_svm_types::{
 };
 use uuid::Uuid;
 
-use crate::query::DataloaderContext;
-
 use super::{
     filters::SubgraphFilterSpec,
     scalars::{bigint::BigInt, pubkey::PublicKey},
 };
+use crate::query::DataloaderContext;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DynamicSchemaPayload {

@@ -1,23 +1,21 @@
-use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey};
-use crate::surfnet::GetAccountStrategy;
+use std::str::FromStr;
+
 use itertools::Itertools;
-use jsonrpc_core::BoxFuture;
-use jsonrpc_core::{Error, Result};
+use jsonrpc_core::{BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
-use solana_client::rpc_config::RpcContextConfig;
-use solana_client::rpc_custom_error::RpcCustomError;
-use solana_client::rpc_response::RpcApiVersion;
-use solana_client::rpc_response::RpcResponseContext;
 use solana_client::{
     rpc_config::{
-        RpcBlockConfig, RpcBlocksConfigWrapper, RpcEncodingConfigWrapper, RpcEpochConfig,
-        RpcRequestAirdropConfig, RpcSendTransactionConfig, RpcSignatureStatusConfig,
-        RpcSignaturesForAddressConfig, RpcSimulateTransactionConfig, RpcTransactionConfig,
+        RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig, RpcEncodingConfigWrapper,
+        RpcEpochConfig, RpcRequestAirdropConfig, RpcSendTransactionConfig,
+        RpcSignatureStatusConfig, RpcSignaturesForAddressConfig, RpcSimulateTransactionConfig,
+        RpcTransactionConfig,
     },
+    rpc_custom_error::RpcCustomError,
     rpc_response::{
-        RpcBlockhash, RpcConfirmedTransactionStatusWithSignature, RpcContactInfo,
-        RpcInflationReward, RpcPerfSample, RpcPrioritizationFee, RpcSimulateTransactionResult,
+        RpcApiVersion, RpcBlockhash, RpcConfirmedTransactionStatusWithSignature, RpcContactInfo,
+        RpcInflationReward, RpcPerfSample, RpcPrioritizationFee, RpcResponseContext,
+        RpcSimulateTransactionResult,
     },
 };
 use solana_clock::UnixTimestamp;
@@ -26,13 +24,16 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
+    EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatus,
+    UiConfirmedBlock, UiTransactionEncoding,
 };
-use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
-use std::str::FromStr;
 use surfpool_types::TransactionStatusEvent;
 
-use super::*;
+use super::{
+    utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
+    *,
+};
+use crate::surfnet::GetAccountStrategy;
 
 #[rpc]
 pub trait Full {
@@ -1780,9 +1781,6 @@ mod tests {
 
     use std::thread::JoinHandle;
 
-    use crate::tests::helpers::TestSetup;
-
-    use super::*;
     use base64::{prelude::BASE64_STANDARD, Engine};
     use crossbeam_channel::Receiver;
     use solana_account_decoder::{UiAccount, UiAccountData};
@@ -1808,6 +1806,9 @@ mod tests {
     };
     use surfpool_types::TransactionConfirmationStatus;
     use test_case::test_case;
+
+    use super::*;
+    use crate::tests::helpers::TestSetup;
 
     fn build_v0_transaction(
         payer: &Pubkey,

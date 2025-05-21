@@ -6,9 +6,8 @@ use juniper::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::query::DataloaderContext;
-
 use super::schema::FieldMetadata;
+use crate::query::DataloaderContext;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SubgraphFilterSpec {
