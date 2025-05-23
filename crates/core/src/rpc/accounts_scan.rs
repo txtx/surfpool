@@ -1,17 +1,24 @@
-use jsonrpc_core::{BoxFuture, Result};
+use jsonrpc_core::{BoxFuture, ErrorCode, Result, Error as JsonRpcCoreError};
 use jsonrpc_derive::rpc;
 use solana_client::{
     rpc_config::{
         RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig, RpcSupplyConfig,
-        RpcTokenAccountsFilter,
+        RpcTokenAccountsFilter
     },
     rpc_response::{
         OptionalContext, RpcAccountBalance, RpcKeyedAccount, RpcResponseContext, RpcSupply,
         RpcTokenAccountBalance,
     },
+    rpc_filter::RpcFilterType,
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_sdk::{
+    pubkey::Pubkey,
+};
+use solana_account_decoder::{UiAccountEncoding, encode_ui_account};
+use std::str::FromStr;
+use crate::error::SurfpoolError;
 
 use super::{not_implemented_err_async, RunloopContext, State};
 
@@ -437,7 +444,7 @@ pub trait AccountsScan {
     ///
     /// # Notes
     /// - Useful for monitoring delegated token activity in governance or trading protocols.
-    /// - If a token account doesn’t have a delegate, it won’t be included in results.
+    /// - If a token account doesn't have a delegate, it won't be included in results.
     ///
     /// ## See also
     /// - [`RpcKeyedAccount`], [`RpcAccountInfoConfig`], [`CommitmentConfig`], [`UiAccountEncoding`]
@@ -457,11 +464,100 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
 
     fn get_program_accounts(
         &self,
-        _meta: Self::Metadata,
-        _program_id_str: String,
-        _config: Option<RpcProgramAccountsConfig>,
+        meta: Self::Metadata,
+        program_id_str: String,
+        config: Option<RpcProgramAccountsConfig>,
     ) -> BoxFuture<Result<OptionalContext<Vec<RpcKeyedAccount>>>> {
-        not_implemented_err_async()
+        let context_result = meta.get_svm_locker();
+        
+        let program_id = match Pubkey::from_str(&program_id_str) {
+            Ok(pid) => pid,
+            Err(e) => {
+                return Box::pin(async move {
+                    Err(JsonRpcCoreError::invalid_params(format!(
+                        "Invalid program ID: {}",
+                        e
+                    )))
+                });
+            }
+        };
+
+        let rpc_config = config.clone(); // Clone for use in async block
+
+        Box::pin(async move {
+            let svm_locker = context_result.map_err(surfpool_error_to_jsonrpc_error)?;
+            let svm_reader = svm_locker.read().await;
+            let current_slot = svm_reader.get_latest_absolute_slot();
+
+            let (account_config, filters, with_context) = if let Some(conf) = rpc_config {
+                (
+                    conf.account_config,
+                    conf.filters,
+                    conf.with_context.unwrap_or(false),
+                )
+            } else {
+                (
+                    RpcAccountInfoConfig::default(),
+                    None,
+                    false,
+                )
+            };
+            
+            if let Some(min_context_slot_val) = account_config.min_context_slot {
+                if current_slot < min_context_slot_val {
+                    return Err(JsonRpcCoreError {
+                        code: ErrorCode::InternalError, 
+                        message: format!(
+                            "Node's current slot {} is less than requested minContextSlot {}",
+                            current_slot, min_context_slot_val
+                        ),
+                        data: None,
+                    });
+                }
+            }
+
+            let mut results: Vec<RpcKeyedAccount> = Vec::new();
+            
+            // Get program-owned accounts from the account registry
+            let program_accounts = svm_reader.get_program_accounts(program_id);
+            
+            for (account_pubkey, account) in program_accounts {
+                if let Some(ref active_filters) = filters {
+                    match apply_rpc_filters(&account.data, active_filters) {
+                        Ok(true) => { /* Matches */ }
+                        Ok(false) => continue, // Filtered out
+                        Err(e) => return Err(e), // Error applying filter, already JsonRpcError
+                    }
+                }
+
+                let encoding = account_config
+                    .encoding
+                    .unwrap_or(UiAccountEncoding::Base64);
+                let data_slice = account_config.data_slice;
+
+                let ui_account = encode_ui_account(
+                    &account_pubkey,
+                    &account, 
+                    encoding,
+                    None, // No additional data for now
+                    data_slice,
+                );
+
+                results.push(RpcKeyedAccount {
+                    pubkey: account_pubkey.to_string(),
+                    account: ui_account,
+                });
+            }
+
+            if with_context {
+                Ok(OptionalContext::Context(RpcResponse {
+                    context: RpcResponseContext::new(current_slot),
+                    value: results,
+                }))
+            } else {
+                Ok(OptionalContext::NoContext(results))
+            }
+        })
     }
 
     fn get_largest_accounts(
@@ -524,5 +620,44 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>> {
         not_implemented_err_async()
+    }
+}
+
+// Helper function to apply filters
+fn apply_rpc_filters(
+    account_data: &[u8],
+    filters: &[RpcFilterType],
+) -> std::result::Result<bool, JsonRpcCoreError> {
+    for filter in filters {
+        match filter {
+            RpcFilterType::DataSize(size) => {
+                if account_data.len() as u64 != *size {
+                    return Ok(false);
+                }
+            }
+            RpcFilterType::Memcmp(memcmp_filter) => {
+                // Use the public bytes_match method from solana_client::rpc_filter::Memcmp
+                if !memcmp_filter.bytes_match(account_data) {
+                    return Ok(false); // Content mismatch or out of bounds handled by bytes_match
+                }
+            }
+            RpcFilterType::TokenAccountState => {
+                return Err(JsonRpcCoreError {
+                    code: ErrorCode::InternalError,
+                    message: "TokenAccountState filter is not yet implemented".to_string(),
+                    data: None,
+                });
+            }
+        }
+    }
+    Ok(true)
+}
+
+// Helper to convert SurfpoolError to JsonRpcError
+fn surfpool_error_to_jsonrpc_error(e: SurfpoolError) -> JsonRpcCoreError {
+    JsonRpcCoreError {
+        code: ErrorCode::InternalError,
+        message: e.to_string(),
+        data: None,
     }
 }
