@@ -128,7 +128,7 @@ pub struct SurfnetSvm {
     pub simnet_events_tx: Sender<SimnetEvent>,
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
-    pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>, 
+    pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
     pub account_registry: HashMap<Pubkey, Vec<(Pubkey, Account)>>,
 }
 

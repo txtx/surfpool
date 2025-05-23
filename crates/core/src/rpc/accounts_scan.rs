@@ -1,24 +1,22 @@
-use jsonrpc_core::{BoxFuture, ErrorCode, Result, Error as JsonRpcCoreError};
+use crate::error::SurfpoolError;
+use jsonrpc_core::{BoxFuture, Error as JsonRpcCoreError, ErrorCode, Result};
 use jsonrpc_derive::rpc;
+use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::{
     rpc_config::{
         RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig, RpcSupplyConfig,
-        RpcTokenAccountsFilter
+        RpcTokenAccountsFilter,
     },
+    rpc_filter::RpcFilterType,
     rpc_response::{
         OptionalContext, RpcAccountBalance, RpcKeyedAccount, RpcResponseContext, RpcSupply,
         RpcTokenAccountBalance,
     },
-    rpc_filter::RpcFilterType,
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{
-    pubkey::Pubkey,
-};
-use solana_account_decoder::{UiAccountEncoding, encode_ui_account};
+use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
-use crate::error::SurfpoolError;
 
 use super::{not_implemented_err_async, RunloopContext, State};
 
@@ -469,7 +467,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         config: Option<RpcProgramAccountsConfig>,
     ) -> BoxFuture<Result<OptionalContext<Vec<RpcKeyedAccount>>>> {
         let context_result = meta.get_svm_locker();
-        
+
         let program_id = match Pubkey::from_str(&program_id_str) {
             Ok(pid) => pid,
             Err(e) => {
@@ -496,17 +494,13 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
                     conf.with_context.unwrap_or(false),
                 )
             } else {
-                (
-                    RpcAccountInfoConfig::default(),
-                    None,
-                    false,
-                )
+                (RpcAccountInfoConfig::default(), None, false)
             };
-            
+
             if let Some(min_context_slot_val) = account_config.min_context_slot {
                 if current_slot < min_context_slot_val {
                     return Err(JsonRpcCoreError {
-                        code: ErrorCode::InternalError, 
+                        code: ErrorCode::InternalError,
                         message: format!(
                             "Node's current slot {} is less than requested minContextSlot {}",
                             current_slot, min_context_slot_val
@@ -517,27 +511,25 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
             }
 
             let mut results: Vec<RpcKeyedAccount> = Vec::new();
-            
+
             // Get program-owned accounts from the account registry
             let program_accounts = svm_reader.get_program_accounts(program_id);
-            
+
             for (account_pubkey, account) in program_accounts {
                 if let Some(ref active_filters) = filters {
                     match apply_rpc_filters(&account.data, active_filters) {
                         Ok(true) => { /* Matches */ }
-                        Ok(false) => continue, // Filtered out
+                        Ok(false) => continue,   // Filtered out
                         Err(e) => return Err(e), // Error applying filter, already JsonRpcError
                     }
                 }
 
-                let encoding = account_config
-                    .encoding
-                    .unwrap_or(UiAccountEncoding::Base64);
+                let encoding = account_config.encoding.unwrap_or(UiAccountEncoding::Base64);
                 let data_slice = account_config.data_slice;
 
                 let ui_account = encode_ui_account(
                     &account_pubkey,
-                    &account, 
+                    &account,
                     encoding,
                     None, // No additional data for now
                     data_slice,
