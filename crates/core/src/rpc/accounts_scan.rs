@@ -487,14 +487,13 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
             let svm_reader = svm_locker.read().await;
             let current_slot = svm_reader.get_latest_absolute_slot();
 
-            let (account_config, filters, with_context) = if let Some(conf) = rpc_config {
-                (
+            let (account_config, filters, with_context) = match rpc_config {
+                Some(conf) => (
                     conf.account_config,
                     conf.filters,
                     conf.with_context.unwrap_or(false),
-                )
-            } else {
-                (RpcAccountInfoConfig::default(), None, false)
+                ),
+                None => (RpcAccountInfoConfig::default(), None, false),
             };
 
             if let Some(min_context_slot_val) = account_config.min_context_slot {
