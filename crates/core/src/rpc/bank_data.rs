@@ -389,6 +389,7 @@ pub trait BankData {
     ) -> Result<RpcResponse<RpcBlockProduction>>;
 }
 
+#[derive(Clone)]
 pub struct SurfpoolBankDataRpc;
 impl BankData for SurfpoolBankDataRpc {
     type Metadata = Option<RunloopContext>;
@@ -419,14 +420,9 @@ impl BankData for SurfpoolBankDataRpc {
         not_implemented_err()
     }
 
-    fn get_epoch_schedule(&self, _meta: Self::Metadata) -> Result<EpochSchedule> {
-        Ok(EpochSchedule {
-            slots_per_epoch: 0,
-            leader_schedule_slot_offset: 0,
-            warmup: false,
-            first_normal_epoch: 0,
-            first_normal_slot: 0,
-        })
+    fn get_epoch_schedule(&self, meta: Self::Metadata) -> Result<EpochSchedule> {
+        meta.with_svm_reader(move |svm_reader| svm_reader.inner.get_sysvar::<EpochSchedule>())
+            .map_err(Into::into)
     }
 
     fn get_slot_leader(
@@ -452,5 +448,19 @@ impl BankData for SurfpoolBankDataRpc {
         _config: Option<RpcBlockProductionConfig>,
     ) -> Result<RpcResponse<RpcBlockProduction>> {
         not_implemented_err()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::helpers::TestSetup;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_epoch_schedule() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+        let res = setup.rpc.get_epoch_schedule(Some(setup.context)).unwrap();
+
+        assert_eq!(res, EpochSchedule::default());
     }
 }
