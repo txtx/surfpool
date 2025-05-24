@@ -1711,7 +1711,7 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            let svm_reader = svm_locker.write().await;
+            let svm_reader = svm_locker.read().await;
             let earliest_slot = svm_reader.blocks.keys().min().copied();
             Ok(earliest_slot.unwrap_or_default())
         })
