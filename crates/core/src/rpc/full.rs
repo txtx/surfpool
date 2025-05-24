@@ -1704,8 +1704,17 @@ impl Full for SurfpoolFullRpc {
         not_implemented_err_async()
     }
 
-    fn get_first_available_block(&self, _meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
-        Box::pin(async move { Ok(1) })
+    fn get_first_available_block(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(s) => s,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let svm_reader = svm_locker.write().await;
+            let earliest_slot = svm_reader.blocks.keys().min().copied();
+            Ok(earliest_slot.unwrap_or_default())
+        })
     }
 
     fn get_latest_blockhash(
@@ -1808,7 +1817,10 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::tests::helpers::TestSetup;
+    use crate::{
+        surfnet::{BlockHeader, BlockIdentifier},
+        tests::helpers::TestSetup,
+    };
 
     fn build_v0_transaction(
         payer: &Pubkey,
@@ -2226,16 +2238,51 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(deprecated)]
     async fn test_get_first_available_block() {
         let setup = TestSetup::new(SurfpoolFullRpc);
+
+        {
+            let mut svm_writer = setup.context.surfnet_svm.write().await;
+
+            let previous_chain_tip = svm_writer.chain_tip.clone();
+
+            let latest_entries = svm_writer
+                .inner
+                .get_sysvar::<solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes>(
+            );
+            let latest_entry = latest_entries.first().unwrap();
+
+            svm_writer.chain_tip = BlockIdentifier::new(
+                svm_writer.chain_tip.index + 1,
+                latest_entry.blockhash.to_string().as_str(),
+            );
+
+            let hash = svm_writer.chain_tip.hash.clone();
+            let block_height = svm_writer.chain_tip.index;
+            let parent_slot = svm_writer.get_latest_absolute_slot();
+
+            svm_writer.blocks.insert(
+                parent_slot,
+                BlockHeader {
+                    hash,
+                    previous_blockhash: previous_chain_tip.hash.clone(),
+                    block_time: chrono::Utc::now().timestamp_millis(),
+                    block_height,
+                    parent_slot,
+                    signatures: Vec::new(),
+                },
+            );
+        }
+
         let res = setup
             .rpc
             .get_first_available_block(Some(setup.context))
             .await
             .unwrap();
 
-        assert_eq!(res, 1);
+        assert_eq!(res, 123);
     }
 
     #[test]
