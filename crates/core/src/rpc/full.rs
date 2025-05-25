@@ -1,7 +1,6 @@
 use std::str::FromStr;
-
 use itertools::Itertools;
-use jsonrpc_core::{BoxFuture, Error, Result};
+use jsonrpc_core::{BoxFuture, Error, Result,futures::future::join_all};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::{
@@ -18,6 +17,7 @@ use solana_client::{
         RpcSimulateTransactionResult,
     },
 };
+use solana_pubkey::Pubkey;
 use solana_clock::UnixTimestamp;
 use solana_message::VersionedMessage;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -33,7 +33,10 @@ use super::{
     utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
     *,
 };
-use crate::surfnet::GetAccountStrategy;
+use crate::{
+    error::{SurfpoolError, SurfpoolResult},
+    surfnet::GetAccountStrategy
+};
 
 #[rpc]
 pub trait Full {
@@ -1524,11 +1527,6 @@ impl Full for SurfpoolFullRpc {
         let (_, unsanitized_tx) =
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding).unwrap();
 
-        let pubkeys = match &unsanitized_tx.message {
-            VersionedMessage::Legacy(msg) => msg.account_keys.clone(),
-            VersionedMessage::V0(msg) => msg.account_keys.clone(),
-        };
-
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
@@ -1536,6 +1534,31 @@ impl Full for SurfpoolFullRpc {
 
         Box::pin(async move {
             let mut svm_writer = svm_locker.write().await;
+            let pubkeys = match &unsanitized_tx.message {
+                VersionedMessage::Legacy(message) => message.account_keys.clone(),
+                VersionedMessage::V0(message) => {
+                    let alts = message.address_table_lookups.clone();
+                    let mut acc_keys = message.account_keys.clone();
+                    let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
+    
+                    let mut table_entries = join_all(alts.iter().map(|msg| async {
+                        let loaded_addresses = svm_writer.load_lookup_table_addresses(msg).await?;
+                        let mut combined = loaded_addresses.writable;
+                        combined.extend(loaded_addresses.readonly);
+                        Ok::<_, SurfpoolError>(combined)
+                    }))
+                    .await
+                    .into_iter()
+                    .collect::<SurfpoolResult<Vec<Vec<Pubkey>>>>()? 
+                    .into_iter()
+                    .flatten()
+                    .collect();
+    
+                    acc_keys.append(&mut alt_pubkeys);
+                    acc_keys.append(&mut table_entries);
+                    acc_keys
+                },
+            };
             let _ = svm_writer
                 .get_multiple_accounts_mut(
                     &pubkeys,
