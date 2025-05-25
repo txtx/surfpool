@@ -1,6 +1,5 @@
-use std::str::FromStr;
 use itertools::Itertools;
-use jsonrpc_core::{BoxFuture, Error, Result,futures::future::join_all};
+use jsonrpc_core::{futures::future::join_all, BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::{
@@ -17,9 +16,9 @@ use solana_client::{
         RpcSimulateTransactionResult,
     },
 };
-use solana_pubkey::Pubkey;
 use solana_clock::UnixTimestamp;
 use solana_message::VersionedMessage;
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
@@ -27,6 +26,7 @@ use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatus,
     UiConfirmedBlock, UiTransactionEncoding,
 };
+use std::str::FromStr;
 use surfpool_types::TransactionStatusEvent;
 
 use super::{
@@ -35,7 +35,7 @@ use super::{
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    surfnet::GetAccountStrategy
+    surfnet::GetAccountStrategy,
 };
 
 #[rpc]
@@ -1539,8 +1539,9 @@ impl Full for SurfpoolFullRpc {
                 VersionedMessage::V0(message) => {
                     let alts = message.address_table_lookups.clone();
                     let mut acc_keys = message.account_keys.clone();
-                    let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
-    
+                    let mut alt_pubkeys =
+                        alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
+
                     let mut table_entries = join_all(alts.iter().map(|msg| async {
                         let loaded_addresses = svm_writer.load_lookup_table_addresses(msg).await?;
                         let mut combined = loaded_addresses.writable;
@@ -1549,15 +1550,15 @@ impl Full for SurfpoolFullRpc {
                     }))
                     .await
                     .into_iter()
-                    .collect::<SurfpoolResult<Vec<Vec<Pubkey>>>>()? 
+                    .collect::<SurfpoolResult<Vec<Vec<Pubkey>>>>()?
                     .into_iter()
                     .flatten()
                     .collect();
-    
+
                     acc_keys.append(&mut alt_pubkeys);
                     acc_keys.append(&mut table_entries);
                     acc_keys
-                },
+                }
             };
             let _ = svm_writer
                 .get_multiple_accounts_mut(

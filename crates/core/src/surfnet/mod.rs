@@ -409,7 +409,7 @@ impl SurfnetSvm {
                 .inner
                 .get_sysvar::<solana_sdk::sysvar::clock::Clock>()
                 .slot;
-            
+
             let data = &table_account.data.clone();
             let lookup_table = AddressLookupTable::deserialize(data).map_err(|_ix_err| {
                 SurfpoolError::invalid_account_data(
@@ -924,7 +924,7 @@ impl SurfnetSvm {
                 }))
                 .await
                 .into_iter()
-                .collect::<SurfpoolResult<Vec<Vec<Pubkey>>>>()? 
+                .collect::<SurfpoolResult<Vec<Vec<Pubkey>>>>()?
                 .into_iter()
                 .flatten()
                 .collect();
