@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use itertools::Itertools;
 use jsonrpc_core::{futures::future::join_all, BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
@@ -26,7 +28,6 @@ use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatus,
     UiConfirmedBlock, UiTransactionEncoding,
 };
-use std::str::FromStr;
 use surfpool_types::TransactionStatusEvent;
 
 use super::{
