@@ -1035,7 +1035,7 @@ pub trait Full {
     /// # See Also
     /// - `getBlock`, `getBlockTime`, `minimumLedgerSlot`
     #[rpc(meta, name = "getFirstAvailableBlock")]
-    fn get_first_available_block(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>>;
+    fn get_first_available_block(&self, meta: Self::Metadata) -> Result<Slot>;
 
     /// Returns the latest blockhash and associated metadata needed to sign and send a transaction.
     ///
@@ -1704,17 +1704,11 @@ impl Full for SurfpoolFullRpc {
         not_implemented_err_async()
     }
 
-    fn get_first_available_block(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(s) => s,
-            Err(e) => return e.into(),
-        };
-
-        Box::pin(async move {
-            let svm_reader = svm_locker.read().await;
-            let earliest_slot = svm_reader.blocks.keys().min().copied();
-            Ok(earliest_slot.unwrap_or_default())
+    fn get_first_available_block(&self, meta: Self::Metadata) -> Result<Slot> {
+        meta.with_svm_reader(|svm_reader| {
+            svm_reader.blocks.keys().min().copied().unwrap_or_default()
         })
+        .map_err(Into::into)
     }
 
     fn get_latest_blockhash(
@@ -2279,7 +2273,6 @@ mod tests {
         let res = setup
             .rpc
             .get_first_available_block(Some(setup.context))
-            .await
             .unwrap();
 
         assert_eq!(res, 123);
