@@ -13,7 +13,7 @@ categories = { workspace = true }
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rmcp = { version = "0.1.5", features = ["server"] }
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", branch = "main", features = ["transport-io", "transport-sse-server"], package = "rmcp" }
 tracing = "0.1"
 axum = { version = "0.8", features = ["macros"] }
 serde = { workspace = true }

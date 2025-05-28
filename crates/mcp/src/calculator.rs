@@ -1,8 +1,7 @@
 use rmcp::{
-    ServerHandler,
     handler::server::wrapper::Json,
     model::{ServerCapabilities, ServerInfo},
-    schemars, tool,
+    schemars, tool, ServerHandler,
 };
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -11,7 +10,7 @@ pub struct SumRequest {
     pub a: i32,
     pub b: i32,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Calculator;
 #[tool(tool_box)]
 impl Calculator {
@@ -34,10 +33,8 @@ impl Calculator {
     }
 
     #[tool(description = "Spin up a new sufnet")]
-    fn start_surfnet(
-        &self,
-    ) -> Json<bool> {
-        // Starting a new surfnet runloop 
+    fn start_surfnet(&self) -> Json<bool> {
+        // Starting a new surfnet runloop
         Json(true)
     }
 }
