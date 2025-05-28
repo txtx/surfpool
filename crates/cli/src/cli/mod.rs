@@ -119,6 +119,9 @@ enum Command {
     /// Txtx cloud commands
     #[clap(subcommand, name = "cloud", bin_name = "cloud")]
     Cloud(CloudCommand),
+    /// Start MCP server
+    #[clap(subcommand, name = "mcp", bin_name = "mcp")]
+    Mcp(McpCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -398,6 +401,15 @@ pub fn main() {
     }
 }
 
+#[derive(Parser, PartialEq, Clone, Debug)]
+pub struct McpCommand {
+}
+
+pub async fn handle_mcp_command(_opts: McpCommand, _ctx: &Context) -> Result<(), String> {
+    surfpool_mcp::run_server(&McpOptions::default()).await?;
+    Ok(())
+}
+
 async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     match opts.command {
         Command::Simnet(cmd) => simnet::handle_start_local_surfnet_command(&cmd, ctx).await,
@@ -405,6 +417,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Run(cmd) => handle_execute_runbook_command(cmd).await,
         Command::List(cmd) => handle_list_command(cmd, ctx).await,
         Command::Cloud(cmd) => handle_cloud_commands(cmd).await,
+        Command::Mcp(cmd) => handle_mcp_command(cmd, ctx).await,
     }
 }
 
