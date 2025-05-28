@@ -1,13 +1,13 @@
-use calculator::Calculator;
 use rmcp::{transport::stdio, ServiceExt};
+use surfpool::Surfpool;
 
-mod calculator;
+mod surfpool;
 
 #[derive(PartialEq, Clone, Debug, Default)]
 pub struct McpOptions {}
 
 pub async fn run_server(_opts: &McpOptions) -> Result<(), String> {
-    let service = Calculator
+    let service = Surfpool
         .serve(stdio())
         .await
         .inspect_err(|e| {
