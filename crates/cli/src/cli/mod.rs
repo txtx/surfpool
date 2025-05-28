@@ -121,7 +121,7 @@ enum Command {
     #[clap(subcommand, name = "cloud", bin_name = "cloud")]
     Cloud(CloudCommand),
     /// Start MCP server
-    #[clap(name= "mcp", bin_name = "mcp")]
+    #[clap(name = "mcp", bin_name = "mcp")]
     Mcp,
 }
 
