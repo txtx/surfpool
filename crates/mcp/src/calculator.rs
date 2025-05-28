@@ -3,6 +3,7 @@ use rmcp::{
     model::{ServerCapabilities, ServerInfo},
     schemars, tool, ServerHandler,
 };
+use std::process::{Command, Stdio};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct SumRequest {
@@ -35,7 +36,16 @@ impl Calculator {
     #[tool(description = "Spin up a new sufnet")]
     fn start_surfnet(&self) -> Json<bool> {
         // Starting a new surfnet runloop
-        Json(true)
+        let mut cmd = Command::new("surfpool");
+        cmd.arg("start");
+        cmd.stdin(Stdio::null());
+        match cmd.spawn() {
+            Ok(_child) => Json(true),
+            Err(e) => {
+                eprintln!("Failed to execute surfnet start: {}", e);
+                Json(false)
+            }
+        }
     }
 }
 
