@@ -7,7 +7,7 @@ mod calculator;
 pub struct McpOptions {}
 
 pub async fn run_server(_opts: &McpOptions) -> Result<(), String> {
-    let service = Calculator::default()
+    let service = Calculator
         .serve(stdio())
         .await
         .inspect_err(|e| {

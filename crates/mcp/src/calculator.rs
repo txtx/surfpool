@@ -1,9 +1,10 @@
+use std::process::{Command, Stdio};
+
 use rmcp::{
     handler::server::wrapper::Json,
     model::{ServerCapabilities, ServerInfo},
     schemars, tool, ServerHandler,
 };
-use std::process::{Command, Stdio};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct SumRequest {
