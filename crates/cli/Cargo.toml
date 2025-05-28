@@ -51,7 +51,8 @@ solana-transaction = { workspace = true }
 surfpool-core = { workspace = true }
 surfpool-gql = { workspace = true }
 surfpool-types = { workspace = true }
-tokio = "1.43.0"
+surfpool-mcp = { workspace = true }
+tokio = { workspace = true }
 toml = { version = "0.8.2", features = ["preserve_order"], optional = true }
 txtx-addon-network-svm = { workspace = true }
 txtx-core = { workspace = true }
