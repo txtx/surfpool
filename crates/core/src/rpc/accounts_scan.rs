@@ -451,6 +451,7 @@ pub trait AccountsScan {
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>>;
 }
 
+#[derive(Clone)]
 pub struct SurfpoolAccountsScanRpc;
 impl AccountsScan for SurfpoolAccountsScanRpc {
     type Metadata = Option<RunloopContext>;
@@ -475,7 +476,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
     fn get_supply(
         &self,
         meta: Self::Metadata,
-        _config: Option<RpcSupplyConfig>,
+        config: Option<RpcSupplyConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSupply>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
@@ -485,13 +486,64 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         Box::pin(async move {
             let svm_reader = svm_locker.read().await;
             let slot = svm_reader.get_latest_absolute_slot();
+
+            // check if we should exclude non-circulating accounts list
+            let exclude_accounts = config
+                .as_ref()
+                .map(|c| c.exclude_non_circulating_accounts_list)
+                .unwrap_or(false);
+
+            // if connected to remote, forward the request
+            if svm_reader.is_connected() {
+                let client = svm_reader.expected_rpc_client();
+                let commitment = config.and_then(|c| c.commitment).unwrap_or_default();
+
+                match client.supply_with_commitment(commitment).await {
+                    Ok(supply) => {
+                        let mut result_supply = supply.value;
+
+                      
+                        if exclude_accounts {
+                            result_supply.non_circulating_accounts = vec![];
+                        }
+
+                        // update the context slot to our current slot
+                        return Ok(RpcResponse {
+                            context: RpcResponseContext::new(slot),
+                            value: result_supply,
+                        });
+                    }
+                    Err(e) => {
+                        warn!("Failed to fetch supply from remote: {}", e);
+   
+                    }
+                }
+            }
+
+            // if offline mode or remote fails - return fallback values
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
                 value: RpcSupply {
-                    total: 1,
-                    circulating: 0,
-                    non_circulating: 0,
-                    non_circulating_accounts: vec![],
+                    total: 601_827_395_699_099_600, // ~601M SOL -> mainnet-like values
+                    circulating: 520_524_286_980_708_900, // ~520M SOL circulating
+                    non_circulating: 81_303_108_718_390_690, // ~81M SOL non-circulating
+                    non_circulating_accounts: if exclude_accounts {
+                        vec![]
+                    } else {
+                        // first 10 from mainet
+                        vec![
+                            "4HuaKHmK9ZvbAnonxatMdHLqTn2iGNXHGFtvKhR61ao9".to_string(),
+                            "H1SXM6mYN2AgfRhzJTeDvUEZRs4GYamHx6gprp47AdZj".to_string(),
+                            "9i93DT71Ac82dSrqGfE5Y8Ko81copbsjcQbjnc4h337a".to_string(),
+                            "FdRWzEd6i4oQuzxfmZ4fLB7Bd8v9XnuD6AARg7jXotJn".to_string(),
+                            "AFya6aUWmzT14CaXPiFTz3xUWV4uoznv5thwKymYNB4y".to_string(),
+                            "9JoChhEVmxCtMq6XQ7BfeQZuiZaz4Sq5Ym97R9B43uy3".to_string(),
+                            "ESWL7qERyLmzbG1kgmoZb3RAF66Gz42WAThdvdqWmZAq".to_string(),
+                            "J3d7MDV2DBN5PMmY4MTvfeaDKb1vnbd1Wvb2KjXQTwun".to_string(),
+                            "E46i1Cs7rBWjmF2gYm8tRKYcoe9RJ71PWstVM7Xdh4UE".to_string(),
+                            "6Vkp8GRrgxWr81ph98Njtwuq6DybJbL7qFfv1RVF9EkY".to_string(),
+                        ]
+                    },
                 },
             })
         })
@@ -524,5 +576,148 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>> {
         not_implemented_err_async()
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    
+    use super::*;
+    use crate::tests::helpers::TestSetup;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_supply_offline_mode() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        // test without config
+        let res = setup
+            .rpc
+            .get_supply(Some(setup.context.clone()), None)
+            .await
+            .unwrap();
+
+        // should return fallback values in offline mode
+        assert_eq!(res.value.total, 601_827_395_699_099_600);
+        assert_eq!(res.value.circulating, 520_524_286_980_708_900);
+        assert_eq!(res.value.non_circulating, 81_303_108_718_390_690);
+        assert!(!res.value.non_circulating_accounts.is_empty());
+        assert_eq!(res.context.slot, 123);
+    }
+
+    #[ignore = "connection-required"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_supply_connected_mode() {
+        let mut setup = TestSetup::new(SurfpoolAccountsScanRpc);
+        
+        setup.context
+            .surfnet_svm
+            .write()
+            .await
+            .connect("https://api.mainnet-beta.solana.com")
+            .await
+            .expect("Failed to connect to mainnet");
+
+        let res = setup
+            .rpc
+            .get_supply(Some(setup.context), None)
+            .await
+            .unwrap();
+
+        // should return real mainnet supply data
+        assert!(res.value.total > 400_000_000_000_000_000); // > 400M SOL
+        assert!(res.value.total < 700_000_000_000_000_000); // < 700M SOL
+        assert!(res.value.circulating > 0);
+        assert!(res.value.non_circulating > 0);
+        assert_eq!(res.value.total, res.value.circulating + res.value.non_circulating);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_supply_error_handling() {
+        // test with invalid metadata -> no svm locker
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        let res = setup.rpc.get_supply(None, None).await;
+
+        // should return an error when no metadata is provided
+        assert!(res.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_supply_consistency() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        // make multiple calls and ensure consistency
+        let res1 = setup
+            .rpc
+            .get_supply(Some(setup.context.clone()), None)
+            .await
+            .unwrap();
+
+        let res2 = setup
+            .rpc
+            .get_supply(Some(setup.context), None)
+            .await
+            .unwrap();
+
+        // results should be identical in offline mode
+        assert_eq!(res1.value.total, res2.value.total);
+        assert_eq!(res1.value.circulating, res2.value.circulating);
+        assert_eq!(res1.value.non_circulating, res2.value.non_circulating);
+        assert_eq!(res1.value.non_circulating_accounts, res2.value.non_circulating_accounts);
+    }
+
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_supply_with_include_accounts_config() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        let config = RpcSupplyConfig {
+            commitment: Some(CommitmentConfig::confirmed()),
+            exclude_non_circulating_accounts_list: false,
+        };
+
+        let res = setup
+            .rpc
+            .get_supply(Some(setup.context), Some(config))
+            .await
+            .unwrap();
+
+        // should include non-circulating accounts list
+        assert!(!res.value.non_circulating_accounts.is_empty());
+
+        // Should contain expected non-circ accounts
+        let accounts = &res.value.non_circulating_accounts;
+        assert!(accounts.contains(&"4HuaKHmK9ZvbAnonxatMdHLqTn2iGNXHGFtvKhR61ao9".to_string())); // System program
+        assert!(accounts.contains(&"H1SXM6mYN2AgfRhzJTeDvUEZRs4GYamHx6gprp47AdZj".to_string())); // Vote program
+        assert!(accounts.contains(&"9i93DT71Ac82dSrqGfE5Y8Ko81copbsjcQbjnc4h337a".to_string())); // Config program
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_supply_with_different_commitments() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        let commitments = vec![
+            CommitmentConfig::processed(),
+            CommitmentConfig::confirmed(),
+            CommitmentConfig::finalized(),
+        ];
+
+        for commitment in commitments {
+            let config = RpcSupplyConfig {
+                commitment: Some(commitment),
+                exclude_non_circulating_accounts_list: false,
+            };
+
+            let res = setup
+                .rpc
+                .get_supply(Some(setup.context.clone()), Some(config))
+                .await
+                .unwrap();
+
+            // should succeed with any commitment level in offline mode
+            assert!(res.value.total > 0);
+            assert_eq!(res.context.slot, 123);
+        }
     }
 }
