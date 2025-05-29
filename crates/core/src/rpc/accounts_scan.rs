@@ -688,9 +688,9 @@ mod tests {
 
         // Should contain expected non-circ accounts
         let accounts = &res.value.non_circulating_accounts;
-        assert!(accounts.contains(&"4HuaKHmK9ZvbAnonxatMdHLqTn2iGNXHGFtvKhR61ao9".to_string())); // System program
-        assert!(accounts.contains(&"H1SXM6mYN2AgfRhzJTeDvUEZRs4GYamHx6gprp47AdZj".to_string())); // Vote program
-        assert!(accounts.contains(&"9i93DT71Ac82dSrqGfE5Y8Ko81copbsjcQbjnc4h337a".to_string())); // Config program
+        assert!(accounts.contains(&"4HuaKHmK9ZvbAnonxatMdHLqTn2iGNXHGFtvKhR61ao9".to_string()));
+        assert!(accounts.contains(&"H1SXM6mYN2AgfRhzJTeDvUEZRs4GYamHx6gprp47AdZj".to_string()));
+        assert!(accounts.contains(&"9i93DT71Ac82dSrqGfE5Y8Ko81copbsjcQbjnc4h337a".to_string()));
     }
 
     #[tokio::test(flavor = "multi_thread")]
