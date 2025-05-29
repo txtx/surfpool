@@ -668,11 +668,39 @@ impl Minimal for SurfpoolMinimalRpc {
     fn get_block_height(
         &self,
         meta: Self::Metadata,
-        _config: Option<RpcContextConfig>,
+        config: Option<RpcContextConfig>,
     ) -> Result<u64> {
+        let config = config.unwrap_or_default();
+
+        //get the current slot and check min_context_slot constraint
+        let current_slot = meta
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+            .map_err(Into::<jsonrpc_core::Error>::into)?;
+
+
+        // check minimum context slot whn specified -> against current slot, not adjusted slot
+        if let Some(min_context_slot) = config.min_context_slot {
+            if current_slot < min_context_slot {
+                return Err(RpcCustomError::MinContextSlotNotReached {
+                    context_slot: min_context_slot,
+                }
+                    .into());
+            }
+        }
+
+        // commitment adjustments to determine which slot's data to use
+        let _target_slot = match config.commitment.unwrap_or_default().commitment {
+            CommitmentLevel::Processed => current_slot,
+            CommitmentLevel::Confirmed => current_slot.saturating_sub(1),
+            CommitmentLevel::Finalized => current_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD),
+        };
+
+
+        // return the current block height since we don't have historical block height data in the current implementation
         meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.block_height)
             .map_err(Into::into)
     }
+
 
     fn get_highest_snapshot_slot(&self, _meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
         not_implemented_err()
@@ -752,6 +780,100 @@ impl Minimal for SurfpoolMinimalRpc {
 mod tests {
     use super::*;
     use crate::tests::helpers::TestSetup;
+    use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
+    use solana_client::rpc_config::RpcContextConfig;
+    use solana_epoch_info::EpochInfo;
+
+    #[test]
+    fn test_get_block_height_basic() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+        
+        let result = setup.rpc.get_block_height(Some(setup.context.clone()), None);
+        assert!(result.is_ok(), "get_block_height should not fail");
+
+        let block_height = result.unwrap();
+
+        println!("Block height returned: {:?}", block_height);
+    }
+
+    #[test]
+    fn test_get_block_height_matches_svm_state() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        let result = setup.rpc.get_block_height(Some(setup.context.clone()), None);
+        assert!(result.is_ok());
+
+        let block_height = result.unwrap();
+        let svm_block_height = setup.context.surfnet_svm.blocking_read().latest_epoch_info.block_height;
+
+        assert_eq!(block_height, svm_block_height,
+                   "Implementation should return the same block height as SVM state");
+    }
+
+    #[test]
+    fn test_get_block_height_with_processed_commitment() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        let config = Some(RpcContextConfig {
+            commitment: Some(CommitmentConfig {
+                commitment: CommitmentLevel::Processed,
+            }),
+            min_context_slot: None,
+        });
+
+        let result = setup.rpc.get_block_height(Some(setup.context.clone()), config);
+        assert!(result.is_ok());
+
+        let block_height = result.unwrap();
+        let expected_height = setup.context.surfnet_svm.blocking_read().latest_epoch_info.block_height;
+        assert_eq!(block_height, expected_height);
+    }
+
+    #[test]
+    fn test_get_block_height_with_valid_min_context_slot() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+        let current_slot = setup.context.surfnet_svm.blocking_read().get_latest_absolute_slot();
+
+        println!("Current slot: {}", current_slot);
+        println!("Min context slot will be: {}", current_slot.saturating_sub(10));
+
+        let config = Some(RpcContextConfig {
+            commitment: None,
+            min_context_slot: Some(current_slot.saturating_sub(10)), 
+        });
+
+        let result = setup.rpc.get_block_height(Some(setup.context.clone()), config);
+
+        match &result {
+            Ok(height) => println!("Success: Block height = {}", height),
+            Err(e) => println!("Error: {:?}", e),
+        }
+
+        assert!(result.is_ok(), "Should succeed when min_context_slot is less than current slot");
+    }
+
+    #[test]
+    fn test_get_block_height_debug_slots() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        let current_slot = setup.context.surfnet_svm.blocking_read().get_latest_absolute_slot();
+        println!("Current slot: {}", current_slot);
+
+        // get_slot with same config to see if it behaves differently
+        let slot_config = Some(RpcContextConfig {
+            commitment: None, // Default commitment
+            min_context_slot: Some(current_slot - 10),
+        });
+
+        let slot_result = setup.rpc.get_slot(Some(setup.context.clone()), slot_config.clone());
+        println!("get_slot result: {:?}", slot_result);
+
+        let block_height_result = setup.rpc.get_block_height(Some(setup.context.clone()), slot_config);
+        println!("get_block_height result: {:?}", block_height_result);
+        
+        let default_commitment = CommitmentConfig::default();
+        println!("Default commitment: {:?}", default_commitment.commitment);
+    }
 
     #[test]
     fn test_get_health() {
