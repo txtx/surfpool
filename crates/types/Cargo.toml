@@ -30,6 +30,8 @@ txtx-addon-network-svm-types = { workspace = true }
 txtx-addon-kit = { workspace = true }
 uuid = { version = "1.7.0", features = ["js"] }
 blake3 = "1.8.2"
+once_cell = "1.19.0"
+serde_json = { workspace = true }
 
 [dev-dependencies]
 test-case = "^3.3.1"
