@@ -394,7 +394,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             // if the account update is contains all fields, we can directly set the account
             let (account_to_set, latest_absolute_slot) = if let Some(account) = account_update {
                 (
-                    GetAccountResult::FoundAccount(pubkey, account),
+                    GetAccountResult::FoundAccount(pubkey, account, true),
                     svm_locker.get_latest_absolute_slot(),
                 )
             } else {
@@ -418,6 +418,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                                     rent_epoch: 0,
                                     data: vec![],
                                 },
+                                true, // indicate that the account should be updated in the SVM, since it's new
                             )
                 }))).await?;
 
@@ -504,6 +505,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                                 rent_epoch: 0,
                                 data: data.to_vec(),
                             },
+                            true, // indicate that the account should be updated in the SVM, since it's new
                         )
                     })),
                 )

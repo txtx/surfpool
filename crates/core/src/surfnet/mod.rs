@@ -79,10 +79,19 @@ pub enum SignatureSubscriptionType {
     Commitment(CommitmentLevel),
 }
 
+type DoUpdateSvm = bool;
+
 #[derive(Clone, Debug)]
+/// Represents the result of a get_account operation.
 pub enum GetAccountResult {
+    /// Represents that the account was not found.
     None(Pubkey),
-    FoundAccount(Pubkey, Account),
+    /// Represents that the account was found.
+    /// The `DoUpdateSvm` flag indicates whether the SVM should be updated after this account is found.
+    /// This is useful for cases where the account was fetched from a remote source and needs to be
+    /// updated in the SVM to reflect the latest state. However, when the account is found locally,
+    /// it likely does not need to be updated in the SVM.
+    FoundAccount(Pubkey, Account, DoUpdateSvm),
     FoundProgramAccount((Pubkey, Account), (Pubkey, Option<Account>)),
 }
 
@@ -94,7 +103,7 @@ impl GetAccountResult {
     ) -> Option<UiAccount> {
         match &self {
             Self::None(_) => None,
-            Self::FoundAccount(pubkey, account)
+            Self::FoundAccount(pubkey, account, _)
             | Self::FoundProgramAccount((pubkey, account), _) => Some(encode_ui_account(
                 pubkey,
                 account,
@@ -108,7 +117,7 @@ impl GetAccountResult {
     pub fn expected_data(&self) -> &Vec<u8> {
         match &self {
             Self::None(_) => unreachable!(),
-            Self::FoundAccount(_, account) | Self::FoundProgramAccount((_, account), _) => {
+            Self::FoundAccount(_, account, _) | Self::FoundProgramAccount((_, account), _) => {
                 &account.data
             }
         }
@@ -120,8 +129,11 @@ impl GetAccountResult {
     {
         match self {
             Self::None(_) => unreachable!(),
-            Self::FoundAccount(_, ref mut account)
-            | Self::FoundProgramAccount((_, ref mut account), _) => {
+            Self::FoundAccount(_, ref mut account, ref mut do_update_account) => {
+                update(account)?;
+                *do_update_account = true;
+            }
+            Self::FoundProgramAccount((_, ref mut account), _) => {
                 update(account)?;
             }
         }
@@ -131,7 +143,7 @@ impl GetAccountResult {
     pub fn map_found_account(self) -> Result<Account, SurfpoolError> {
         match self {
             Self::None(pubkey) => Err(SurfpoolError::account_not_found(pubkey)),
-            Self::FoundAccount(_, account) => Ok(account),
+            Self::FoundAccount(_, account, _) => Ok(account),
             Self::FoundProgramAccount((pubkey, _), _) => Err(SurfpoolError::invalid_account_data(
                 pubkey,
                 "account should not be executable",
@@ -143,13 +155,21 @@ impl GetAccountResult {
     pub fn map_account(self) -> SurfpoolResult<Account> {
         match self {
             Self::None(pubkey) => Err(SurfpoolError::account_not_found(pubkey)),
-            Self::FoundAccount(_, account) => Ok(account),
+            Self::FoundAccount(_, account, _) => Ok(account),
             Self::FoundProgramAccount((_, account), _) => Ok(account),
         }
     }
 
     pub fn is_none(&self) -> bool {
         matches!(self, Self::None(_))
+    }
+
+    pub fn requires_update(&self) -> bool {
+        match self {
+            Self::None(_) => false,
+            Self::FoundAccount(_, _, do_update) => *do_update,
+            Self::FoundProgramAccount(_, _) => true,
+        }
     }
 }
 

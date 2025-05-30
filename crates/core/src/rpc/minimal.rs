@@ -606,7 +606,7 @@ impl Minimal for SurfpoolMinimalRpc {
             } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
 
             let balance = match &account_update {
-                GetAccountResult::FoundAccount(_, account)
+                GetAccountResult::FoundAccount(_, account, _)
                 | GetAccountResult::FoundProgramAccount((_, account), _) => account.lamports,
                 GetAccountResult::None(_) => 0,
             };

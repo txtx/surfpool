@@ -518,8 +518,12 @@ impl SurfnetSvm {
     /// * `account_update` - The account update result to process.
     pub fn write_account_update(&mut self, account_update: GetAccountResult) {
         match account_update {
-            GetAccountResult::FoundAccount(pubkey, account)
-            | GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
+            GetAccountResult::FoundAccount(pubkey, account, do_update_account) => {
+                if do_update_account {
+                    let _ = self.set_account(&pubkey, account.clone());
+                }
+            }
+            GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
                 let _ = self.set_account(&pubkey, account.clone());
             }
             GetAccountResult::FoundProgramAccount(

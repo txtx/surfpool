@@ -585,7 +585,7 @@ mod tests {
         setup
             .context
             .svm_locker
-            .write_account_update(GetAccountResult::FoundAccount(mint_pk, mint_account));
+            .write_account_update(GetAccountResult::FoundAccount(mint_pk, mint_account, true));
 
         let token_account_pk = Pubkey::new_unique();
 
@@ -620,6 +620,7 @@ mod tests {
             .write_account_update(GetAccountResult::FoundAccount(
                 token_account_pk,
                 token_account,
+                true,
             ));
 
         let res = setup

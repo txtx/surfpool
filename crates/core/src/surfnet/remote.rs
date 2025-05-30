@@ -67,7 +67,11 @@ impl SurfnetRemoteClient {
         let result = match res.value {
             Some(account) => {
                 if !account.executable {
-                    GetAccountResult::FoundAccount(*pubkey, account)
+                    GetAccountResult::FoundAccount(
+                        *pubkey, account,
+                        // Mark this account as needing to be updated in the SVM, since we fetched it
+                        true,
+                    )
                 } else {
                     let program_data_address = get_program_data_address(pubkey);
 
@@ -106,7 +110,12 @@ impl SurfnetRemoteClient {
         for (pubkey, remote_account) in pubkeys.iter().zip(remote_accounts) {
             if let Some(remote_account) = remote_account {
                 if !remote_account.executable {
-                    accounts_result.push(GetAccountResult::FoundAccount(*pubkey, remote_account));
+                    accounts_result.push(GetAccountResult::FoundAccount(
+                        *pubkey,
+                        remote_account,
+                        // Mark this account as needing to be updated in the SVM, since we fetched it
+                        true,
+                    ));
                 } else {
                     let program_data_address = get_program_data_address(&pubkey);
 

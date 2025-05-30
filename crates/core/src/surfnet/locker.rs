@@ -183,7 +183,11 @@ impl SurfnetSvmLocker {
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
             match svm_reader.inner.get_account(pubkey) {
-                Some(account) => GetAccountResult::FoundAccount(*pubkey, account),
+                Some(account) => GetAccountResult::FoundAccount(
+                    *pubkey, account,
+                    // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                    false,
+                ),
                 None => GetAccountResult::None(*pubkey),
             }
         })
@@ -239,7 +243,11 @@ impl SurfnetSvmLocker {
 
             for pubkey in pubkeys.iter() {
                 let res = match svm_reader.inner.get_account(pubkey) {
-                    Some(account) => GetAccountResult::FoundAccount(*pubkey, account),
+                    Some(account) => GetAccountResult::FoundAccount(
+                        *pubkey, account,
+                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                        false,
+                    ),
                     None => GetAccountResult::None(*pubkey),
                 };
                 accounts.push(res);
@@ -517,7 +525,7 @@ impl SurfnetSvmLocker {
 impl SurfnetSvmLocker {
     /// Writes a single account update into the SVM state if present.
     pub fn write_account_update(&self, account_update: GetAccountResult) {
-        if GetAccountResult::is_none(&account_update) {
+        if !account_update.requires_update() {
             return;
         }
 
@@ -528,7 +536,10 @@ impl SurfnetSvmLocker {
 
     /// Writes multiple account updates into the SVM state when any are present.
     pub fn write_multiple_account_updates(&self, account_updates: &[GetAccountResult]) {
-        if account_updates.iter().all(|update| update.is_none()) {
+        if account_updates
+            .iter()
+            .all(|update| !update.requires_update())
+        {
             return;
         }
 
