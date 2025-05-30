@@ -183,7 +183,7 @@ pub fn run(
                     }
                     None => {
                         return SetTokenAccountResponse::error(format!(
-                            "Invalid token identifier: '{}'. Not SOL, a valid mint address, or a known symbol.",
+                            "The token symbol provided '{}' is not a verified token. Please provide the token address instead.",
                             token_identifier_str
                         ));
                     }
