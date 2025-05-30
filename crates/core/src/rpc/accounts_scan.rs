@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use jsonrpc_core::{BoxFuture, Error as JsonRpcCoreError, ErrorCode, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
@@ -16,10 +14,14 @@ use solana_client::{
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::pubkey::Pubkey;
+use solana_sdk::program_pack::Pack;
+use spl_associated_token_account::get_associated_token_address_with_program_id;
+use spl_token::state::Account as TokenAccount;
 
-use super::{not_implemented_err_async, RunloopContext, State};
-use crate::error::SurfpoolError;
+use super::{
+    not_implemented_err_async, utils::verify_pubkey, RunloopContext, State, SurfnetRpcContext,
+};
+use crate::surfnet::locker::SvmAccessContext;
 
 #[rpc]
 pub trait AccountsScan {
@@ -467,38 +469,27 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         program_id_str: String,
         config: Option<RpcProgramAccountsConfig>,
     ) -> BoxFuture<Result<OptionalContext<Vec<RpcKeyedAccount>>>> {
-        let context_result = meta.get_svm_locker();
-
-        let program_id = match Pubkey::from_str(&program_id_str) {
-            Ok(pid) => pid,
-            Err(e) => {
-                return Box::pin(async move {
-                    Err(JsonRpcCoreError::invalid_params(format!(
-                        "Invalid program ID: {}",
-                        e
-                    )))
-                });
-            }
+        let config = config.unwrap_or_default();
+        let program_id = match verify_pubkey(&program_id_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
         };
 
-        let rpc_config = config.clone(); // Clone for use in async block
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
 
         Box::pin(async move {
-            let svm_locker = context_result.map_err(surfpool_error_to_jsonrpc_error)?;
-            let svm_reader = svm_locker.read().await;
-            let current_slot = svm_reader.get_latest_absolute_slot();
+            let current_slot = svm_locker.get_latest_absolute_slot();
 
-            let (account_config, filters, with_context) = match rpc_config {
-                Some(conf) => (
-                    conf.account_config,
-                    conf.filters,
-                    conf.with_context.unwrap_or(false),
-                ),
-                None => (RpcAccountInfoConfig::default(), None, false),
-            };
+            let account_config = config.account_config;
 
-            if let Some(min_context_slot_val) = account_config.min_context_slot {
-                if current_slot < min_context_slot_val {
+            if let Some(min_context_slot_val) = account_config.min_context_slot.as_ref() {
+                if current_slot < *min_context_slot_val {
                     return Err(JsonRpcCoreError {
                         code: ErrorCode::InternalError,
                         message: format!(
@@ -513,10 +504,13 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
             let mut results: Vec<RpcKeyedAccount> = Vec::new();
 
             // Get program-owned accounts from the account registry
-            let program_accounts = svm_reader.get_program_accounts(program_id);
+            let program_accounts = svm_locker
+                .get_program_accounts(&remote_ctx.map(|(client, _)| client), &program_id)
+                .await?
+                .inner;
 
             for (account_pubkey, account) in program_accounts {
-                if let Some(ref active_filters) = filters {
+                if let Some(ref active_filters) = config.filters {
                     match apply_rpc_filters(&account.data, active_filters) {
                         Ok(true) => { /* Matches */ }
                         Ok(false) => continue,   // Filtered out
@@ -541,7 +535,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
                 });
             }
 
-            if with_context {
+            if config.with_context.unwrap_or(false) {
                 Ok(OptionalContext::Context(RpcResponse {
                     context: RpcResponseContext::new(current_slot),
                     value: results,
@@ -571,16 +565,17 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         };
 
         Box::pin(async move {
-            let svm_reader = svm_locker.read().await;
-            let slot = svm_reader.get_latest_absolute_slot();
-            Ok(RpcResponse {
-                context: RpcResponseContext::new(slot),
-                value: RpcSupply {
-                    total: 1,
-                    circulating: 0,
-                    non_circulating: 0,
-                    non_circulating_accounts: vec![],
-                },
+            svm_locker.with_svm_reader(|svm_reader| {
+                let slot = svm_reader.get_latest_absolute_slot();
+                Ok(RpcResponse {
+                    context: RpcResponseContext::new(slot),
+                    value: RpcSupply {
+                        total: 1,
+                        circulating: 0,
+                        non_circulating: 0,
+                        non_circulating_accounts: vec![],
+                    },
+                })
             })
         })
     }
@@ -596,12 +591,87 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
 
     fn get_token_accounts_by_owner(
         &self,
-        _meta: Self::Metadata,
-        _owner_str: String,
-        _token_account_filter: RpcTokenAccountsFilter,
-        _config: Option<RpcAccountInfoConfig>,
+        meta: Self::Metadata,
+        owner_str: String,
+        token_account_filter: RpcTokenAccountsFilter,
+        config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>> {
-        not_implemented_err_async()
+        let config = config.unwrap_or_default();
+        let owner = match verify_pubkey(&owner_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            match token_account_filter {
+                RpcTokenAccountsFilter::Mint(mint) => {
+                    let mint = verify_pubkey(&mint)?;
+
+                    let associated_token_address = get_associated_token_address_with_program_id(
+                        &owner,
+                        &mint,
+                        &spl_token::id(),
+                    );
+                    let SvmAccessContext {
+                        slot,
+                        inner: account_update,
+                        ..
+                    } = svm_locker
+                        .get_account(&remote_ctx, &associated_token_address, None)
+                        .await?;
+
+                    svm_locker.write_account_update(account_update.clone());
+
+                    let token_account = account_update.map_account()?;
+
+                    let _ = TokenAccount::unpack(&token_account.data).map_err(|e| {
+                        JsonRpcCoreError::invalid_params(format!(
+                            "Failed to unpack token account data: {}",
+                            e
+                        ))
+                    })?;
+
+                    Ok(RpcResponse {
+                        context: RpcResponseContext::new(slot),
+                        value: vec![RpcKeyedAccount {
+                            pubkey: associated_token_address.to_string(),
+                            account: encode_ui_account(
+                                &associated_token_address,
+                                &token_account,
+                                config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                                None,
+                                config.data_slice,
+                            ),
+                        }],
+                    })
+                }
+                RpcTokenAccountsFilter::ProgramId(program_id) => {
+                    let program_id = verify_pubkey(&program_id)?;
+
+                    let remote_ctx = remote_ctx.map(|(r, _)| r);
+                    let SvmAccessContext {
+                        slot,
+                        inner: (keyed_accounts, missing_pubkeys),
+                        ..
+                    } = svm_locker
+                        .get_all_token_accounts(&remote_ctx, owner, program_id)
+                        .await?;
+
+                    Ok(RpcResponse {
+                        context: RpcResponseContext::new(slot),
+                        value: keyed_accounts,
+                    })
+                }
+            }
+        })
     }
 
     fn get_token_accounts_by_delegate(
@@ -643,13 +713,4 @@ fn apply_rpc_filters(
         }
     }
     Ok(true)
-}
-
-// Helper to convert SurfpoolError to JsonRpcError
-fn surfpool_error_to_jsonrpc_error(e: SurfpoolError) -> JsonRpcCoreError {
-    JsonRpcCoreError {
-        code: ErrorCode::InternalError,
-        message: e.to_string(),
-        data: None,
-    }
 }

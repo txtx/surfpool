@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::{net::TcpListener, sync::Arc};
+use std::net::TcpListener;
 
 use crossbeam_channel::Sender;
 use litesvm::LiteSVM;
@@ -7,11 +7,10 @@ use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_sdk::transaction::VersionedTransaction;
 use surfpool_types::SimnetCommand;
-use tokio::sync::RwLock;
 
 use crate::{
     rpc::{utils::convert_transaction_metadata_from_canonical, RunloopContext},
-    surfnet::SurfnetSvm,
+    surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
     types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 
@@ -43,7 +42,7 @@ where
         let (simnet_commands_tx, _rx) = crossbeam_channel::unbounded();
         let (plugin_manager_commands_tx, _rx) = crossbeam_channel::unbounded();
 
-        let (mut sufnet_svm, _, _) = SurfnetSvm::new();
+        let (mut surfnet_svm, _, _) = SurfnetSvm::new();
         let clock = Clock {
             slot: 123,
             epoch_start_timestamp: 123,
@@ -51,8 +50,8 @@ where
             leader_schedule_epoch: 1,
             unix_timestamp: 123,
         };
-        sufnet_svm.inner.set_sysvar::<Clock>(&clock);
-        sufnet_svm.latest_epoch_info = EpochInfo {
+        surfnet_svm.inner.set_sysvar::<Clock>(&clock);
+        surfnet_svm.latest_epoch_info = EpochInfo {
             epoch: clock.epoch,
             slot_index: clock.slot,
             slots_in_epoch: 100,
@@ -60,14 +59,15 @@ where
             block_height: 42,
             transaction_count: Some(2),
         };
-        sufnet_svm.transactions_processed = 69;
+        surfnet_svm.transactions_processed = 69;
 
         TestSetup {
             context: RunloopContext {
                 simnet_commands_tx,
                 plugin_manager_commands_tx,
                 id: None,
-                surfnet_svm: Arc::new(RwLock::new(sufnet_svm)),
+                svm_locker: SurfnetSvmLocker::new(surfnet_svm),
+                remote_rpc_client: None,
             },
             rpc,
         }
@@ -75,13 +75,18 @@ where
 
     pub fn new_with_epoch_info(rpc: T, epoch_info: EpochInfo) -> Self {
         let setup = TestSetup::new(rpc);
-        setup.context.surfnet_svm.blocking_write().latest_epoch_info = epoch_info;
+        setup
+            .context
+            .svm_locker
+            .0
+            .blocking_write()
+            .latest_epoch_info = epoch_info;
         setup
     }
 
     pub fn new_with_svm(rpc: T, svm: LiteSVM) -> Self {
         let setup = TestSetup::new(rpc);
-        setup.context.surfnet_svm.blocking_write().inner = svm;
+        setup.context.svm_locker.0.blocking_write().inner = svm;
         setup
     }
 
@@ -92,7 +97,7 @@ where
     }
 
     pub async fn without_blockhash(self) -> Self {
-        let mut state_writer = self.context.surfnet_svm.write().await;
+        let mut state_writer = self.context.svm_locker.0.write().await;
         let svm = state_writer.inner.clone();
         let svm = svm.with_blockhash_check(false);
         state_writer.inner = svm;
@@ -102,7 +107,7 @@ where
 
     pub async fn process_txs(&mut self, txs: Vec<VersionedTransaction>) {
         for tx in txs {
-            let mut state_writer = self.context.surfnet_svm.write().await;
+            let mut state_writer = self.context.svm_locker.0.write().await;
             match state_writer.send_transaction(tx.clone(), false) {
                 Ok(res) => state_writer.transactions.insert(
                     tx.signatures[0],

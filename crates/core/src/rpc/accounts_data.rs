@@ -1,10 +1,9 @@
 use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{
-    encode_ui_account,
     parse_account_data::SplTokenAdditionalDataV2,
     parse_token::{parse_token_v3, TokenAccountType, UiTokenAmount},
-    UiAccount, UiAccountEncoding,
+    UiAccount,
 };
 use solana_client::{
     rpc_config::RpcAccountInfoConfig,
@@ -17,11 +16,11 @@ use solana_runtime::commitment::BlockCommitmentArray;
 use solana_sdk::program_pack::Pack;
 use spl_token::state::{Account as TokenAccount, Mint};
 
-use super::{not_implemented_err, RunloopContext};
+use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::{utils::verify_pubkey, State},
-    surfnet::GetAccountStrategy,
+    surfnet::locker::SvmAccessContext,
 };
 
 #[rpc]
@@ -364,31 +363,26 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return e.into(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(locker) => locker,
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
+            Ok(res) => res,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            let some_account = svm_writer
-                .get_account_mut(
-                    &pubkey,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
-                )
-                .await?;
+            let SvmAccessContext {
+                slot,
+                inner: account_update,
+                ..
+            } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
+
+            svm_locker.write_account_update(account_update.clone());
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
-                value: some_account.map(|account| {
-                    encode_ui_account(
-                        &pubkey,
-                        &account,
-                        config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                        None,
-                        config.data_slice,
-                    )
-                }),
+                context: RpcResponseContext::new(slot),
+                value: account_update.try_into_ui_account(config.encoding, config.data_slice),
             })
         })
     }
@@ -409,34 +403,36 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return e.into(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(locker) => locker,
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
+            Ok(res) => res,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            let accounts = svm_writer
-                .get_multiple_accounts_mut(
-                    &pubkeys,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
-                )
+            let SvmAccessContext {
+                slot,
+                inner: account_updates,
+                ..
+            } = svm_locker
+                .get_multiple_accounts(&remote_ctx, &pubkeys, None)
                 .await?;
+
+            svm_locker.write_multiple_account_updates(&account_updates);
+
             let mut ui_accounts = vec![];
-            for (account, pubkey) in accounts.into_iter().zip(pubkeys) {
-                ui_accounts.push(account.map(|account| {
-                    encode_ui_account(
-                        &pubkey,
-                        &account,
-                        config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                        None,
-                        config.data_slice,
-                    )
-                }));
+            {
+                for account_update in account_updates.into_iter() {
+                    ui_accounts.push(
+                        account_update.try_into_ui_account(config.encoding, config.data_slice),
+                    );
+                }
             }
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(slot),
                 value: ui_accounts,
             })
         })
@@ -458,57 +454,66 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        _commitment: Option<CommitmentConfig>,
+        commitment: Option<CommitmentConfig>,
     ) -> BoxFuture<Result<RpcResponse<Option<UiTokenAmount>>>> {
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(locker) => locker,
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(commitment.unwrap_or_default()) {
+            Ok(res) => res,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            let some_account = svm_writer
-                .get_account_mut(
-                    &pubkey,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
-                )
+            let token_account_result = svm_locker
+                .get_account(&remote_ctx, &pubkey, None)
+                .await?
+                .inner;
+
+            svm_locker.write_account_update(token_account_result.clone());
+
+            let token_account = token_account_result.map_account()?;
+
+            let unpacked_token_account =
+                TokenAccount::unpack(&token_account.data).map_err(|e| {
+                    SurfpoolError::invalid_account_data(
+                        pubkey,
+                        "Invalid token account data",
+                        Some(e.to_string()),
+                    )
+                })?;
+
+            let SvmAccessContext {
+                slot,
+                inner: mint_account_result,
+                ..
+            } = svm_locker
+                .get_account(&remote_ctx, &unpacked_token_account.mint, None)
                 .await?;
 
-            let (token_account, token_account_slice) = some_account
-                .and_then(|account| {
-                    let t = TokenAccount::unpack(&account.data).ok()?;
-                    Some((t, account.data))
-                })
-                .ok_or(SurfpoolError::get_account(
-                    pubkey,
-                    "Error fetching token account",
-                ))?;
+            svm_locker.write_account_update(mint_account_result.clone());
 
-            let mint_account = svm_writer
-                .get_account(
-                    &token_account.mint,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
+            let mint_account = mint_account_result.map_account()?;
+            let unpacked_mint_account = Mint::unpack(&mint_account.data).map_err(|e| {
+                SurfpoolError::invalid_account_data(
+                    unpacked_token_account.mint,
+                    "Invalid token mint account data",
+                    Some(e.to_string()),
                 )
-                .await?;
+            })?;
 
-            let token_decimals = mint_account
-                .and_then(|account| Mint::unpack(&account.data).ok())
-                .ok_or(SurfpoolError::get_account(
-                    pubkey,
-                    "Error fetching token mint account",
-                ))?
-                .decimals;
+            let token_decimals = unpacked_mint_account.decimals;
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(slot),
                 value: {
                     parse_token_v3(
-                        &token_account_slice,
+                        &token_account.data,
                         Some(&SplTokenAdditionalDataV2 {
                             decimals: token_decimals,
                             ..Default::default()
@@ -539,10 +544,10 @@ mod tests {
     use solana_account::Account;
     use solana_pubkey::Pubkey;
     use solana_sdk::program_pack::Pack;
-    use spl_token::state::{Account as TokenAccount, AccountState};
+    use spl_token::state::{Account as TokenAccount, AccountState, Mint};
 
     use super::*;
-    use crate::tests::helpers::TestSetup;
+    use crate::{surfnet::GetAccountResult, tests::helpers::TestSetup};
 
     #[ignore = "connection-required"]
     #[tokio::test(flavor = "multi_thread")]
@@ -551,13 +556,11 @@ mod tests {
 
         let mint_pk = Pubkey::new_unique();
 
-        let minimum_rent = setup
-            .context
-            .surfnet_svm
-            .write()
-            .await
-            .inner
-            .minimum_balance_for_rent_exemption(Mint::LEN);
+        let minimum_rent = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .inner
+                .minimum_balance_for_rent_exemption(Mint::LEN)
+        });
 
         let mut data = [0; Mint::LEN];
 
@@ -579,21 +582,16 @@ mod tests {
 
         setup
             .context
-            .surfnet_svm
-            .write()
-            .await
-            .set_account(&mint_pk, mint_account)
-            .unwrap();
+            .svm_locker
+            .write_account_update(GetAccountResult::FoundAccount(mint_pk, mint_account, true));
 
         let token_account_pk = Pubkey::new_unique();
 
-        let minimum_rent = setup
-            .context
-            .surfnet_svm
-            .write()
-            .await
-            .inner
-            .minimum_balance_for_rent_exemption(TokenAccount::LEN);
+        let minimum_rent = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .inner
+                .minimum_balance_for_rent_exemption(TokenAccount::LEN)
+        });
 
         let mut data = [0; TokenAccount::LEN];
 
@@ -616,11 +614,12 @@ mod tests {
 
         setup
             .context
-            .surfnet_svm
-            .write()
-            .await
-            .set_account(&token_account_pk, token_account)
-            .unwrap();
+            .svm_locker
+            .write_account_update(GetAccountResult::FoundAccount(
+                token_account_pk,
+                token_account,
+                true,
+            ));
 
         let res = setup
             .rpc
