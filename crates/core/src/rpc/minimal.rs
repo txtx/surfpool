@@ -1,9 +1,9 @@
-use super::{not_implemented_err, RunloopContext};
+use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
 use crate::{
     rpc::{utils::verify_pubkey, State},
-    surfnet::{GetAccountResult, GetAccountStrategy, SurfnetSvm, FINALIZATION_SLOT_THRESHOLD},
+    surfnet::{locker::SvmAccessContext, GetAccountResult, FINALIZATION_SLOT_THRESHOLD},
 };
-use jsonrpc_core::{futures::future, BoxFuture, Result};
+use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_client::{
     rpc_config::{
@@ -590,38 +590,31 @@ impl Minimal for SurfpoolMinimalRpc {
             Err(e) => return e.into(),
         };
 
-        let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
             Ok(res) => res,
-            Err(e) => return Box::pin(future::err(e.into())),
+            Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let (account_update, latest_absolute_slot) = {
-                SurfnetSvm::get_account(
-                    svm_locker.clone(),
-                    &pubkey,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(
-                        None,
-                        CommitmentConfig::confirmed(),
-                    ),
-                    &remote_rpc_url,
-                )
-                .await?
-            };
+            let SvmAccessContext {
+                slot,
+                inner: account_update,
+                ..
+            } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
 
-            {
-                let mut svm_writer = svm_locker.write().await;
-                svm_writer.write_account_update(account_update.clone());
-            }
-
-            let balance = match account_update {
+            let balance = match &account_update {
                 GetAccountResult::FoundAccount(_, account)
                 | GetAccountResult::FoundProgramAccount((_, account), _) => account.lamports,
                 GetAccountResult::None(_) => 0,
             };
 
+            svm_locker.write_account_update(account_update);
+
             Ok(RpcResponse {
-                context: RpcResponseContext::new(latest_absolute_slot),
+                context: RpcResponseContext::new(slot),
                 value: balance,
             })
         })
@@ -651,19 +644,15 @@ impl Minimal for SurfpoolMinimalRpc {
 
     fn get_slot(&self, meta: Self::Metadata, config: Option<RpcContextConfig>) -> Result<Slot> {
         let config = config.unwrap_or_default();
+        let latest_absolute_slot = meta
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+            .map_err(Into::<jsonrpc_core::Error>::into)?;
         let slot = match config.commitment.unwrap_or_default().commitment {
-            CommitmentLevel::Processed => meta
-                .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
-                .map_err(Into::<jsonrpc_core::Error>::into)?,
-            CommitmentLevel::Confirmed => meta
-                .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot() - 1)
-                .map_err(Into::<jsonrpc_core::Error>::into)?,
-            CommitmentLevel::Finalized => meta
-                .with_svm_reader(|svm_reader| {
-                    svm_reader.get_latest_absolute_slot() - FINALIZATION_SLOT_THRESHOLD
-                })
-                .map_err(Into::<jsonrpc_core::Error>::into)?,
+            CommitmentLevel::Processed => latest_absolute_slot,
+            CommitmentLevel::Confirmed => latest_absolute_slot - 1,
+            CommitmentLevel::Finalized => latest_absolute_slot - FINALIZATION_SLOT_THRESHOLD,
         };
+
         if let Some(min_context_slot) = config.min_context_slot {
             if slot < min_context_slot {
                 return Err(RpcCustomError::MinContextSlotNotReached {
@@ -776,9 +765,8 @@ mod tests {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let transactions_processed = setup
             .context
-            .surfnet_svm
-            .blocking_read()
-            .transactions_processed;
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.transactions_processed);
         let result = setup.rpc.get_transaction_count(Some(setup.context), None);
         assert_eq!(result.unwrap(), transactions_processed);
     }
@@ -802,7 +790,7 @@ mod tests {
     fn test_get_slot() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup.rpc.get_slot(Some(setup.context), None).unwrap();
-        assert_eq!(result, 123);
+        assert_eq!(result, 92);
     }
 
     #[test]

@@ -60,6 +60,12 @@ impl<T> From<TrySendError<T>> for SurfpoolError {
     }
 }
 
+impl From<solana_client::client_error::ClientError> for SurfpoolError {
+    fn from(e: solana_client::client_error::ClientError) -> Self {
+        SurfpoolError::client_error(e)
+    }
+}
+
 impl SurfpoolError {
     pub fn from_try_send_error<T>(e: TrySendError<T>) -> Self {
         let mut error = Error::internal_error();
@@ -67,6 +73,12 @@ impl SurfpoolError {
             "Failed to send command on channel: {}",
             e.to_string()
         )));
+        Self(error)
+    }
+
+    pub fn client_error(e: solana_client::client_error::ClientError) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!("Solana RPC client error: {}", e.to_string())));
         Self(error)
     }
 
@@ -169,6 +181,14 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn transaction_not_found<S>(signature: S) -> Self
+    where
+        S: Display,
+    {
+        let error = Error::invalid_params(format!("Transaction {signature} not found"));
+        Self(error)
+    }
+
     pub fn invalid_account_data<P, D, M>(pubkey: P, data: D, message: Option<M>) -> Self
     where
         P: Display,
@@ -197,14 +217,14 @@ impl SurfpoolError {
         } else {
             base_msg
         };
-        let mut error = Error::invalid_params(full_msg);
+        let error = Error::invalid_params(full_msg);
         Self(error)
     }
     pub fn invalid_lookup_index<P>(pubkey: P) -> Self
     where
         P: Display,
     {
-        let mut error =
+        let error =
             Error::invalid_params(format!("Address lookup {pubkey} contains an invalid index"));
         Self(error)
     }

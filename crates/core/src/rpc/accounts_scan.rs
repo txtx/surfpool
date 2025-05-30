@@ -3,7 +3,6 @@ use jsonrpc_core::Error;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_account_decoder::encode_ui_account;
-use solana_account_decoder::UiAccount;
 use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_config::{
     RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig, RpcSupplyConfig,
@@ -18,17 +17,14 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::program_pack::Pack;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::Account as TokenAccount;
-use spl_token::state::Account;
 
-use crate::error::SurfpoolError;
-use crate::surfnet::GetAccountResult;
-use crate::surfnet::GetAccountStrategy;
-use crate::surfnet::SurfnetSvm;
+use crate::surfnet::locker::SvmAccessContext;
 
 use super::not_implemented_err_async;
 use super::utils::verify_pubkey;
 use super::RunloopContext;
 use super::State;
+use super::SurfnetRpcContext;
 
 #[rpc]
 pub trait AccountsScan {
@@ -492,22 +488,23 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         meta: Self::Metadata,
         _config: Option<RpcSupplyConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSupply>>> {
-        let (svm_locker, _) = match meta.get_svm_locker() {
+        let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let svm_reader = svm_locker.read().await;
-            let slot = svm_reader.get_latest_absolute_slot();
-            Ok(RpcResponse {
-                context: RpcResponseContext::new(slot),
-                value: RpcSupply {
-                    total: 1,
-                    circulating: 0,
-                    non_circulating: 0,
-                    non_circulating_accounts: vec![],
-                },
+            svm_locker.with_svm_reader(|svm_reader| {
+                let slot = svm_reader.get_latest_absolute_slot();
+                Ok(RpcResponse {
+                    context: RpcResponseContext::new(slot),
+                    value: RpcSupply {
+                        total: 1,
+                        circulating: 0,
+                        non_circulating: 0,
+                        non_circulating_accounts: vec![],
+                    },
+                })
             })
         })
     }
@@ -534,10 +531,14 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
             Err(e) => return e.into(),
         };
 
-        let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
-            Ok(locker) => locker,
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
+            Ok(res) => res,
             Err(e) => return e.into(),
         };
+
         Box::pin(async move {
             match token_account_filter {
                 RpcTokenAccountsFilter::Mint(mint) => {
@@ -548,22 +549,15 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
                         &mint,
                         &spl_token::id(),
                     );
+                    let SvmAccessContext {
+                        slot,
+                        inner: account_update,
+                        ..
+                    } = svm_locker
+                        .get_account(&remote_ctx, &associated_token_address, None)
+                        .await?;
 
-                    let (account_update, latest_absolute_slot) = SurfnetSvm::get_account(
-                        svm_locker.clone(),
-                        &associated_token_address,
-                        GetAccountStrategy::LocalThenConnectionOrDefault(
-                            None,
-                            config.commitment.unwrap_or_default(),
-                        ),
-                        &remote_rpc_url,
-                    )
-                    .await?;
-
-                    {
-                        let mut svm_writer = svm_locker.write().await;
-                        svm_writer.write_account_update(account_update.clone());
-                    }
+                    svm_locker.write_account_update(account_update.clone());
 
                     let token_account = account_update.map_account()?;
 
@@ -572,7 +566,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
                     })?;
 
                     Ok(RpcResponse {
-                        context: RpcResponseContext::new(latest_absolute_slot),
+                        context: RpcResponseContext::new(slot),
                         value: vec![RpcKeyedAccount {
                             pubkey: associated_token_address.to_string(),
                             account: encode_ui_account(
@@ -588,24 +582,17 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
                 RpcTokenAccountsFilter::ProgramId(program_id) => {
                     let program_id = verify_pubkey(&program_id)?;
 
-                    let ((keyed_accounts, missing_pubkeys), latest_absolute_slot) =
-                        SurfnetSvm::get_all_token_accounts(
-                            svm_locker.clone(),
-                            owner,
-                            program_id,
-                            &remote_rpc_url,
-                        )
+                    let remote_ctx = remote_ctx.map(|(r, _)| r);
+                    let SvmAccessContext {
+                        slot,
+                        inner: (keyed_accounts, missing_pubkeys),
+                        ..
+                    } = svm_locker
+                        .get_all_token_accounts(&remote_ctx, owner, program_id)
                         .await?;
 
-                    if !missing_pubkeys.is_empty() {
-                        let mut svm_writer = svm_locker.write().await;
-                        for pubkey in missing_pubkeys {
-                            svm_writer.write_account_update(GetAccountResult::None(pubkey));
-                        }
-                    }
-
                     Ok(RpcResponse {
-                        context: RpcResponseContext::new(latest_absolute_slot),
+                        context: RpcResponseContext::new(slot),
                         value: keyed_accounts,
                     })
                 }

@@ -22,7 +22,7 @@ use std::{
     thread::sleep,
     time::Duration,
 };
-use surfpool_core::{start_local_surfnet, surfnet::SurfnetSvm};
+use surfpool_core::{start_local_surfnet, surfnet::svm::SurfnetSvm};
 use surfpool_types::{SimnetEvent, SubgraphEvent};
 use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,

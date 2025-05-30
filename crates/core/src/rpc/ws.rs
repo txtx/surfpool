@@ -16,9 +16,10 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
 
-use crate::surfnet::{SignatureSubscriptionType, SurfnetSvm};
+use crate::surfnet::locker::SvmAccessContext;
+use crate::surfnet::{GetTransactionResult, SignatureSubscriptionType};
 
-use super::{State, SurfpoolWebsocketMeta};
+use super::{State, SurfnetRpcContext, SurfpoolWebsocketMeta};
 
 #[rpc]
 pub trait Rpc {
@@ -95,42 +96,23 @@ impl Rpc for SurfpoolWsRpc {
         self.tokio_handle.spawn(async move {
             active.write().unwrap().insert(sub_id.clone(), sink);
 
-            let (svm_locker, remote_rpc_url) = match meta.get_svm_locker() {
+            let SurfnetRpcContext {
+                svm_locker,
+                remote_ctx,
+            } = match meta.get_rpc_context(None) {
                 Ok(res) => res,
                 Err(_) => panic!(),
             };
 
             // get the signature from the SVM to see if it's already been processed
-            let (res, _) = {
-                match SurfnetSvm::get_transaction(
-                    svm_locker.clone(),
-                    &signature,
-                    None,
-                    &remote_rpc_url,
-                )
-                .await
-                {
-                    Ok(res) => res,
-                    Err(e) => {
-                        let error = Error {
-                            code: ErrorCode::InvalidParams,
-                            message: format!("Failed to get transaction from remote: {}", e),
-                            data: None,
-                        };
-
-                        if let Some(sink) = active.write().unwrap().get(&sub_id) {
-                            let _ = sink.notify(Err(error));
-                        }
-
-                        return;
-                    }
-                }
-            };
+            let SvmAccessContext {
+                inner: tx_result, ..
+            } = svm_locker.get_transaction(&remote_ctx, &signature).await;
 
             // if we already had the transaction, check if its confirmation status matches the desired status set by the subscription
             // if so, notify the user and complete the subscription
             // otherwise, subscribe to the transaction updates
-            if let Some((_, tx)) = res {
+            if let GetTransactionResult::FoundTransaction(_, _, tx) = tx_result {
                 match (&subscription_type, tx.confirmation_status) {
                     (&SignatureSubscriptionType::Received, _)
                     | (
@@ -160,10 +142,8 @@ impl Rpc for SurfpoolWsRpc {
             }
 
             // update our surfnet SVM to subscribe to the signature updates
-            let rx = {
-                let mut svm_writer = svm_locker.write().await;
-                svm_writer.subscribe_for_signature_updates(&signature, subscription_type.clone())
-            };
+            let rx =
+                svm_locker.subscribe_for_signature_updates(&signature, subscription_type.clone());
 
             loop {
                 if let Ok((slot, some_err)) = rx.try_recv() {
