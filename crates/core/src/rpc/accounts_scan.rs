@@ -468,7 +468,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _program_id_str: String,
         _config: Option<RpcProgramAccountsConfig>,
     ) -> BoxFuture<Result<OptionalContext<Vec<RpcKeyedAccount>>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_program_accounts")
     }
 
     fn get_largest_accounts(
@@ -476,7 +476,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _meta: Self::Metadata,
         _config: Option<RpcLargestAccountsConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcAccountBalance>>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_largest_accounts")
     }
 
     fn get_supply(
@@ -511,7 +511,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _mint_str: String,
         _commitment: Option<CommitmentConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcTokenAccountBalance>>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_token_largest_accounts")
     }
 
     fn get_token_accounts_by_owner(
@@ -603,6 +603,6 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _token_account_filter: RpcTokenAccountsFilter,
         _config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_token_accounts_by_delegate")
     }
 }

@@ -413,11 +413,11 @@ impl BankData for SurfpoolBankDataRpc {
         _meta: Self::Metadata,
         _commitment: Option<CommitmentConfig>,
     ) -> Result<RpcInflationGovernor> {
-        not_implemented_err()
+        not_implemented_err("get_inflation_governor")
     }
 
     fn get_inflation_rate(&self, _meta: Self::Metadata) -> Result<RpcInflationRate> {
-        not_implemented_err()
+        not_implemented_err("get_inflation_rate")
     }
 
     fn get_epoch_schedule(&self, meta: Self::Metadata) -> Result<EpochSchedule> {
@@ -430,7 +430,7 @@ impl BankData for SurfpoolBankDataRpc {
         _meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<String> {
-        not_implemented_err()
+        not_implemented_err("get_slot_leader")
     }
 
     fn get_slot_leaders(
@@ -439,7 +439,7 @@ impl BankData for SurfpoolBankDataRpc {
         _start_slot: Slot,
         _limit: u64,
     ) -> Result<Vec<String>> {
-        not_implemented_err()
+        not_implemented_err("get_slot_leaders")
     }
 
     fn get_block_production(
@@ -447,7 +447,7 @@ impl BankData for SurfpoolBankDataRpc {
         _meta: Self::Metadata,
         _config: Option<RpcBlockProductionConfig>,
     ) -> Result<RpcResponse<RpcBlockProduction>> {
-        not_implemented_err()
+        not_implemented_err("get_block_production")
     }
 }
 

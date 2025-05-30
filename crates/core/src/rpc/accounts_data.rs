@@ -443,7 +443,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         _meta: Self::Metadata,
         _block: Slot,
     ) -> Result<RpcBlockCommitment<BlockCommitmentArray>> {
-        not_implemented_err()
+        not_implemented_err("get_block_commitment")
     }
 
     // SPL Token-specific RPC endpoints
@@ -535,7 +535,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         _mint_str: String,
         _commitment: Option<CommitmentConfig>,
     ) -> Result<RpcResponse<UiTokenAmount>> {
-        not_implemented_err()
+        not_implemented_err("get_token_supply")
     }
 }
 
