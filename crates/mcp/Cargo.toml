@@ -14,8 +14,15 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", branch = "main", features = ["transport-io", "transport-sse-server"], package = "rmcp" }
-tracing = "0.1"
-axum = { version = "0.8", features = ["macros"] }
+tracing = { workspace = true }
+axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+surfpool-types = { workspace = true }
+surfpool-core = { workspace = true }
+reqwest = { workspace = true }
+solana-sdk = { workspace = true }
+spl-associated-token-account = { workspace = true }
+bs58 = { workspace = true }
+spl-token = { workspace = true }

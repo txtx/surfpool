@@ -22,9 +22,9 @@ pub async fn run_server(_opts: &McpOptions) -> Result<(), String> {
         .inspect_err(|e| {
             tracing::error!("serving error: {:?}", e);
         })
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
-    service.waiting().await.unwrap();
+    service.waiting().await.map_err(|e| e.to_string())?;
 
     Ok(())
 }
