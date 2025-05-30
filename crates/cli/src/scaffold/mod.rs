@@ -151,10 +151,9 @@ pub fn scaffold_iac_layout(
     let mut signer_mainnet = String::new();
     // signer_mainnet.push_str(&get_interpolated_header_template(&format!("Runbook")));
     // signer_mainnet.push_str(&get_interpolated_addon_template("http://localhost:8899"));
-    signer_mainnet.push_str(&get_interpolated_mainnet_signer_template(&format!(
-        "\"{}\"",
-        DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
-    )));
+    signer_mainnet.push_str(&get_interpolated_mainnet_signer_template(
+        "input.authority_keypair_json",
+    ));
 
     let mut signer_devnet = String::new();
     // signer_testnet.push_str(&get_interpolated_header_template(&format!("Runbook")));
@@ -164,10 +163,9 @@ pub fn scaffold_iac_layout(
     let mut signer_localnet = String::new();
     // signer_simnet.push_str(&get_interpolated_header_template(&format!("Runbook")));
     // signer_simnet.push_str(&get_interpolated_addon_template("http://localhost:8899"));
-    signer_localnet.push_str(&get_interpolated_localnet_signer_template(&format!(
-        "\"{}\"",
-        DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
-    )));
+    signer_localnet.push_str(&get_interpolated_localnet_signer_template(
+        "input.authority_keypair_json",
+    ));
 
     for program_metadata in selected_programs.iter() {
         deployment_runbook_src.push_str(
@@ -234,6 +232,8 @@ pub fn scaffold_iac_layout(
         indexmap! {
             "network_id".to_string() => "localnet".to_string(),
             "rpc_api_url".to_string() => "http://127.0.0.1:8899".to_string(),
+            "payer_keypair_json".to_string() => DEFAULT_SOLANA_KEYPAIR_PATH.clone(),
+            "authority_keypair_json".to_string() => DEFAULT_SOLANA_KEYPAIR_PATH.clone(),
         },
     );
     manifest.environments.insert(
@@ -241,6 +241,8 @@ pub fn scaffold_iac_layout(
         indexmap! {
             "network_id".to_string() => "devnet".to_string(),
             "rpc_api_url".to_string() => "https://api.devnet.solana.com".to_string(),
+            "payer_keypair_json".to_string() => DEFAULT_SOLANA_KEYPAIR_PATH.clone(),
+            "authority_keypair_json".to_string() => DEFAULT_SOLANA_KEYPAIR_PATH.clone(),
         },
     );
 
