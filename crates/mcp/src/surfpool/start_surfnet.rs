@@ -32,7 +32,7 @@ pub fn run() -> StartSurfnetResponse {
     cmd.stdin(Stdio::null());
     // Attempt to spawn the process
     match cmd.spawn() {
-        Ok(_child) => StartSurfnetResponse::success(format!("http://localhost:8899")),
+        Ok(_child) => StartSurfnetResponse::success(format!("http://127.0.0.1:8899")),
         Err(e) => StartSurfnetResponse::error(format!("Failed to execute surfnet start: {}", e)),
     }
 }

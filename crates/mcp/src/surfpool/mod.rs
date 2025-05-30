@@ -17,7 +17,7 @@ impl Surfpool {
     /// Start a new local Solana network, also called surfnet or localnet. Returns the binding address of the RPC server.
     /// This method is exposed as a tool and can be invoked remotely.
     #[tool(
-        description = "Start a new local Solana network, also called surfnet or localnet. Returns the binding address of the RPC server."
+        description = "Start a new local Solana network, also called surfnet or localnet. Returns the binding address of the RPC server, or an error that must be displayed"
     )]
     pub fn start_surfnet(&self) -> Json<StartSurfnetResponse> {
         let res = start_surfnet::run();
@@ -27,7 +27,7 @@ impl Surfpool {
     /// Sets the token balance for any account in your local Solana network. Supports SOL and any SPL token.
     /// This method is exposed as a tool and can be invoked remotely.
     #[tool(
-        description = "Sets the token balance for any account in your local Solana network. Supports SOL and any SPL token."
+        description = "Sets the token balance for any account in your local Solana network. Supports SOL and any SPL token. If succesful, all the data should be displayed in the chat, if not, share the error message"
     )]
     pub fn set_token_account(
         &self,
