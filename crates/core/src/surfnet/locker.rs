@@ -88,6 +88,11 @@ impl Clone for SurfnetSvmLocker {
 
 /// Functions for reading and writing to the underlying SurfnetSvm instance
 impl SurfnetSvmLocker {
+    /// Executes a read-only operation on the underlying `SurfnetSvm` by acquiring a blocking read lock.
+    /// Accepts a closure that receives a shared reference to `SurfnetSvm` and returns a value.
+    ///
+    /// # Returns
+    /// The result produced by the closure.
     pub fn with_svm_reader<T, F>(&self, reader: F) -> T
     where
         F: Fn(&SurfnetSvm) -> T + Send + Sync,
@@ -100,6 +105,8 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Executes a read-only operation and wraps the result in `SvmAccessContext`, capturing
+    /// slot, epoch info, and blockhash along with the closure's result.
     fn with_contextualized_svm_reader<T, F>(&self, reader: F) -> SvmAccessContext<T>
     where
         F: Fn(&SurfnetSvm) -> T + Send + Sync,
@@ -119,6 +126,11 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Executes a write operation on the underlying `SurfnetSvm` by acquiring a blocking write lock.
+    /// Accepts a closure that receives a mutable reference to `SurfnetSvm` and returns a value.
+    ///
+    /// # Returns
+    /// The result produced by the closure.
     pub fn with_svm_writer<T, F>(&self, writer: F) -> T
     where
         F: Fn(&mut SurfnetSvm) -> T + Send + Sync,
@@ -134,10 +146,13 @@ impl SurfnetSvmLocker {
 
 /// Functions for creating and initializing the underlying SurfnetSvm instance
 impl SurfnetSvmLocker {
+    /// Constructs a new `SurfnetSvmLocker` wrapping the given `SurfnetSvm` instance.
     pub fn new(svm: SurfnetSvm) -> Self {
         Self(Arc::new(RwLock::new(svm)))
     }
 
+    /// Initializes the locked `SurfnetSvm` by fetching or defaulting epoch info,
+    /// then calling its `initialize` method. Returns the epoch info on success.
     pub async fn initialize(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
@@ -164,6 +179,7 @@ impl SurfnetSvmLocker {
 
 /// Functions for getting accounts from the underlying SurfnetSvm instance or remote client
 impl SurfnetSvmLocker {
+    /// Retrieves a local account from the SVM cache, returning a contextualized result.
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
             match svm_reader.inner.get_account(pubkey) {
@@ -173,6 +189,7 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Attempts local retrieval, then fetches from remote if missing, returning a contextualized result.
     pub async fn get_account_local_then_remote(
         &self,
         client: &SurfnetRemoteClient,
@@ -189,6 +206,7 @@ impl SurfnetSvmLocker {
         }
     }
 
+    /// Retrieves an account, using local or remote based on context, applying a default factory if provided.
     pub async fn get_account(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
@@ -211,6 +229,7 @@ impl SurfnetSvmLocker {
         }
     }
 
+    /// Retrieves multiple accounts from local cache, returning a contextualized result.
     pub fn get_multiple_accounts_local(
         &self,
         pubkeys: &[Pubkey],
@@ -229,6 +248,7 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Retrieves multiple accounts, fetching missing ones from remote, returning a contextualized result.
     pub async fn get_multiple_accounts_local_then_remote(
         &self,
         client: &SurfnetRemoteClient,
@@ -257,6 +277,7 @@ impl SurfnetSvmLocker {
         Ok(results.with_new_value(combined_results))
     }
 
+    /// Retrieves multiple accounts, using local or remote context and applying factory defaults if provided.
     pub async fn get_multiple_accounts(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
@@ -286,6 +307,7 @@ impl SurfnetSvmLocker {
 
 /// Functions for getting transactions from the underlying SurfnetSvm instance or remote client
 impl SurfnetSvmLocker {
+    /// Retrieves a transaction by signature, using local or remote based on context.
     pub async fn get_transaction(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, Option<UiTransactionEncoding>)>,
@@ -299,6 +321,7 @@ impl SurfnetSvmLocker {
         }
     }
 
+    /// Retrieves a transaction from local cache, returning a contextualized result.
     pub fn get_transaction_local(
         &self,
         signature: &Signature,
@@ -319,6 +342,7 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Retrieves a transaction locally then from remote if missing, returning a contextualized result.
     pub async fn get_transaction_local_then_remote(
         &self,
         client: &SurfnetRemoteClient,
@@ -339,6 +363,7 @@ impl SurfnetSvmLocker {
 
 /// Functions for simulating and processing transactions in the underlying SurfnetSvm instance
 impl SurfnetSvmLocker {
+    /// Simulates a transaction on the SVM, returning detailed info or failure metadata.
     pub fn simulate_transaction(
         &self,
         transaction: VersionedTransaction,
@@ -346,6 +371,7 @@ impl SurfnetSvmLocker {
         self.with_svm_reader(|svm_reader| svm_reader.simulate_transaction(transaction.clone()))
     }
 
+    /// Processes a transaction: verifies signatures, preflight sim, sends to SVM, and enqueues status events.
     pub async fn process_transaction(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
@@ -489,6 +515,7 @@ impl SurfnetSvmLocker {
 
 /// Functions for writing account updates to the underlying SurfnetSvm instance
 impl SurfnetSvmLocker {
+    /// Writes a single account update into the SVM state if present.
     pub fn write_account_update(&self, account_update: GetAccountResult) {
         if GetAccountResult::is_none(&account_update) {
             return;
@@ -499,6 +526,7 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Writes multiple account updates into the SVM state when any are present.
     pub fn write_multiple_account_updates(&self, account_updates: &[GetAccountResult]) {
         if account_updates.iter().all(|update| update.is_none()) {
             return;
@@ -514,6 +542,7 @@ impl SurfnetSvmLocker {
 
 /// Token account related functions
 impl SurfnetSvmLocker {
+    /// Fetches all token accounts for an owner, returning remote results and missing pubkeys contexts.
     pub async fn get_all_token_accounts(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
@@ -553,6 +582,7 @@ impl SurfnetSvmLocker {
 
 /// Address lookup table related functions
 impl SurfnetSvmLocker {
+    /// Extracts pubkeys from a VersionedMessage, resolving address lookup tables as needed.
     pub async fn get_pubkeys_from_message(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
@@ -588,6 +618,7 @@ impl SurfnetSvmLocker {
         }
     }
 
+    /// Retrieves loaded addresses from a lookup table account, validating owner and indices.
     pub async fn get_lookup_table_addresses(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
@@ -651,6 +682,7 @@ impl SurfnetSvmLocker {
 
 /// Profiling helper functions
 impl SurfnetSvmLocker {
+    /// Estimates compute units for a transaction via contextualized simulation.
     pub fn estimate_compute_units(
         &self,
         transaction: &VersionedTransaction,
@@ -660,6 +692,7 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Records profiling results under a tag and emits a tagged profile event.
     pub fn write_profiling_results(&self, tag: String, profile_result: ProfileResult) {
         self.with_svm_writer(|svm_writer| {
             svm_writer
@@ -679,6 +712,7 @@ impl SurfnetSvmLocker {
 
 /// Program account related functions
 impl SurfnetSvmLocker {
+    /// Clones a program account from source to destination, handling upgradeable loader state.
     pub async fn clone_program_account(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
@@ -750,30 +784,37 @@ impl SurfnetSvmLocker {
 
 /// Pass through functions for accessing the underlying SurfnetSvm instance
 impl SurfnetSvmLocker {
+    /// Returns a sender for simulation events from the underlying SVM.
     pub fn simnet_events_tx(&self) -> Sender<SimnetEvent> {
         self.with_svm_reader(|svm_reader| svm_reader.simnet_events_tx.clone())
     }
 
+    /// Retrieves the latest epoch info from the underlying SVM.
     pub fn get_epoch_info(&self) -> EpochInfo {
         self.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
     }
 
+    /// Retrieves the latest absolute slot from the underlying SVM.
     pub fn get_latest_absolute_slot(&self) -> Slot {
         self.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
     }
 
+    /// Executes an airdrop via the underlying SVM.
     pub fn airdrop(&self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
         self.with_svm_writer(|svm_writer| svm_writer.airdrop(pubkey, lamports))
     }
 
+    /// Executes a batch airdrop via the underlying SVM.
     pub fn airdrop_pubkeys(&self, lamports: u64, addresses: &[Pubkey]) {
         self.with_svm_writer(|svm_writer| svm_writer.airdrop_pubkeys(lamports, addresses))
     }
 
+    /// Confirms the current block on the underlying SVM, returning `Ok(())` or an error.
     pub fn confirm_current_block(&self) -> SurfpoolResult<()> {
         self.with_svm_writer(|svm_writer| svm_writer.confirm_current_block())
     }
 
+    /// Subscribes for signature updates (confirmed/finalized) and returns a receiver of events.
     pub fn subscribe_for_signature_updates(
         &self,
         signature: &Signature,
