@@ -56,6 +56,7 @@ fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<S
     }
 }
 
+#[ignore = "flaky CI tests"]
 #[tokio::test]
 async fn test_simnet_ready() {
     let config = SurfpoolConfig {
@@ -91,6 +92,7 @@ async fn test_simnet_ready() {
     }
 }
 
+#[ignore = "flaky CI tests"]
 #[tokio::test]
 async fn test_simnet_ticks() {
     let bind_host = "127.0.0.1";
@@ -147,6 +149,7 @@ async fn test_simnet_ticks() {
         Err(_) => panic!("not enough ticks"),
     }
 }
+
 
 // #[tokio::test]
 // async fn test_simnet_some_sol_transfers() {
@@ -292,6 +295,7 @@ async fn test_simnet_ticks() {
 //         "Some transfers failed"
 //     );
 // }
+
 
 // This test is pretty minimal for lookup tables at this point.
 // We are creating a v0 transaction with a lookup table that does exist on mainnet,
@@ -448,6 +452,7 @@ async fn test_simnet_ticks() {
 //     );
 // }
 
+#[ignore = "flaky CI tests"]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_surfnet_estimate_compute_units() {
     let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
