@@ -1,40 +1,41 @@
-use super::utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey};
-use crate::surfnet::locker::SvmAccessContext;
+use std::str::FromStr;
+
+use super::{
+    not_implemented_err, not_implemented_err_async,
+    utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
+    RunloopContext, State, SurfnetRpcContext,
+};
 use crate::surfnet::GetTransactionResult;
+use crate::{error::SurfpoolError, surfnet::locker::SvmAccessContext};
 use itertools::Itertools;
-use jsonrpc_core::BoxFuture;
-use jsonrpc_core::{Error, Result};
+use jsonrpc_core::{BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
-use solana_client::rpc_config::RpcContextConfig;
-use solana_client::rpc_custom_error::RpcCustomError;
-use solana_client::rpc_response::RpcApiVersion;
-use solana_client::rpc_response::RpcResponseContext;
 use solana_client::{
     rpc_config::{
-        RpcBlockConfig, RpcBlocksConfigWrapper, RpcEncodingConfigWrapper, RpcEpochConfig,
-        RpcRequestAirdropConfig, RpcSendTransactionConfig, RpcSignatureStatusConfig,
-        RpcSignaturesForAddressConfig, RpcSimulateTransactionConfig, RpcTransactionConfig,
+        RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig, RpcEncodingConfigWrapper,
+        RpcEpochConfig, RpcRequestAirdropConfig, RpcSendTransactionConfig,
+        RpcSignatureStatusConfig, RpcSignaturesForAddressConfig, RpcSimulateTransactionConfig,
+        RpcTransactionConfig,
     },
+    rpc_custom_error::RpcCustomError,
     rpc_response::{
-        RpcBlockhash, RpcConfirmedTransactionStatusWithSignature, RpcContactInfo,
-        RpcInflationReward, RpcPerfSample, RpcPrioritizationFee, RpcSimulateTransactionResult,
+        RpcApiVersion, RpcBlockhash, RpcConfirmedTransactionStatusWithSignature, RpcContactInfo,
+        RpcInflationReward, RpcPerfSample, RpcPrioritizationFee, RpcResponseContext,
+        RpcSimulateTransactionResult,
     },
 };
-use solana_clock::UnixTimestamp;
+use solana_clock::{Slot, UnixTimestamp};
 use solana_commitment_config::CommitmentConfig;
 use solana_message::VersionedMessage;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiConfirmedBlock,
+    EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatus,
+    UiConfirmedBlock, UiTransactionEncoding,
 };
-use solana_transaction_status::{TransactionBinaryEncoding, UiTransactionEncoding};
-use std::str::FromStr;
-use surfpool_types::TransactionStatusEvent;
-
-use super::*;
+use surfpool_types::{SimnetCommand, TransactionStatusEvent};
 
 #[rpc]
 pub trait Full {
@@ -1036,7 +1037,7 @@ pub trait Full {
     /// # See Also
     /// - `getBlock`, `getBlockTime`, `minimumLedgerSlot`
     #[rpc(meta, name = "getFirstAvailableBlock")]
-    fn get_first_available_block(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>>;
+    fn get_first_available_block(&self, meta: Self::Metadata) -> Result<Slot>;
 
     /// Returns the latest blockhash and associated metadata needed to sign and send a transaction.
     ///
@@ -1714,8 +1715,11 @@ impl Full for SurfpoolFullRpc {
         not_implemented_err_async()
     }
 
-    fn get_first_available_block(&self, _meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
-        Box::pin(async move { Ok(1) })
+    fn get_first_available_block(&self, meta: Self::Metadata) -> Result<Slot> {
+        meta.with_svm_reader(|svm_reader| {
+            svm_reader.blocks.keys().min().copied().unwrap_or_default()
+        })
+        .map_err(Into::into)
     }
 
     fn get_latest_blockhash(
@@ -1791,9 +1795,6 @@ mod tests {
 
     use std::thread::JoinHandle;
 
-    use crate::tests::helpers::TestSetup;
-
-    use super::*;
     use base64::{prelude::BASE64_STANDARD, Engine};
     use crossbeam_channel::Receiver;
     use solana_account_decoder::{UiAccount, UiAccountData};
@@ -1817,8 +1818,14 @@ mod tests {
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
         UiRawMessage, UiTransaction,
     };
-    use surfpool_types::TransactionConfirmationStatus;
+    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus};
     use test_case::test_case;
+
+    use super::*;
+    use crate::{
+        surfnet::{BlockHeader, BlockIdentifier},
+        tests::helpers::TestSetup,
+    };
 
     fn build_v0_transaction(
         payer: &Pubkey,
@@ -2268,16 +2275,50 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(deprecated)]
     async fn test_get_first_available_block() {
         let setup = TestSetup::new(SurfpoolFullRpc);
+
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+
+            let previous_chain_tip = svm_writer.chain_tip.clone();
+
+            let latest_entries = svm_writer
+                .inner
+                .get_sysvar::<solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes>(
+            );
+            let latest_entry = latest_entries.first().unwrap();
+
+            svm_writer.chain_tip = BlockIdentifier::new(
+                svm_writer.chain_tip.index + 1,
+                latest_entry.blockhash.to_string().as_str(),
+            );
+
+            let hash = svm_writer.chain_tip.hash.clone();
+            let block_height = svm_writer.chain_tip.index;
+            let parent_slot = svm_writer.get_latest_absolute_slot();
+
+            svm_writer.blocks.insert(
+                parent_slot,
+                BlockHeader {
+                    hash,
+                    previous_blockhash: previous_chain_tip.hash.clone(),
+                    block_time: chrono::Utc::now().timestamp_millis(),
+                    block_height,
+                    parent_slot,
+                    signatures: Vec::new(),
+                },
+            );
+        }
+
         let res = setup
             .rpc
             .get_first_available_block(Some(setup.context))
-            .await
             .unwrap();
 
-        assert_eq!(res, 1);
+        assert_eq!(res, 123);
     }
 
     #[test]

@@ -13,6 +13,7 @@ members = [
     "crates/cli",
     "crates/core", 
     "crates/gql",
+    "crates/mcp",
     "crates/subgraph",
     "crates/types"
 ]
@@ -27,6 +28,7 @@ hex = "0.4.3"
 ipc-channel = "0.19.0"
 surfpool-core = { path = "crates/core", default-features = false }
 surfpool-gql = { path = "crates/gql", default-features = false }
+surfpool-mcp = { path = "crates/mcp", default-features = false }
 surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
 # litesvm = { path = "../litesvm/crates/litesvm", features = ["nodejs-internal"] }
@@ -76,6 +78,7 @@ txtx-gql = { version = "0.2.6" }
 txtx-supervisor-ui = { version = "0.1.6", default-features = false, features = ["crates_build"]}
 txtx-cloud = "0.1.4"
 uuid = "1.15.1"
+tokio = "1.43.0"
 
 # [patch.crates-io]
 # txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }

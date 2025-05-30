@@ -6,27 +6,24 @@ use crate::surfnet::locker::SvmAccessContext;
 use crate::surfnet::GetAccountResult;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use jsonrpc_core::futures::future;
-use jsonrpc_core::BoxFuture;
-use jsonrpc_core::{Error, Result};
+use jsonrpc_core::{futures::future, BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
-use serde::de::Visitor;
-use serde::Serialize;
-use serde::{Deserialize, Deserializer, Serializer};
+use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{serde_as, BytesOrString};
 use solana_account::Account;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_clock::Epoch;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::program_option::COption;
-use solana_sdk::program_pack::Pack;
-use solana_sdk::system_program;
-use solana_sdk::transaction::VersionedTransaction;
+use solana_sdk::{
+    program_option::COption, program_pack::Pack, system_program, transaction::VersionedTransaction,
+};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
-use surfpool_types::types::{ComputeUnitsEstimationResult, ProfileResult};
-use surfpool_types::SimnetEvent;
+use surfpool_types::{
+    types::{ComputeUnitsEstimationResult, ProfileResult},
+    SimnetEvent,
+};
 
 use super::{RunloopContext, SurfnetRpcContext};
 

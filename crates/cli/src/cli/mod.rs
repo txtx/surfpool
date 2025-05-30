@@ -1,10 +1,12 @@
+use std::{env, fs::File, path::PathBuf, process, str::FromStr};
+
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use clap_complete::{Generator, Shell};
 use hiro_system_kit::{self, Logger};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
-use std::{env, fs::File, path::PathBuf, process, str::FromStr};
+use surfpool_mcp::McpOptions;
 use surfpool_types::{RpcConfig, SimnetConfig, SubgraphConfig, SurfpoolConfig};
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -118,6 +120,9 @@ enum Command {
     /// Txtx cloud commands
     #[clap(subcommand, name = "cloud", bin_name = "cloud")]
     Cloud(CloudCommand),
+    /// Start MCP server
+    #[clap(name = "mcp", bin_name = "mcp")]
+    Mcp,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -403,6 +408,14 @@ pub fn main() {
     }
 }
 
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+pub enum McpCommand {}
+
+pub async fn handle_mcp_command(_ctx: &Context) -> Result<(), String> {
+    surfpool_mcp::run_server(&McpOptions::default()).await?;
+    Ok(())
+}
+
 async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     match opts.command {
         Command::Simnet(cmd) => simnet::handle_start_local_surfnet_command(&cmd, ctx).await,
@@ -410,6 +423,7 @@ async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::Run(cmd) => handle_execute_runbook_command(cmd).await,
         Command::List(cmd) => handle_list_command(cmd, ctx).await,
         Command::Cloud(cmd) => handle_cloud_commands(cmd).await,
+        Command::Mcp => handle_mcp_command(ctx).await,
     }
 }
 

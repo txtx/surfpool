@@ -4,16 +4,16 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::types::{
-    filters::SubgraphFilterSpec, scalars::bigint::BigInt, schema::DynamicSchemaSpec, SubgraphSpec,
-};
-
 use convert_case::{Case, Casing};
 use juniper::{
     meta::MetaType, Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
     GraphQLValueAsync, Registry,
 };
 use uuid::Uuid;
+
+use crate::types::{
+    filters::SubgraphFilterSpec, scalars::bigint::BigInt, schema::DynamicSchemaSpec, SubgraphSpec,
+};
 
 #[derive(Debug)]
 pub struct DynamicQuery;

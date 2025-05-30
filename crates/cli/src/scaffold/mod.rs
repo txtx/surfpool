@@ -1,8 +1,9 @@
-use dialoguer::{console::Style, theme::ColorfulTheme, Confirm, Input, MultiSelect};
 use std::{
     env,
     fs::{self, File},
 };
+
+use dialoguer::{console::Style, theme::ColorfulTheme, Confirm, Input, MultiSelect};
 use txtx_addon_network_svm::templates::{
     get_interpolated_addon_template, get_interpolated_devnet_signer_template,
     get_interpolated_header_template, get_interpolated_localnet_signer_template,

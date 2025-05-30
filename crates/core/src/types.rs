@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use base64::prelude::{Engine, BASE64_STANDARD};
 use solana_client::rpc_client::SerializableTransaction;
 use solana_message::VersionedMessage;
@@ -10,7 +12,6 @@ use solana_transaction_status::{
     UiInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
     UiTransactionReturnData, UiTransactionStatusMeta,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
 use surfpool_types::TransactionMetadata;
 
 #[derive(Debug, Clone)]

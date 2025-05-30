@@ -1,14 +1,24 @@
+use std::sync::Arc;
+
 use blake3::Hash;
 use crossbeam_channel::Sender;
+use jsonrpc_core::futures::FutureExt;
 use jsonrpc_core::{
     futures::future::Either, middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware,
     Request, Response,
 };
 use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
-use std::sync::Arc;
+use std::future::Future;
 
+use crate::error::SurfpoolError;
+use crate::error::SurfpoolResult;
 use crate::surfnet::locker::SurfnetSvmLocker;
+use crate::surfnet::remote::SomeRemoteCtx;
+use crate::surfnet::remote::SurfnetRemoteClient;
+use crate::surfnet::svm::SurfnetSvm;
+use crate::PluginManagerCommand;
+use surfpool_types::{types::RpcConfig, SimnetCommand};
 
 pub mod accounts_data;
 pub mod accounts_scan;
@@ -85,16 +95,6 @@ impl State for Option<RunloopContext> {
 }
 
 impl Metadata for RunloopContext {}
-
-use crate::error::SurfpoolError;
-use crate::error::SurfpoolResult;
-use crate::surfnet::remote::SomeRemoteCtx;
-use crate::surfnet::remote::SurfnetRemoteClient;
-use crate::surfnet::svm::SurfnetSvm;
-use crate::PluginManagerCommand;
-use jsonrpc_core::futures::FutureExt;
-use std::future::Future;
-use surfpool_types::{types::RpcConfig, SimnetCommand};
 
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {

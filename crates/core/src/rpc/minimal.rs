@@ -20,6 +20,7 @@ use solana_clock::Slot;
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
+
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]

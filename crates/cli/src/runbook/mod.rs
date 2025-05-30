@@ -23,7 +23,6 @@ use txtx_core::{
     types::{Runbook, RunbookSnapshotContext, RunbookSources},
     utils::try_write_outputs_to_file,
 };
-
 use txtx_gql::kit::{
     indexmap::IndexMap,
     types::{cloud_interface::CloudServiceContext, frontend::ProgressBarStatusColor},

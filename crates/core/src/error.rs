@@ -1,10 +1,9 @@
 use std::{fmt::Display, future::Future, pin::Pin};
 
 use crossbeam_channel::TrySendError;
+use jsonrpc_core::{Error, Result};
 use serde::Serialize;
 use serde_json::json;
-
-use jsonrpc_core::{Error, Result};
 use solana_pubkey::Pubkey;
 
 pub type SurfpoolResult<T> = std::result::Result<T, SurfpoolError>;

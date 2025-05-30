@@ -1,4 +1,3 @@
-use crate::types::Framework;
 use anyhow::{anyhow, Result};
 use txtx_core::kit::helpers::fs::FileLocation;
 
@@ -6,6 +5,7 @@ use super::{
     utils::{get_program_metadata_from_manifest_with_dep, CargoManifestFile},
     ProgramMetadata,
 };
+use crate::types::Framework;
 
 /// This function attempts to load a program from a native project.
 /// It looks for a `Cargo.toml` file in the specified base location.

@@ -2,31 +2,32 @@
 
 use crate::cli::{Context, DEFAULT_EXPLORER_PORT};
 use actix_cors::Cors;
-use actix_web::dev::ServerHandle;
-use actix_web::http::header::{self};
-use actix_web::web::{self, Data};
-use actix_web::HttpRequest;
-use actix_web::{middleware, App, HttpResponse, HttpServer};
-use actix_web::{Error, Responder};
+use actix_web::{
+    dev::ServerHandle,
+    http::header::{self},
+    middleware,
+    web::{self, Data},
+    App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
+};
 use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
-use std::collections::HashMap;
-use std::error::Error as StdError;
-use std::sync::RwLock;
-use std::thread::JoinHandle;
-use std::time::Duration;
-use surfpool_gql::query::{DataloaderContext, MemoryStore, SchemaDataSource};
-use surfpool_gql::types::schema::DynamicSchemaSpec;
-use surfpool_gql::types::SubgraphSpec;
-use surfpool_gql::{new_dynamic_schema, DynamicSchema};
+#[cfg(feature = "explorer")]
+use rust_embed::RustEmbed;
+use std::{
+    collections::HashMap, error::Error as StdError, sync::RwLock, thread::JoinHandle,
+    time::Duration,
+};
+use surfpool_gql::{
+    new_dynamic_schema,
+    query::{DataloaderContext, MemoryStore, SchemaDataSource},
+    types::{schema::DynamicSchemaSpec, SubgraphSpec},
+    DynamicSchema,
+};
 use surfpool_types::{
     SchemaDataSourcingEvent, SubgraphCommand, SubgraphDataEntry, SubgraphEvent, SurfpoolConfig,
 };
 use txtx_core::kit::types::types::Value;
-
-#[cfg(feature = "explorer")]
-use rust_embed::RustEmbed;
 
 #[cfg(feature = "explorer")]
 #[derive(RustEmbed)]

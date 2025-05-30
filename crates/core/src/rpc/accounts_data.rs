@@ -20,8 +20,7 @@ use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_runtime::commitment::BlockCommitmentArray;
 use solana_sdk::program_pack::Pack;
-use spl_token::state::Account as TokenAccount;
-use spl_token::state::Mint;
+use spl_token::state::{Account as TokenAccount, Mint};
 
 use super::SurfnetRpcContext;
 use super::{not_implemented_err, RunloopContext};
