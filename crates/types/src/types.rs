@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+};
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
@@ -129,9 +132,26 @@ pub struct ComputeUnitsEstimationResult {
 #[serde(rename_all = "camelCase")]
 pub struct ProfileResult {
     pub compute_units: ComputeUnitsEstimationResult,
-    // We can add other variants here in the future, e.g.:
-    // pub memory_usage: MemoryUsageResult,
-    // pub instruction_trace: InstructionTraceResult,
+    pub state: ProfileState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileState {
+    pub pre_execution: BTreeMap<Pubkey, Option<Vec<u8>>>,
+    pub post_execution: BTreeMap<Pubkey, Option<Vec<u8>>>,
+}
+
+impl ProfileState {
+    pub fn new(
+        pre_execution: BTreeMap<Pubkey, Option<Vec<u8>>>,
+        post_execution: BTreeMap<Pubkey, Option<Vec<u8>>>,
+    ) -> Self {
+        Self {
+            pre_execution,
+            post_execution,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
