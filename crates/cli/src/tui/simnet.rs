@@ -98,7 +98,7 @@ impl App {
         breaker: Option<Keypair>,
     ) -> App {
         let palette = if remote_rpc_url.contains("helius") {
-            palette::tailwind::EMERALD
+            palette::tailwind::RED
         } else {
             palette::tailwind::EMERALD
         };
