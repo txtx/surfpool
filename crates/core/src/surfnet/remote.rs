@@ -33,11 +33,8 @@ pub trait SomeRemoteCtx {
 
 impl SomeRemoteCtx for Option<SurfnetRemoteClient> {
     fn get_remote_ctx<T>(&self, input: T) -> Option<(SurfnetRemoteClient, T)> {
-        if let Some(remote_rpc_client) = self {
-            Some((remote_rpc_client.clone(), input))
-        } else {
-            None
-        }
+        self.as_ref()
+            .map(|remote_rpc_client| (remote_rpc_client.clone(), input))
     }
 }
 
@@ -59,7 +56,7 @@ impl SurfnetRemoteClient {
     ) -> SurfpoolResult<GetAccountResult> {
         let res = self
             .client
-            .get_account_with_commitment(pubkey, commitment_config.clone())
+            .get_account_with_commitment(pubkey, commitment_config)
             .await
             .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
 
@@ -76,10 +73,7 @@ impl SurfnetRemoteClient {
 
                     let program_data = self
                         .client
-                        .get_account_with_commitment(
-                            &program_data_address,
-                            commitment_config.clone(),
-                        )
+                        .get_account_with_commitment(&program_data_address, commitment_config)
                         .await
                         .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
 
@@ -101,7 +95,7 @@ impl SurfnetRemoteClient {
     ) -> SurfpoolResult<Vec<GetAccountResult>> {
         let remote_accounts = self
             .client
-            .get_multiple_accounts(&pubkeys)
+            .get_multiple_accounts(pubkeys)
             .await
             .map_err(SurfpoolError::get_multiple_accounts)?;
 
@@ -116,16 +110,13 @@ impl SurfnetRemoteClient {
                         true,
                     ));
                 } else {
-                    let program_data_address = get_program_data_address(&pubkey);
+                    let program_data_address = get_program_data_address(pubkey);
 
                     let program_data = self
                         .client
-                        .get_account_with_commitment(
-                            &program_data_address,
-                            commitment_config.clone(),
-                        )
+                        .get_account_with_commitment(&program_data_address, commitment_config)
                         .await
-                        .map_err(|e| SurfpoolError::get_account(pubkey.clone(), e))?;
+                        .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
 
                     accounts_result.push(GetAccountResult::FoundProgramAccount(
                         (*pubkey, remote_account),

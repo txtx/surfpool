@@ -693,7 +693,7 @@ impl Minimal for SurfpoolMinimalRpc {
         let version = solana_version::Version::default();
 
         Ok(SurfpoolRpcVersionInfo {
-            surfnet_version: format!("{}", SURFPOOL_VERSION),
+            surfnet_version: SURFPOOL_VERSION.to_string(),
             solana_core: version.to_string(),
             feature_set: Some(version.feature_set),
         })

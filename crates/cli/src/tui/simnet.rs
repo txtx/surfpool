@@ -107,7 +107,6 @@ impl App {
         };
         let remote_rpc_host = {
             let comps = remote_rpc_url
-                .to_string()
                 .split("?")
                 .map(|e| e.to_string())
                 .collect::<Vec<String>>();
@@ -146,7 +145,7 @@ impl App {
 
     pub fn epoch_progress(&self) -> u16 {
         let absolute = self.slot() as u64;
-        let progress = absolute.rem_euclid(self.epoch_info.slots_in_epoch) as u64;
+        let progress = absolute.rem_euclid(self.epoch_info.slots_in_epoch);
         ((progress as f64 / self.epoch_info.slots_in_epoch as f64) * 100.0) as u16
     }
 
@@ -311,10 +310,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             SimnetEvent::Shutdown => {
                                 break;
                             }
-                            &SimnetEvent::TaggedProfile {
-                                ref result,
-                                ref tag,
-                                ref timestamp,
+                            SimnetEvent::TaggedProfile {
+                                result,
+                                tag,
+                                timestamp,
                             } => {
                                 let msg = format!(
                                     "Profiled [{}]: {} CUs",

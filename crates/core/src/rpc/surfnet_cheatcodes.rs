@@ -507,7 +507,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 )
                 .await?;
 
-            let mut token_account_data = TokenAccount::unpack(&token_account.expected_data())
+            let mut token_account_data = TokenAccount::unpack(token_account.expected_data())
                 .map_err(|e| {
                     Error::invalid_params(format!("Failed to unpack token account data: {}", e))
                 })?;

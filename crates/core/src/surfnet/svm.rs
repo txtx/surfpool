@@ -316,7 +316,7 @@ impl SurfnetSvm {
             let _ =
                 self.simnet_events_tx.try_send(SimnetEvent::info(format!(
                 "CU Estimation for tx: {} | Consumed: {} | Success: {} | Logs: {:?} | Error: {:?}",
-                tx.signatures.get(0).map_or_else(|| "N/A".to_string(), |s| s.to_string()),
+                tx.signatures.first().map_or_else(|| "N/A".to_string(), |s| s.to_string()),
                 estimation_result.compute_units_consumed,
                 estimation_result.success,
                 estimation_result.log_messages,
@@ -536,7 +536,7 @@ impl SurfnetSvm {
                 let _ = self.set_account(&pubkey, account.clone());
                 let _ = self.set_account(&data_pubkey, data_account.clone());
             }
-            GetAccountResult::None(_) => return,
+            GetAccountResult::None(_) => {}
         }
     }
 
@@ -671,7 +671,7 @@ impl SurfnetSvm {
         for signature in block.signatures.iter() {
             let Some(TransactionWithStatusMeta(_slot, tx, _meta, _err)) = self
                 .transactions
-                .get(&signature)
+                .get(signature)
                 .map(|t| t.expect_processed().clone())
             else {
                 continue;
@@ -679,7 +679,7 @@ impl SurfnetSvm {
 
             let (header, account_keys, instructions) = match &tx.message {
                 VersionedMessage::Legacy(message) => (
-                    message.header.clone(),
+                    message.header,
                     message.account_keys.iter().map(|k| k.to_string()).collect(),
                     message
                         .instructions
@@ -713,7 +713,7 @@ impl SurfnetSvm {
                             VersionedMessage::V0(ref msg) => Some(
                                 msg.address_table_lookups
                                     .iter()
-                                    .map(|matl| UiAddressTableLookup::from(matl))
+                                    .map(UiAddressTableLookup::from)
                                     .collect::<Vec<UiAddressTableLookup>>(),
                             ),
                         },

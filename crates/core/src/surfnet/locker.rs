@@ -166,7 +166,7 @@ impl SurfnetSvmLocker {
         };
 
         self.with_svm_writer(|svm_writer| {
-            svm_writer.initialize(epoch_info.clone(), &remote_ctx);
+            svm_writer.initialize(epoch_info.clone(), remote_ctx);
         });
         Ok(epoch_info)
     }
@@ -201,7 +201,7 @@ impl SurfnetSvmLocker {
             let remote_account = client.get_account(pubkey, commitment_config).await?;
             Ok(result.with_new_value(remote_account))
         } else {
-            return Ok(result);
+            Ok(result)
         }
     }
 
@@ -405,17 +405,10 @@ impl SurfnetSvmLocker {
                 .iter()
                 .any(|valid| !*valid)
             {
-                self.with_contextualized_svm_reader(|svm_reader| {
+                return Ok(self.with_contextualized_svm_reader(|svm_reader| {
                     svm_reader
                         .notify_invalid_transaction(transaction.signatures[0], status_tx.clone());
-                    // Specify the error type explicitly
-                    return Ok::<_, crate::error::SurfpoolError>(SvmAccessContext::new(
-                        latest_absolute_slot,
-                        latest_epoch_info.clone(),
-                        latest_blockhash,
-                        (),
-                    ));
-                });
+                }));
             }
         }
 
@@ -635,7 +628,7 @@ impl SurfnetSvmLocker {
             .await?;
         let table_account = result.inner.clone().map_account()?;
 
-        if &table_account.owner == &solana_sdk_ids::address_lookup_table::id() {
+        if table_account.owner == solana_sdk_ids::address_lookup_table::id() {
             let SvmAccessContext {
                 slot: current_slot,
                 inner: slot_hashes,
