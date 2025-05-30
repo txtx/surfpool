@@ -248,20 +248,24 @@ impl PubSubMetadata for SurfpoolWebsocketMeta {
 
 pub const NOT_IMPLEMENTED_CODE: i64 = -32051; // -32000 to -32099 are reserved by the json-rpc spec for custom errors
 pub const NOT_IMPLEMENTED_MSG: &str = "Method not yet implemented. If this endpoint is a priority for you, please open an issue here so we can prioritize: https://github.com/txtx/surfpool/issues";
+fn not_implemented_msg(method: &str) -> String {
+    format!("Method `{}` is not yet implemented. If this endpoint is a priority for you, please open an issue here so we can prioritize: https://github.com/txtx/surfpool/issues", method)
+}
 /// Helper function to return a `NotImplemented` JSON RPC error
-pub fn not_implemented_err<T>() -> Result<T, Error> {
+pub fn not_implemented_err<T>(method: &str) -> Result<T, Error> {
     Err(Error {
         code: jsonrpc_core::types::ErrorCode::ServerError(NOT_IMPLEMENTED_CODE),
-        message: NOT_IMPLEMENTED_MSG.to_string(),
+        message: not_implemented_msg(method),
         data: None,
     })
 }
 
-pub fn not_implemented_err_async<T>() -> BoxFuture<Result<T, Error>> {
-    Box::pin(async {
+pub fn not_implemented_err_async<T>(method: &str) -> BoxFuture<Result<T, Error>> {
+    let method = method.to_string();
+    Box::pin(async move {
         Err(Error {
             code: jsonrpc_core::types::ErrorCode::ServerError(NOT_IMPLEMENTED_CODE),
-            message: NOT_IMPLEMENTED_MSG.to_string(),
+            message: not_implemented_msg(&method),
             data: None,
         })
     })

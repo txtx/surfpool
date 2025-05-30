@@ -774,11 +774,11 @@ impl AdminRpc for SurfpoolAdminRpc {
         _name: String,
         _config_file: String,
     ) -> BoxFuture<Result<()>> {
-        not_implemented_err_async()
+        not_implemented_err_async("reload_plugin")
     }
 
     fn unload_plugin(&self, _meta: Self::Metadata, _name: String) -> BoxFuture<Result<()>> {
-        not_implemented_err_async()
+        not_implemented_err_async("unload_plugin")
     }
 
     fn load_plugin(&self, meta: Self::Metadata, config_file: String) -> BoxFuture<Result<String>> {
@@ -802,23 +802,23 @@ impl AdminRpc for SurfpoolAdminRpc {
     }
 
     fn list_plugins(&self, _meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("list_plugins")
     }
 
     fn rpc_addr(&self, _meta: Self::Metadata) -> Result<Option<SocketAddr>> {
-        not_implemented_err()
+        not_implemented_err("rpc_addr")
     }
 
     fn set_log_filter(&self, _filter: String) -> Result<()> {
-        not_implemented_err()
+        not_implemented_err("set_log_filter")
     }
 
     fn start_time(&self, _meta: Self::Metadata) -> Result<SystemTime> {
-        not_implemented_err()
+        not_implemented_err("start_time")
     }
 
     fn add_authorized_voter(&self, _meta: Self::Metadata, _keypair_file: String) -> Result<()> {
-        not_implemented_err()
+        not_implemented_err("add_authorized_voter")
     }
 
     fn add_authorized_voter_from_bytes(
@@ -826,11 +826,11 @@ impl AdminRpc for SurfpoolAdminRpc {
         _meta: Self::Metadata,
         _keypair: Vec<u8>,
     ) -> Result<()> {
-        not_implemented_err()
+        not_implemented_err("add_authorized_voter_from_bytes")
     }
 
     fn remove_all_authorized_voters(&self, _meta: Self::Metadata) -> Result<()> {
-        not_implemented_err()
+        not_implemented_err("remove_all_authorized_voters")
     }
 
     fn set_identity(
@@ -839,7 +839,7 @@ impl AdminRpc for SurfpoolAdminRpc {
         _keypair_file: String,
         _require_tower: bool,
     ) -> Result<()> {
-        not_implemented_err()
+        not_implemented_err("set_identity")
     }
 
     fn set_identity_from_bytes(
@@ -848,11 +848,11 @@ impl AdminRpc for SurfpoolAdminRpc {
         _identity_keypair: Vec<u8>,
         _require_tower: bool,
     ) -> Result<()> {
-        not_implemented_err()
+        not_implemented_err("set_identity_from_bytes")
     }
 
     fn set_staked_nodes_overrides(&self, _meta: Self::Metadata, _path: String) -> Result<()> {
-        not_implemented_err()
+        not_implemented_err("set_staked_nodes_overrides")
     }
 
     fn repair_shred_from_peer(
@@ -862,11 +862,11 @@ impl AdminRpc for SurfpoolAdminRpc {
         _slot: u64,
         _shred_index: u64,
     ) -> Result<()> {
-        not_implemented_err()
+        not_implemented_err("repair_shred_from_peer")
     }
 
     fn set_repair_whitelist(&self, _meta: Self::Metadata, _whitelist: Vec<Pubkey>) -> Result<()> {
-        not_implemented_err()
+        not_implemented_err("set_repair_whitelist")
     }
 
     fn get_secondary_index_key_size(
@@ -874,7 +874,7 @@ impl AdminRpc for SurfpoolAdminRpc {
         _meta: Self::Metadata,
         _pubkey_str: String,
     ) -> Result<HashMap<RpcAccountIndex, usize>> {
-        not_implemented_err()
+        not_implemented_err("get_secondary_index_key_size")
     }
 
     fn set_public_tpu_address(
@@ -882,7 +882,7 @@ impl AdminRpc for SurfpoolAdminRpc {
         _meta: Self::Metadata,
         _public_tpu_addr: SocketAddr,
     ) -> Result<()> {
-        not_implemented_err()
+        not_implemented_err("set_public_tpu_address")
     }
 
     fn set_public_tpu_forwards_address(
@@ -890,6 +890,6 @@ impl AdminRpc for SurfpoolAdminRpc {
         _meta: Self::Metadata,
         _public_tpu_forwards_addr: SocketAddr,
     ) -> Result<()> {
-        not_implemented_err()
+        not_implemented_err("set_public_tpu_forwards_address")
     }
 }

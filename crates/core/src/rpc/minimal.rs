@@ -632,7 +632,7 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_genesis_hash(&self, _meta: Self::Metadata) -> Result<String> {
-        not_implemented_err()
+        not_implemented_err("get_genesis_hash")
     }
 
     fn get_health(&self, _meta: Self::Metadata) -> Result<String> {
@@ -641,7 +641,7 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
-        not_implemented_err()
+        not_implemented_err("get_identity")
     }
 
     fn get_slot(&self, meta: Self::Metadata, config: Option<RpcContextConfig>) -> Result<Slot> {
@@ -677,7 +677,7 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_highest_snapshot_slot(&self, _meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
-        not_implemented_err()
+        not_implemented_err("get_highest_snapshot_slot")
     }
 
     fn get_transaction_count(
@@ -746,7 +746,7 @@ impl Minimal for SurfpoolMinimalRpc {
         //         }
         //         schedule_by_identity
         //     }))
-        not_implemented_err()
+        not_implemented_err("get_leader_schedule")
     }
 }
 
