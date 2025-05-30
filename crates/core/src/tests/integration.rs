@@ -1,7 +1,10 @@
 use crate::error::SurfpoolError;
 use crate::rpc::surfnet_cheatcodes::SvmTricksRpc;
 use crate::rpc::RunloopContext;
+use crate::surfnet::locker::SurfnetSvmLocker;
+use crate::surfnet::svm::SurfnetSvm;
 use crate::PluginManagerCommand;
+use base64::Engine;
 use crossbeam_channel::unbounded;
 use crossbeam_channel::unbounded as crossbeam_unbounded;
 use jsonrpc_core::Result as JsonRpcResult;
@@ -10,7 +13,6 @@ use jsonrpc_core::{
     Error,
 };
 use jsonrpc_core_client::transports::http;
-use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
@@ -24,19 +26,20 @@ use solana_sdk::system_instruction::transfer;
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::{str::FromStr, time::Duration};
 use surfpool_types::types::ProfileResult as SurfpoolProfileResult;
 use surfpool_types::SimnetCommand;
 use surfpool_types::{
     types::{BlockProductionMode, RpcConfig, SimnetConfig},
     SimnetEvent, SurfpoolConfig,
 };
-use tokio::{sync::RwLock, task};
+use tokio::sync::RwLock;
+use tokio::task;
 
 use crate::{
     rpc::{full::FullClient, minimal::MinimalClient},
     runloops::start_local_surfnet_runloop,
-    surfnet::SurfnetSvm,
     tests::helpers::get_free_port,
 };
 
@@ -72,7 +75,7 @@ async fn test_simnet_ready() {
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
-    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
+    let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
@@ -115,7 +118,7 @@ async fn test_simnet_ticks() {
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let (test_tx, test_rx) = unbounded();
-    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
+    let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
@@ -177,7 +180,7 @@ async fn test_simnet_some_sol_transfers() {
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
-    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
+    let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
@@ -302,7 +305,7 @@ async fn test_simnet_some_sol_transfers() {
 // and that the lookup table and its entries are fetched from mainnet and added to the accounts in the SVM.
 // However, we are not actually setting up a tx that will use the lookup table internally,
 // we are kind of just trusting that LiteSVM will do its job here.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_add_alt_entries_fetching() {
     let payer = Keypair::new();
     let pk = payer.pubkey();
@@ -333,7 +336,7 @@ async fn test_add_alt_entries_fetching() {
     let moved_svm_locker = svm_locker.clone();
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
-            moved_svm_locker,
+            SurfnetSvmLocker(moved_svm_locker),
             config,
             subgraph_commands_tx,
             simnet_commands_tx,
@@ -344,6 +347,7 @@ async fn test_add_alt_entries_fetching() {
             panic!("{e:?}");
         }
     });
+    let svm_locker = SurfnetSvmLocker(svm_locker);
 
     wait_for_ready_and_connected(&simnet_events_rx);
 
@@ -390,44 +394,43 @@ async fn test_add_alt_entries_fetching() {
     };
     let data = bs58::encode(encoded).into_string();
 
+    // Wait for all transactions to be received
     let _ = match full_client.send_transaction(data, None).await {
         Ok(res) => println!("Send transaction result: {}", res),
         Err(err) => println!("Send transaction error result: {}", err),
     };
 
-    // Wait for all transactions to be received
-    let _ = task::spawn_blocking(move || {
-        let mut processed = 0;
-        let expected = 1;
-        let mut alt_updated = false;
-        loop {
-            match simnet_events_rx.recv() {
-                Ok(SimnetEvent::TransactionProcessed(..)) => processed += 1,
-                Ok(SimnetEvent::AccountUpdate(_, account)) => {
-                    if account == alt_address {
-                        alt_updated = true;
-                    }
+    let mut processed = 0;
+    let expected = 1;
+    let mut alt_updated = false;
+    loop {
+        match simnet_events_rx.recv() {
+            Ok(SimnetEvent::TransactionProcessed(..)) => processed += 1,
+            Ok(SimnetEvent::AccountUpdate(_, account)) => {
+                if account == alt_address {
+                    alt_updated = true;
                 }
-                _ => (),
             }
-
-            if processed == expected && alt_updated {
-                break;
+            Ok(SimnetEvent::ClockUpdate(_)) => {
+                // do nothing
             }
+            other => println!("Unexpected event: {:?}", other),
         }
-    })
-    .await;
 
-    let surfnet_svm = svm_locker.read().await;
+        if processed == expected && alt_updated {
+            break;
+        }
+    }
 
     // get all the account keys + the address lookup tables + table_entries from the txn
     let alts = tx.message.address_table_lookups().clone().unwrap();
     let mut acc_keys = tx.message.static_account_keys().to_vec();
     let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
     let mut table_entries = join_all(alts.iter().map(|msg| async {
-        let loaded_addresses = surfnet_svm
-            .load_lookup_table_addresses(msg, CommitmentConfig::confirmed())
-            .await?;
+        let loaded_addresses = svm_locker
+            .get_lookup_table_addresses(&None, msg)
+            .await?
+            .inner;
         let mut combined = loaded_addresses.writable;
         combined.extend(loaded_addresses.readonly);
         Ok::<_, SurfpoolError>(combined)
@@ -443,16 +446,19 @@ async fn test_add_alt_entries_fetching() {
     acc_keys.append(&mut alt_pubkeys);
     acc_keys.append(&mut table_entries);
 
-    // inner.get_account returns an Option<Account>; assert that none of them are None
     assert!(
-        acc_keys
-            .iter()
-            .all(|key| { surfnet_svm.inner.get_account(key).is_some() }),
+        acc_keys.iter().all(|key| {
+            svm_locker
+                .get_account_local(key)
+                .inner
+                .map_account()
+                .is_ok()
+        }),
         "account not found"
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_surfnet_estimate_compute_units() {
     let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
     let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
@@ -473,18 +479,19 @@ async fn test_surfnet_estimate_compute_units() {
         .unwrap();
 
     let tx_bytes = bincode::serialize(&tx).unwrap();
-    let tx_b64 = base64::encode(&tx_bytes);
+    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
 
     // Manually construct RunloopContext
-    let svm_locker_for_context = Arc::new(RwLock::new(svm_instance));
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
-        surfnet_svm: svm_locker_for_context.clone(),
+        svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
     };
 
     // Test with None tag
@@ -563,9 +570,8 @@ async fn test_surfnet_estimate_compute_units() {
     );
 
     println!("Retrieving profile results for tag: {}", tag1);
-    let results_response_tag1: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> = rpc_server
-        .get_profile_results(Some(runloop_context.clone()), tag1.clone())
-        .await;
+    let results_response_tag1: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> =
+        rpc_server.get_profile_results(Some(runloop_context.clone()), tag1.clone());
     assert!(
         results_response_tag1.is_ok(),
         "get_profile_results for tag1 failed: {:?}",
@@ -602,9 +608,7 @@ async fn test_surfnet_estimate_compute_units() {
         tag_non_existent
     );
     let results_non_existent_response: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> =
-        rpc_server
-            .get_profile_results(Some(runloop_context.clone()), tag_non_existent.clone())
-            .await;
+        rpc_server.get_profile_results(Some(runloop_context.clone()), tag_non_existent.clone());
     assert!(
         results_non_existent_response.is_ok(),
         "get_profile_results for non-existent tag failed"
@@ -655,9 +659,8 @@ async fn test_surfnet_estimate_compute_units() {
     );
 
     println!("Retrieving profile results for tag: {}", tag2);
-    let results_response_tag2: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> = rpc_server
-        .get_profile_results(Some(runloop_context.clone()), tag2.clone())
-        .await;
+    let results_response_tag2: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> =
+        rpc_server.get_profile_results(Some(runloop_context.clone()), tag2.clone());
     assert!(
         results_response_tag2.is_ok(),
         "get_profile_results for tag2 failed"
@@ -708,10 +711,9 @@ async fn test_surfnet_estimate_compute_units() {
     );
 
     println!("Retrieving profile results for tag: {} again", tag1);
+    // runloop_context can be consumed here if it's the last use
     let results_response_tag1_again: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> =
-        rpc_server
-            .get_profile_results(Some(runloop_context), tag1.clone()) // runloop_context can be consumed here if it's the last use
-            .await;
+        rpc_server.get_profile_results(Some(runloop_context), tag1.clone());
     assert!(
         results_response_tag1_again.is_ok(),
         "get_profile_results for tag1 (again) failed"
