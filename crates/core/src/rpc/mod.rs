@@ -1,14 +1,24 @@
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 
 use blake3::Hash;
 use crossbeam_channel::Sender;
 use jsonrpc_core::{
-    futures::future::Either, middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware,
-    Request, Response,
+    futures::{future::Either, FutureExt},
+    middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware, Request, Response,
 };
 use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
-use tokio::sync::RwLock;
+use surfpool_types::{types::RpcConfig, SimnetCommand};
+
+use crate::{
+    error::{SurfpoolError, SurfpoolResult},
+    surfnet::{
+        locker::SurfnetSvmLocker,
+        remote::{SomeRemoteCtx, SurfnetRemoteClient},
+        svm::SurfnetSvm,
+    },
+    PluginManagerCommand,
+};
 
 pub mod accounts_data;
 pub mod accounts_scan;
@@ -32,32 +42,33 @@ pub struct SurfpoolRpc;
 #[derive(Clone)]
 pub struct RunloopContext {
     pub id: Option<Hash>,
-    pub surfnet_svm: Arc<RwLock<SurfnetSvm>>,
+    pub svm_locker: SurfnetSvmLocker,
     pub simnet_commands_tx: Sender<SimnetCommand>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
+    pub remote_rpc_client: Option<SurfnetRemoteClient>,
 }
 
-pub type SvmReadClosure<T> = Box<dyn Fn(&SurfnetSvm) -> T + Send + Sync>;
+pub struct SurfnetRpcContext<T> {
+    pub svm_locker: SurfnetSvmLocker,
+    pub remote_ctx: Option<(SurfnetRemoteClient, T)>,
+}
 
 trait State {
-    fn get_svm_locker(&self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError>;
+    fn get_svm_locker(&self) -> SurfpoolResult<SurfnetSvmLocker>;
     fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, SurfpoolError>
     where
         F: Fn(&SurfnetSvm) -> T + Send + Sync,
         T: Send + 'static;
-    fn with_svm_writer<T, F>(&self, writer: F) -> Result<T, SurfpoolError>
-    where
-        F: Fn(&mut SurfnetSvm) -> T + Send + Sync,
-        T: Send + 'static;
+    fn get_rpc_context<T>(&self, input: T) -> SurfpoolResult<SurfnetRpcContext<T>>;
 }
 
 impl State for Option<RunloopContext> {
-    fn get_svm_locker(&self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError> {
+    fn get_svm_locker(&self) -> SurfpoolResult<SurfnetSvmLocker> {
         // Retrieve svm state
         let Some(ctx) = self else {
             return Err(SurfpoolError::no_locker());
         };
-        Ok(ctx.surfnet_svm.clone())
+        Ok(ctx.svm_locker.clone())
     }
 
     fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, SurfpoolError>
@@ -68,60 +79,46 @@ impl State for Option<RunloopContext> {
         let Some(ctx) = self else {
             return Err(SurfpoolError::no_locker());
         };
-        let read_lock = ctx.surfnet_svm.clone();
-        let res = tokio::task::block_in_place(move || {
-            let read_guard = read_lock.blocking_read();
-            reader(&read_guard)
-        });
-        Ok(res)
+        Ok(ctx.svm_locker.with_svm_reader(reader))
     }
 
-    fn with_svm_writer<T, F>(&self, writer: F) -> Result<T, SurfpoolError>
-    where
-        F: Fn(&mut SurfnetSvm) -> T + Send + Sync,
-        T: Send + 'static,
-    {
+    fn get_rpc_context<T>(&self, input: T) -> SurfpoolResult<SurfnetRpcContext<T>> {
         let Some(ctx) = self else {
             return Err(SurfpoolError::no_locker());
         };
-        let write_lock = ctx.surfnet_svm.clone();
-        let res = tokio::task::block_in_place(move || {
-            let mut write_guard = write_lock.blocking_write();
-            writer(&mut write_guard)
-        });
-        Ok(res)
+
+        Ok(SurfnetRpcContext {
+            svm_locker: ctx.svm_locker.clone(),
+            remote_ctx: ctx.remote_rpc_client.get_remote_ctx(input),
+        })
     }
 }
 
 impl Metadata for RunloopContext {}
 
-use std::future::Future;
-
-use jsonrpc_core::futures::FutureExt;
-use surfpool_types::{types::RpcConfig, SimnetCommand};
-
-use crate::{error::SurfpoolError, surfnet::SurfnetSvm, PluginManagerCommand};
-
 #[derive(Clone)]
 pub struct SurfpoolMiddleware {
-    pub surfnet_svm: Arc<RwLock<SurfnetSvm>>,
+    pub surfnet_svm: SurfnetSvmLocker,
     pub simnet_commands_tx: Sender<SimnetCommand>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub config: RpcConfig,
+    pub remote_rpc_client: Option<SurfnetRemoteClient>,
 }
 
 impl SurfpoolMiddleware {
     pub fn new(
-        surfnet_svm: Arc<RwLock<SurfnetSvm>>,
+        surfnet_svm: SurfnetSvmLocker,
         simnet_commands_tx: &Sender<SimnetCommand>,
         plugin_manager_commands_tx: &Sender<PluginManagerCommand>,
         config: &RpcConfig,
+        remote_rpc_client: &Option<SurfnetRemoteClient>,
     ) -> Self {
         Self {
             surfnet_svm,
             simnet_commands_tx: simnet_commands_tx.clone(),
             plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
             config: config.clone(),
+            remote_rpc_client: remote_rpc_client.clone(),
         }
     }
 }
@@ -142,9 +139,10 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
     {
         let meta = Some(RunloopContext {
             id: None,
-            surfnet_svm: self.surfnet_svm.clone(),
+            svm_locker: self.surfnet_svm.clone(),
             simnet_commands_tx: self.simnet_commands_tx.clone(),
             plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
+            remote_rpc_client: self.remote_rpc_client.clone(),
         });
         Either::Left(Box::pin(next(request, meta).map(move |res| res)))
     }
@@ -181,9 +179,10 @@ impl Middleware<Option<SurfpoolWebsocketMeta>> for SurfpoolWebsocketMiddleware {
     {
         let runloop_context = RunloopContext {
             id: None,
-            surfnet_svm: self.surfpool_middleware.surfnet_svm.clone(),
+            svm_locker: self.surfpool_middleware.surfnet_svm.clone(),
             simnet_commands_tx: self.surfpool_middleware.simnet_commands_tx.clone(),
             plugin_manager_commands_tx: self.surfpool_middleware.plugin_manager_commands_tx.clone(),
+            remote_rpc_client: self.surfpool_middleware.remote_rpc_client.clone(),
         };
         let session = meta
             .as_ref()
@@ -210,11 +209,11 @@ impl SurfpoolWebsocketMeta {
 }
 
 impl State for Option<SurfpoolWebsocketMeta> {
-    fn get_svm_locker(&self) -> Result<Arc<RwLock<SurfnetSvm>>, SurfpoolError> {
+    fn get_svm_locker(&self) -> SurfpoolResult<SurfnetSvmLocker> {
         let Some(ctx) = self else {
             return Err(SurfpoolError::no_locker());
         };
-        Ok(ctx.runloop_context.surfnet_svm.clone())
+        Ok(ctx.runloop_context.svm_locker.clone())
     }
 
     fn with_svm_reader<T, F>(&self, reader: F) -> Result<T, SurfpoolError>
@@ -225,28 +224,18 @@ impl State for Option<SurfpoolWebsocketMeta> {
         let Some(ctx) = self else {
             return Err(SurfpoolError::no_locker());
         };
-        let read_lock = ctx.runloop_context.surfnet_svm.clone();
-        let res = tokio::task::block_in_place(move || {
-            let read_guard = read_lock.blocking_read();
-            reader(&read_guard)
-        });
-        Ok(res)
+        Ok(ctx.runloop_context.svm_locker.with_svm_reader(reader))
     }
 
-    fn with_svm_writer<T, F>(&self, writer: F) -> Result<T, SurfpoolError>
-    where
-        F: Fn(&mut SurfnetSvm) -> T + Send + Sync,
-        T: Send + 'static,
-    {
+    fn get_rpc_context<T>(&self, input: T) -> SurfpoolResult<SurfnetRpcContext<T>> {
         let Some(ctx) = self else {
             return Err(SurfpoolError::no_locker());
         };
-        let write_lock = ctx.runloop_context.surfnet_svm.clone();
-        let res = tokio::task::block_in_place(move || {
-            let mut write_guard = write_lock.blocking_write();
-            writer(&mut write_guard)
-        });
-        Ok(res)
+
+        Ok(SurfnetRpcContext {
+            svm_locker: ctx.runloop_context.svm_locker.clone(),
+            remote_ctx: ctx.runloop_context.remote_rpc_client.get_remote_ctx(input),
+        })
     }
 }
 
