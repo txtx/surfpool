@@ -1,8 +1,5 @@
-use crate::{
-    error::{SurfpoolError, SurfpoolResult},
-    rpc::utils::convert_transaction_metadata_from_canonical,
-    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
-};
+use std::collections::{HashMap, VecDeque};
+
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use litesvm::{
@@ -26,14 +23,20 @@ use solana_transaction_status::{
     EncodedTransaction, EncodedTransactionWithStatusMeta, UiAddressTableLookup,
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
-use std::collections::{HashMap, VecDeque};
-use surfpool_types::types::{ComputeUnitsEstimationResult, ProfileResult};
-use surfpool_types::{SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent};
+use surfpool_types::{
+    types::{ComputeUnitsEstimationResult, ProfileResult},
+    SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
+};
 
 use super::{
     remote::SurfnetRemoteClient, BlockHeader, BlockIdentifier, GetAccountResult, GeyserEvent,
     SignatureSubscriptionData, SignatureSubscriptionType, FINALIZATION_SLOT_THRESHOLD,
     SLOTS_PER_EPOCH,
+};
+use crate::{
+    error::{SurfpoolError, SurfpoolResult},
+    rpc::utils::convert_transaction_metadata_from_canonical,
+    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 
 /// `SurfnetSvm` provides a lightweight Solana Virtual Machine (SVM) for testing and simulation.

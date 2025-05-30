@@ -21,10 +21,8 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
 
-use crate::surfnet::locker::SvmAccessContext;
-use crate::surfnet::{GetTransactionResult, SignatureSubscriptionType};
-
 use super::{State, SurfnetRpcContext, SurfpoolWebsocketMeta};
+use crate::surfnet::{locker::SvmAccessContext, GetTransactionResult, SignatureSubscriptionType};
 
 #[rpc]
 pub trait Rpc {

@@ -1,6 +1,10 @@
 #![allow(unused_imports, unused_variables)]
 
-use crate::cli::{Context, DEFAULT_EXPLORER_PORT};
+use std::{
+    collections::HashMap, error::Error as StdError, sync::RwLock, thread::JoinHandle,
+    time::Duration,
+};
+
 use actix_cors::Cors;
 use actix_web::{
     dev::ServerHandle,
@@ -14,10 +18,6 @@ use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
-use std::{
-    collections::HashMap, error::Error as StdError, sync::RwLock, thread::JoinHandle,
-    time::Duration,
-};
 use surfpool_gql::{
     new_dynamic_schema,
     query::{DataloaderContext, MemoryStore, SchemaDataSource},
@@ -28,6 +28,8 @@ use surfpool_types::{
     SchemaDataSourcingEvent, SubgraphCommand, SubgraphDataEntry, SubgraphEvent, SurfpoolConfig,
 };
 use txtx_core::kit::types::types::Value;
+
+use crate::cli::{Context, DEFAULT_EXPLORER_PORT};
 
 #[cfg(feature = "explorer")]
 #[derive(RustEmbed)]

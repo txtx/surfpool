@@ -1,49 +1,44 @@
-use crossbeam_channel::Receiver;
-use crossbeam_channel::Sender;
+use std::sync::Arc;
+
+use crossbeam_channel::{Receiver, Sender};
 use jsonrpc_core::futures::future::join_all;
-use litesvm::types::FailedTransactionMetadata;
-use litesvm::types::SimulatedTransactionInfo;
-use litesvm::types::TransactionResult;
+use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
-use solana_account_decoder::parse_bpf_loader::parse_bpf_upgradeable_loader;
-use solana_account_decoder::parse_bpf_loader::BpfUpgradeableLoaderAccountType;
-use solana_account_decoder::parse_bpf_loader::UiProgram;
+use solana_account_decoder::parse_bpf_loader::{
+    parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram,
+};
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::rpc_response::RpcKeyedAccount;
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
-use solana_message::v0::LoadedAddresses;
-use solana_message::v0::MessageAddressTableLookup;
-use solana_message::VersionedMessage;
+use solana_message::{
+    v0::{LoadedAddresses, MessageAddressTableLookup},
+    VersionedMessage,
+};
 use solana_pubkey::Pubkey;
-use solana_sdk::bpf_loader_upgradeable::get_program_data_address;
-use solana_sdk::bpf_loader_upgradeable::UpgradeableLoaderState;
-use solana_sdk::transaction::VersionedTransaction;
+use solana_sdk::{
+    bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
+    transaction::VersionedTransaction,
+};
 use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
-use solana_transaction_status::EncodedConfirmedTransactionWithStatusMeta;
-use solana_transaction_status::UiTransactionEncoding;
-use std::sync::Arc;
-use surfpool_types::ComputeUnitsEstimationResult;
-use surfpool_types::ProfileResult;
-use surfpool_types::SimnetEvent;
-use surfpool_types::TransactionConfirmationStatus;
-use surfpool_types::TransactionStatusEvent;
+use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding};
+use surfpool_types::{
+    ComputeUnitsEstimationResult, ProfileResult, SimnetEvent, TransactionConfirmationStatus,
+    TransactionStatusEvent,
+};
 use tokio::sync::RwLock;
 
-use crate::error::SurfpoolError;
-use crate::error::SurfpoolResult;
-use crate::rpc::utils::convert_transaction_metadata_from_canonical;
-
-use super::remote::SurfnetRemoteClient;
-use super::AccountFactory;
-use super::GetAccountResult;
-use super::GetTransactionResult;
-use super::GeyserEvent;
-use super::SignatureSubscriptionType;
-use super::SurfnetSvm;
+use super::{
+    remote::SurfnetRemoteClient, AccountFactory, GetAccountResult, GetTransactionResult,
+    GeyserEvent, SignatureSubscriptionType, SurfnetSvm,
+};
+use crate::{
+    error::{SurfpoolError, SurfpoolResult},
+    rpc::utils::convert_transaction_metadata_from_canonical,
+};
 
 pub struct SvmAccessContext<T> {
     pub slot: Slot,

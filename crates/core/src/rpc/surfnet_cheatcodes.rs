@@ -1,10 +1,5 @@
 use std::fmt;
 
-use crate::rpc::utils::verify_pubkey;
-use crate::rpc::State;
-use crate::surfnet::locker::SvmAccessContext;
-use crate::surfnet::GetAccountResult;
-
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use jsonrpc_core::{futures::future, BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
@@ -26,6 +21,10 @@ use surfpool_types::{
 };
 
 use super::{RunloopContext, SurfnetRpcContext};
+use crate::{
+    rpc::{utils::verify_pubkey, State},
+    surfnet::{locker::SvmAccessContext, GetAccountResult},
+};
 
 #[serde_as]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -9,12 +9,11 @@ use solana_sdk::bpf_loader_upgradeable::get_program_data_address;
 use solana_signature::Signature;
 use solana_transaction_status::UiTransactionEncoding;
 
+use super::GetTransactionResult;
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     surfnet::GetAccountResult,
 };
-
-use super::GetTransactionResult;
 
 pub struct SurfnetRemoteClient {
     pub client: RpcClient,

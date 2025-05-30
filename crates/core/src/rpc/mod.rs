@@ -1,24 +1,24 @@
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 
 use blake3::Hash;
 use crossbeam_channel::Sender;
-use jsonrpc_core::futures::FutureExt;
 use jsonrpc_core::{
-    futures::future::Either, middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware,
-    Request, Response,
+    futures::{future::Either, FutureExt},
+    middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware, Request, Response,
 };
 use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
-use std::future::Future;
-
-use crate::error::SurfpoolError;
-use crate::error::SurfpoolResult;
-use crate::surfnet::locker::SurfnetSvmLocker;
-use crate::surfnet::remote::SomeRemoteCtx;
-use crate::surfnet::remote::SurfnetRemoteClient;
-use crate::surfnet::svm::SurfnetSvm;
-use crate::PluginManagerCommand;
 use surfpool_types::{types::RpcConfig, SimnetCommand};
+
+use crate::{
+    error::{SurfpoolError, SurfpoolResult},
+    surfnet::{
+        locker::SurfnetSvmLocker,
+        remote::{SomeRemoteCtx, SurfnetRemoteClient},
+        svm::SurfnetSvm,
+    },
+    PluginManagerCommand,
+};
 
 pub mod accounts_data;
 pub mod accounts_scan;

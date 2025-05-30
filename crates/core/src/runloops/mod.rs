@@ -1,19 +1,9 @@
-use jsonrpc_pubsub::{PubSubHandler, Session};
-use solana_commitment_config::CommitmentConfig;
-use solana_message::{v0::LoadedAddresses, SimpleAddressLoader};
-use solana_sdk::transaction::MessageHash;
-use solana_transaction::sanitized::SanitizedTransaction;
-use solana_transaction_status::{InnerInstruction, InnerInstructions, TransactionStatusMeta};
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
     sync::Arc,
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
-};
-use surfpool_types::{
-    BlockProductionMode, ClockCommand, ClockEvent, SchemaDataSourcingEvent, SimnetCommand,
-    SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
 };
 
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
@@ -27,8 +17,18 @@ use ipc_channel::{
 };
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
+use jsonrpc_pubsub::{PubSubHandler, Session};
 use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
+use solana_commitment_config::CommitmentConfig;
+use solana_message::{v0::LoadedAddresses, SimpleAddressLoader};
+use solana_sdk::transaction::MessageHash;
+use solana_transaction::sanitized::SanitizedTransaction;
+use solana_transaction_status::{InnerInstruction, InnerInstructions, TransactionStatusMeta};
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
+use surfpool_types::{
+    BlockProductionMode, ClockCommand, ClockEvent, SchemaDataSourcingEvent, SimnetCommand,
+    SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
+};
 
 use crate::{
     rpc::{

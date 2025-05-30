@@ -1,20 +1,14 @@
-use crate::error::SurfpoolError;
-use crate::error::SurfpoolResult;
-use crate::rpc::utils::verify_pubkey;
-use crate::rpc::State;
-use crate::surfnet::locker::SvmAccessContext;
-
-use jsonrpc_core::BoxFuture;
-use jsonrpc_core::Result;
+use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
-use solana_account_decoder::parse_account_data::SplTokenAdditionalDataV2;
-use solana_account_decoder::parse_token::parse_token_v3;
-use solana_account_decoder::parse_token::TokenAccountType;
-use solana_account_decoder::parse_token::UiTokenAmount;
-use solana_account_decoder::UiAccount;
-use solana_client::rpc_config::RpcAccountInfoConfig;
-use solana_client::rpc_response::RpcBlockCommitment;
-use solana_client::rpc_response::RpcResponseContext;
+use solana_account_decoder::{
+    parse_account_data::SplTokenAdditionalDataV2,
+    parse_token::{parse_token_v3, TokenAccountType, UiTokenAmount},
+    UiAccount,
+};
+use solana_client::{
+    rpc_config::RpcAccountInfoConfig,
+    rpc_response::{RpcBlockCommitment, RpcResponseContext},
+};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -22,8 +16,12 @@ use solana_runtime::commitment::BlockCommitmentArray;
 use solana_sdk::program_pack::Pack;
 use spl_token::state::{Account as TokenAccount, Mint};
 
-use super::SurfnetRpcContext;
-use super::{not_implemented_err, RunloopContext};
+use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
+use crate::{
+    error::{SurfpoolError, SurfpoolResult},
+    rpc::{utils::verify_pubkey, State},
+    surfnet::locker::SvmAccessContext,
+};
 
 #[rpc]
 pub trait AccountsData {
@@ -543,12 +541,13 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{surfnet::GetAccountResult, tests::helpers::TestSetup};
     use solana_account::Account;
     use solana_pubkey::Pubkey;
     use solana_sdk::program_pack::Pack;
     use spl_token::state::{Account as TokenAccount, AccountState, Mint};
+
+    use super::*;
+    use crate::{surfnet::GetAccountResult, tests::helpers::TestSetup};
 
     #[ignore = "connection-required"]
     #[tokio::test(flavor = "multi_thread")]

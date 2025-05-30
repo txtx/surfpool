@@ -1,4 +1,3 @@
-use crate::error::{SurfpoolError, SurfpoolResult};
 use crossbeam_channel::Sender;
 use jsonrpc_core::Result as RpcError;
 use locker::SurfnetSvmLocker;
@@ -14,6 +13,8 @@ use solana_transaction_error::TransactionError;
 use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, TransactionStatus};
 use surfpool_types::TransactionMetadata;
 use svm::SurfnetSvm;
+
+use crate::error::{SurfpoolError, SurfpoolResult};
 
 pub mod locker;
 pub mod remote;
