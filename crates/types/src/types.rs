@@ -269,7 +269,7 @@ pub enum TransactionStatusEvent {
     Success(TransactionConfirmationStatus),
     SimulationFailure((TransactionError, TransactionMetadata)),
     ExecutionFailure((TransactionError, TransactionMetadata)),
-    VerificationFailure((String)),
+    VerificationFailure(String),
 }
 
 #[derive(Debug)]
