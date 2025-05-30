@@ -196,8 +196,17 @@ pub fn run(
     let request_payload = if is_sol {
         // For SOL, use the `surfnet_setAccount` RPC method.
         // Parameters: (pubkey: String, update: AccountUpdate)
+        let lamports_to_set = match &actual_token_symbol_opt {
+            Some(token_symbol) => match VERIFIED_TOKENS_BY_SYMBOL.get(&token_symbol.to_uppercase()) {
+                Some(token_info) => amount_to_set
+                    .checked_mul(10u64.pow(token_info.decimals as u32))
+                    .unwrap_or(amount_to_set),
+                None => amount_to_set,
+            },
+            None => amount_to_set,
+        };
         let update_params = AccountUpdateParams {
-            lamports: Some(amount_to_set),
+            lamports: Some(lamports_to_set),
         };
         let params_tuple = (owner_pubkey_str.clone(), update_params);
         let params_value = match serde_json::to_value(params_tuple) {
