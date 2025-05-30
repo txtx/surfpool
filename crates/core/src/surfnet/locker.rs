@@ -86,38 +86,8 @@ impl Clone for SurfnetSvmLocker {
     }
 }
 
+/// Functions for reading and writing to the underlying SurfnetSvm instance
 impl SurfnetSvmLocker {
-    pub fn new(svm: SurfnetSvm) -> Self {
-        Self(Arc::new(RwLock::new(svm)))
-    }
-
-    pub async fn initialize(
-        &self,
-        remote_ctx: &Option<SurfnetRemoteClient>,
-    ) -> SurfpoolResult<EpochInfo> {
-        let epoch_info = if let Some(remote_client) = remote_ctx {
-            remote_client.get_epoch_info().await?
-        } else {
-            EpochInfo {
-                epoch: 0,
-                slot_index: 0,
-                slots_in_epoch: 0,
-                absolute_slot: 0,
-                block_height: 0,
-                transaction_count: None,
-            }
-        };
-
-        self.with_svm_writer(|svm_writer| {
-            svm_writer.initialize(epoch_info.clone(), &remote_ctx);
-        });
-        Ok(epoch_info)
-    }
-
-    pub fn simnet_events_tx(&self) -> Sender<SimnetEvent> {
-        self.with_svm_reader(|svm_reader| svm_reader.simnet_events_tx.clone())
-    }
-
     pub fn with_svm_reader<T, F>(&self, reader: F) -> T
     where
         F: Fn(&SurfnetSvm) -> T + Send + Sync,
@@ -160,23 +130,40 @@ impl SurfnetSvmLocker {
             writer(&mut write_guard)
         })
     }
+}
 
-    pub fn get_epoch_info(&self) -> EpochInfo {
-        self.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
+/// Functions for creating and initializing the underlying SurfnetSvm instance
+impl SurfnetSvmLocker {
+    pub fn new(svm: SurfnetSvm) -> Self {
+        Self(Arc::new(RwLock::new(svm)))
     }
 
-    pub fn get_latest_absolute_slot(&self) -> Slot {
-        self.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
-    }
+    pub async fn initialize(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+    ) -> SurfpoolResult<EpochInfo> {
+        let epoch_info = if let Some(remote_client) = remote_ctx {
+            remote_client.get_epoch_info().await?
+        } else {
+            EpochInfo {
+                epoch: 0,
+                slot_index: 0,
+                slots_in_epoch: 0,
+                absolute_slot: 0,
+                block_height: 0,
+                transaction_count: None,
+            }
+        };
 
-    pub fn airdrop(&self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
-        self.with_svm_writer(|svm_writer| svm_writer.airdrop(pubkey, lamports))
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.initialize(epoch_info.clone(), &remote_ctx);
+        });
+        Ok(epoch_info)
     }
+}
 
-    pub fn airdrop_pubkeys(&self, lamports: u64, addresses: &[Pubkey]) {
-        self.with_svm_writer(|svm_writer| svm_writer.airdrop_pubkeys(lamports, addresses))
-    }
-
+/// Functions for getting accounts from the underlying SurfnetSvm instance or remote client
+impl SurfnetSvmLocker {
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
             match svm_reader.inner.get_account(pubkey) {
@@ -201,20 +188,6 @@ impl SurfnetSvmLocker {
             return Ok(result);
         }
     }
-
-    /// Retrieves an account for the specified public key based on the given strategy.
-    ///
-    /// This function checks the `GetAccountStrategy` to decide whether to fetch the account from the local cache
-    /// or from a remote RPC endpoint, falling back to the connection if needed.
-    ///
-    /// # Parameters
-    ///
-    /// - `pubkey`: The public key of the account to retrieve.
-    /// - `strategy`: The strategy to use for fetching the account (`LocalOrDefault`, `ConnectionOrDefault`, etc.).
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing an optional account, which may be `None` if the account was not found.
 
     pub async fn get_account(
         &self,
@@ -309,6 +282,22 @@ impl SurfnetSvmLocker {
         }
         Ok(results.with_new_value(combined))
     }
+}
+
+/// Functions for getting transactions from the underlying SurfnetSvm instance or remote client
+impl SurfnetSvmLocker {
+    pub async fn get_transaction(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, Option<UiTransactionEncoding>)>,
+        signature: &Signature,
+    ) -> SvmAccessContext<GetTransactionResult> {
+        if let Some((remote_client, encoding)) = remote_ctx {
+            self.get_transaction_local_then_remote(remote_client, signature, *encoding)
+                .await
+        } else {
+            self.get_transaction_local(signature)
+        }
+    }
 
     pub fn get_transaction_local(
         &self,
@@ -346,119 +335,10 @@ impl SurfnetSvmLocker {
             local_result
         }
     }
+}
 
-    pub async fn get_transaction(
-        &self,
-        remote_ctx: &Option<(SurfnetRemoteClient, Option<UiTransactionEncoding>)>,
-        signature: &Signature,
-    ) -> SvmAccessContext<GetTransactionResult> {
-        if let Some((remote_client, encoding)) = remote_ctx {
-            self.get_transaction_local_then_remote(remote_client, signature, *encoding)
-                .await
-        } else {
-            self.get_transaction_local(signature)
-        }
-    }
-
-    pub async fn get_pubkeys_from_message(
-        &self,
-        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
-        message: &VersionedMessage,
-    ) -> SurfpoolResult<Vec<Pubkey>> {
-        match message {
-            VersionedMessage::Legacy(message) => Ok(message.account_keys.clone()),
-            VersionedMessage::V0(message) => {
-                let alts = message.address_table_lookups.clone();
-                let mut acc_keys = message.account_keys.clone();
-                let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
-
-                let mut table_entries = join_all(alts.iter().map(|msg| async {
-                    let loaded_addresses = self
-                        .get_lookup_table_addresses(remote_ctx, msg)
-                        .await?
-                        .inner;
-                    let mut combined = loaded_addresses.writable;
-                    combined.extend(loaded_addresses.readonly);
-                    Ok::<_, SurfpoolError>(combined)
-                }))
-                .await
-                .into_iter()
-                .collect::<Result<Vec<Vec<Pubkey>>, SurfpoolError>>()?
-                .into_iter()
-                .flatten()
-                .collect();
-
-                acc_keys.append(&mut alt_pubkeys);
-                acc_keys.append(&mut table_entries);
-                Ok(acc_keys)
-            }
-        }
-    }
-
-    pub async fn get_lookup_table_addresses(
-        &self,
-        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
-        address_table_lookup: &MessageAddressTableLookup,
-    ) -> SurfpoolContextualizedResult<LoadedAddresses> {
-        let result = self
-            .get_account(remote_ctx, &address_table_lookup.account_key, None)
-            .await?;
-        let table_account = result.inner.clone().map_account()?;
-
-        if &table_account.owner == &solana_sdk_ids::address_lookup_table::id() {
-            let SvmAccessContext {
-                slot: current_slot,
-                inner: slot_hashes,
-                ..
-            } = self.with_contextualized_svm_reader(|svm_reader| {
-                svm_reader
-                    .inner
-                    .get_sysvar::<solana_sdk::sysvar::slot_hashes::SlotHashes>()
-            });
-
-            //let current_slot = self.get_latest_absolute_slot(); // or should i use this?
-            let data = &table_account.data.clone();
-            let lookup_table = AddressLookupTable::deserialize(data).map_err(|_ix_err| {
-                SurfpoolError::invalid_account_data(
-                    address_table_lookup.account_key,
-                    table_account.data,
-                    Some("Attempted to lookup addresses from an invalid account"),
-                )
-            })?;
-
-            let loaded_addresses = LoadedAddresses {
-                writable: lookup_table
-                    .lookup(
-                        current_slot,
-                        &address_table_lookup.writable_indexes,
-                        &slot_hashes,
-                    )
-                    .map_err(|_ix_err| {
-                        SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
-                    })?,
-                readonly: lookup_table
-                    .lookup(
-                        current_slot,
-                        &address_table_lookup.readonly_indexes,
-                        &slot_hashes,
-                    )
-                    .map_err(|_ix_err| {
-                        SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
-                    })?,
-            };
-            Ok(result.with_new_value(loaded_addresses))
-        } else {
-            Err(SurfpoolError::invalid_account_owner(
-                table_account.owner,
-                Some("Attempted to lookup addresses from an account owned by the wrong program"),
-            ))
-        }
-    }
-
-    pub fn confirm_current_block(&self) -> SurfpoolResult<()> {
-        self.with_svm_writer(|svm_writer| svm_writer.confirm_current_block())
-    }
-
+/// Functions for simulating and processing transactions in the underlying SurfnetSvm instance
+impl SurfnetSvmLocker {
     pub fn simulate_transaction(
         &self,
         transaction: VersionedTransaction,
@@ -605,7 +485,35 @@ impl SurfnetSvmLocker {
             (),
         ))
     }
+}
 
+/// Functions for writing account updates to the underlying SurfnetSvm instance
+impl SurfnetSvmLocker {
+    pub fn write_account_update(&self, account_update: GetAccountResult) {
+        if GetAccountResult::is_none(&account_update) {
+            return;
+        }
+
+        self.with_svm_writer(move |svm_writer| {
+            svm_writer.write_account_update(account_update.clone())
+        })
+    }
+
+    pub fn write_multiple_account_updates(&self, account_updates: &[GetAccountResult]) {
+        if account_updates.iter().all(|update| update.is_none()) {
+            return;
+        }
+
+        self.with_svm_writer(move |svm_writer| {
+            for update in account_updates {
+                svm_writer.write_account_update(update.clone());
+            }
+        });
+    }
+}
+
+/// Token account related functions
+impl SurfnetSvmLocker {
     pub async fn get_all_token_accounts(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
@@ -641,7 +549,136 @@ impl SurfnetSvmLocker {
 
         Ok(local_accounts.with_new_value((keyed_accounts, missing_pubkeys)))
     }
+}
 
+/// Address lookup table related functions
+impl SurfnetSvmLocker {
+    pub async fn get_pubkeys_from_message(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+        message: &VersionedMessage,
+    ) -> SurfpoolResult<Vec<Pubkey>> {
+        match message {
+            VersionedMessage::Legacy(message) => Ok(message.account_keys.clone()),
+            VersionedMessage::V0(message) => {
+                let alts = message.address_table_lookups.clone();
+                let mut acc_keys = message.account_keys.clone();
+                let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
+
+                let mut table_entries = join_all(alts.iter().map(|msg| async {
+                    let loaded_addresses = self
+                        .get_lookup_table_addresses(remote_ctx, msg)
+                        .await?
+                        .inner;
+                    let mut combined = loaded_addresses.writable;
+                    combined.extend(loaded_addresses.readonly);
+                    Ok::<_, SurfpoolError>(combined)
+                }))
+                .await
+                .into_iter()
+                .collect::<Result<Vec<Vec<Pubkey>>, SurfpoolError>>()?
+                .into_iter()
+                .flatten()
+                .collect();
+
+                acc_keys.append(&mut alt_pubkeys);
+                acc_keys.append(&mut table_entries);
+                Ok(acc_keys)
+            }
+        }
+    }
+
+    pub async fn get_lookup_table_addresses(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+        address_table_lookup: &MessageAddressTableLookup,
+    ) -> SurfpoolContextualizedResult<LoadedAddresses> {
+        let result = self
+            .get_account(remote_ctx, &address_table_lookup.account_key, None)
+            .await?;
+        let table_account = result.inner.clone().map_account()?;
+
+        if &table_account.owner == &solana_sdk_ids::address_lookup_table::id() {
+            let SvmAccessContext {
+                slot: current_slot,
+                inner: slot_hashes,
+                ..
+            } = self.with_contextualized_svm_reader(|svm_reader| {
+                svm_reader
+                    .inner
+                    .get_sysvar::<solana_sdk::sysvar::slot_hashes::SlotHashes>()
+            });
+
+            //let current_slot = self.get_latest_absolute_slot(); // or should i use this?
+            let data = &table_account.data.clone();
+            let lookup_table = AddressLookupTable::deserialize(data).map_err(|_ix_err| {
+                SurfpoolError::invalid_account_data(
+                    address_table_lookup.account_key,
+                    table_account.data,
+                    Some("Attempted to lookup addresses from an invalid account"),
+                )
+            })?;
+
+            let loaded_addresses = LoadedAddresses {
+                writable: lookup_table
+                    .lookup(
+                        current_slot,
+                        &address_table_lookup.writable_indexes,
+                        &slot_hashes,
+                    )
+                    .map_err(|_ix_err| {
+                        SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
+                    })?,
+                readonly: lookup_table
+                    .lookup(
+                        current_slot,
+                        &address_table_lookup.readonly_indexes,
+                        &slot_hashes,
+                    )
+                    .map_err(|_ix_err| {
+                        SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
+                    })?,
+            };
+            Ok(result.with_new_value(loaded_addresses))
+        } else {
+            Err(SurfpoolError::invalid_account_owner(
+                table_account.owner,
+                Some("Attempted to lookup addresses from an account owned by the wrong program"),
+            ))
+        }
+    }
+}
+
+/// Profiling helper functions
+impl SurfnetSvmLocker {
+    pub fn estimate_compute_units(
+        &self,
+        transaction: &VersionedTransaction,
+    ) -> SvmAccessContext<ComputeUnitsEstimationResult> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            svm_reader.estimate_compute_units(transaction)
+        })
+    }
+
+    pub fn write_profiling_results(&self, tag: String, profile_result: ProfileResult) {
+        self.with_svm_writer(|svm_writer| {
+            svm_writer
+                .tagged_profiling_results
+                .entry(tag.clone())
+                .or_default()
+                .push(profile_result.clone());
+            let _ = svm_writer
+                .simnet_events_tx
+                .try_send(SimnetEvent::tagged_profile(
+                    profile_result.clone(),
+                    tag.clone(),
+                ));
+        });
+    }
+}
+
+/// Program account related functions
+impl SurfnetSvmLocker {
     pub async fn clone_program_account(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
@@ -709,36 +746,32 @@ impl SurfnetSvmLocker {
 
         Ok(result.with_new_value(()))
     }
+}
 
-    pub fn estimate_compute_units(
-        &self,
-        transaction: &VersionedTransaction,
-    ) -> SvmAccessContext<ComputeUnitsEstimationResult> {
-        self.with_contextualized_svm_reader(|svm_reader| {
-            svm_reader.estimate_compute_units(transaction)
-        })
+/// Pass through functions for accessing the underlying SurfnetSvm instance
+impl SurfnetSvmLocker {
+    pub fn simnet_events_tx(&self) -> Sender<SimnetEvent> {
+        self.with_svm_reader(|svm_reader| svm_reader.simnet_events_tx.clone())
     }
 
-    pub fn write_account_update(&self, account_update: GetAccountResult) {
-        if GetAccountResult::is_none(&account_update) {
-            return;
-        }
-
-        self.with_svm_writer(move |svm_writer| {
-            svm_writer.write_account_update(account_update.clone())
-        })
+    pub fn get_epoch_info(&self) -> EpochInfo {
+        self.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
     }
 
-    pub fn write_multiple_account_updates(&self, account_updates: &[GetAccountResult]) {
-        if account_updates.iter().all(|update| update.is_none()) {
-            return;
-        }
+    pub fn get_latest_absolute_slot(&self) -> Slot {
+        self.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+    }
 
-        self.with_svm_writer(move |svm_writer| {
-            for update in account_updates {
-                svm_writer.write_account_update(update.clone());
-            }
-        });
+    pub fn airdrop(&self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
+        self.with_svm_writer(|svm_writer| svm_writer.airdrop(pubkey, lamports))
+    }
+
+    pub fn airdrop_pubkeys(&self, lamports: u64, addresses: &[Pubkey]) {
+        self.with_svm_writer(|svm_writer| svm_writer.airdrop_pubkeys(lamports, addresses))
+    }
+
+    pub fn confirm_current_block(&self) -> SurfpoolResult<()> {
+        self.with_svm_writer(|svm_writer| svm_writer.confirm_current_block())
     }
 
     pub fn subscribe_for_signature_updates(
@@ -749,21 +782,5 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm_writer| {
             svm_writer.subscribe_for_signature_updates(signature, subscription_type.clone())
         })
-    }
-
-    pub fn write_profiling_results(&self, tag: String, profile_result: ProfileResult) {
-        self.with_svm_writer(|svm_writer| {
-            svm_writer
-                .tagged_profiling_results
-                .entry(tag.clone())
-                .or_default()
-                .push(profile_result.clone());
-            let _ = svm_writer
-                .simnet_events_tx
-                .try_send(SimnetEvent::tagged_profile(
-                    profile_result.clone(),
-                    tag.clone(),
-                ));
-        });
     }
 }
