@@ -33,7 +33,7 @@ use super::{
     utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
     *,
 };
-use crate::surfnet::GetAccountStrategy;
+use crate::surfnet::{GetAccountStrategy, FINALIZATION_SLOT_THRESHOLD};
 
 #[rpc]
 pub trait Full {
@@ -1642,22 +1642,146 @@ impl Full for SurfpoolFullRpc {
 
     fn get_blocks(
         &self,
-        _meta: Self::Metadata,
-        _start_slot: Slot,
-        _wrapper: Option<RpcBlocksConfigWrapper>,
-        _config: Option<RpcContextConfig>,
+        meta: Self::Metadata,
+        start_slot: Slot,
+        wrapper: Option<RpcBlocksConfigWrapper>,
+        config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>> {
-        not_implemented_err_async()
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let svm_reader = svm_locker.read().await;
+
+            // extract end slot
+            let end_slot = match wrapper {
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(slot)) => slot,
+                Some(RpcBlocksConfigWrapper::ConfigOnly(_)) => None,
+                None => None,
+            };
+
+            let commitment_config = match &wrapper {
+                Some(RpcBlocksConfigWrapper::ConfigOnly(Some(wrapper_config))) => wrapper_config.commitment.clone(),
+                _ => config.and_then(|c| c.commitment),
+            };
+
+            let commitment = commitment_config
+                .unwrap_or_default()
+                .commitment;
+
+            if commitment == solana_commitment_config::CommitmentLevel::Processed {
+                return Err(Error::invalid_params(
+                    "\"processed\" commitment is not supported for getBlocks"
+                ));
+            }
+
+            let current_slot = svm_reader.get_latest_absolute_slot();
+            let slot_threshold = match commitment {
+                solana_commitment_config::CommitmentLevel::Confirmed => current_slot.saturating_sub(1),
+                solana_commitment_config::CommitmentLevel::Finalized => {
+                    current_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
+                }
+                _ => current_slot,
+            };
+
+            // get all available slots from the blocks map
+            let mut available_slots: Vec<Slot> = svm_reader
+                .blocks
+                .keys()
+                .copied()
+                .filter(|&slot| {
+                    // filter by start_slot
+                    slot >= start_slot &&
+                        // filter by end_slot when passed
+                        end_slot.map_or(true, |end| slot <= end) &&
+                        // filter by commitment level -> only include blocks that meet commitment threshold
+                        slot <= slot_threshold
+                })
+                .collect();
+
+            available_slots.sort_unstable();
+
+            // range max 500,000 slots
+            if let Some(end) = end_slot {
+                if end.saturating_sub(start_slot) > 500_000 {
+                    return Err(Error::invalid_params(
+                        "Slot range too large; max 500,000 slots"
+                    ));
+                }
+            }
+
+            // limit to max of 500,000 slots -> as per Solana RPC spec
+            const MAX_SLOTS: usize = 500_000;
+            if available_slots.len() > MAX_SLOTS {
+                available_slots.truncate(MAX_SLOTS);
+            }
+
+            Ok(available_slots)
+        })
     }
+
+
 
     fn get_blocks_with_limit(
         &self,
-        _meta: Self::Metadata,
-        _start_slot: Slot,
-        _limit: usize,
-        _config: Option<RpcContextConfig>,
+        meta: Self::Metadata,
+        start_slot: Slot,
+        limit: usize,
+        config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>> {
-        not_implemented_err_async()
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let svm_reader = svm_locker.read().await;
+
+            if limit == 0 {
+                return Err(Error::invalid_params("Limit must be greater than 0"));
+            }
+
+            let commitment = config
+                .and_then(|c| c.commitment)
+                .unwrap_or_default()
+                .commitment;
+
+            if commitment == solana_commitment_config::CommitmentLevel::Processed {
+                return Err(Error::invalid_params(
+                    "\"processed\" commitment is not supported for getBlocksWithLimit"
+                ));
+            }
+
+
+            let current_slot = svm_reader.get_latest_absolute_slot();
+            let slot_threshold = match commitment {
+                solana_commitment_config::CommitmentLevel::Confirmed => current_slot.saturating_sub(1),
+                solana_commitment_config::CommitmentLevel::Finalized => {
+                    current_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
+                }
+                // processed slots is already handled above
+                _ => current_slot,
+            };
+
+            let mut available_slots: Vec<Slot> = svm_reader
+                .blocks
+                .keys()
+                .copied()
+                .filter(|&slot| {
+                    slot >= start_slot &&
+                        slot <= slot_threshold
+                })
+                .collect();
+
+            available_slots.sort_unstable();
+
+
+            available_slots.truncate(limit);
+
+            Ok(available_slots)
+        })
     }
 
     fn get_transaction(
@@ -2295,5 +2419,215 @@ mod tests {
                 .latest_blockhash()
                 .to_string()
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_blocks_with_commitment() {
+        use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
+        use solana_client::rpc_config::RpcContextConfig;
+
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        {
+            let mut svm_writer = setup.context.surfnet_svm.write().await;
+            
+            svm_writer.latest_epoch_info.absolute_slot = 130;
+            
+            for slot in [95, 100, 125, 129, 130] {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+        }
+
+        // test with finalized commitment -> should only return slots <= 99
+        let config = Some(RpcContextConfig {
+            commitment: Some(CommitmentConfig {
+                commitment: CommitmentLevel::Finalized,
+            }),
+            min_context_slot: None,
+        });
+
+        let res = setup
+            .rpc
+            .get_blocks(Some(setup.context.clone()), 90, None, config)
+            .await
+            .unwrap();
+
+        assert_eq!(res, vec![95], "Finalized commitment should only return slots <= 99");
+
+        // test with confirmed commitment _> should return slots <= 129
+        let config = Some(RpcContextConfig {
+            commitment: Some(CommitmentConfig {
+                commitment: CommitmentLevel::Confirmed,
+            }),
+            min_context_slot: None,
+        });
+
+        let res = setup
+            .rpc
+            .get_blocks(Some(setup.context.clone()), 90, None, config)
+            .await
+            .unwrap();
+
+        assert_eq!(res, vec![95, 100, 125, 129], "Confirmed commitment should return slots <= 129");
+
+        // Test with processed commitment -> should return error
+        let config = Some(RpcContextConfig {
+            commitment: Some(CommitmentConfig {
+                commitment: CommitmentLevel::Processed,
+            }),
+            min_context_slot: None,
+        });
+
+        let res = setup
+            .rpc
+            .get_blocks(Some(setup.context.clone()), 90, None, config)
+            .await;
+
+        assert!(res.is_err(), "Processed commitment should return error");
+    }
+
+    #[tokio::test]
+    async fn test_get_blocks_with_end_slot() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        // blocks
+        {
+            let mut svm_writer = setup.context.surfnet_svm.write().await;
+            svm_writer.latest_epoch_info.absolute_slot = 140;
+
+            //sample block headers
+            for slot in 100..=104 {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+        }
+
+        // test getting all blocks from slot 100
+        let res = setup
+            .rpc
+            .get_blocks(Some(setup.context.clone()), 100, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(res, vec![100, 101, 102, 103, 104]);
+
+        // test getting blocks with end slot
+        use solana_client::rpc_config::RpcBlocksConfigWrapper;
+        let res = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                101,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(103))),
+                None
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(res, vec![101, 102, 103]);
+
+        // test getting blocks from a slot that doesn't exist
+        let res = setup
+            .rpc
+            .get_blocks(Some(setup.context.clone()), 200, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(res, Vec::<u64>::new());
+
+        // test range validation - should fail if range > 500,000
+        let res = setup
+            .rpc
+            .get_blocks(Some(setup.context.clone()), 100, Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(600_100))), None)
+            .await;
+
+        assert!(res.is_err(), "Should fail with large range");
+    }
+
+    #[tokio::test]
+    async fn test_get_blocks_with_limit_and_commitment() {
+        use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
+
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        {
+            let mut svm_writer = setup.context.surfnet_svm.write().await;
+
+            // Set current slot to 130
+            svm_writer.latest_epoch_info.absolute_slot = 130;
+
+            // Create sample block headers for slots 95, 100, 125, 129, 130
+            for slot in [95, 100, 125, 129, 130] {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+        }
+
+        // test getting blocks with limit and finalized commitment
+        let config = Some(RpcContextConfig {
+            commitment: Some(CommitmentConfig {
+                commitment: CommitmentLevel::Finalized,
+            }),
+            min_context_slot: None,
+        });
+
+        let res = setup
+            .rpc
+            .get_blocks_with_limit(Some(setup.context.clone()), 90, 3, config)
+            .await
+            .unwrap();
+
+        assert_eq!(res, vec![95], "Should only return finalized blocks");
+
+        // test with zero limit (should return error)
+        let res = setup
+            .rpc
+            .get_blocks_with_limit(Some(setup.context.clone()), 100, 0, None)
+            .await;
+
+        assert!(res.is_err());
+
+        // test with processed commitment (should return error)
+        let config = Some(RpcContextConfig {
+            commitment: Some(CommitmentConfig {
+                commitment: CommitmentLevel::Processed,
+            }),
+            min_context_slot: None,
+        });
+
+        let res = setup
+            .rpc
+            .get_blocks_with_limit(Some(setup.context.clone()), 100, 5, config)
+            .await;
+
+        assert!(res.is_err(), "Processed commitment should return error");
     }
 }
