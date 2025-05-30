@@ -134,14 +134,14 @@ pub fn run(
 
     // Determine the owner's public key. If no wallet address is provided, generate a new keypair.
     // The keypair itself is stored if generated, so the secret key can be returned.
-    let owner_keypair: Option<Keypair> = if wallet_address_opt.is_none() {
-        Some(Keypair::new())
-    } else {
-        None
+    let owner_keypair: Option<Keypair> = match wallet_address_opt {
+        None => Some(Keypair::new()),
+        Some(_) => None,
     };
-    let owner_pubkey_str = wallet_address_opt
-        .clone()
-        .unwrap_or_else(|| owner_keypair.as_ref().unwrap().pubkey().to_string());
+    let owner_pubkey_str = owner_keypair
+        .as_ref()
+        .map(|kp| kp.pubkey().to_string())
+        .unwrap_or_else(|| wallet_address_opt.clone().unwrap_or_default());
 
     // Validate the owner public key string.
     let owner_pubkey = match Pubkey::try_from(owner_pubkey_str.as_str()) {
