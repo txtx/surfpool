@@ -1535,7 +1535,6 @@ impl Full for SurfpoolFullRpc {
         let (_, unsanitized_tx) =
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding).unwrap();
 
-
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
