@@ -1,3 +1,4 @@
+use solana_account::Account;
 use solana_client::{
     nonblocking::rpc_client::RpcClient, rpc_request::TokenAccountsFilter,
     rpc_response::RpcKeyedAccount,
@@ -149,7 +150,6 @@ impl SurfnetRemoteClient {
 
     pub async fn get_token_accounts_by_owner(
         &self,
-
         owner: Pubkey,
         token_program: Pubkey,
     ) -> SurfpoolResult<Vec<RpcKeyedAccount>> {
@@ -157,5 +157,15 @@ impl SurfnetRemoteClient {
             .get_token_accounts_by_owner(&owner, TokenAccountsFilter::ProgramId(token_program))
             .await
             .map_err(|e| SurfpoolError::get_token_accounts(owner, token_program, e))
+    }
+
+    pub async fn get_program_accounts(
+        &self,
+        program_id: &Pubkey,
+    ) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
+        self.client
+            .get_program_accounts(program_id)
+            .await
+            .map_err(|e| SurfpoolError::get_program_accounts(*program_id, e))
     }
 }

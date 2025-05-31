@@ -779,6 +779,57 @@ impl SurfnetSvmLocker {
 
         Ok(result.with_new_value(()))
     }
+
+    pub async fn get_program_accounts(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+        program_id: &Pubkey,
+    ) -> SurfpoolContextualizedResult<Vec<(Pubkey, Account)>> {
+        if let Some(remote_client) = remote_ctx {
+            self.get_program_accounts_local_then_remote(remote_client, program_id)
+                .await
+        } else {
+            Ok(self.get_program_accounts_local(program_id))
+        }
+    }
+
+    /// Retrieves program accounts from the local SVM cache, returning a contextualized result.
+    pub fn get_program_accounts_local(
+        &self,
+        program_id: &Pubkey,
+    ) -> SvmAccessContext<Vec<(Pubkey, Account)>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            svm_reader.get_account_owned_by(*program_id)
+        })
+    }
+
+    /// Retrieves program accounts from the local cache and remote client, combining results.
+    pub async fn get_program_accounts_local_then_remote(
+        &self,
+        client: &SurfnetRemoteClient,
+        program_id: &Pubkey,
+    ) -> SurfpoolContextualizedResult<Vec<(Pubkey, Account)>> {
+        let local_accounts = self.get_program_accounts_local(program_id);
+        let remote_accounts = client.get_program_accounts(program_id).await?;
+
+        let mut combined_accounts = vec![];
+
+        for (remote_pubkey, remote_account) in remote_accounts {
+            // if the account exists locally, use that instead of the remote one
+            if let Some(local_data) = local_accounts
+                .inner
+                .iter()
+                .find(|(local_pubkey, _)| local_pubkey.eq(&remote_pubkey))
+            {
+                combined_accounts.push(local_data.clone());
+            } else {
+                // otherwise, use the remote account
+                combined_accounts.push((remote_pubkey, remote_account));
+            }
+        }
+
+        Ok(local_accounts.with_new_value(combined_accounts))
+    }
 }
 
 /// Pass through functions for accessing the underlying SurfnetSvm instance

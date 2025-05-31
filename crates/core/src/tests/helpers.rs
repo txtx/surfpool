@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::{net::TcpListener, sync::Arc};
+use std::net::TcpListener;
 
 use crossbeam_channel::Sender;
 use litesvm::LiteSVM;

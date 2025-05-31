@@ -39,6 +39,8 @@ use crate::{
     types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 
+pub type AccountOwner = Pubkey;
+
 /// `SurfnetSvm` provides a lightweight Solana Virtual Machine (SVM) for testing and simulation.
 ///
 /// It supports a local in-memory blockchain state,
@@ -62,6 +64,7 @@ pub struct SurfnetSvm {
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
+    pub account_registry: HashMap<AccountOwner, Vec<(Pubkey, Account)>>,
 }
 
 impl SurfnetSvm {
@@ -110,6 +113,7 @@ impl SurfnetSvm {
                 transactions_queued_for_finalization: VecDeque::new(),
                 signature_subscriptions: HashMap::new(),
                 tagged_profiling_results: HashMap::new(),
+                account_registry: HashMap::new(),
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -284,9 +288,32 @@ impl SurfnetSvm {
     /// # Returns
     /// `Ok(())` on success, or an error if the operation fails.
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
+        // Remove the account from any existing registry entry
+        if let Some(existing_account) = self.inner.get_account(pubkey) {
+            // If the account we're setting already exists locally, we can remove it from the account registry
+            // to re-add the updated one later
+            if let Some(same_owner_accounts) =
+                self.account_registry.get_mut(&existing_account.owner)
+            {
+                // Remove just this account from the registry, leaving the others with the same owner intact
+                same_owner_accounts.retain(|(pk, _)| pk != pubkey);
+                // Clean up empty vectors
+                if same_owner_accounts.is_empty() {
+                    self.account_registry.remove(&existing_account.owner);
+                }
+            }
+        }
+
         self.inner
-            .set_account(*pubkey, account)
+            .set_account(*pubkey, account.clone())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+
+        // Add the account to the new owner's registry
+        self.account_registry
+            .entry(account.owner)
+            .or_insert_with(Vec::new)
+            .push((*pubkey, account));
+
         let _ = self
             .simnet_events_tx
             .send(SimnetEvent::account_update(*pubkey));
@@ -740,5 +767,21 @@ impl SurfnetSvm {
         };
 
         Some(block)
+    }
+
+    /// Gets all accounts owned by a specific program ID from the account registry.
+    ///
+    /// # Arguments
+    ///
+    /// * `program_id` - The program ID to search for owned accounts.
+    ///
+    /// # Returns
+    ///
+    /// * A vector of (account_pubkey, account) tuples for all accounts owned by the program.
+    pub fn get_account_owned_by(&self, program_id: Pubkey) -> Vec<(Pubkey, Account)> {
+        self.account_registry
+            .get(&program_id)
+            .map(|accounts| accounts.clone())
+            .unwrap_or_else(Vec::new)
     }
 }
