@@ -25,10 +25,6 @@ use surfpool_types::{
     SimnetCommand, SimnetEvent, SurfpoolConfig,
 };
 use tokio::{sync::RwLock, task};
-use solana_client::rpc_config::RpcSimulateTransactionConfig;
-use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
-use solana_commitment_config::CommitmentConfig;
-//use solana_rpc_client_api::config::RpcSimulateTransactionAccountsConfig;
 
 use crate::{
     error::SurfpoolError,
@@ -518,10 +514,7 @@ async fn test_simulate_add_alt_entries_fetching() {
             .await
             .expect("Failed to connect to Surfpool");
 
-
-    let recent_blockhash =
-        svm_locker
-        .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+    let recent_blockhash = svm_locker.with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
 
     let random_address = pubkey!("7zdYkYf7yD83j3TLXmkhxn6LjQP9y9bQ4pjfpquP8Hqw");
 
@@ -553,15 +546,12 @@ async fn test_simulate_add_alt_entries_fetching() {
     };
     let data = bs58::encode(encoded).into_string();
 
-    let simulation_res = full_client.simulate_transaction(data,None).await.unwrap();
+    let simulation_res = full_client.simulate_transaction(data, None).await.unwrap();
     assert_eq!(
         simulation_res.value.err, None,
         "Unexpected simulation error"
     );
-
 }
-
-
 
 #[ignore = "flaky CI tests"]
 #[tokio::test(flavor = "multi_thread")]
