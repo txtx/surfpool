@@ -16,6 +16,7 @@ use solana_message::{
 use solana_native_token::LAMPORTS_PER_SOL;
 use solana_pubkey::{pubkey, Pubkey};
 use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_runtime::snapshot_utils::should_take_incremental_snapshot;
 use solana_sdk::system_instruction::transfer;
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
@@ -462,7 +463,7 @@ async fn test_add_alt_entries_fetching() {
 // and that the lookup table and its entries are fetched from mainnet and added to the accounts in the SVM.
 // However, we are not actually setting up a tx that will use the lookup table internally,
 // we are kind of just trusting that LiteSVM will do its job here.
-//#[ignore = "flaky CI tests"]
+#[ignore = "flaky CI tests"]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_simulate_add_alt_entries_fetching() {
     let payer = Keypair::new();
@@ -514,11 +515,10 @@ async fn test_simulate_add_alt_entries_fetching() {
             .await
             .expect("Failed to connect to Surfpool");
 
-    let recent_blockhash = svm_locker.with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
-
     let random_address = pubkey!("7zdYkYf7yD83j3TLXmkhxn6LjQP9y9bQ4pjfpquP8Hqw");
 
     let instruction = transfer(&pk, &random_address, 100);
+    let recent_blockhash = svm_locker.with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
 
     let alt_address = pubkey!("5KcPJehcpBLcPde2UhmY4dE9zCrv2r9AKFmW5CGtY1io"); // a mainnet lookup table
 
