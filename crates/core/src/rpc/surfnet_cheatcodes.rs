@@ -626,68 +626,43 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
         Box::pin(async move {
             let account_keys_to_profile = transaction.message.static_account_keys().to_vec();
-            // In a future step, we could extend account_keys_to_profile with an optional RPC parameter `accounts_to_profile`
 
             let mut pre_execution_capture = BTreeMap::new();
-            for key in &account_keys_to_profile {
-                let SvmAccessContext {
-                    inner: account_result,
-                    ..
-                } = svm_locker.get_account_local(key);
+            let SvmAccessContext { inner: pre_accounts_vec, .. } = svm_locker.get_multiple_accounts_local(&account_keys_to_profile);
+            for (i, account_result) in pre_accounts_vec.iter().enumerate() {
+                let key = account_keys_to_profile[i];
                 match account_result {
                     GetAccountResult::FoundAccount(_, acc, _) => {
-                        pre_execution_capture.insert(*key, Some(acc.data.clone()));
+                        pre_execution_capture.insert(key, Some(acc.data.clone()));
                     }
-                    GetAccountResult::FoundProgramAccount(
-                        (prog_key, prog_acc),
-                        (_prog_data_key, _prog_data_acc_option),
-                    ) => {
-                        // get_account_local typically returns FoundAccount even for program executables.
-                        log::trace!(
-                            "Capturing program executable account {} data during pre-exec.",
-                            prog_key
-                        );
-                        pre_execution_capture.insert(prog_key, Some(prog_acc.data.clone()));
+                    GetAccountResult::FoundProgramAccount((_prog_key, prog_acc), _) => {
+                        pre_execution_capture.insert(key, Some(prog_acc.data.clone()));
                     }
                     GetAccountResult::None(_) => {
-                        pre_execution_capture.insert(*key, None);
+                        pre_execution_capture.insert(key, None);
                     }
                 }
             }
 
             let SvmAccessContext {
                 slot,
-                inner: estimation_result, // This is ComputeUnitsEstimationResult
+                inner: estimation_result,
                 ..
             } = svm_locker.estimate_compute_units(&transaction);
 
-            // TODO: This currently fetches the original account state again, as
-            // svm_locker.estimate_compute_units does not (yet) return the post-simulation state changes.
-            // The underlying LiteSVM simulate_transaction or its wrapper in SurfnetSvm
-            // needs to be modified to provide the state diffs for accurate post-execution capture.
             let mut post_execution_capture = BTreeMap::new();
-            for key in &account_keys_to_profile {
-                let SvmAccessContext {
-                    inner: account_result,
-                    ..
-                } = svm_locker.get_account_local(key);
+            let SvmAccessContext { inner: post_accounts_vec, .. } = svm_locker.get_multiple_accounts_local(&account_keys_to_profile);
+            for (i, account_result) in post_accounts_vec.iter().enumerate() {
+                let key = account_keys_to_profile[i];
                 match account_result {
                     GetAccountResult::FoundAccount(_, acc, _) => {
-                        post_execution_capture.insert(*key, Some(acc.data.clone()));
+                        post_execution_capture.insert(key, Some(acc.data.clone()));
                     }
-                    GetAccountResult::FoundProgramAccount(
-                        (prog_key, prog_acc),
-                        (_prog_data_key, _prog_data_acc_option),
-                    ) => {
-                        // get_account_local typically returns FoundAccount even for program executables.
-                        log::trace!(
-                            "Capturing program executable account {} data during post-exec.",
-                            prog_key
-                        );
-                        post_execution_capture.insert(prog_key, Some(prog_acc.data.clone()));
+                    GetAccountResult::FoundProgramAccount((_prog_key, prog_acc), _) => {
+                        post_execution_capture.insert(key, Some(prog_acc.data.clone()));
                     }
                     GetAccountResult::None(_) => {
-                        post_execution_capture.insert(*key, None);
+                        post_execution_capture.insert(key, None);
                     }
                 }
             }
