@@ -774,7 +774,7 @@ pub trait Full {
     /// - The `commitment` setting determines the level of finality for the blocks returned (e.g., "finalized", "confirmed", etc.).
     ///
     /// # See Also
-    /// - `getBlock`, `getSlot`, `getBlockTime`    
+    /// - `getBlock`, `getSlot`, `getBlockTime`
     #[rpc(meta, name = "getBlocks")]
     fn get_blocks(
         &self,
@@ -1535,11 +1535,6 @@ impl Full for SurfpoolFullRpc {
         let (_, unsanitized_tx) =
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding).unwrap();
 
-        let pubkeys = match &unsanitized_tx.message {
-            VersionedMessage::Legacy(msg) => msg.account_keys.clone(),
-            VersionedMessage::V0(msg) => msg.account_keys.clone(),
-        };
-
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
@@ -1549,6 +1544,10 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
+            let pubkeys = svm_locker
+                .get_pubkeys_from_message(&remote_ctx, &unsanitized_tx.message)
+                .await?;
+
             let SvmAccessContext {
                 slot,
                 inner: account_updates,
