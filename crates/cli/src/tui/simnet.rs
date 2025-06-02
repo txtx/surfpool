@@ -105,6 +105,13 @@ impl App {
         } else {
             palette::tailwind::EMERALD
         };
+        let remote_rpc_host = {
+            let comps = remote_rpc_url
+                .split("?")
+                .map(|e| e.to_string())
+                .collect::<Vec<String>>();
+            comps.first().unwrap().to_string()
+        };
         App {
             state: TableState::default().with_selected(0),
             scroll_state: ScrollbarState::new(5 * ITEM_HEIGHT),
@@ -125,7 +132,7 @@ impl App {
             include_debug_logs,
             deploy_progress_rx,
             status_bar_message: None,
-            remote_rpc_url: remote_rpc_url.to_string(),
+            remote_rpc_url: remote_rpc_host.to_string(),
             local_rpc_url: format!("http://{}", local_rpc_url),
             breaker,
             paused: false,
@@ -138,7 +145,7 @@ impl App {
 
     pub fn epoch_progress(&self) -> u16 {
         let absolute = self.slot() as u64;
-        let progress = absolute.rem_euclid(self.epoch_info.slots_in_epoch) as u64;
+        let progress = absolute.rem_euclid(self.epoch_info.slots_in_epoch);
         ((progress as f64 / self.epoch_info.slots_in_epoch as f64) * 100.0) as u16
     }
 
@@ -303,10 +310,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             SimnetEvent::Shutdown => {
                                 break;
                             }
-                            &SimnetEvent::TaggedProfile {
-                                ref result,
-                                ref tag,
-                                ref timestamp,
+                            SimnetEvent::TaggedProfile {
+                                result,
+                                tag,
+                                timestamp,
                             } => {
                                 let msg = format!(
                                     "Profiled [{}]: {} CUs",

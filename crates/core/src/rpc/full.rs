@@ -18,7 +18,8 @@ use solana_client::{
         RpcSimulateTransactionResult,
     },
 };
-use solana_clock::UnixTimestamp;
+use solana_clock::{Slot, UnixTimestamp};
+use solana_commitment_config::CommitmentConfig;
 use solana_message::VersionedMessage;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
@@ -27,13 +28,17 @@ use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatus,
     UiConfirmedBlock, UiTransactionEncoding,
 };
-use surfpool_types::TransactionStatusEvent;
+use surfpool_types::{SimnetCommand, TransactionStatusEvent};
 
 use super::{
+    not_implemented_err, not_implemented_err_async,
     utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
-    *,
+    RunloopContext, State, SurfnetRpcContext,
 };
-use crate::surfnet::GetAccountStrategy;
+use crate::{
+    error::SurfpoolError,
+    surfnet::{locker::SvmAccessContext, GetTransactionResult},
+};
 
 #[rpc]
 pub trait Full {
@@ -1339,11 +1344,11 @@ impl Full for SurfpoolFullRpc {
         _address_strs: Vec<String>,
         _config: Option<RpcEpochConfig>,
     ) -> BoxFuture<Result<Vec<Option<RpcInflationReward>>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_inflation_reward")
     }
 
     fn get_cluster_nodes(&self, _meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
-        not_implemented_err()
+        not_implemented_err("get_cluster_nodes")
     }
 
     fn get_recent_performance_samples(
@@ -1385,34 +1390,36 @@ impl Full for SurfpoolFullRpc {
             Err(e) => return e.into(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(s) => s,
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context::<Option<UiTransactionEncoding>>(None) {
+            Ok(res) => res,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let svm_reader = svm_locker.read().await;
             let mut responses = Vec::with_capacity(signatures.len());
+            let mut last_latest_absolute_slot = 0;
             for signature in signatures.into_iter() {
-                let res = match svm_reader.get_transaction(&signature, None).await {
-                    Ok(res) => res,
-                    Err(_e) => return Err(Error::internal_error()),
-                };
-                responses.push(res.map(|(_, status)| status));
+                let res = svm_locker.get_transaction(&remote_ctx, &signature).await;
+
+                last_latest_absolute_slot = res.slot;
+                responses.push(res.inner.map_some_transaction_status());
             }
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(last_latest_absolute_slot),
                 value: responses,
             })
         })
     }
 
     fn get_max_retransmit_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        not_implemented_err()
+        not_implemented_err("get_max_retransmit_slot")
     }
 
     fn get_max_shred_insert_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        not_implemented_err()
+        not_implemented_err("get_max_shred_insert_slot")
     }
 
     fn request_airdrop(
@@ -1423,11 +1430,10 @@ impl Full for SurfpoolFullRpc {
         _config: Option<RpcRequestAirdropConfig>,
     ) -> Result<String> {
         let pubkey = verify_pubkey(&pubkey_str)?;
-        let res = meta.with_svm_writer(|svm_writer| {
-            svm_writer.airdrop(&pubkey, lamports).map_err(|err| {
-                Error::invalid_params(format!("failed to send transaction: {err:?}"))
-            })
-        })??;
+        let svm_locker = meta.get_svm_locker()?;
+        let res = svm_locker
+            .airdrop(&pubkey, lamports)
+            .map_err(|err| Error::invalid_params(format!("failed to send transaction: {err:?}")))?;
         Ok(res.signature.to_string())
     }
 
@@ -1448,7 +1454,6 @@ impl Full for SurfpoolFullRpc {
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding)?;
         let signatures = unsanitized_tx.signatures.clone();
         let signature = signatures[0];
-
         let Some(ctx) = meta else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
@@ -1467,7 +1472,6 @@ impl Full for SurfpoolFullRpc {
             .map_err(|_| RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             })?;
-
         match status_update_rx.recv() {
             Ok(TransactionStatusEvent::SimulationFailure(e)) => {
                 return Err(Error {
@@ -1479,7 +1483,7 @@ impl Full for SurfpoolFullRpc {
                         e.1.logs.iter().map(|l| l.to_string()).join("\n")
                     ),
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
-                })
+                });
             }
             Ok(TransactionStatusEvent::ExecutionFailure(e)) => {
                 return Err(Error {
@@ -1490,6 +1494,13 @@ impl Full for SurfpoolFullRpc {
                         e.1.logs.len(),
                         e.1.logs.iter().map(|l| l.to_string()).join("\n")
                     ),
+                    code: jsonrpc_core::ErrorCode::ServerError(-32002),
+                });
+            }
+            Ok(TransactionStatusEvent::VerificationFailure(signature)) => {
+                return Err(Error {
+                    data: None,
+                    message: format!("Transaction verification failed for transaction {signature}"),
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
             }
@@ -1529,30 +1540,32 @@ impl Full for SurfpoolFullRpc {
             VersionedMessage::V0(msg) => msg.account_keys.clone(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(locker) => locker,
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+            Ok(res) => res,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            let _ = svm_writer
-                .get_multiple_accounts_mut(
-                    &pubkeys,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
-                )
-                .await;
-            svm_writer.inner.set_sigverify(config.sig_verify);
-            svm_writer
-                .inner
-                .set_blockhash_check(config.replace_recent_blockhash);
+            let SvmAccessContext {
+                slot,
+                inner: account_updates,
+                latest_blockhash,
+                latest_epoch_info,
+            } = svm_locker
+                .get_multiple_accounts(&remote_ctx, &pubkeys, None)
+                .await?;
+
+            svm_locker.write_multiple_account_updates(&account_updates);
 
             let replacement_blockhash = Some(RpcBlockhash {
-                blockhash: svm_writer.latest_blockhash().to_string(),
-                last_valid_block_height: svm_writer.latest_epoch_info.block_height,
+                blockhash: latest_blockhash.to_string(),
+                last_valid_block_height: latest_epoch_info.block_height,
             });
 
-            let value = match svm_writer.inner.simulate_transaction(unsanitized_tx) {
+            let value = match svm_locker.simulate_transaction(unsanitized_tx) {
                 Ok(tx_info) => {
                     let mut accounts = None;
                     if let Some(observed_accounts) = config.accounts {
@@ -1605,14 +1618,14 @@ impl Full for SurfpoolFullRpc {
             };
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(slot),
                 value,
             })
         })
     }
 
     fn minimum_ledger_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        not_implemented_err()
+        not_implemented_err("minimum_ledger_slot")
     }
 
     fn get_block(
@@ -1627,8 +1640,7 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            let svm_reader = svm_locker.read().await;
-            Ok(svm_reader.get_block_at_slot(slot))
+            Ok(svm_locker.with_svm_reader(|svm_reader| svm_reader.get_block_at_slot(slot)))
         })
     }
 
@@ -1647,7 +1659,7 @@ impl Full for SurfpoolFullRpc {
         _wrapper: Option<RpcBlocksConfigWrapper>,
         _config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_blocks")
     }
 
     fn get_blocks_with_limit(
@@ -1657,7 +1669,7 @@ impl Full for SurfpoolFullRpc {
         _limit: usize,
         _config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_blocks_with_limit")
     }
 
     fn get_transaction(
@@ -1675,22 +1687,24 @@ impl Full for SurfpoolFullRpc {
             Err(e) => return e.into(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(s) => s,
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.encoding) {
+            Ok(res) => res,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
             // TODO: implement new interfaces in LiteSVM to get all the relevant info
             // needed to return the actual tx, not just some metadata
-            let svm_reader = svm_locker.read().await;
-            match svm_reader
-                .get_transaction(&signature, config.encoding)
+            match svm_locker
+                .get_transaction(&remote_ctx, &signature)
                 .await
+                .inner
             {
-                Ok(Some((res, _))) => Ok(Some(res)),
-                Ok(None) => Ok(None),
-                Err(_e) => Ok(None),
+                GetTransactionResult::None(_) => Ok(None),
+                GetTransactionResult::FoundTransaction(_, meta, _) => Ok(Some(meta)),
             }
         })
     }
@@ -1701,7 +1715,7 @@ impl Full for SurfpoolFullRpc {
         _address: String,
         _config: Option<RpcSignaturesForAddressConfig>,
     ) -> BoxFuture<Result<Vec<RpcConfirmedTransactionStatusWithSignature>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_signatures_for_address")
     }
 
     fn get_first_available_block(&self, meta: Self::Metadata) -> Result<Slot> {
@@ -1767,7 +1781,7 @@ impl Full for SurfpoolFullRpc {
         _meta: Self::Metadata,
         _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<u64>> {
-        not_implemented_err()
+        not_implemented_err("get_stake_minimum_delegation")
     }
 
     fn get_recent_prioritization_fees(
@@ -1775,7 +1789,7 @@ impl Full for SurfpoolFullRpc {
         _meta: Self::Metadata,
         _pubkey_strs: Option<Vec<String>>,
     ) -> Result<Vec<RpcPrioritizationFee>> {
-        not_implemented_err()
+        not_implemented_err("get_recent_prioritization_fees")
     }
 }
 
@@ -1807,7 +1821,7 @@ mod tests {
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
         UiRawMessage, UiTransaction,
     };
-    use surfpool_types::TransactionConfirmationStatus;
+    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus};
     use test_case::test_case;
 
     use super::*;
@@ -1820,9 +1834,10 @@ mod tests {
         payer: &Pubkey,
         signers: &[&Keypair],
         instructions: &[Instruction],
+        recent_blockhash: &Hash,
     ) -> VersionedTransaction {
         let msg = VersionedMessage::V0(
-            V0Message::try_compile(&payer, instructions, &[], Hash::default()).unwrap(),
+            V0Message::try_compile(&payer, instructions, &[], *recent_blockhash).unwrap(),
         );
         VersionedTransaction::try_new(msg, signers).unwrap()
     }
@@ -1831,11 +1846,12 @@ mod tests {
         payer: &Pubkey,
         signers: &[&Keypair],
         instructions: &[Instruction],
+        recent_blockhash: &Hash,
     ) -> VersionedTransaction {
         let msg = VersionedMessage::Legacy(LegacyMessage::new_with_blockhash(
             instructions,
             Some(payer),
-            &Hash::default(),
+            recent_blockhash,
         ));
         VersionedTransaction::try_new(msg, signers).unwrap()
     }
@@ -1890,12 +1906,18 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_signature_statuses() {
         let pks = (0..10).map(|_| Pubkey::new_unique());
         let valid_txs = pks.len();
         let invalid_txs = pks.len();
         let payer = Keypair::new();
+        let mut setup = TestSetup::new(SurfpoolFullRpc).without_blockhash().await;
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
         let valid = pks
             .clone()
             .map(|pk| {
@@ -1907,7 +1929,7 @@ mod tests {
                     )],
                     Some(&payer.pubkey()),
                     &[payer.insecure_clone()],
-                    Hash::default(),
+                    recent_blockhash,
                 )
             })
             .collect::<Vec<_>>();
@@ -1931,8 +1953,7 @@ mod tests {
                 message: VersionedMessage::Legacy(tx.message),
             })
             .collect::<Vec<_>>();
-        let mut setup = TestSetup::new(SurfpoolFullRpc).without_blockhash().await;
-        let _ = setup.context.surfnet_svm.write().await.airdrop(
+        let _ = setup.context.svm_locker.0.write().await.airdrop(
             &payer.pubkey(),
             (valid_txs + invalid_txs) as u64 * 2 * LAMPORTS_PER_SOL,
         );
@@ -1952,6 +1973,7 @@ mod tests {
             res.value
                 .iter()
                 .filter(|status| {
+                    println!("status: {:?}", status);
                     if let Some(s) = status {
                         s.status.is_ok()
                     } else {
@@ -1986,7 +2008,7 @@ mod tests {
             .request_airdrop(Some(setup.context.clone()), pk.to_string(), lamports, None)
             .unwrap();
         let sig = Signature::from_str(res.as_str()).unwrap();
-        let state_reader = setup.context.surfnet_svm.blocking_read();
+        let state_reader = setup.context.svm_locker.0.blocking_read();
         assert_eq!(
             state_reader.inner.get_account(&pk).unwrap().lamports,
             lamports,
@@ -2004,12 +2026,17 @@ mod tests {
 
     #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
     #[test_case(TransactionVersion::Number(0) ; "V0 transactions")]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_send_transaction(version: TransactionVersion) {
         let payer = Keypair::new();
         let pk = Pubkey::new_unique();
         let (mempool_tx, mempool_rx) = crossbeam_channel::unbounded();
         let setup = TestSetup::new_with_mempool(SurfpoolFullRpc, mempool_tx);
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
         let tx = match version {
             TransactionVersion::Legacy(_) => build_legacy_transaction(
                 &payer.pubkey(),
@@ -2019,6 +2046,7 @@ mod tests {
                     &pk,
                     LAMPORTS_PER_SOL,
                 )],
+                &recent_blockhash,
             ),
             TransactionVersion::Number(0) => build_v0_transaction(
                 &payer.pubkey(),
@@ -2028,13 +2056,15 @@ mod tests {
                     &pk,
                     LAMPORTS_PER_SOL,
                 )],
+                &recent_blockhash,
             ),
             _ => unimplemented!(),
         };
 
         let _ = setup
             .context
-            .surfnet_svm
+            .svm_locker
+            .0
             .write()
             .await
             .airdrop(&payer.pubkey(), 2 * LAMPORTS_PER_SOL);
@@ -2055,6 +2085,11 @@ mod tests {
         let pk = Pubkey::new_unique();
         let lamports = LAMPORTS_PER_SOL;
         let setup = TestSetup::new(SurfpoolFullRpc);
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
         let _ = setup
             .rpc
             .request_airdrop(
@@ -2070,11 +2105,13 @@ mod tests {
                 &payer.pubkey(),
                 &[&payer.insecure_clone()],
                 &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
             ),
             TransactionVersion::Number(0) => build_v0_transaction(
                 &payer.pubkey(),
                 &[&payer.insecure_clone()],
                 &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
             ),
             _ => unimplemented!(),
         };
@@ -2118,7 +2155,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_block() {
         let setup = TestSetup::new(SurfpoolFullRpc);
         let res = setup
@@ -2150,6 +2187,10 @@ mod tests {
         let pk = Pubkey::new_unique();
         let lamports = LAMPORTS_PER_SOL;
         let mut setup = TestSetup::new(SurfpoolFullRpc);
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
 
         let _ = setup
             .rpc
@@ -2166,11 +2207,13 @@ mod tests {
                 &payer.pubkey(),
                 &[&payer.insecure_clone()],
                 &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
             ),
             TransactionVersion::Number(0) => build_v0_transaction(
                 &payer.pubkey(),
                 &[&payer.insecure_clone()],
                 &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
             ),
             _ => unimplemented!(),
         };
@@ -2188,7 +2231,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        let instructions = match tx.message {
+        let instructions = match tx.message.clone() {
             VersionedMessage::Legacy(message) => message
                 .instructions
                 .iter()
@@ -2219,9 +2262,12 @@ mod tests {
                                 pk.to_string(),
                                 system_program::id().to_string()
                             ],
-                            recent_blockhash: Hash::default().to_string(),
+                            recent_blockhash: recent_blockhash.to_string(),
                             instructions,
-                            address_table_lookups: None
+                            address_table_lookups: match tx.message {
+                                VersionedMessage::Legacy(_) => None,
+                                VersionedMessage::V0(_) => Some(vec![]),
+                            },
                         })
                     }),
                     meta: res.transaction.clone().meta, // Using the same values to avoid reintroducing processing logic errors
@@ -2238,7 +2284,7 @@ mod tests {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
         {
-            let mut svm_writer = setup.context.surfnet_svm.write().await;
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
 
             let previous_chain_tip = svm_writer.chain_tip.clone();
 
@@ -2290,7 +2336,8 @@ mod tests {
             res.value.blockhash,
             setup
                 .context
-                .surfnet_svm
+                .svm_locker
+                .0
                 .blocking_read()
                 .latest_blockhash()
                 .to_string()

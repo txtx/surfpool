@@ -1,5 +1,6 @@
-use jsonrpc_core::{BoxFuture, Result};
+use jsonrpc_core::{BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
+use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::{
     rpc_config::{
         RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig, RpcSupplyConfig,
@@ -12,8 +13,14 @@ use solana_client::{
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_sdk::program_pack::Pack;
+use spl_associated_token_account::get_associated_token_address_with_program_id;
+use spl_token::state::Account as TokenAccount;
 
-use super::{not_implemented_err_async, RunloopContext, State};
+use super::{
+    not_implemented_err_async, utils::verify_pubkey, RunloopContext, State, SurfnetRpcContext,
+};
+use crate::surfnet::locker::SvmAccessContext;
 
 #[rpc]
 pub trait AccountsScan {
@@ -461,7 +468,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _program_id_str: String,
         _config: Option<RpcProgramAccountsConfig>,
     ) -> BoxFuture<Result<OptionalContext<Vec<RpcKeyedAccount>>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_program_accounts")
     }
 
     fn get_largest_accounts(
@@ -469,7 +476,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _meta: Self::Metadata,
         _config: Option<RpcLargestAccountsConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcAccountBalance>>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_largest_accounts")
     }
 
     fn get_supply(
@@ -483,16 +490,17 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         };
 
         Box::pin(async move {
-            let svm_reader = svm_locker.read().await;
-            let slot = svm_reader.get_latest_absolute_slot();
-            Ok(RpcResponse {
-                context: RpcResponseContext::new(slot),
-                value: RpcSupply {
-                    total: 1,
-                    circulating: 0,
-                    non_circulating: 0,
-                    non_circulating_accounts: vec![],
-                },
+            svm_locker.with_svm_reader(|svm_reader| {
+                let slot = svm_reader.get_latest_absolute_slot();
+                Ok(RpcResponse {
+                    context: RpcResponseContext::new(slot),
+                    value: RpcSupply {
+                        total: 1,
+                        circulating: 0,
+                        non_circulating: 0,
+                        non_circulating_accounts: vec![],
+                    },
+                })
             })
         })
     }
@@ -503,17 +511,89 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _mint_str: String,
         _commitment: Option<CommitmentConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcTokenAccountBalance>>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_token_largest_accounts")
     }
 
     fn get_token_accounts_by_owner(
         &self,
-        _meta: Self::Metadata,
-        _owner_str: String,
-        _token_account_filter: RpcTokenAccountsFilter,
-        _config: Option<RpcAccountInfoConfig>,
+        meta: Self::Metadata,
+        owner_str: String,
+        token_account_filter: RpcTokenAccountsFilter,
+        config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>> {
-        not_implemented_err_async()
+        let config = config.unwrap_or_default();
+        let owner = match verify_pubkey(&owner_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            match token_account_filter {
+                RpcTokenAccountsFilter::Mint(mint) => {
+                    let mint = verify_pubkey(&mint)?;
+
+                    let associated_token_address = get_associated_token_address_with_program_id(
+                        &owner,
+                        &mint,
+                        &spl_token::id(),
+                    );
+                    let SvmAccessContext {
+                        slot,
+                        inner: account_update,
+                        ..
+                    } = svm_locker
+                        .get_account(&remote_ctx, &associated_token_address, None)
+                        .await?;
+
+                    svm_locker.write_account_update(account_update.clone());
+
+                    let token_account = account_update.map_account()?;
+
+                    let _ = TokenAccount::unpack(&token_account.data).map_err(|e| {
+                        Error::invalid_params(format!("Failed to unpack token account data: {}", e))
+                    })?;
+
+                    Ok(RpcResponse {
+                        context: RpcResponseContext::new(slot),
+                        value: vec![RpcKeyedAccount {
+                            pubkey: associated_token_address.to_string(),
+                            account: encode_ui_account(
+                                &associated_token_address,
+                                &token_account,
+                                config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                                None,
+                                config.data_slice,
+                            ),
+                        }],
+                    })
+                }
+                RpcTokenAccountsFilter::ProgramId(program_id) => {
+                    let program_id = verify_pubkey(&program_id)?;
+
+                    let remote_ctx = remote_ctx.map(|(r, _)| r);
+                    let SvmAccessContext {
+                        slot,
+                        inner: (keyed_accounts, missing_pubkeys),
+                        ..
+                    } = svm_locker
+                        .get_all_token_accounts(&remote_ctx, owner, program_id)
+                        .await?;
+
+                    Ok(RpcResponse {
+                        context: RpcResponseContext::new(slot),
+                        value: keyed_accounts,
+                    })
+                }
+            }
+        })
     }
 
     fn get_token_accounts_by_delegate(
@@ -523,6 +603,6 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _token_account_filter: RpcTokenAccountsFilter,
         _config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>> {
-        not_implemented_err_async()
+        not_implemented_err_async("get_token_accounts_by_delegate")
     }
 }

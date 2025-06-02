@@ -206,6 +206,7 @@ pub fn run(
             },
             None => amount_to_set,
         };
+
         let update_params = AccountUpdateParams {
             lamports: Some(lamports_to_set),
         };
@@ -226,8 +227,18 @@ pub fn run(
             params: params_value,
         }
     } else {
+        let token_amount_to_set = match &actual_token_symbol_opt {
+            Some(token_symbol) => match VERIFIED_TOKENS_BY_SYMBOL.get(&token_symbol.to_uppercase())
+            {
+                Some(token_info) => amount_to_set
+                    .checked_mul(10u64.pow(token_info.decimals as u32))
+                    .unwrap_or(amount_to_set),
+                None => amount_to_set,
+            },
+            None => amount_to_set,
+        };
         let update_params = TokenAccountUpdateParams {
-            amount: Some(amount_to_set),
+            amount: Some(token_amount_to_set),
         };
 
         let params_tuple = (
