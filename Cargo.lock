@@ -9883,6 +9883,7 @@ version = "0.4.0"
 dependencies = [
  "axum",
  "bs58",
+ "hiro-system-kit",
  "reqwest 0.12.18",
  "rmcp",
  "serde",

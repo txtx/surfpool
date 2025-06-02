@@ -1,6 +1,7 @@
 use std::process::{Command, Stdio};
 
 use serde::Serialize;
+use surfpool_core::start_local_surfnet;
 
 #[derive(Serialize)]
 pub struct StartSurfnetResponse {
@@ -25,14 +26,24 @@ impl StartSurfnetResponse {
 }
 
 pub fn run() -> StartSurfnetResponse {
-    // Prepare to start the "surfpool start" command as a subprocess
-    let mut cmd = Command::new("surfpool");
-    cmd.arg("start");
-    // Detach the child process from stdin
-    cmd.stdin(Stdio::null());
-    // Attempt to spawn the process
-    match cmd.spawn() {
-        Ok(_child) => StartSurfnetResponse::success(format!("http://127.0.0.1:8899")),
-        Err(e) => StartSurfnetResponse::error(format!("Failed to execute surfnet start: {}", e)),
-    }
+
+    let _handle = hiro_system_kit::thread_named("surfnet")
+        .spawn(move || {
+            let future = start_local_surfnet(
+                surfnet_svm,
+                config_copy,
+                subgraph_commands_tx,
+                simnet_commands_tx_copy,
+                simnet_commands_rx,
+                geyser_events_rx,
+            );
+            if let Err(e) = hiro_system_kit::nestable_block_on(future) {
+                // Error handling
+                std::process::exit(1);
+            }
+            Ok::<(), String>(())
+        })
+        .map_err(|e| StartSurfnetResponse::error(format!("Failed to execute surfnet start: {}", e)))?;
+
+    StartSurfnetResponse::success(format!("http://127.0.0.1:8899"))
 }
