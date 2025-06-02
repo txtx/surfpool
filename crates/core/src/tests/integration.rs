@@ -16,6 +16,7 @@ use solana_message::{
 use solana_native_token::LAMPORTS_PER_SOL;
 use solana_pubkey::{pubkey, Pubkey};
 use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_runtime::snapshot_utils::should_take_incremental_snapshot;
 use solana_sdk::system_instruction::transfer;
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
@@ -302,6 +303,7 @@ async fn test_simnet_some_sol_transfers() {
 // and that the lookup table and its entries are fetched from mainnet and added to the accounts in the SVM.
 // However, we are not actually setting up a tx that will use the lookup table internally,
 // we are kind of just trusting that LiteSVM will do its job here.
+
 #[ignore = "flaky CI tests"]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_add_alt_entries_fetching() {
@@ -453,6 +455,103 @@ async fn test_add_alt_entries_fetching() {
                 .is_ok()
         }),
         "account not found"
+    );
+}
+
+
+// This test is pretty minimal for lookup tables at this point.
+// We are creating a v0 transaction with a lookup table that does exist on mainnet,
+// and sending that tx to surfpool. We are verifying that the transaction is processed
+// and that the lookup table and its entries are fetched from mainnet and added to the accounts in the SVM.
+// However, we are not actually setting up a tx that will use the lookup table internally,
+// we are kind of just trusting that LiteSVM will do its job here.
+#[ignore = "flaky CI tests"]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_simulate_add_alt_entries_fetching() {
+    let payer = Keypair::new();
+    let pk = payer.pubkey();
+
+    let bind_host = "127.0.0.1";
+    let bind_port = get_free_port().unwrap();
+    let airdrop_token_amount = LAMPORTS_PER_SOL;
+    let config = SurfpoolConfig {
+        simnets: vec![SimnetConfig {
+            slot_time: 1,
+            airdrop_addresses: vec![pk], // just one
+            airdrop_token_amount,
+            ..SimnetConfig::default()
+        }],
+        rpc: RpcConfig {
+            bind_host: bind_host.to_string(),
+            bind_port,
+            ..Default::default()
+        },
+        ..SurfpoolConfig::default()
+    };
+
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
+
+    let moved_svm_locker = svm_locker.clone();
+    let _handle = hiro_system_kit::thread_named("test").spawn(move || {
+        let future = start_local_surfnet_runloop(
+            SurfnetSvmLocker(moved_svm_locker),
+            config,
+            subgraph_commands_tx,
+            simnet_commands_tx,
+            simnet_commands_rx,
+            geyser_events_rx,
+        );
+        if let Err(e) = hiro_system_kit::nestable_block_on(future) {
+            panic!("{e:?}");
+        }
+    });
+    let svm_locker = SurfnetSvmLocker(svm_locker);
+
+    wait_for_ready_and_connected(&simnet_events_rx);
+
+    let full_client =
+        http::connect::<FullClient>(format!("http://{bind_host}:{bind_port}").as_str())
+            .await
+            .expect("Failed to connect to Surfpool");
+
+    let random_address = pubkey!("7zdYkYf7yD83j3TLXmkhxn6LjQP9y9bQ4pjfpquP8Hqw");
+
+    let instruction = transfer(&pk, &random_address, 100);
+    let recent_blockhash = svm_locker.with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+    let alt_address = pubkey!("5KcPJehcpBLcPde2UhmY4dE9zCrv2r9AKFmW5CGtY1io"); // a mainnet lookup table
+
+    let address_lookup_table_account = AddressLookupTableAccount {
+        key: alt_address,
+        addresses: vec![random_address],
+    };
+
+    let tx = VersionedTransaction::try_new(
+        VersionedMessage::V0(
+            v0::Message::try_compile(
+                &payer.pubkey(),
+                &[instruction],
+                &[address_lookup_table_account],
+                recent_blockhash,
+            )
+            .expect("Failed to compile message"),
+        ),
+        &[payer],
+    )
+    .expect("Failed to create transaction");
+
+    let Ok(encoded) = bincode::serialize(&tx) else {
+        panic!("Failed to serialize transaction");
+    };
+    let data = bs58::encode(encoded).into_string();
+
+    let simulation_res = full_client.simulate_transaction(data, None).await.unwrap();
+    assert_eq!(
+        simulation_res.value.err, None,
+        "Unexpected simulation error"
     );
 }
 
