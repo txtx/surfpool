@@ -19,8 +19,20 @@ impl Surfpool {
     #[tool(
         description = "Start a new local Solana network, also called surfnet or localnet. Returns the binding address of the RPC server, or an error that must be displayed"
     )]
-    pub fn start_surfnet(&self) -> Json<StartSurfnetResponse> {
-        let res = start_surfnet::run();
+    pub fn start_surfnet(
+        &self,
+        #[tool(param)]
+        #[schemars(
+            description = "the port to bind the RPC server to. Defaults to 8899 if not provided. If you want to use the default port, you can omit this parameter."
+        )]
+        rpc_port: Option<u16>,
+        #[tool(param)]
+        #[schemars(
+            description = "the port to bind the WS server to. Defaults to 8900 if not provided. If you want to use the default port, you can omit this parameter."
+        )]
+        ws_port: Option<u16>,
+    ) -> Json<StartSurfnetResponse> {
+        let res = start_surfnet::run(rpc_port, ws_port);
         Json(res)
     }
 
