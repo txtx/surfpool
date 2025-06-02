@@ -125,6 +125,10 @@ pub async fn start_block_production_runloop(
                         if block_production_mode.eq(&BlockProductionMode::Clock) {
                             do_produce_block = true;
                         }
+
+                        if svm_locker.0.read().unwrap().updated_at + 15 * 60 * 1000 < Utc::now().timestamp_millis() {
+                            simnet_commands_rx.send(SimnetCommand::Terminate(None))?;
+                        }
                     }
                     ClockEvent::ExpireBlockHash => {
                         do_produce_block = true;
@@ -152,6 +156,7 @@ pub async fn start_block_production_runloop(
                         svm_locker.process_transaction(&remote_rpc_client.get_remote_ctx(CommitmentConfig::confirmed()), transaction, status_tx, skip_preflight).await?;
                     }
                     SimnetCommand::Terminate(_) => {
+                        let _ = simnet_events_tx.send(SimnetEvent::Shutdown);
                         std::process::exit(0)
                     }
                 }

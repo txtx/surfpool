@@ -62,6 +62,7 @@ pub struct SurfnetSvm {
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
+    pub updated_at: u64,
 }
 
 impl SurfnetSvm {
@@ -110,6 +111,7 @@ impl SurfnetSvm {
                 transactions_queued_for_finalization: VecDeque::new(),
                 signature_subscriptions: HashMap::new(),
                 tagged_profiling_results: HashMap::new(),
+                updated_at: 0,
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -290,6 +292,7 @@ impl SurfnetSvm {
         let _ = self
             .simnet_events_tx
             .send(SimnetEvent::account_update(*pubkey));
+        self.updated_at = Utc::now().timestamp_millis();
         Ok(())
     }
 

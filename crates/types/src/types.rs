@@ -315,6 +315,7 @@ pub struct SimnetConfig {
     pub block_production_mode: BlockProductionMode,
     pub airdrop_addresses: Vec<Pubkey>,
     pub airdrop_token_amount: u64,
+    pub expiry: Option<u64>, // 15 minutes
 }
 
 impl Default for SimnetConfig {
@@ -325,6 +326,7 @@ impl Default for SimnetConfig {
             block_production_mode: BlockProductionMode::Clock,
             airdrop_addresses: vec![],
             airdrop_token_amount: 0,
+            expiry: None,
         }
     }
 }
