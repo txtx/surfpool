@@ -628,18 +628,21 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             let account_keys_to_profile = transaction.message.static_account_keys().to_vec();
 
             let mut pre_execution_capture = BTreeMap::new();
-            let SvmAccessContext { inner: pre_accounts_vec, .. } = svm_locker.get_multiple_accounts_local(&account_keys_to_profile);
-            for (i, account_result) in pre_accounts_vec.iter().enumerate() {
-                let key = account_keys_to_profile[i];
+            let SvmAccessContext {
+                inner: pre_accounts_vec,
+                ..
+            } = svm_locker.get_multiple_accounts_local(&account_keys_to_profile);
+            for (key, account_result) in account_keys_to_profile.iter().zip(pre_accounts_vec.iter())
+            {
                 match account_result {
                     GetAccountResult::FoundAccount(_, acc, _) => {
-                        pre_execution_capture.insert(key, Some(acc.data.clone()));
+                        pre_execution_capture.insert(*key, Some(acc.data.clone()));
                     }
                     GetAccountResult::FoundProgramAccount((_prog_key, prog_acc), _) => {
-                        pre_execution_capture.insert(key, Some(prog_acc.data.clone()));
+                        pre_execution_capture.insert(*key, Some(prog_acc.data.clone()));
                     }
                     GetAccountResult::None(_) => {
-                        pre_execution_capture.insert(key, None);
+                        pre_execution_capture.insert(*key, None);
                     }
                 }
             }
@@ -651,18 +654,22 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             } = svm_locker.estimate_compute_units(&transaction);
 
             let mut post_execution_capture = BTreeMap::new();
-            let SvmAccessContext { inner: post_accounts_vec, .. } = svm_locker.get_multiple_accounts_local(&account_keys_to_profile);
-            for (i, account_result) in post_accounts_vec.iter().enumerate() {
-                let key = account_keys_to_profile[i];
+            let SvmAccessContext {
+                inner: post_accounts_vec,
+                ..
+            } = svm_locker.get_multiple_accounts_local(&account_keys_to_profile);
+            for (key, account_result) in
+                account_keys_to_profile.iter().zip(post_accounts_vec.iter())
+            {
                 match account_result {
                     GetAccountResult::FoundAccount(_, acc, _) => {
-                        post_execution_capture.insert(key, Some(acc.data.clone()));
+                        post_execution_capture.insert(*key, Some(acc.data.clone()));
                     }
                     GetAccountResult::FoundProgramAccount((_prog_key, prog_acc), _) => {
-                        post_execution_capture.insert(key, Some(prog_acc.data.clone()));
+                        post_execution_capture.insert(*key, Some(prog_acc.data.clone()));
                     }
                     GetAccountResult::None(_) => {
-                        post_execution_capture.insert(key, None);
+                        post_execution_capture.insert(*key, None);
                     }
                 }
             }
