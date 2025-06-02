@@ -27,3 +27,4 @@ spl-associated-token-account = { workspace = true }
 bs58 = { workspace = true }
 spl-token = { workspace = true }
 hiro-system-kit = { workspace = true }
+crossbeam-channel = { workspace = true }

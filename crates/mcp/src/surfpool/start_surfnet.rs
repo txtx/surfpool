@@ -1,7 +1,6 @@
-use std::process::{Command, Stdio};
-
 use serde::Serialize;
-use surfpool_core::start_local_surfnet;
+use surfpool_core::{start_local_surfnet, surfnet::svm::SurfnetSvm};
+use surfpool_types::{SimnetEvent, SurfpoolConfig};
 
 #[derive(Serialize)]
 pub struct StartSurfnetResponse {
@@ -26,24 +25,49 @@ impl StartSurfnetResponse {
 }
 
 pub fn run() -> StartSurfnetResponse {
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
 
-    let _handle = hiro_system_kit::thread_named("surfnet")
-        .spawn(move || {
-            let future = start_local_surfnet(
-                surfnet_svm,
-                config_copy,
-                subgraph_commands_tx,
-                simnet_commands_tx_copy,
-                simnet_commands_rx,
-                geyser_events_rx,
-            );
-            if let Err(e) = hiro_system_kit::nestable_block_on(future) {
-                // Error handling
-                std::process::exit(1);
+    let (simnet_commands_tx, simnet_commands_rx) = crossbeam_channel::unbounded();
+    let (subgraph_commands_tx, _subgraph_commands_rx) = crossbeam_channel::unbounded();
+
+    let simnet_events_tx = surfnet_svm.simnet_events_tx.clone();
+
+    let config = SurfpoolConfig::default();
+
+    let handle = hiro_system_kit::thread_named("surfnet").spawn(move || {
+        let future = start_local_surfnet(
+            surfnet_svm,
+            config,
+            subgraph_commands_tx,
+            simnet_commands_tx,
+            simnet_commands_rx,
+            geyser_events_rx,
+        );
+
+        if let Err(e) = hiro_system_kit::nestable_block_on(future) {
+            let _ = simnet_events_tx.send(SimnetEvent::error(format!("Surfnet error: {}", e)));
+            std::process::exit(1);
+        }
+        Ok::<(), String>(())
+    });
+
+    match handle {
+        Ok(_) => loop {
+            match simnet_events_rx.recv() {
+                Ok(SimnetEvent::Aborted(error)) => {
+                    return StartSurfnetResponse::error(error);
+                }
+                Ok(SimnetEvent::Connected(_)) | Ok(SimnetEvent::Ready) => {
+                    return StartSurfnetResponse::success(
+                        "Surfnet started successfully at http://127.0.0.1:8899".to_string(),
+                    );
+                }
+                Ok(SimnetEvent::ErrorLog(_, error)) => {
+                    return StartSurfnetResponse::error(error);
+                }
+                _other => continue,
             }
-            Ok::<(), String>(())
-        })
-        .map_err(|e| StartSurfnetResponse::error(format!("Failed to execute surfnet start: {}", e)))?;
-
-    StartSurfnetResponse::success(format!("http://127.0.0.1:8899"))
+        },
+        Err(e) => StartSurfnetResponse::error(format!("Failed to spawn surfnet thread: {}", e)),
+    }
 }
