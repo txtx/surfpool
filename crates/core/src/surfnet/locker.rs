@@ -32,8 +32,9 @@ use surfpool_types::{
 use tokio::sync::RwLock;
 
 use super::{
-    remote::SurfnetRemoteClient, AccountFactory, GetAccountResult, GetTransactionResult,
-    GeyserEvent, SignatureSubscriptionType, SurfnetSvm,
+    remote::{SomeRemoteCtx, SurfnetRemoteClient},
+    AccountFactory, GetAccountResult, GetTransactionResult, GeyserEvent, SignatureSubscriptionType,
+    SurfnetSvm,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -377,11 +378,12 @@ impl SurfnetSvmLocker {
     /// Processes a transaction: verifies signatures, preflight sim, sends to SVM, and enqueues status events.
     pub async fn process_transaction(
         &self,
-        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+        remote_ctx: &Option<SurfnetRemoteClient>,
         transaction: VersionedTransaction,
         status_tx: Sender<TransactionStatusEvent>,
         skip_preflight: bool,
     ) -> SurfpoolContextualizedResult<()> {
+        let remote_ctx = &remote_ctx.get_remote_ctx(CommitmentConfig::confirmed());
         let (latest_absolute_slot, latest_epoch_info, latest_blockhash) =
             self.with_svm_writer(|svm_writer| {
                 let latest_absolute_slot = svm_writer.get_latest_absolute_slot();
