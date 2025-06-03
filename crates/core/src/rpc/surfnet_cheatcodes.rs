@@ -23,7 +23,7 @@ use surfpool_types::{
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     rpc::{utils::verify_pubkey, State},
-    surfnet::{locker::SvmAccessContext, GetAccountResult},
+    surfnet::{locker::SvmAccessContext, remote::SurfnetRemoteClient, GetAccountResult},
 };
 
 #[serde_as]
@@ -580,9 +580,23 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         transaction_data_b64: String,
         tag: Option<String>,
     ) -> BoxFuture<Result<RpcResponse<ProfileResult>>> {
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(locker) => locker,
-            Err(e) => return e.into(),
+        let rpc_context = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                let error_cu_result = ComputeUnitsEstimationResult {
+                    success: false,
+                    compute_units_consumed: 0,
+                    log_messages: None,
+                    error_message: Some(format!("Failed to get RPC context: {}", e)),
+                };
+                return Box::pin(future::ok(RpcResponse {
+                    context: RpcResponseContext::new(0),
+                    value: ProfileResult {
+                        compute_units: error_cu_result,
+                        state: ProfileState::new(BTreeMap::new(), BTreeMap::new()),
+                    },
+                }));
+            }
         };
 
         let transaction_bytes = match STANDARD.decode(&transaction_data_b64) {
@@ -596,7 +610,9 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                     error_message: Some(format!("Invalid base64 for transaction data: {}", e)),
                 };
                 return Box::pin(future::ok(RpcResponse {
-                    context: RpcResponseContext::new(0),
+                    context: RpcResponseContext::new(
+                        rpc_context.svm_locker.get_latest_absolute_slot(),
+                    ),
                     value: ProfileResult {
                         compute_units: error_cu_result,
                         state: ProfileState::new(BTreeMap::new(), BTreeMap::new()),
@@ -615,7 +631,9 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                     error_message: Some(format!("Failed to deserialize transaction: {}", e)),
                 };
                 return Box::pin(future::ok(RpcResponse {
-                    context: RpcResponseContext::new(0),
+                    context: RpcResponseContext::new(
+                        rpc_context.svm_locker.get_latest_absolute_slot(),
+                    ),
                     value: ProfileResult {
                         compute_units: error_cu_result,
                         state: ProfileState::new(BTreeMap::new(), BTreeMap::new()),
@@ -624,76 +642,48 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             }
         };
 
+        // This entire block is async due to BoxFuture return type
         Box::pin(async move {
-            let account_keys_to_profile = transaction.message.static_account_keys().to_vec();
-
-            let mut pre_execution_capture = BTreeMap::new();
+            // Get ComputeUnitsEstimationResult (CUs, logs, error) by simulating (does not change state on original SVM)
+            // This is a synchronous call on the locker.
             let SvmAccessContext {
-                inner: pre_accounts_vec,
-                ..
-            } = svm_locker.get_multiple_accounts_local(&account_keys_to_profile);
-            for (key, account_result) in account_keys_to_profile.iter().zip(pre_accounts_vec.iter())
-            {
-                match account_result {
-                    GetAccountResult::FoundAccount(_, acc, _) => {
-                        pre_execution_capture.insert(*key, Some(acc.data.clone()));
-                    }
-                    GetAccountResult::FoundProgramAccount((_prog_key, prog_acc), _) => {
-                        pre_execution_capture.insert(*key, Some(prog_acc.data.clone()));
-                    }
-                    GetAccountResult::None(_) => {
-                        pre_execution_capture.insert(*key, None);
-                    }
-                }
-            }
-
-            let SvmAccessContext {
-                slot,
+                slot, // This slot comes from the SVM state when estimate_compute_units is called
                 inner: estimation_result,
                 ..
-            } = svm_locker.estimate_compute_units(&transaction);
+            } = rpc_context.svm_locker.estimate_compute_units(&transaction);
 
-            let mut post_execution_capture = BTreeMap::new();
-            let SvmAccessContext {
-                inner: post_accounts_vec,
-                ..
-            } = svm_locker.get_multiple_accounts_local(&account_keys_to_profile);
-            for (key, account_result) in
-                account_keys_to_profile.iter().zip(post_accounts_vec.iter())
-            {
-                match account_result {
-                    GetAccountResult::FoundAccount(_, acc, _) => {
-                        post_execution_capture.insert(*key, Some(acc.data.clone()));
-                    }
-                    GetAccountResult::FoundProgramAccount((_prog_key, prog_acc), _) => {
-                        post_execution_capture.insert(*key, Some(prog_acc.data.clone()));
-                    }
-                    GetAccountResult::None(_) => {
-                        post_execution_capture.insert(*key, None);
-                    }
-                }
-            }
+            // Extract SurfnetRemoteClient from Option<(SurfnetRemoteClient, CommitmentConfig)>
+            let remote_client_opt: Option<SurfnetRemoteClient> = rpc_context
+                .remote_ctx
+                .as_ref()
+                .map(|(client, _)| client.clone());
 
-            let profile_state = ProfileState::new(pre_execution_capture, post_execution_capture);
+            let profile_state_option_result =
+                rpc_context.svm_locker.with_svm_reader(|svm_reader| {
+                    svm_reader.simulate_with_account_snapshots(&remote_client_opt, &transaction)
+                });
+
+            let profile_state = match profile_state_option_result {
+                Some(profile_state) => profile_state,
+                None => ProfileState::new(BTreeMap::new(), BTreeMap::new()),
+            };
+
+            let final_profile_result = ProfileResult {
+                compute_units: estimation_result.clone(),
+                state: profile_state,
+            };
 
             if let Some(tag_str) = tag {
                 if estimation_result.success {
-                    svm_locker.write_profiling_results(
-                        tag_str,
-                        ProfileResult {
-                            compute_units: estimation_result.clone(),
-                            state: profile_state.clone(),
-                        },
-                    );
+                    rpc_context
+                        .svm_locker
+                        .write_profiling_results(tag_str, final_profile_result.clone());
                 }
             }
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
-                value: ProfileResult {
-                    compute_units: estimation_result,
-                    state: profile_state,
-                },
+                value: final_profile_result,
             })
         })
     }

@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
-use anyhow::Ok;
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use litesvm::{
@@ -25,14 +24,14 @@ use solana_transaction_status::{
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
 use surfpool_types::{
-    types::{ComputeUnitsEstimationResult, ProfileResult},
+    types::{ComputeUnitsEstimationResult, ProfileResult, ProfileState},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
 };
 
 use super::{
-    locker::SurfnetSvmLocker, remote::SurfnetRemoteClient, BlockHeader, BlockIdentifier,
-    GetAccountResult, GeyserEvent, SignatureSubscriptionData, SignatureSubscriptionType,
-    FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH,
+    remote::SurfnetRemoteClient, BlockHeader, BlockIdentifier, GetAccountResult, GeyserEvent,
+    SignatureSubscriptionData, SignatureSubscriptionType, FINALIZATION_SLOT_THRESHOLD,
+    SLOTS_PER_EPOCH,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -158,31 +157,34 @@ impl SurfnetSvm {
     /// A `TransactionResult` indicating success or failure.
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
         let res = self.inner.airdrop(pubkey, lamports);
-        if let Ok(ref tx_result) = res {
-            let airdrop_keypair = Keypair::new();
-            let slot = self.latest_epoch_info.absolute_slot;
-            self.transactions.insert(
-                tx_result.signature,
-                SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
-                    slot,
-                    VersionedTransaction::try_new(
-                        VersionedMessage::Legacy(Message::new(
-                            &[system_instruction::transfer(
-                                &airdrop_keypair.pubkey(),
-                                pubkey,
-                                lamports,
-                            )],
-                            Some(&airdrop_keypair.pubkey()),
-                        )),
-                        &[airdrop_keypair],
-                    )
-                    .unwrap(),
-                    convert_transaction_metadata_from_canonical(tx_result),
-                    None,
-                ))),
-            );
+        match res {
+            std::result::Result::Ok(ref tx_metadata) => {
+                let airdrop_keypair = Keypair::new();
+                let slot = self.latest_epoch_info.absolute_slot;
+                self.transactions.insert(
+                    tx_metadata.signature,
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                        slot,
+                        VersionedTransaction::try_new(
+                            VersionedMessage::Legacy(Message::new(
+                                &[system_instruction::transfer(
+                                    &airdrop_keypair.pubkey(),
+                                    pubkey,
+                                    lamports,
+                                )],
+                                Some(&airdrop_keypair.pubkey()),
+                            )),
+                            &[airdrop_keypair],
+                        )
+                        .unwrap(),
+                        convert_transaction_metadata_from_canonical(tx_metadata),
+                        None,
+                    ))),
+                );
+                std::result::Result::Ok(tx_metadata.clone())
+            }
+            std::result::Result::Err(e) => std::result::Result::Err(e),
         }
-        res
     }
 
     /// Airdrops a specified amount of lamports to a list of public keys.
@@ -292,7 +294,7 @@ impl SurfnetSvm {
         let _ = self
             .simnet_events_tx
             .send(SimnetEvent::account_update(*pubkey));
-        Ok(())
+        std::result::Result::Ok(())
     }
 
     /// Sends a transaction to the system for execution.
@@ -340,12 +342,16 @@ impl SurfnetSvm {
                     transaction_meta,
                     Some(err.clone()),
                 ));
-            return Err(FailedTransactionMetadata { err, meta });
+            return std::result::Result::Err(litesvm::types::FailedTransactionMetadata {
+                err,
+                meta,
+            });
         }
         self.inner.set_blockhash_check(false);
-        match self.inner.send_transaction(tx.clone()) {
-            Ok(res) => {
-                let transaction_meta = convert_transaction_metadata_from_canonical(&res);
+        let result = self.inner.send_transaction(tx.clone());
+        match result {
+            std::result::Result::Ok(executed_meta) => {
+                let transaction_meta = convert_transaction_metadata_from_canonical(&executed_meta);
 
                 self.transactions.insert(
                     transaction_meta.signature,
@@ -359,9 +365,9 @@ impl SurfnetSvm {
                 let _ = self
                     .simnet_events_tx
                     .try_send(SimnetEvent::transaction_processed(transaction_meta, None));
-                Ok(res)
+                std::result::Result::Ok(executed_meta)
             }
-            Err(tx_failure) => {
+            std::result::Result::Err(tx_failure) => {
                 let transaction_meta =
                     convert_transaction_metadata_from_canonical(&tx_failure.meta);
 
@@ -371,7 +377,7 @@ impl SurfnetSvm {
                         transaction_meta,
                         Some(tx_failure.err.clone()),
                     ));
-                Err(tx_failure)
+                std::result::Result::Err(tx_failure)
             }
         }
     }
@@ -401,13 +407,13 @@ impl SurfnetSvm {
         }
 
         match self.inner.simulate_transaction(transaction.clone()) {
-            Ok(sim_info) => ComputeUnitsEstimationResult {
+            std::result::Result::Ok(sim_info) => ComputeUnitsEstimationResult {
                 success: true,
                 compute_units_consumed: sim_info.meta.compute_units_consumed,
                 log_messages: Some(sim_info.meta.logs),
                 error_message: None,
             },
-            Err(failed_meta) => ComputeUnitsEstimationResult {
+            std::result::Result::Err(failed_meta) => ComputeUnitsEstimationResult {
                 success: false,
                 compute_units_consumed: failed_meta.meta.compute_units_consumed,
                 log_messages: Some(failed_meta.meta.logs),
@@ -416,28 +422,94 @@ impl SurfnetSvm {
         }
     }
 
-    pub async fn simulate_with_account_snapshots(
+    pub fn simulate_with_account_snapshots(
         &self,
-        remote_ctx: &Option<SurfnetRemoteClient>,
+        _remote_ctx: &Option<SurfnetRemoteClient>,
         transaction: &VersionedTransaction,
     ) -> Option<ProfileState> {
         if !self.check_blockhash_is_recent(transaction.message.recent_blockhash()) {
-            unimplemented!()
+            let _ = self.simnet_events_tx.try_send(SimnetEvent::WarnLog(
+                chrono::Local::now(),
+                format!(
+                    "Blockhash {} not found for simulate_with_account_snapshots",
+                    transaction.message.recent_blockhash()
+                ),
+            ));
+            return None;
         }
 
-        let new_locker = SurfnetSvmLocker::new(self.clone());
+        let mut svm_clone = self.clone();
 
-        // snapshot the accounts in new_locker
-        // process the transaction with new_locker.process_transaction
-        // use the status_rx to confirm the transaction is finished
-        // snapshot the accounts again
+        let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
+        let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
+        svm_clone.simnet_events_tx = dummy_simnet_tx;
+        svm_clone.geyser_events_tx = dummy_geyser_tx;
 
-        // Notes: we'll need to confirm that there aren't side effects to our process_transaction call, which could include:
-        // - writing to the original surfnet svm state (don't think this should be a problem)
-        // - emitting any events that are logged to the console
-        //   (for example, when we fetch an account from remote, we often log in the console that the fetch took place - we don't want that)
+        // Extract account keys from the transaction
+        let account_keys: Vec<Pubkey> = match &transaction.message {
+            VersionedMessage::Legacy(msg) => msg.account_keys.clone(),
+            VersionedMessage::V0(msg) => msg.account_keys.clone(),
+        };
 
-        None
+        let mut pre_execution_capture = BTreeMap::new();
+        for key in &account_keys {
+            let account_option =
+                svm_clone
+                    .inner
+                    .get_account(key)
+                    .map(|litesvm_acc| solana_sdk::account::Account {
+                        lamports: litesvm_acc.lamports,
+                        data: litesvm_acc.data.clone(),
+                        owner: litesvm_acc.owner,
+                        executable: litesvm_acc.executable,
+                        rent_epoch: litesvm_acc.rent_epoch,
+                    });
+            pre_execution_capture.insert(
+                *key,
+                account_option.map(|acc| {
+                    bincode::serialize(&acc).expect("Failed to serialize pre-execution account")
+                }),
+            );
+        }
+
+        let execution_result = svm_clone.send_transaction(transaction.clone(), false);
+
+        if execution_result.is_err() {
+            let _ = self.simnet_events_tx.try_send(SimnetEvent::WarnLog(
+                chrono::Local::now(),
+                format!(
+                    "Transaction {} failed during snapshot simulation: {:?}",
+                    transaction.signatures[0],
+                    execution_result.as_ref().err()
+                ),
+            ));
+        }
+
+        let mut post_execution_capture = BTreeMap::new();
+        for key in &account_keys {
+            let account_option =
+                svm_clone
+                    .inner
+                    .get_account(key)
+                    .map(|litesvm_acc| solana_sdk::account::Account {
+                        lamports: litesvm_acc.lamports,
+                        data: litesvm_acc.data.clone(),
+                        owner: litesvm_acc.owner,
+                        executable: litesvm_acc.executable,
+                        rent_epoch: litesvm_acc.rent_epoch,
+                    });
+            post_execution_capture.insert(
+                *key,
+                account_option.map(|acc| {
+                    bincode::serialize(&acc).expect("Failed to serialize post-execution account")
+                }),
+            );
+        }
+
+        Some(ProfileState::new(
+            pre_execution_capture,
+            post_execution_capture,
+        ))
     }
 
     /// Simulates a transaction and returns detailed simulation info or failure metadata.
@@ -455,7 +527,7 @@ impl SurfnetSvm {
             let meta = litesvm::types::TransactionMetadata::default();
             let err = solana_transaction_error::TransactionError::BlockhashNotFound;
 
-            return Err(FailedTransactionMetadata { err, meta });
+            return std::result::Result::Err(FailedTransactionMetadata { err, meta });
         }
         self.inner.simulate_transaction(tx)
     }
@@ -469,10 +541,11 @@ impl SurfnetSvm {
         let slot = self.latest_epoch_info.slot_index;
 
         while let Some((tx, status_tx)) = self.transactions_queued_for_confirmation.pop_front() {
-            let _ = status_tx.try_send(TransactionStatusEvent::Success(
-                TransactionConfirmationStatus::Confirmed,
-            ));
-            // .map_err(Into::into)?;
+            status_tx
+                .try_send(TransactionStatusEvent::Success(
+                    TransactionConfirmationStatus::Confirmed,
+                ))
+                .map_err(SurfpoolError::from)?;
             let signature = tx.signatures[0];
             let finalized_at = self.latest_epoch_info.absolute_slot + FINALIZATION_SLOT_THRESHOLD;
             self.transactions_queued_for_finalization
@@ -487,7 +560,7 @@ impl SurfnetSvm {
             confirmed_transactions.push(signature);
         }
 
-        Ok(confirmed_transactions)
+        std::result::Result::Ok(confirmed_transactions)
     }
 
     /// Finalizes transactions queued for finalization, sending finalized events as needed.
@@ -501,25 +574,25 @@ impl SurfnetSvm {
             self.transactions_queued_for_finalization.pop_front()
         {
             if current_slot >= finalized_at {
-                let _ = status_tx.try_send(TransactionStatusEvent::Success(
-                    TransactionConfirmationStatus::Finalized,
-                ));
+                status_tx
+                    .try_send(TransactionStatusEvent::Success(
+                        TransactionConfirmationStatus::Finalized,
+                    ))
+                    .map_err(SurfpoolError::from)?;
                 self.notify_signature_subscribers(
                     SignatureSubscriptionType::finalized(),
                     &tx.signatures[0],
                     self.latest_epoch_info.absolute_slot,
                     None,
                 );
-                // .map_err(Into::into)?;
             } else {
                 requeue.push_back((finalized_at, tx, status_tx));
             }
         }
-        // Requeue any transactions that are not yet finalized
         self.transactions_queued_for_finalization
             .append(&mut requeue);
 
-        Ok(())
+        std::result::Result::Ok(())
     }
 
     /// Notifies listeners of an invalid transaction and sends a verification failure event.
@@ -567,11 +640,9 @@ impl SurfnetSvm {
     }
 
     pub fn confirm_current_block(&mut self) -> Result<(), SurfpoolError> {
-        // Confirm processed transactions
         let confirmed_signatures = self.confirm_transactions()?;
         let num_transactions = confirmed_signatures.len() as u64;
 
-        // Update chain tip
         let previous_chain_tip = self.chain_tip.clone();
         self.chain_tip = self.new_blockhash();
 
@@ -587,7 +658,6 @@ impl SurfnetSvm {
             },
         );
 
-        // Update perf samples
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
         }
@@ -599,7 +669,6 @@ impl SurfnetSvm {
             num_non_vote_transactions: None,
         });
 
-        // Increment slot, block height, and epoch
         self.latest_epoch_info.slot_index += 1;
         self.latest_epoch_info.block_height = self.chain_tip.index;
         self.latest_epoch_info.absolute_slot += 1;
@@ -620,10 +689,9 @@ impl SurfnetSvm {
             .send(SimnetEvent::ClockUpdate(clock.clone()));
         self.inner.set_sysvar(&clock);
 
-        // Finalize confirmed transactions
         self.finalize_transactions()?;
 
-        Ok(())
+        std::result::Result::Ok(())
     }
 
     /// Subscribes for updates on a transaction signature for a given subscription type.
