@@ -1,5 +1,6 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
+use anyhow::Ok;
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use litesvm::{
@@ -29,9 +30,9 @@ use surfpool_types::{
 };
 
 use super::{
-    remote::SurfnetRemoteClient, BlockHeader, BlockIdentifier, GetAccountResult, GeyserEvent,
-    SignatureSubscriptionData, SignatureSubscriptionType, FINALIZATION_SLOT_THRESHOLD,
-    SLOTS_PER_EPOCH,
+    locker::SurfnetSvmLocker, remote::SurfnetRemoteClient, BlockHeader, BlockIdentifier,
+    GetAccountResult, GeyserEvent, SignatureSubscriptionData, SignatureSubscriptionType,
+    FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -45,6 +46,7 @@ use crate::{
 /// remote RPC connections, transaction processing, and account management.
 ///
 /// It also exposes channels to listen for simulation events (`SimnetEvent`) and Geyser plugin events (`GeyserEvent`).
+#[derive(Clone)]
 pub struct SurfnetSvm {
     pub inner: LiteSVM,
     pub remote_rpc_url: Option<String>,
@@ -412,6 +414,30 @@ impl SurfnetSvm {
                 error_message: Some(failed_meta.err.to_string()),
             },
         }
+    }
+
+    pub async fn simulate_with_account_snapshots(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+        transaction: &VersionedTransaction,
+    ) -> Option<ProfileState> {
+        if !self.check_blockhash_is_recent(transaction.message.recent_blockhash()) {
+            unimplemented!()
+        }
+
+        let new_locker = SurfnetSvmLocker::new(self.clone());
+
+        // snapshot the accounts in new_locker
+        // process the transaction with new_locker.process_transaction
+        // use the status_rx to confirm the transaction is finished
+        // snapshot the accounts again
+
+        // Notes: we'll need to confirm that there aren't side effects to our process_transaction call, which could include:
+        // - writing to the original surfnet svm state (don't think this should be a problem)
+        // - emitting any events that are logged to the console
+        //   (for example, when we fetch an account from remote, we often log in the console that the fetch took place - we don't want that)
+
+        None
     }
 
     /// Simulates a transaction and returns detailed simulation info or failure metadata.
