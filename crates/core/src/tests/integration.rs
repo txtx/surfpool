@@ -458,7 +458,6 @@ async fn test_add_alt_entries_fetching() {
     );
 }
 
-
 // This test is pretty minimal for lookup tables at this point.
 // We are creating a v0 transaction with a lookup table that does exist on mainnet,
 // and sending that tx to surfpool. We are verifying that the transaction is processed
