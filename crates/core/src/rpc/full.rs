@@ -1941,13 +1941,14 @@ mod tests {
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
         UiRawMessage, UiTransaction,
     };
-    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus};
+    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus, TransactionMetadata};
     use test_case::test_case;
 
     use super::*;
     use crate::{
         surfnet::{BlockHeader, BlockIdentifier},
         tests::helpers::TestSetup,
+        types::TransactionWithStatusMeta,
     };
 
     fn build_v0_transaction(
@@ -1976,17 +1977,18 @@ mod tests {
         VersionedTransaction::try_new(msg, signers).unwrap()
     }
 
-    fn send_and_await_transaction(
+    async fn send_and_await_transaction(
         tx: VersionedTransaction,
         setup: TestSetup<SurfpoolFullRpc>,
         mempool_rx: Receiver<SimnetCommand>,
     ) -> JoinHandle<String> {
+        let setup_clone = setup.clone();
         let handle = hiro_system_kit::thread_named("send_tx")
             .spawn(move || {
-                let res = setup
+                let res = setup_clone
                     .rpc
                     .send_transaction(
-                        Some(setup.context),
+                        Some(setup_clone.context),
                         bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
                         None,
                     )
@@ -1997,7 +1999,21 @@ mod tests {
             .unwrap();
 
         match mempool_rx.recv() {
-            Ok(SimnetCommand::TransactionReceived(_, _, status_tx, _)) => {
+            Ok(SimnetCommand::TransactionReceived(_, tx, status_tx, _)) => {
+                let mut writer = setup.context.svm_locker.0.write().await;
+                let slot = writer.get_latest_absolute_slot();
+                writer
+                    .transactions_queued_for_confirmation
+                    .push_back((tx.clone(), status_tx.clone()));
+                writer.transactions.insert(
+                    tx.signatures[0],
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                        slot,
+                        tx,
+                        TransactionMetadata::default(),
+                        None,
+                    ))),
+                );
                 status_tx
                     .send(TransactionStatusEvent::Success(
                         TransactionConfirmationStatus::Confirmed,
@@ -2189,7 +2205,7 @@ mod tests {
             .await
             .airdrop(&payer.pubkey(), 2 * LAMPORTS_PER_SOL);
 
-        let handle = send_and_await_transaction(tx.clone(), setup.clone(), mempool_rx);
+        let handle = send_and_await_transaction(tx.clone(), setup.clone(), mempool_rx).await;
         assert_eq!(
             handle.join().unwrap(),
             tx.signatures[0].to_string(),
@@ -2461,6 +2477,125 @@ mod tests {
                 .blocking_read()
                 .latest_blockhash()
                 .to_string()
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_recent_prioritization_fees() {
+        let (mempool_tx, mempool_rx) = crossbeam_channel::unbounded();
+        let setup = TestSetup::new_with_mempool(SurfpoolFullRpc, mempool_tx);
+
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        let payer_1 = Keypair::new();
+        let payer_2 = Keypair::new();
+        let receiver_pubkey = Pubkey::new_unique();
+        let random_pubkey = Pubkey::new_unique();
+
+        // setup accounts
+        {
+            let _ = setup
+                .rpc
+                .request_airdrop(
+                    Some(setup.context.clone()),
+                    payer_1.pubkey().to_string(),
+                    2 * LAMPORTS_PER_SOL,
+                    None,
+                )
+                .unwrap();
+            let _ = setup
+                .rpc
+                .request_airdrop(
+                    Some(setup.context.clone()),
+                    payer_2.pubkey().to_string(),
+                    2 * LAMPORTS_PER_SOL,
+                    None,
+                )
+                .unwrap();
+
+            setup.context.svm_locker.confirm_current_block().unwrap();
+        }
+
+        // send two transactions that include a compute budget instruction
+        {
+            let tx_1 = build_legacy_transaction(
+                &payer_1.pubkey(),
+                &[&payer_1.insecure_clone()],
+                &[
+                    system_instruction::transfer(
+                        &payer_1.pubkey(),
+                        &receiver_pubkey,
+                        LAMPORTS_PER_SOL,
+                    ),
+                    compute_budget::ComputeBudgetInstruction::set_compute_unit_price(1000),
+                ],
+                &recent_blockhash,
+            );
+            let tx_2 = build_legacy_transaction(
+                &payer_2.pubkey(),
+                &[&payer_2.insecure_clone()],
+                &[
+                    system_instruction::transfer(
+                        &payer_2.pubkey(),
+                        &receiver_pubkey,
+                        LAMPORTS_PER_SOL,
+                    ),
+                    compute_budget::ComputeBudgetInstruction::set_compute_unit_price(1002),
+                ],
+                &recent_blockhash,
+            );
+
+            send_and_await_transaction(tx_1, setup.clone(), mempool_rx.clone())
+                .await
+                .join()
+                .unwrap();
+            send_and_await_transaction(tx_2, setup.clone(), mempool_rx)
+                .await
+                .join()
+                .unwrap();
+            setup.context.svm_locker.confirm_current_block().unwrap();
+        }
+
+        // sending the get_recent_prioritization_fees request with an account
+        // should filter the results to only include fees for that account
+        let res = setup
+            .rpc
+            .get_recent_prioritization_fees(
+                Some(setup.context.clone()),
+                Some(vec![payer_1.pubkey().to_string()]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].prioritization_fee, 1000);
+
+        // sending the get_recent_prioritization_fees request without an account
+        // should return all prioritization fees
+        let res = setup
+            .rpc
+            .get_recent_prioritization_fees(Some(setup.context.clone()), None)
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 2);
+        assert_eq!(res[0].prioritization_fee, 1000);
+        assert_eq!(res[1].prioritization_fee, 1002);
+
+        // sending the get_recent_prioritization_fees request with some random account
+        // to filter should return no results
+        let res = setup
+            .rpc
+            .get_recent_prioritization_fees(
+                Some(setup.context.clone()),
+                Some(vec![random_pubkey.to_string()]),
+            )
+            .await
+            .unwrap();
+        assert!(
+            res.is_empty(),
+            "Expected no prioritization fees for random account"
         );
     }
 }
