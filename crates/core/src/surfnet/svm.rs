@@ -292,7 +292,7 @@ impl SurfnetSvm {
         let _ = self
             .simnet_events_tx
             .send(SimnetEvent::account_update(*pubkey));
-        self.updated_at = Utc::now().timestamp_millis();
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         Ok(())
     }
 
@@ -314,6 +314,7 @@ impl SurfnetSvm {
         tx: VersionedTransaction,
         cu_analysis_enabled: bool,
     ) -> TransactionResult {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         if cu_analysis_enabled {
             let estimation_result = self.estimate_compute_units(&tx);
             let _ =

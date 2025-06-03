@@ -14,7 +14,6 @@ pub struct StartSurfnetSuccess {
     pub surfnet_id: u16,
 }
 
-
 impl StartSurfnetResponse {
     pub fn success(data: StartSurfnetSuccess) -> Self {
         Self {
@@ -66,11 +65,12 @@ pub fn run(surfnet_id: u16) -> StartSurfnetResponse {
         }));
 
         match result {
-            Ok(Ok(_)) => {
-                
-            }
+            Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Surfnet operational error: {}", e)));
+                let _ = simnet_events_tx.send(SimnetEvent::error(format!(
+                    "Surfnet operational error: {}",
+                    e
+                )));
             }
             Err(panic_payload) => {
                 let panic_msg = match panic_payload.downcast_ref::<&'static str>() {
@@ -80,7 +80,10 @@ pub fn run(surfnet_id: u16) -> StartSurfnetResponse {
                         None => "Surfnet thread panicked with an unknown payload",
                     },
                 };
-                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Surfnet thread panic: {}", panic_msg)));
+                let _ = simnet_events_tx.send(SimnetEvent::error(format!(
+                    "Surfnet thread panic: {}",
+                    panic_msg
+                )));
             }
         }
         Ok::<(), String>(())
@@ -119,20 +122,30 @@ pub fn run(surfnet_id: u16) -> StartSurfnetResponse {
         Err(e) => StartSurfnetResponse::error(format!("Failed to spawn surfnet thread: {}", e)),
     };
 
-    let handle = hiro_system_kit::thread_named("surfnet-termination-handler").spawn(move || {
-        loop {
+    let _handle =
+        hiro_system_kit::thread_named("surfnet-termination-handler").spawn(move || loop {
             match simnet_events_rx.recv() {
                 Ok(received_event) => match received_event {
+                    SimnetEvent::Aborted(reason) => {
+                        println!("Surfnet instance terminated: {}", reason);
+
+                        break;
+                    }
                     SimnetEvent::Shutdown => {
-                        // Send event to MCP saying that the surfnet has been terminated
+                        println!("Surfnet instance has shut down.");
                         break;
                     }
                     _ => {}
                 },
-                Err(_) => {}
+                Err(e) => {
+                    println!(
+                        "Error receiving simnet event in termination handler: {:?}",
+                        e
+                    );
+                    break;
+                }
             }
-        }
-    });
+        });
 
     res
 }
