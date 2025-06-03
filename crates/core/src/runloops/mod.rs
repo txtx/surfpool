@@ -165,7 +165,7 @@ pub async fn start_block_production_runloop(
                     }
                     SimnetCommand::Terminate(_) => {
                         let _ = svm_locker.simnet_events_tx().send(SimnetEvent::Aborted("Terminated due to inactivity.".to_string()));
-                        std::process::exit(0)
+                        break;
                     }
                 }
             },
@@ -177,6 +177,7 @@ pub async fn start_block_production_runloop(
             }
         }
     }
+    Ok(())
 }
 
 pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {

@@ -330,9 +330,9 @@ pub fn run(
                 ))
             }
         }
-        Err(e) => {
+        Err(_e) => { 
             // Network error or other issue preventing the request from being sent.
-            SetTokenAccountResponse::error(format!("Failed to send RPC request: {}", e))
+            SetTokenAccountResponse::error("RPC request failed (timeout or other network error)".to_string())
         }
     }
 }

@@ -111,7 +111,7 @@ impl SurfnetSvm {
                 transactions_queued_for_finalization: VecDeque::new(),
                 signature_subscriptions: HashMap::new(),
                 tagged_profiling_results: HashMap::new(),
-                updated_at: 0,
+                updated_at: Utc::now().timestamp_millis() as u64,
             },
             simnet_events_rx,
             geyser_events_rx,

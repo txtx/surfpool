@@ -127,18 +127,18 @@ pub fn run(surfnet_id: u16) -> StartSurfnetResponse {
             match simnet_events_rx.recv() {
                 Ok(received_event) => match received_event {
                     SimnetEvent::Aborted(reason) => {
-                        println!("Surfnet instance terminated: {}", reason);
+                        eprintln!("Surfnet instance terminated: {}", reason);
 
                         break;
                     }
                     SimnetEvent::Shutdown => {
-                        println!("Surfnet instance has shut down.");
+                        eprintln!("Surfnet instance has shut down.");
                         break;
                     }
                     _ => {}
                 },
                 Err(e) => {
-                    println!(
+                    eprintln!(
                         "Error receiving simnet event in termination handler: {:?}",
                         e
                     );
