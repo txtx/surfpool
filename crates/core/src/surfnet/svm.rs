@@ -157,34 +157,31 @@ impl SurfnetSvm {
     /// A `TransactionResult` indicating success or failure.
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
         let res = self.inner.airdrop(pubkey, lamports);
-        match res {
-            Ok(ref tx_metadata) => {
-                let airdrop_keypair = Keypair::new();
-                let slot = self.latest_epoch_info.absolute_slot;
-                self.transactions.insert(
-                    tx_metadata.signature,
-                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
-                        slot,
-                        VersionedTransaction::try_new(
-                            VersionedMessage::Legacy(Message::new(
-                                &[system_instruction::transfer(
-                                    &airdrop_keypair.pubkey(),
-                                    pubkey,
-                                    lamports,
-                                )],
-                                Some(&airdrop_keypair.pubkey()),
-                            )),
-                            &[airdrop_keypair],
-                        )
-                        .unwrap(),
-                        convert_transaction_metadata_from_canonical(tx_metadata),
-                        None,
-                    ))),
-                );
-                Ok(tx_metadata.clone())
-            }
-            Err(e) => Err(e),
+        if let Ok(ref tx_result) = res {
+            let airdrop_keypair = Keypair::new();
+            let slot = self.latest_epoch_info.absolute_slot;
+            self.transactions.insert(
+                tx_result.signature,
+                SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                    slot,
+                    VersionedTransaction::try_new(
+                        VersionedMessage::Legacy(Message::new(
+                            &[system_instruction::transfer(
+                                &airdrop_keypair.pubkey(),
+                                pubkey,
+                                lamports,
+                            )],
+                            Some(&airdrop_keypair.pubkey()),
+                        )),
+                        &[airdrop_keypair],
+                    )
+                    .unwrap(),
+                    convert_transaction_metadata_from_canonical(tx_result),
+                    None,
+                ))),
+            );
         }
+        res
     }
 
     /// Airdrops a specified amount of lamports to a list of public keys.
