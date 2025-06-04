@@ -5,6 +5,7 @@ use rmcp::{
     model::{ServerCapabilities, ServerInfo},
     schemars, tool, ServerHandler,
 };
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use set_token_account::{SeededAccount, SetTokenAccountResponse, SetTokenAccountsResponse};
 use start_surfnet::StartSurfnetResponse;
@@ -25,7 +26,7 @@ impl Surfpool {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTokenAccountForOwnerParams {
     #[schemars(
         description = "An optional owner address for the accounts. If provided, all token accounts will be created under this owner. If omitted, a new wallet will be generated and returned."
@@ -37,7 +38,7 @@ pub struct CreateTokenAccountForOwnerParams {
     pub params: Vec<CreateTokenAccountParams>, // Parameters for creating the token account
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTokenAccountParams {
     #[schemars(
         description = "The mint address or symbol of the token to set the balance for. Can be a full base58-encoded mint address or a symbol like 'SOL', 'USDC', etc."

@@ -163,7 +163,7 @@ pub fn run(
 
     // Determine if it's SOL, a direct mint address, or a symbol to look up.
     let is_sol = token_identifier_str.to_uppercase() == SOL_SYMBOL;
-    let mut actual_mint_address_str: String;
+    let actual_mint_address_str: String;
     let mut actual_token_symbol_opt: Option<String> = None;
 
     if is_sol {
