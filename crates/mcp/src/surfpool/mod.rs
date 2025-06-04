@@ -1,11 +1,15 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use rmcp::{
     handler::server::wrapper::Json,
     model::{ServerCapabilities, ServerInfo},
-    tool, ServerHandler,
+    schemars, tool, ServerHandler,
 };
-use set_token_account::SetTokenAccountResponse;
+use serde::{Deserialize, Serialize};
+use set_token_account::{SeededAccount, SetTokenAccountResponse, SetTokenAccountsResponse};
 use start_surfnet::StartSurfnetResponse;
 
 mod set_token_account;
@@ -22,6 +26,27 @@ impl Surfpool {
             surfnets: Arc::new(RwLock::new(vec![])),
         }
     }
+}
+
+pub enum TokenAccountOwner {
+    NewAccount,              // Create a new account
+    ExistingAccount(String), // Use an existing account by its public key
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CreateTokenAccountParams {
+    #[schemars(
+        description = "The token to set the balance for. Can be a symbol (e.g., SOL, USDC) or a full base58-encoded mint address."
+    )]
+    pub token_mint: String, // Mint address or symbol of the token
+    #[schemars(
+        description = "The program ID of the token. Defaults to the SPL token program ID if not provided. Use 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpLAs' for Token-2022."
+    )]
+    pub token_program_id: Option<String>, // Program ID of the token, defaults to SPL Token program
+    #[schemars(
+        description = "The token amount to assign to the wallet. Defaults to 100_000 if not provided"
+    )]
+    pub token_amount: Option<u64>, // Amount of tokens to assign, defaults to 100_000
 }
 
 #[tool(tool_box)]
@@ -76,9 +101,10 @@ impl Surfpool {
         )]
         program_id: Option<String>,
     ) -> Json<SetTokenAccountResponse> {
+        let owner_seeded_account = SeededAccount::new(wallet_address);
         let res = set_token_account::run(
             surfnet_address,
-            wallet_address,
+            owner_seeded_account,
             token,
             token_amount,
             program_id,
@@ -95,26 +121,9 @@ impl Surfpool {
     pub fn start_surfnet_with_token_accounts(
         &self,
         #[tool(param)]
-        #[schemars(
-            description = "Optional. The public key of the wallet to fund. If omitted, set_token_account logic will generate a new wallet."
-        )]
-        wallet_address: Option<String>,
-        #[tool(param)]
-        #[schemars(
-            description = "The token to set the balance for. Can be a symbol (e.g., SOL, USDC) or a full base58-encoded mint address. Defaults to SOL if not provided."
-        )]
-        token: String,
-        #[tool(param)]
-        #[schemars(
-            description = "The token amount to assign to the wallet. Defaults to 100_000 if not provided"
-        )]
-        token_amount: Option<u64>,
-        #[tool(param)]
-        #[schemars(
-            description = "The program ID of the token. Defaults to the SPL token program ID if not provided. Use 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpLAs' for Token-2022."
-        )]
-        program_id: Option<String>,
-    ) -> Json<SetTokenAccountResponse> {
+        #[schemars(description = "")]
+        accounts_with_tokens: Vec<(Option<String>, Vec<CreateTokenAccountParams>)>,
+    ) -> Json<SetTokenAccountsResponse> {
         let surfnet_id = {
             let surfnets_guard = self.surfnets.read().unwrap();
             surfnets_guard.len() as u16
@@ -131,7 +140,7 @@ impl Surfpool {
                 success_data.surfnet_url.clone()
             }
             None => {
-                return Json(SetTokenAccountResponse::error(format!(
+                return Json(SetTokenAccountsResponse::error(format!(
                     "Failed to start Surfnet (ID {}): {}. Token account not set.",
                     surfnet_id,
                     start_response
@@ -140,10 +149,32 @@ impl Surfpool {
                 )));
             }
         };
-        let set_token_result =
-            set_token_account::run(surfnet_url, wallet_address, token, token_amount, program_id);
 
-        Json(set_token_result)
+        let mut results = Vec::new();
+        for (account_owner, token_params) in accounts_with_tokens {
+            let owner_seeded_account = SeededAccount::new(account_owner);
+
+            for CreateTokenAccountParams {
+                token_mint,
+                token_amount,
+                token_program_id,
+            } in token_params
+            {
+                let set_token_result = set_token_account::run(
+                    surfnet_url,
+                    owner_seeded_account,
+                    token_mint,
+                    token_amount,
+                    token_program_id,
+                );
+                results.push(set_token_result);
+            }
+        }
+
+        Json(SetTokenAccountsResponse {
+            success: Some(results),
+            error: None,
+        })
     }
 }
 

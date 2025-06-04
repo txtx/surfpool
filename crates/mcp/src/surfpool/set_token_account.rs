@@ -46,6 +46,11 @@ pub struct SetTokenAccountResponse {
     success: Option<AccountUpdated>,
     error: Option<String>,
 }
+#[derive(Serialize, Debug, Clone)]
+pub struct SetTokenAccountsResponse {
+    success: Option<Vec<AccountUpdated>>,
+    error: Option<String>,
+}
 
 #[derive(Serialize, Debug, Clone)]
 pub struct AccountUpdated {
@@ -61,6 +66,28 @@ pub struct AccountUpdated {
 pub enum SeededAccount {
     Provided(String),      // Existing public key
     Generated(NewAccount), // Details of a newly generated account
+}
+
+impl SeededAccount {
+    pub fn new(input_account: Option<String>) -> Self {
+        match input_account {
+            Some(pubkey) => SeededAccount::Provided(pubkey),
+            None => {
+                let new_keypair = Keypair::new();
+                SeededAccount::Generated(NewAccount {
+                    secret_key: bs58::encode(new_keypair.to_bytes()).into_string(),
+                    public_key: new_keypair.pubkey().to_string(),
+                })
+            }
+        }
+    }
+
+    pub fn pubkey(&self) -> String {
+        match self {
+            SeededAccount::Provided(pubkey) => pubkey.clone(),
+            SeededAccount::Generated(new_account) => new_account.public_key.clone(),
+        }
+    }
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -108,35 +135,13 @@ const SOL_SYMBOL: &str = "SOL";
 /// * `SetTokenAccountResponse`: Contains either details of the successful account update (including new wallet details if generated) or an error message.                             
 pub fn run(
     surfnet_address: String,
-    wallet_address_opt: Option<String>,
+    owner_seeded_account: SeededAccount,
     token_identifier_str: String, // Can be "SOL", a mint address, or a known symbol
     token_amount_opt: Option<u64>,
     program_id_opt: Option<String>,
 ) -> SetTokenAccountResponse {
     let client = Client::new();
     let rpc_url = surfnet_address;
-
-    // Determine the owner's public key. If no wallet address is provided, generate a new keypair.
-    // The keypair itself is stored if generated, so the secret key can be returned.
-    let owner_keypair: Option<Keypair> = match wallet_address_opt {
-        None => Some(Keypair::new()),
-        Some(_) => None,
-    };
-    let owner_pubkey_str = owner_keypair
-        .as_ref()
-        .map(|kp| kp.pubkey().to_string())
-        .unwrap_or_else(|| wallet_address_opt.clone().unwrap_or_default());
-
-    // Validate the owner public key string.
-    let owner_pubkey = match Pubkey::try_from(owner_pubkey_str.as_str()) {
-        Ok(pk) => pk,
-        Err(_) => {
-            return SetTokenAccountResponse::error(format!(
-                "Invalid owner wallet address: {}",
-                owner_pubkey_str
-            ))
-        }
-    };
 
     let amount_to_set = token_amount_opt.unwrap_or(DEFAULT_TOKEN_AMOUNT);
 
@@ -189,7 +194,7 @@ pub fn run(
             lamports: Some(lamports_to_set),
             ..Default::default()
         };
-        let params_tuple = (owner_pubkey_str.clone(), update_params);
+        let params_tuple = (owner_seeded_account.pubkey(), update_params);
         let params_value = match serde_json::to_value(params_tuple) {
             Ok(v) => v,
             Err(e) => {
@@ -221,7 +226,7 @@ pub fn run(
         };
 
         let params_tuple = (
-            owner_pubkey_str.clone(),
+            owner_seeded_account.pubkey(), // Use the public key of the provided or generated account
             actual_mint_address_str.clone(), // Use the resolved mint address
             update_params,
             None::<String>,
@@ -256,20 +261,9 @@ pub fn run(
                             ))
                         } else {
                             // Successfully processed by Surfnet.
-                            // Prepare the `SeededAccount` part of the response.
-                            let seeded_account = if let Some(kp) = owner_keypair {
-                                // If a new keypair was generated, include its secret and public keys.
-                                SeededAccount::Generated(NewAccount {
-                                    secret_key: bs58::encode(kp.to_bytes()).into_string(),
-                                    public_key: kp.pubkey().to_string(),
-                                })
-                            } else {
-                                // If an existing wallet was used, just return its public key.
-                                SeededAccount::Provided(owner_pubkey_str.clone())
-                            };
 
                             let final_token_account_address = if is_sol {
-                                owner_pubkey_str.clone()
+                                owner_seeded_account.pubkey()
                             } else {
                                 let mint_pubkey =
                                     Pubkey::try_from(actual_mint_address_str.as_str())
@@ -289,7 +283,7 @@ pub fn run(
                                 };
 
                                 get_associated_token_address_with_program_id(
-                                    &owner_pubkey,
+                                    &Pubkey::from_str_const(&owner_seeded_account.pubkey()),
                                     &mint_pubkey,
                                     &token_program_id, // Use the determined program ID
                                 )
@@ -298,12 +292,12 @@ pub fn run(
 
                             // Construct the successful response details.
                             let account_updated = AccountUpdated {
-                                account: seeded_account,
+                                account: owner_seeded_account,
                                 token_address: actual_mint_address_str.clone(),
                                 token_symbol: actual_token_symbol_opt.clone(), // Use resolved symbol
                                 associated_token_address: final_token_account_address,
                                 amount: amount_to_set,
-                                owner_pubkey: owner_pubkey_str.clone(),
+                                owner_pubkey: owner_seeded_account.pubkey(),
                             };
                             SetTokenAccountResponse::success(account_updated)
                         }
