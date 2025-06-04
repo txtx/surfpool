@@ -675,9 +675,8 @@ mod tests {
     };
     use solana_pubkey::Pubkey;
 
-    use crate::tests::helpers::TestSetup;
-
     use super::{AccountsScan, SurfpoolAccountsScanRpc};
+    use crate::tests::helpers::TestSetup;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_program_accounts() {
