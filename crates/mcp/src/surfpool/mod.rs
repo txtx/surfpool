@@ -26,10 +26,31 @@ impl Surfpool {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CreateTokenAccountForOwnerParams {
+    #[schemars(
+        description = "An optional owner address for the accounts. If provided, all token accounts will be created under this owner. If omitted, a new wallet will be generated and returned."
+    )]
+    pub owner: Option<String>, // Optional owner address for the token account
+    #[schemars(
+        description = "A list of token parameters to dictate what the owner should be funded with. Each parameter includes the token mint, program ID, and amount."
+    )]
+    pub params: Vec<CreateTokenAccountParams>, // Parameters for creating the token account
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CreateTokenAccountParams {
-    pub token_mint: String,               // Mint address or symbol of the token
+    #[schemars(
+        description = "The mint address or symbol of the token to set the balance for. Can be a full base58-encoded mint address or a symbol like 'SOL', 'USDC', etc."
+    )]
+    pub token_mint: String, // Mint address or symbol of the token
+    #[schemars(
+        description = "The program ID of the token. Defaults to the SPL token program ID if not provided."
+    )]
     pub token_program_id: Option<String>, // Program ID of the token, defaults to SPL Token program
-    pub token_amount: Option<u64>,        // Amount of tokens to assign, defaults to 100_000
+    #[schemars(
+        description = "The amount of tokens to assign to the wallet. Defaults to 100_000 if not provided."
+    )]
+    pub token_amount: Option<u64>, // Amount of tokens to assign, defaults to 100_000
 }
 
 #[tool(tool_box)]
@@ -105,9 +126,9 @@ impl Surfpool {
         &self,
         #[tool(param)]
         #[schemars(
-            description = "The accounts to set the token balance for. Each tuple contains an optional wallet address and a vector of token parameters. If the wallet address is omitted, a new wallet will be generated and returned and the tokens will be set for that specific wallet"
+            description = "A list of accounts to either create or fund with tokens. Each entry in the vector contains an optional owner address and a list of token parameters. If the owner address is omitted, a new wallet will be generated and returned. Each token parameter includes the token mint, program ID, and amount."
         )]
-        accounts_with_tokens: Vec<(Option<String>, Vec<CreateTokenAccountParams>)>,
+        token_params_with_owner: Vec<CreateTokenAccountForOwnerParams>,
     ) -> Json<SetTokenAccountsResponse> {
         let surfnet_id = {
             let surfnets_guard = self.surfnets.read().unwrap();
@@ -136,14 +157,14 @@ impl Surfpool {
         };
 
         let mut results = Vec::new();
-        for (account_owner, token_params) in accounts_with_tokens {
-            let owner_seeded_account = SeededAccount::new(account_owner);
+        for CreateTokenAccountForOwnerParams { owner, params } in token_params_with_owner {
+            let owner_seeded_account = SeededAccount::new(owner);
 
             for CreateTokenAccountParams {
                 token_mint,
                 token_amount,
                 token_program_id,
-            } in token_params
+            } in params
             {
                 let set_token_result = set_token_account::run(
                     surfnet_url.clone(),
