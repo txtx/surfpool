@@ -339,13 +339,12 @@ impl SurfnetSvm {
                     transaction_meta,
                     Some(err.clone()),
                 ));
-            return Err(litesvm::types::FailedTransactionMetadata { err, meta });
+            return Err(FailedTransactionMetadata { err, meta });
         }
         self.inner.set_blockhash_check(false);
-        let result = self.inner.send_transaction(tx.clone());
-        match result {
-            Ok(executed_meta) => {
-                let transaction_meta = convert_transaction_metadata_from_canonical(&executed_meta);
+        match self.inner.send_transaction(tx.clone()) {
+            Ok(res) => {
+                let transaction_meta = convert_transaction_metadata_from_canonical(&res);
 
                 self.transactions.insert(
                     transaction_meta.signature,
@@ -359,7 +358,7 @@ impl SurfnetSvm {
                 let _ = self
                     .simnet_events_tx
                     .try_send(SimnetEvent::transaction_processed(transaction_meta, None));
-                Ok(executed_meta)
+                Ok(res)
             }
             Err(tx_failure) => {
                 let transaction_meta =
@@ -535,11 +534,9 @@ impl SurfnetSvm {
         let slot = self.latest_epoch_info.slot_index;
 
         while let Some((tx, status_tx)) = self.transactions_queued_for_confirmation.pop_front() {
-            status_tx
-                .try_send(TransactionStatusEvent::Success(
-                    TransactionConfirmationStatus::Confirmed,
-                ))
-                .map_err(SurfpoolError::from)?;
+            let _ = status_tx.try_send(TransactionStatusEvent::Success(
+                TransactionConfirmationStatus::Confirmed,
+            ));
             let signature = tx.signatures[0];
             let finalized_at = self.latest_epoch_info.absolute_slot + FINALIZATION_SLOT_THRESHOLD;
             self.transactions_queued_for_finalization
@@ -568,11 +565,9 @@ impl SurfnetSvm {
             self.transactions_queued_for_finalization.pop_front()
         {
             if current_slot >= finalized_at {
-                status_tx
-                    .try_send(TransactionStatusEvent::Success(
-                        TransactionConfirmationStatus::Finalized,
-                    ))
-                    .map_err(SurfpoolError::from)?;
+                let _ = status_tx.try_send(TransactionStatusEvent::Success(
+                    TransactionConfirmationStatus::Finalized,
+                ));
                 self.notify_signature_subscribers(
                     SignatureSubscriptionType::finalized(),
                     &tx.signatures[0],
@@ -583,6 +578,7 @@ impl SurfnetSvm {
                 requeue.push_back((finalized_at, tx, status_tx));
             }
         }
+        // Requeue any transactions that are not yet finalized
         self.transactions_queued_for_finalization
             .append(&mut requeue);
 
