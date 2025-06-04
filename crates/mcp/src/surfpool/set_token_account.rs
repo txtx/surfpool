@@ -43,13 +43,13 @@ struct TokenAccountUpdateParams {
 
 #[derive(Serialize, Debug, Clone)]
 pub struct SetTokenAccountResponse {
-    success: Option<AccountUpdated>,
-    error: Option<String>,
+    pub success: Option<AccountUpdated>,
+    pub error: Option<String>,
 }
 #[derive(Serialize, Debug, Clone)]
 pub struct SetTokenAccountsResponse {
-    success: Option<Vec<AccountUpdated>>,
-    error: Option<String>,
+    pub success: Option<Vec<AccountUpdated>>,
+    pub error: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -98,6 +98,22 @@ pub struct NewAccount {
 
 impl SetTokenAccountResponse {
     pub fn success(details: AccountUpdated) -> Self {
+        Self {
+            success: Some(details),
+            error: None,
+        }
+    }
+
+    pub fn error(message: String) -> Self {
+        Self {
+            success: None,
+            error: Some(message),
+        }
+    }
+}
+
+impl SetTokenAccountsResponse {
+    pub fn success(details: Vec<AccountUpdated>) -> Self {
         Self {
             success: Some(details),
             error: None,
@@ -292,7 +308,7 @@ pub fn run(
 
                             // Construct the successful response details.
                             let account_updated = AccountUpdated {
-                                account: owner_seeded_account,
+                                account: owner_seeded_account.clone(),
                                 token_address: actual_mint_address_str.clone(),
                                 token_symbol: actual_token_symbol_opt.clone(), // Use resolved symbol
                                 associated_token_address: final_token_account_address,
