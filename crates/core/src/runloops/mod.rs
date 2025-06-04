@@ -120,6 +120,8 @@ pub async fn start_block_production_runloop(
     remote_rpc_client: &Option<SurfnetRemoteClient>,
     expiry_duration_ms: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let mut next_scheduled_expiry_check: Option<u64> =
+        expiry_duration_ms.map(|expiry_val| Utc::now().timestamp_millis() as u64 + expiry_val);
     loop {
         let mut do_produce_block = false;
 
@@ -132,9 +134,16 @@ pub async fn start_block_production_runloop(
                         }
 
                         if let Some(expiry_ms) = expiry_duration_ms {
-                            let svm = svm_locker.0.read().await;
-                            if svm.updated_at + expiry_ms < Utc::now().timestamp_millis() as u64 {
-                                let _ = simnet_commands_tx.send(SimnetCommand::Terminate(None));
+                            if let Some(scheduled_time_ref) = &mut next_scheduled_expiry_check {
+                                let now_ms = Utc::now().timestamp_millis() as u64;
+                                if now_ms >= *scheduled_time_ref {
+                                    let svm = svm_locker.0.read().await;
+                                    if svm.updated_at + expiry_ms < now_ms {
+                                        let _ = simnet_commands_tx.send(SimnetCommand::Terminate(None));
+                                    } else {
+                                        *scheduled_time_ref = svm.updated_at + expiry_ms;
+                                    }
+                                }
                             }
                         }
                     }

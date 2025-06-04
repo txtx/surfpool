@@ -4,10 +4,9 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use jsonrpc_core::{futures::future, BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::{serde_as, BytesOrString};
+use serde_with::serde_as;
 use solana_account::Account;
 use solana_client::rpc_response::RpcResponseContext;
-use solana_clock::Epoch;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{
@@ -16,7 +15,7 @@ use solana_sdk::{
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
 use surfpool_types::{
-    types::{ComputeUnitsEstimationResult, ProfileResult},
+    types::{AccountUpdate, ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent,
 };
 
@@ -26,48 +25,38 @@ use crate::{
     surfnet::{locker::SvmAccessContext, GetAccountResult},
 };
 
-#[serde_as]
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccountUpdate {
-    /// providing this value sets the lamports in the account
-    pub lamports: Option<u64>,
-    /// providing this value sets the data held in this account
-    #[serde_as(as = "Option<BytesOrString>")]
-    pub data: Option<Vec<u8>>,
-    ///  providing this value sets the program that owns this account. If executable, the program that loads this account.
-    pub owner: Option<String>,
-    /// providing this value sets whether this account's data contains a loaded program (and is now read-only)
-    pub executable: Option<bool>,
-    /// providing this value sets the epoch at which this account will next owe rent
-    pub rent_epoch: Option<Epoch>,
+pub trait AccountUpdateExt {
+    fn is_full_account_data_ext(&self) -> bool;
+    fn to_account_ext(&self) -> Result<Option<Account>>;
+    fn apply_ext(self, account: &mut GetAccountResult) -> Result<()>;
+    fn expect_hex_data_ext(&self) -> Result<Vec<u8>>;
 }
 
-impl AccountUpdate {
-    fn is_full_account_data(&self) -> bool {
+impl AccountUpdateExt for AccountUpdate {
+    fn is_full_account_data_ext(&self) -> bool {
         self.lamports.is_some()
             && self.owner.is_some()
             && self.executable.is_some()
             && self.rent_epoch.is_some()
             && self.data.is_some()
     }
-    /// Convert the update to an account if all fields are provided
-    pub fn to_account(&self) -> Result<Option<Account>> {
-        if self.is_full_account_data() {
+
+    fn to_account_ext(&self) -> Result<Option<Account>> {
+        if self.is_full_account_data_ext() {
             Ok(Some(Account {
                 lamports: self.lamports.unwrap(),
                 owner: verify_pubkey(&self.owner.clone().unwrap())?,
                 executable: self.executable.unwrap(),
                 rent_epoch: self.rent_epoch.unwrap(),
-                data: self.expect_hex_data()?,
+                data: self.expect_hex_data_ext()?,
             }))
         } else {
             Ok(None)
         }
     }
-    /// Apply the update to the account
-    pub fn apply(self, account: &mut GetAccountResult) -> Result<()> {
-        account.apply_update(|account| {
+
+    fn apply_ext(self, account_result: &mut GetAccountResult) -> Result<()> {
+        account_result.apply_update(|account| {
             if let Some(lamports) = self.lamports {
                 account.lamports = lamports;
             }
@@ -81,14 +70,14 @@ impl AccountUpdate {
                 account.rent_epoch = rent_epoch;
             }
             if self.data.is_some() {
-                account.data = self.expect_hex_data()?;
+                account.data = self.expect_hex_data_ext()?;
             }
             Ok(())
         })?;
         Ok(())
     }
 
-    pub fn expect_hex_data(&self) -> Result<Vec<u8>> {
+    fn expect_hex_data_ext(&self) -> Result<Vec<u8>> {
         let data = self.data.as_ref().expect("missing expected data field");
         hex::decode(data)
             .map_err(|e| Error::invalid_params(format!("Invalid hex data provided: {}", e)))
@@ -373,7 +362,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
-        let account_update = match update.to_account() {
+        let account_update_opt = match update.to_account_ext() {
             Err(e) => return Box::pin(future::err(e)),
             Ok(res) => res,
         };
@@ -387,8 +376,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         };
 
         Box::pin(async move {
-            // if the account update is contains all fields, we can directly set the account
-            let (account_to_set, latest_absolute_slot) = if let Some(account) = account_update {
+            let (account_to_set, latest_absolute_slot) = if let Some(account) = account_update_opt {
                 (
                     GetAccountResult::FoundAccount(pubkey, account, true),
                     svm_locker.get_latest_absolute_slot(),
@@ -396,7 +384,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             } else {
                 // otherwise, we need to fetch the account and apply the update
                 let SvmAccessContext {
-                    slot, inner: mut account_to_update,
+                    slot, inner: mut account_result_to_update,
                     ..
                 } = svm_locker.get_account(&remote_ctx, &pubkey, Some(Box::new(move |svm_locker| {
 
@@ -404,10 +392,9 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                             let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(format!(
                                 "Account {pubkey} not found, creating a new account from default values"
                             )));
-
                             GetAccountResult::FoundAccount(
                                 pubkey,
-                                Account {
+                                solana_account::Account {
                                     lamports: 0,
                                     owner: system_program::id(),
                                     executable: false,
@@ -418,8 +405,8 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                             )
                 }))).await?;
 
-                update.apply(&mut account_to_update)?;
-                (account_to_update, slot)
+                update.apply_ext(&mut account_result_to_update)?;
+                (account_result_to_update, slot)
             };
 
             svm_locker.write_account_update(account_to_set);

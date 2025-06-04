@@ -9923,6 +9923,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "serde_with",
  "solana-blake3-hasher",
  "solana-clock",
  "solana-epoch-info",

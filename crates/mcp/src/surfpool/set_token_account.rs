@@ -7,7 +7,7 @@ use solana_sdk::{
 };
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token;
-use surfpool_types::verified_tokens::VERIFIED_TOKENS_BY_SYMBOL;
+use surfpool_types::{types::AccountUpdate, verified_tokens::VERIFIED_TOKENS_BY_SYMBOL};
 
 #[derive(Serialize)]
 struct JsonRpcRequest {
@@ -33,25 +33,6 @@ struct JsonRpcError {
 }
 
 #[derive(Serialize)]
-struct SetAccountParams {
-    pubkey: String,
-    update: AccountUpdateParams,
-}
-
-#[derive(Serialize)]
-struct AccountUpdateParams {
-    lamports: Option<u64>,
-}
-
-#[derive(Serialize)]
-struct SetTokenAccountParams {
-    owner: String,
-    mint: String,
-    update: TokenAccountUpdateParams,
-    token_program: Option<String>,
-}
-
-#[derive(Serialize)]
 struct TokenAccountUpdateParams {
     amount: Option<u64>,
     // delegate: Option<String>, // null or pubkey // TODO: add this
@@ -69,10 +50,11 @@ pub struct SetTokenAccountResponse {
 #[derive(Serialize, Debug, Clone)]
 pub struct AccountUpdated {
     account: SeededAccount,
-    token_address: String,         // Mint address or "SOL"
-    token_symbol: Option<String>,  // e.g., "SOL", "USDC", or mint symbol
-    token_account_address: String, // Wallet address for SOL, ATA for SPL
+    token_address: String,            // Mint address or "SOL"
+    token_symbol: Option<String>,     // e.g., "SOL", "USDC", or mint symbol
+    associated_token_address: String, // Wallet address for SOL, ATA for SPL
     amount: u64,
+    owner_pubkey: String,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -102,10 +84,9 @@ impl SetTokenAccountResponse {
         }
     }
 }
-
+const SOL_DECIMALS: u32 = 9; // Define SOL decimals constant
 const DEFAULT_TOKEN_AMOUNT: u64 = 100_000_000_000; // 100 SOL or 100 of a token with 9 decimals
 const SOL_SYMBOL: &str = "SOL";
-const SOL_MINT_PLACEHOLDER: &str = "So11111111111111111111111111111111111111112"; // Official SOL mint placeholder
 
 /// Handles the MCP tool call to set a token balance for a specified account on a Surfnet instance.
 ///
@@ -120,6 +101,8 @@ const SOL_MINT_PLACEHOLDER: &str = "So11111111111111111111111111111111111111112"
 ///                          a base58-encoded SPL token mint address, or a known symbol.
 /// * `token_amount_opt`: An optional amount of the token to set (in its smallest unit, e.g., lamports for SOL).
 ///                       If `None`, a default amount is used.
+/// * `program_id_opt`: An optional base58-encoded public key of the token-issuing program.
+///                     If `None`, defaults to the standard SPL Token program ID.
 ///
 /// # Returns
 /// * `SetTokenAccountResponse`: Contains either details of the successful account update (including new wallet details if generated) or an error message.                             
@@ -128,6 +111,7 @@ pub fn run(
     wallet_address_opt: Option<String>,
     token_identifier_str: String, // Can be "SOL", a mint address, or a known symbol
     token_amount_opt: Option<u64>,
+    program_id_opt: Option<String>,
 ) -> SetTokenAccountResponse {
     let client = Client::new();
     let rpc_url = surfnet_address;
@@ -162,7 +146,7 @@ pub fn run(
     let mut actual_token_symbol_opt: Option<String> = None;
 
     if is_sol {
-        actual_mint_address_str = SOL_MINT_PLACEHOLDER.to_string();
+        actual_mint_address_str = SOL_SYMBOL.to_string(); // Set to "SOL" for native SOL
         actual_token_symbol_opt = Some(SOL_SYMBOL.to_string());
     } else {
         // Not SOL, try parsing as a mint address directly.
@@ -196,19 +180,14 @@ pub fn run(
     let request_payload = if is_sol {
         // For SOL, use the `surfnet_setAccount` RPC method.
         // Parameters: (pubkey: String, update: AccountUpdate)
-        let lamports_to_set = match &actual_token_symbol_opt {
-            Some(token_symbol) => match VERIFIED_TOKENS_BY_SYMBOL.get(&token_symbol.to_uppercase())
-            {
-                Some(token_info) => amount_to_set
-                    .checked_mul(10u64.pow(token_info.decimals as u32))
-                    .unwrap_or(amount_to_set),
-                None => amount_to_set,
-            },
-            None => amount_to_set,
-        };
+        // amount_to_set converted to lamports
+        let lamports_to_set = amount_to_set
+            .checked_mul(10u64.pow(SOL_DECIMALS))
+            .unwrap_or(amount_to_set); 
 
-        let update_params = AccountUpdateParams {
+        let update_params = AccountUpdate {
             lamports: Some(lamports_to_set),
+            ..Default::default()
         };
         let params_tuple = (owner_pubkey_str.clone(), update_params);
         let params_value = match serde_json::to_value(params_tuple) {
@@ -295,10 +274,24 @@ pub fn run(
                                 let mint_pubkey =
                                     Pubkey::try_from(actual_mint_address_str.as_str())
                                         .expect("Mint pubkey should be validated by now");
+
+                                let token_program_id = match program_id_opt {
+                                    Some(id_str) => match Pubkey::try_from(id_str.as_str()) {
+                                        Ok(pk) => pk,
+                                        Err(_) => {
+                                            return SetTokenAccountResponse::error(format!(
+                                                "Invalid program_id provided: {}",
+                                                id_str
+                                            ))
+                                        }
+                                    },
+                                    None => spl_token::id(), // Default to SPL Token program ID
+                                };
+
                                 get_associated_token_address_with_program_id(
                                     &owner_pubkey,
                                     &mint_pubkey,
-                                    &spl_token::id(),
+                                    &token_program_id, // Use the determined program ID
                                 )
                                 .to_string()
                             };
@@ -306,10 +299,11 @@ pub fn run(
                             // Construct the successful response details.
                             let account_updated = AccountUpdated {
                                 account: seeded_account,
-                                token_address: actual_mint_address_str.clone(), // Use resolved mint address
+                                token_address: actual_mint_address_str.clone(),
                                 token_symbol: actual_token_symbol_opt.clone(), // Use resolved symbol
-                                token_account_address: final_token_account_address,
+                                associated_token_address: final_token_account_address,
                                 amount: amount_to_set,
+                                owner_pubkey: owner_pubkey_str.clone(),
                             };
                             SetTokenAccountResponse::success(account_updated)
                         }

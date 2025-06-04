@@ -52,26 +52,37 @@ impl Surfpool {
         &self,
         #[tool(param)]
         #[schemars(
-            description = "the RPC url of the local surfnet instance where the operation will take place. Must reference a currently running localnet."
+            description = "The RPC url of the local surfnet instance where the operation will take place. Must reference a currently running localnet."
         )]
         surfnet_address: String,
         #[tool(param)]
         #[schemars(
-            description = "the public key of the wallet to fund. If omitted, a new wallet will be generated and returned"
+            description = "The public key of the wallet to fund. If omitted, a new wallet will be generated and returned"
         )]
         wallet_address: Option<String>,
         #[tool(param)]
         #[schemars(
-            description = "the token to set the balance for. Can be a symbol (e.g., SOL, USDC) or a full base58-encoded mint address."
+            description = "The token to set the balance for. Can be a symbol (e.g., SOL, USDC) or a full base58-encoded mint address."
         )]
         token: String,
         #[tool(param)]
         #[schemars(
-            description = "the token amount to assign to the wallet. Defaults to 100_000 if not provided"
+            description = "The token amount to assign to the wallet. Defaults to 100_000 if not provided"
         )]
         token_amount: Option<u64>,
+        #[tool(param)]
+        #[schemars(
+            description = "The program ID of the token. Defaults to the SPL token program ID if not provided. Use 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpLAs' for Token-2022."
+        )]
+        program_id: Option<String>,
     ) -> Json<SetTokenAccountResponse> {
-        let res = set_token_account::run(surfnet_address, wallet_address, token, token_amount);
+        let res = set_token_account::run(
+            surfnet_address,
+            wallet_address,
+            token,
+            token_amount,
+            program_id,
+        );
         Json(res)
     }
 
@@ -90,14 +101,19 @@ impl Surfpool {
         wallet_address: Option<String>,
         #[tool(param)]
         #[schemars(
-            description = "the token to set the balance for. Can be a symbol (e.g., SOL, USDC) or a full base58-encoded mint address. Defaults to SOL if not provided."
+            description = "The token to set the balance for. Can be a symbol (e.g., SOL, USDC) or a full base58-encoded mint address. Defaults to SOL if not provided."
         )]
         token: String,
         #[tool(param)]
         #[schemars(
-            description = "the token amount to assign to the wallet. Defaults to 100_000 if not provided"
+            description = "The token amount to assign to the wallet. Defaults to 100_000 if not provided"
         )]
         token_amount: Option<u64>,
+        #[tool(param)]
+        #[schemars(
+            description = "The program ID of the token. Defaults to the SPL token program ID if not provided. Use 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpLAs' for Token-2022."
+        )]
+        program_id: Option<String>,
     ) -> Json<SetTokenAccountResponse> {
         let surfnet_id = {
             let surfnets_guard = self.surfnets.read().unwrap();
@@ -125,7 +141,7 @@ impl Surfpool {
             }
         };
         let set_token_result =
-            set_token_account::run(surfnet_url, wallet_address, token, token_amount);
+            set_token_account::run(surfnet_url, wallet_address, token, token_amount, program_id);
 
         Json(set_token_result)
     }
