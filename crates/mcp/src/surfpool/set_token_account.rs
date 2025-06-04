@@ -183,7 +183,7 @@ pub fn run(
         // amount_to_set converted to lamports
         let lamports_to_set = amount_to_set
             .checked_mul(10u64.pow(SOL_DECIMALS))
-            .unwrap_or(amount_to_set); 
+            .unwrap_or(amount_to_set);
 
         let update_params = AccountUpdate {
             lamports: Some(lamports_to_set),
