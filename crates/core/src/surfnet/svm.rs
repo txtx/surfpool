@@ -158,7 +158,7 @@ impl SurfnetSvm {
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
         let res = self.inner.airdrop(pubkey, lamports);
         match res {
-            std::result::Result::Ok(ref tx_metadata) => {
+            Ok(ref tx_metadata) => {
                 let airdrop_keypair = Keypair::new();
                 let slot = self.latest_epoch_info.absolute_slot;
                 self.transactions.insert(
@@ -181,9 +181,9 @@ impl SurfnetSvm {
                         None,
                     ))),
                 );
-                std::result::Result::Ok(tx_metadata.clone())
+                Ok(tx_metadata.clone())
             }
-            std::result::Result::Err(e) => std::result::Result::Err(e),
+            Err(e) => Err(e),
         }
     }
 
@@ -294,7 +294,7 @@ impl SurfnetSvm {
         let _ = self
             .simnet_events_tx
             .send(SimnetEvent::account_update(*pubkey));
-        std::result::Result::Ok(())
+        Ok(())
     }
 
     /// Sends a transaction to the system for execution.
@@ -342,15 +342,12 @@ impl SurfnetSvm {
                     transaction_meta,
                     Some(err.clone()),
                 ));
-            return std::result::Result::Err(litesvm::types::FailedTransactionMetadata {
-                err,
-                meta,
-            });
+            return Err(litesvm::types::FailedTransactionMetadata { err, meta });
         }
         self.inner.set_blockhash_check(false);
         let result = self.inner.send_transaction(tx.clone());
         match result {
-            std::result::Result::Ok(executed_meta) => {
+            Ok(executed_meta) => {
                 let transaction_meta = convert_transaction_metadata_from_canonical(&executed_meta);
 
                 self.transactions.insert(
@@ -365,9 +362,9 @@ impl SurfnetSvm {
                 let _ = self
                     .simnet_events_tx
                     .try_send(SimnetEvent::transaction_processed(transaction_meta, None));
-                std::result::Result::Ok(executed_meta)
+                Ok(executed_meta)
             }
-            std::result::Result::Err(tx_failure) => {
+            Err(tx_failure) => {
                 let transaction_meta =
                     convert_transaction_metadata_from_canonical(&tx_failure.meta);
 
@@ -377,7 +374,7 @@ impl SurfnetSvm {
                         transaction_meta,
                         Some(tx_failure.err.clone()),
                     ));
-                std::result::Result::Err(tx_failure)
+                Err(tx_failure)
             }
         }
     }
@@ -407,13 +404,13 @@ impl SurfnetSvm {
         }
 
         match self.inner.simulate_transaction(transaction.clone()) {
-            std::result::Result::Ok(sim_info) => ComputeUnitsEstimationResult {
+            Ok(sim_info) => ComputeUnitsEstimationResult {
                 success: true,
                 compute_units_consumed: sim_info.meta.compute_units_consumed,
                 log_messages: Some(sim_info.meta.logs),
                 error_message: None,
             },
-            std::result::Result::Err(failed_meta) => ComputeUnitsEstimationResult {
+            Err(failed_meta) => ComputeUnitsEstimationResult {
                 success: false,
                 compute_units_consumed: failed_meta.meta.compute_units_consumed,
                 log_messages: Some(failed_meta.meta.logs),
@@ -527,7 +524,7 @@ impl SurfnetSvm {
             let meta = litesvm::types::TransactionMetadata::default();
             let err = solana_transaction_error::TransactionError::BlockhashNotFound;
 
-            return std::result::Result::Err(FailedTransactionMetadata { err, meta });
+            return Err(FailedTransactionMetadata { err, meta });
         }
         self.inner.simulate_transaction(tx)
     }
@@ -560,7 +557,7 @@ impl SurfnetSvm {
             confirmed_transactions.push(signature);
         }
 
-        std::result::Result::Ok(confirmed_transactions)
+        Ok(confirmed_transactions)
     }
 
     /// Finalizes transactions queued for finalization, sending finalized events as needed.
@@ -592,7 +589,7 @@ impl SurfnetSvm {
         self.transactions_queued_for_finalization
             .append(&mut requeue);
 
-        std::result::Result::Ok(())
+        Ok(())
     }
 
     /// Notifies listeners of an invalid transaction and sends a verification failure event.
@@ -691,7 +688,7 @@ impl SurfnetSvm {
 
         self.finalize_transactions()?;
 
-        std::result::Result::Ok(())
+        Ok(())
     }
 
     /// Subscribes for updates on a transaction signature for a given subscription type.
