@@ -1,4 +1,4 @@
-use jsonrpc_core::{futures::future, BoxFuture, Result};
+use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_client::{
     rpc_config::{
@@ -12,15 +12,16 @@ use solana_client::{
     },
 };
 use solana_clock::Slot;
-use solana_commitment_config::CommitmentLevel;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
-use super::{not_implemented_err, RunloopContext};
+use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
 use crate::{
     rpc::{utils::verify_pubkey, State},
-    surfnet::{GetAccountStrategy, FINALIZATION_SLOT_THRESHOLD},
+    surfnet::{locker::SvmAccessContext, GetAccountResult, FINALIZATION_SLOT_THRESHOLD},
 };
+
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -591,26 +592,31 @@ impl Minimal for SurfpoolMinimalRpc {
             Err(e) => return e.into(),
         };
 
-        let svm_locker = match meta.get_svm_locker() {
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
             Ok(res) => res,
-            Err(e) => return Box::pin(future::err(e.into())),
+            Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let mut svm_writer = svm_locker.write().await;
-            let res = svm_writer
-                .get_account_mut(
-                    &pubkey,
-                    GetAccountStrategy::LocalThenConnectionOrDefault(None),
-                )
-                .await?;
-            let balance = match res {
-                Some(account) => account.lamports,
-                None => 0,
+            let SvmAccessContext {
+                slot,
+                inner: account_update,
+                ..
+            } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
+
+            let balance = match &account_update {
+                GetAccountResult::FoundAccount(_, account, _)
+                | GetAccountResult::FoundProgramAccount((_, account), _) => account.lamports,
+                GetAccountResult::None(_) => 0,
             };
 
+            svm_locker.write_account_update(account_update);
+
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_writer.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(slot),
                 value: balance,
             })
         })
@@ -626,7 +632,7 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_genesis_hash(&self, _meta: Self::Metadata) -> Result<String> {
-        not_implemented_err()
+        not_implemented_err("get_genesis_hash")
     }
 
     fn get_health(&self, _meta: Self::Metadata) -> Result<String> {
@@ -635,24 +641,20 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
-        not_implemented_err()
+        not_implemented_err("get_identity")
     }
 
     fn get_slot(&self, meta: Self::Metadata, config: Option<RpcContextConfig>) -> Result<Slot> {
         let config = config.unwrap_or_default();
+        let latest_absolute_slot = meta
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+            .map_err(Into::<jsonrpc_core::Error>::into)?;
         let slot = match config.commitment.unwrap_or_default().commitment {
-            CommitmentLevel::Processed => meta
-                .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
-                .map_err(Into::<jsonrpc_core::Error>::into)?,
-            CommitmentLevel::Confirmed => meta
-                .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot() - 1)
-                .map_err(Into::<jsonrpc_core::Error>::into)?,
-            CommitmentLevel::Finalized => meta
-                .with_svm_reader(|svm_reader| {
-                    svm_reader.get_latest_absolute_slot() - FINALIZATION_SLOT_THRESHOLD
-                })
-                .map_err(Into::<jsonrpc_core::Error>::into)?,
+            CommitmentLevel::Processed => latest_absolute_slot,
+            CommitmentLevel::Confirmed => latest_absolute_slot - 1,
+            CommitmentLevel::Finalized => latest_absolute_slot - FINALIZATION_SLOT_THRESHOLD,
         };
+
         if let Some(min_context_slot) = config.min_context_slot {
             if slot < min_context_slot {
                 return Err(RpcCustomError::MinContextSlotNotReached {
@@ -703,7 +705,7 @@ impl Minimal for SurfpoolMinimalRpc {
 
 
     fn get_highest_snapshot_slot(&self, _meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
-        not_implemented_err()
+        not_implemented_err("get_highest_snapshot_slot")
     }
 
     fn get_transaction_count(
@@ -719,7 +721,7 @@ impl Minimal for SurfpoolMinimalRpc {
         let version = solana_version::Version::default();
 
         Ok(SurfpoolRpcVersionInfo {
-            surfnet_version: format!("{}", SURFPOOL_VERSION),
+            surfnet_version: SURFPOOL_VERSION.to_string(),
             solana_core: version.to_string(),
             feature_set: Some(version.feature_set),
         })
@@ -772,7 +774,7 @@ impl Minimal for SurfpoolMinimalRpc {
         //         }
         //         schedule_by_identity
         //     }))
-        not_implemented_err()
+        not_implemented_err("get_leader_schedule")
     }
 }
 
@@ -887,9 +889,8 @@ mod tests {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let transactions_processed = setup
             .context
-            .surfnet_svm
-            .blocking_read()
-            .transactions_processed;
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.transactions_processed);
         let result = setup.rpc.get_transaction_count(Some(setup.context), None);
         assert_eq!(result.unwrap(), transactions_processed);
     }
@@ -913,7 +914,7 @@ mod tests {
     fn test_get_slot() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup.rpc.get_slot(Some(setup.context), None).unwrap();
-        assert_eq!(result, 123);
+        assert_eq!(result, 92);
     }
 
     #[test]
