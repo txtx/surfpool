@@ -4,11 +4,15 @@ use crossbeam_channel::{Receiver, Sender};
 use jsonrpc_core::futures::future::join_all;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
-use solana_account_decoder::parse_bpf_loader::{
-    parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram,
+use solana_account_decoder::{
+    encode_ui_account,
+    parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram},
+    UiAccountEncoding,
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
-use solana_client::rpc_response::RpcKeyedAccount;
+use solana_client::{
+    rpc_config::RpcAccountInfoConfig, rpc_filter::RpcFilterType, rpc_response::RpcKeyedAccount,
+};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
@@ -786,12 +790,19 @@ impl SurfnetSvmLocker {
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
         program_id: &Pubkey,
-    ) -> SurfpoolContextualizedResult<Vec<(Pubkey, Account)>> {
+        account_config: RpcAccountInfoConfig,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
         if let Some(remote_client) = remote_ctx {
-            self.get_program_accounts_local_then_remote(remote_client, program_id)
-                .await
+            self.get_program_accounts_local_then_remote(
+                remote_client,
+                program_id,
+                account_config,
+                filters,
+            )
+            .await
         } else {
-            Ok(self.get_program_accounts_local(program_id))
+            self.get_program_accounts_local(program_id, account_config, filters)
         }
     }
 
@@ -799,10 +810,36 @@ impl SurfnetSvmLocker {
     pub fn get_program_accounts_local(
         &self,
         program_id: &Pubkey,
-    ) -> SvmAccessContext<Vec<(Pubkey, Account)>> {
-        self.with_contextualized_svm_reader(|svm_reader| {
+        account_config: RpcAccountInfoConfig,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        let res = self.with_contextualized_svm_reader(|svm_reader| {
             svm_reader.get_account_owned_by(*program_id)
-        })
+        });
+
+        let mut filtered = vec![];
+        for (pubkey, account) in res.inner.iter() {
+            if let Some(ref active_filters) = filters {
+                match apply_rpc_filters(&account.data, active_filters) {
+                    Ok(true) => {}           // Account matches all filters
+                    Ok(false) => continue,   // Filtered out
+                    Err(e) => return Err(e), // Error applying filter, already JsonRpcError
+                }
+            }
+            let data_slice = account_config.data_slice;
+
+            filtered.push(RpcKeyedAccount {
+                pubkey: pubkey.to_string(),
+                account: encode_ui_account(
+                    &pubkey,
+                    account,
+                    account_config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                    None, // No additional data for now
+                    data_slice,
+                ),
+            });
+        }
+        Ok(res.with_new_value(filtered))
     }
 
     /// Retrieves program accounts from the local cache and remote client, combining results.
@@ -810,23 +847,29 @@ impl SurfnetSvmLocker {
         &self,
         client: &SurfnetRemoteClient,
         program_id: &Pubkey,
-    ) -> SurfpoolContextualizedResult<Vec<(Pubkey, Account)>> {
-        let local_accounts = self.get_program_accounts_local(program_id);
-        let remote_accounts = client.get_program_accounts(program_id).await?;
+        account_config: RpcAccountInfoConfig,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        let local_accounts =
+            self.get_program_accounts_local(program_id, account_config.clone(), filters.clone())?;
+        let remote_accounts = client
+            .get_program_accounts(program_id, account_config, filters)
+            .await?;
 
         let mut combined_accounts = vec![];
 
-        for (remote_pubkey, remote_account) in remote_accounts {
+        for remote_keyed_account in remote_accounts {
             // if the account exists locally, use that instead of the remote one
-            if let Some(local_data) = local_accounts
-                .inner
-                .iter()
-                .find(|(local_pubkey, _)| local_pubkey.eq(&remote_pubkey))
-            {
+            if let Some(local_data) = local_accounts.inner.iter().find(
+                |RpcKeyedAccount {
+                     pubkey: local_pubkey,
+                     ..
+                 }| local_pubkey.eq(&remote_keyed_account.pubkey),
+            ) {
                 combined_accounts.push(local_data.clone());
             } else {
                 // otherwise, use the remote account
-                combined_accounts.push((remote_pubkey, remote_account));
+                combined_accounts.push(remote_keyed_account);
             }
         }
 
@@ -876,4 +919,29 @@ impl SurfnetSvmLocker {
             svm_writer.subscribe_for_signature_updates(signature, subscription_type.clone())
         })
     }
+}
+
+// Helper function to apply filters
+fn apply_rpc_filters(account_data: &[u8], filters: &[RpcFilterType]) -> SurfpoolResult<bool> {
+    for filter in filters {
+        match filter {
+            RpcFilterType::DataSize(size) => {
+                if account_data.len() as u64 != *size {
+                    return Ok(false);
+                }
+            }
+            RpcFilterType::Memcmp(memcmp_filter) => {
+                // Use the public bytes_match method from solana_client::rpc_filter::Memcmp
+                if !memcmp_filter.bytes_match(account_data) {
+                    return Ok(false); // Content mismatch or out of bounds handled by bytes_match
+                }
+            }
+            RpcFilterType::TokenAccountState => {
+                return Err(SurfpoolError::internal(
+                    "TokenAccountState filter is not supported",
+                ));
+            }
+        }
+    }
+    Ok(true)
 }

@@ -6,7 +6,6 @@ use solana_client::{
         RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig, RpcSupplyConfig,
         RpcTokenAccountsFilter,
     },
-    rpc_filter::RpcFilterType,
     rpc_response::{
         OptionalContext, RpcAccountBalance, RpcKeyedAccount, RpcResponseContext, RpcSupply,
         RpcTokenAccountBalance,
@@ -459,6 +458,7 @@ pub trait AccountsScan {
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>>;
 }
 
+#[derive(Clone)]
 pub struct SurfpoolAccountsScanRpc;
 impl AccountsScan for SurfpoolAccountsScanRpc {
     type Metadata = Option<RunloopContext>;
@@ -501,47 +501,24 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
                 }
             }
 
-            let mut results: Vec<RpcKeyedAccount> = Vec::new();
-
             // Get program-owned accounts from the account registry
             let program_accounts = svm_locker
-                .get_program_accounts(&remote_ctx.map(|(client, _)| client), &program_id)
+                .get_program_accounts(
+                    &remote_ctx.map(|(client, _)| client),
+                    &program_id,
+                    account_config,
+                    config.filters,
+                )
                 .await?
                 .inner;
-
-            for (account_pubkey, account) in program_accounts {
-                if let Some(ref active_filters) = config.filters {
-                    match apply_rpc_filters(&account.data, active_filters) {
-                        Ok(true) => { /* Matches */ }
-                        Ok(false) => continue,   // Filtered out
-                        Err(e) => return Err(e), // Error applying filter, already JsonRpcError
-                    }
-                }
-
-                let encoding = account_config.encoding.unwrap_or(UiAccountEncoding::Base64);
-                let data_slice = account_config.data_slice;
-
-                let ui_account = encode_ui_account(
-                    &account_pubkey,
-                    &account,
-                    encoding,
-                    None, // No additional data for now
-                    data_slice,
-                );
-
-                results.push(RpcKeyedAccount {
-                    pubkey: account_pubkey.to_string(),
-                    account: ui_account,
-                });
-            }
 
             if config.with_context.unwrap_or(false) {
                 Ok(OptionalContext::Context(RpcResponse {
                     context: RpcResponseContext::new(current_slot),
-                    value: results,
+                    value: program_accounts,
                 }))
             } else {
-                Ok(OptionalContext::NoContext(results))
+                Ok(OptionalContext::NoContext(program_accounts))
             }
         })
     }
