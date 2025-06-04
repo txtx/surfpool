@@ -57,7 +57,7 @@ fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<S
     }
 }
 
-#[ignore = "flaky CI tests"]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test]
 async fn test_simnet_ready() {
     let config = SurfpoolConfig {
@@ -93,7 +93,7 @@ async fn test_simnet_ready() {
     }
 }
 
-#[ignore = "flaky CI tests"]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test]
 async fn test_simnet_ticks() {
     let bind_host = "127.0.0.1";
@@ -151,7 +151,7 @@ async fn test_simnet_ticks() {
     }
 }
 
-#[ignore = "flaky CI tests"]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test]
 async fn test_simnet_some_sol_transfers() {
     let n_addresses = 10;
@@ -303,7 +303,7 @@ async fn test_simnet_some_sol_transfers() {
 // and that the lookup table and its entries are fetched from mainnet and added to the accounts in the SVM.
 // However, we are not actually setting up a tx that will use the lookup table internally,
 // we are kind of just trusting that LiteSVM will do its job here.
-//#[ignore = "flaky CI tests"]
+//#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_add_alt_entries_fetching() {
     let payer = Keypair::new();
@@ -463,7 +463,7 @@ async fn test_add_alt_entries_fetching() {
 // and that the lookup table and its entries are fetched from mainnet and added to the accounts in the SVM.
 // However, we are not actually setting up a tx that will use the lookup table internally,
 // we are kind of just trusting that LiteSVM will do its job here.
-#[ignore = "flaky CI tests"]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_simulate_add_alt_entries_fetching() {
     let payer = Keypair::new();
@@ -553,7 +553,7 @@ async fn test_simulate_add_alt_entries_fetching() {
     );
 }
 
-#[ignore = "flaky CI tests"]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_surfnet_estimate_compute_units() {
     let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
