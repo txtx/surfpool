@@ -662,32 +662,171 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
     }
 }
 
-// Helper function to apply filters
-fn apply_rpc_filters(
-    account_data: &[u8],
-    filters: &[RpcFilterType],
-) -> std::result::Result<bool, JsonRpcCoreError> {
-    for filter in filters {
-        match filter {
-            RpcFilterType::DataSize(size) => {
-                if account_data.len() as u64 != *size {
-                    return Ok(false);
+#[cfg(test)]
+mod tests {
+
+    use core::panic;
+
+    use solana_account::Account;
+    use solana_client::{
+        rpc_config::RpcProgramAccountsConfig,
+        rpc_filter::{Memcmp, RpcFilterType},
+        rpc_response::OptionalContext,
+    };
+    use solana_pubkey::Pubkey;
+
+    use crate::tests::helpers::TestSetup;
+
+    use super::{AccountsScan, SurfpoolAccountsScanRpc};
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_program_accounts() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        // The owner program id that owns the accounts we will query
+        let owner_pubkey = Pubkey::new_unique();
+        // The owned accounts with different data sizes to filter by
+        let owned_pubkey_short_data = Pubkey::new_unique();
+        let owner_pubkey_long_data = Pubkey::new_unique();
+        // Another account that is not owned by the owner program
+        let other_pubkey = Pubkey::new_unique();
+
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &owned_pubkey_short_data,
+                    Account {
+                        lamports: 1000,
+                        data: vec![4, 5, 6],
+                        owner: owner_pubkey,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+
+            svm_writer
+                .set_account(
+                    &owner_pubkey_long_data,
+                    Account {
+                        lamports: 2000,
+                        data: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                        owner: owner_pubkey,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+
+            svm_writer
+                .set_account(
+                    &other_pubkey,
+                    Account {
+                        lamports: 500,
+                        data: vec![4, 5, 6],
+                        owner: Pubkey::new_unique(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+        });
+
+        // Test with no filters
+        {
+            let res = setup
+                .rpc
+                .get_program_accounts(Some(setup.context.clone()), owner_pubkey.to_string(), None)
+                .await
+                .expect("Failed to get program accounts");
+            match res {
+                OptionalContext::Context(_) => {
+                    panic!("Expected no context");
+                }
+                OptionalContext::NoContext(value) => {
+                    assert_eq!(value.len(), 2);
+
+                    let short_data_account = value
+                        .iter()
+                        .find(|acc| acc.pubkey == owned_pubkey_short_data.to_string())
+                        .expect("Short data account not found");
+                    assert_eq!(short_data_account.account.lamports, 1000);
+
+                    let long_data_account = value
+                        .iter()
+                        .find(|acc| acc.pubkey == owner_pubkey_long_data.to_string())
+                        .expect("Long data account not found");
+                    assert_eq!(long_data_account.account.lamports, 2000);
                 }
             }
-            RpcFilterType::Memcmp(memcmp_filter) => {
-                // Use the public bytes_match method from solana_client::rpc_filter::Memcmp
-                if !memcmp_filter.bytes_match(account_data) {
-                    return Ok(false); // Content mismatch or out of bounds handled by bytes_match
+        }
+
+        // Test with data size filter
+        {
+            let res = setup
+                .rpc
+                .get_program_accounts(
+                    Some(setup.context.clone()),
+                    owner_pubkey.to_string(),
+                    Some(RpcProgramAccountsConfig {
+                        filters: Some(vec![RpcFilterType::DataSize(3)]),
+                        with_context: Some(true),
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .expect("Failed to get program accounts with data size filter");
+
+            match res {
+                OptionalContext::Context(response) => {
+                    assert_eq!(response.value.len(), 1);
+
+                    let short_data_account = response
+                        .value
+                        .iter()
+                        .find(|acc| acc.pubkey == owned_pubkey_short_data.to_string())
+                        .expect("Short data account not found");
+                    assert_eq!(short_data_account.account.lamports, 1000);
+                }
+                OptionalContext::NoContext(_) => {
+                    panic!("Expected context");
                 }
             }
-            RpcFilterType::TokenAccountState => {
-                return Err(JsonRpcCoreError {
-                    code: ErrorCode::InternalError,
-                    message: "TokenAccountState filter is not yet implemented".to_string(),
-                    data: None,
-                });
+        }
+
+        // Test with memcmp filter
+        {
+            let res = setup
+                .rpc
+                .get_program_accounts(
+                    Some(setup.context.clone()),
+                    owner_pubkey.to_string(),
+                    Some(RpcProgramAccountsConfig {
+                        filters: Some(vec![RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
+                            1,
+                            vec![5, 6],
+                        ))]),
+                        with_context: Some(false),
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .expect("Failed to get program accounts with memcmp filter");
+
+            match res {
+                OptionalContext::Context(_) => {
+                    panic!("Expected no context");
+                }
+                OptionalContext::NoContext(value) => {
+                    assert_eq!(value.len(), 1);
+
+                    let short_data_account = value
+                        .iter()
+                        .find(|acc| acc.pubkey == owned_pubkey_short_data.to_string())
+                        .expect("Short data account not found");
+                    assert_eq!(short_data_account.account.lamports, 1000);
+                }
             }
         }
     }
-    Ok(true)
 }
