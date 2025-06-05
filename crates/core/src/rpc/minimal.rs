@@ -787,20 +787,6 @@ mod tests {
     use solana_commitment_config::CommitmentConfig;
     use solana_client::rpc_config::RpcContextConfig;
     use solana_epoch_info::EpochInfo;
-   
-    #[test]
-    fn test_get_block_height_debug() {
-        let setup = TestSetup::new(SurfpoolMinimalRpc);
-
-        // defaults to finalized, finalized should be 31 lesser than latest height
-        let expected_height = setup.rpc.get_block_height(Some(setup.context.clone()), None);
-        
-        let latest_epoch_block_height = setup.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.latest_epoch_info.block_height
-        });
-        
-        assert_eq!(latest_epoch_block_height, expected_height.unwrap() + FINALIZATION_SLOT_THRESHOLD);
-    }
 
     #[test]
     fn test_get_block_height_processed_commitment() {
@@ -885,6 +871,51 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_get_block_height_error_case_slot_not_found() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+        
+        {
+            let mut svm_writer = setup.context.svm_locker.0.blocking_write();
+            svm_writer.blocks.insert(
+                100,
+                crate::surfnet::BlockHeader {
+                    hash: "hash_100".to_string(),
+                    previous_blockhash: "prev_hash_99".to_string(),
+                    block_time: chrono::Utc::now().timestamp_millis(),
+                    block_height: 50,
+                    parent_slot: 99,
+                    signatures: Vec::new(),
+                },
+            );
+        }
+        
+        // slot that definitely doesn't exist
+        let nonexistent_slot = 999;
+        let config = RpcContextConfig {
+            commitment: None,
+            min_context_slot: Some(nonexistent_slot),
+        };
+        
+        let result = setup.rpc.get_block_height(Some(setup.context), Some(config));
+        
+        assert!(result.is_err(), "Expected error for nonexistent slot {}", nonexistent_slot);
+        
+        let error = result.unwrap_err();
+
+        assert_eq!(error.code, jsonrpc_core::types::ErrorCode::InvalidParams);
+        assert!(
+            error.message.contains("Block not found for slot"),
+            "Error message should mention block not found, got: {}",
+            error.message
+        );
+        assert!(
+            error.message.contains(&nonexistent_slot.to_string()),
+            "Error message should include the slot number, got: {}",
+            error.message
+        );
+    }
+    
     #[test]
     fn test_get_health() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
