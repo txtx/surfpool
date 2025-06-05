@@ -302,7 +302,7 @@ async fn test_simnet_some_sol_transfers() {
 // and that the lookup table and its entries are fetched from mainnet and added to the accounts in the SVM.
 // However, we are not actually setting up a tx that will use the lookup table internally,
 // we are kind of just trusting that LiteSVM will do its job here.
-//#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_add_alt_entries_fetching() {
     let payer = Keypair::new();
