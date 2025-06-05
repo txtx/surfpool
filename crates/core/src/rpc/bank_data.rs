@@ -453,17 +453,14 @@ impl BankData for SurfpoolBankDataRpc {
             let current_slot = svm_reader.get_latest_absolute_slot();
             let epoch_info = &svm_reader.latest_epoch_info;
 
-            // Determine the slot range for the response
             let (first_slot, last_slot) = if let Some(ref config) = config {
                 if let Some(ref range) = config.range {
                     (range.first_slot, range.last_slot.unwrap_or(current_slot))
                 } else {
-                    // Default to current epoch
                     let epoch_start_slot = epoch_info.absolute_slot - epoch_info.slot_index;
                     (epoch_start_slot, current_slot)
                 }
             } else {
-                // Default to current epoch
                 let epoch_start_slot = epoch_info.absolute_slot - epoch_info.slot_index;
                 (epoch_start_slot, current_slot)
             };
