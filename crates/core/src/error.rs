@@ -59,6 +59,12 @@ impl<T> From<TrySendError<T>> for SurfpoolError {
     }
 }
 
+impl From<solana_client::client_error::ClientError> for SurfpoolError {
+    fn from(e: solana_client::client_error::ClientError) -> Self {
+        SurfpoolError::client_error(e)
+    }
+}
+
 impl SurfpoolError {
     pub fn from_try_send_error<T>(e: TrySendError<T>) -> Self {
         let mut error = Error::internal_error();
@@ -66,6 +72,12 @@ impl SurfpoolError {
             "Failed to send command on channel: {}",
             e.to_string()
         )));
+        Self(error)
+    }
+
+    pub fn client_error(e: solana_client::client_error::ClientError) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!("Solana RPC client error: {}", e.to_string())));
         Self(error)
     }
 
@@ -95,6 +107,18 @@ impl SurfpoolError {
         error.data = Some(json!(format!(
             "Failed to fetch account {} from remote: {}",
             pubkey,
+            e.to_string()
+        )));
+        Self(error)
+    }
+
+    pub fn get_token_accounts<T>(owner: Pubkey, token_program: Pubkey, e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to get token accounts by owner {owner} for program {token_program}: {}",
             e.to_string()
         )));
         Self(error)
@@ -153,6 +177,14 @@ impl SurfpoolError {
         P: Display,
     {
         let error = Error::invalid_params(format!("Account {pubkey} not found"));
+        Self(error)
+    }
+
+    pub fn transaction_not_found<S>(signature: S) -> Self
+    where
+        S: Display,
+    {
+        let error = Error::invalid_params(format!("Transaction {signature} not found"));
         Self(error)
     }
 
