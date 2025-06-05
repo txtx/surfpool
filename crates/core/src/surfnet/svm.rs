@@ -47,6 +47,7 @@ pub type AccountOwner = Pubkey;
 /// remote RPC connections, transaction processing, and account management.
 ///
 /// It also exposes channels to listen for simulation events (`SimnetEvent`) and Geyser plugin events (`GeyserEvent`).
+#[derive(Clone)]
 pub struct SurfnetSvm {
     pub inner: LiteSVM,
     pub remote_rpc_url: Option<String>,
@@ -473,7 +474,6 @@ impl SurfnetSvm {
             let _ = status_tx.try_send(TransactionStatusEvent::Success(
                 TransactionConfirmationStatus::Confirmed,
             ));
-            // .map_err(Into::into)?;
             let signature = tx.signatures[0];
             let finalized_at = self.latest_epoch_info.absolute_slot + FINALIZATION_SLOT_THRESHOLD;
             self.transactions_queued_for_finalization
@@ -511,7 +511,6 @@ impl SurfnetSvm {
                     self.latest_epoch_info.absolute_slot,
                     None,
                 );
-                // .map_err(Into::into)?;
             } else {
                 requeue.push_back((finalized_at, tx, status_tx));
             }
@@ -568,11 +567,9 @@ impl SurfnetSvm {
     }
 
     pub fn confirm_current_block(&mut self) -> Result<(), SurfpoolError> {
-        // Confirm processed transactions
         let confirmed_signatures = self.confirm_transactions()?;
         let num_transactions = confirmed_signatures.len() as u64;
 
-        // Update chain tip
         let previous_chain_tip = self.chain_tip.clone();
         self.chain_tip = self.new_blockhash();
 
@@ -588,7 +585,6 @@ impl SurfnetSvm {
             },
         );
 
-        // Update perf samples
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
         }
@@ -600,7 +596,6 @@ impl SurfnetSvm {
             num_non_vote_transactions: None,
         });
 
-        // Increment slot, block height, and epoch
         self.latest_epoch_info.slot_index += 1;
         self.latest_epoch_info.block_height = self.chain_tip.index;
         self.latest_epoch_info.absolute_slot += 1;
@@ -621,7 +616,6 @@ impl SurfnetSvm {
             .send(SimnetEvent::ClockUpdate(clock.clone()));
         self.inner.set_sysvar(&clock);
 
-        // Finalize confirmed transactions
         self.finalize_transactions()?;
 
         Ok(())

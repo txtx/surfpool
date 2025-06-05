@@ -1,10 +1,14 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+};
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver, Sender};
 // use litesvm::types::TransactionMetadata;
 use serde::{Deserialize, Serialize};
+use solana_account_decoder_client_types::UiAccount;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
@@ -129,9 +133,26 @@ pub struct ComputeUnitsEstimationResult {
 #[serde(rename_all = "camelCase")]
 pub struct ProfileResult {
     pub compute_units: ComputeUnitsEstimationResult,
-    // We can add other variants here in the future, e.g.:
-    // pub memory_usage: MemoryUsageResult,
-    // pub instruction_trace: InstructionTraceResult,
+    pub state: ProfileState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileState {
+    pub pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+    pub post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+}
+
+impl ProfileState {
+    pub fn new(
+        pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+        post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+    ) -> Self {
+        Self {
+            pre_execution,
+            post_execution,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

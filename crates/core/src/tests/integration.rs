@@ -591,7 +591,7 @@ async fn test_surfnet_estimate_compute_units() {
 
     // Test with None tag
     let response_no_tag_initial: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
-        .estimate_compute_units(Some(runloop_context.clone()), tx_b64.clone(), None)
+        .profile_transaction(Some(runloop_context.clone()), tx_b64.clone(), None, None)
         .await;
 
     assert!(
@@ -639,10 +639,11 @@ async fn test_surfnet_estimate_compute_units() {
     let tag1 = "test_tag_1".to_string();
     println!("\nTesting with tag: {}", tag1);
     let response_tagged_1: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
-        .estimate_compute_units(
+        .profile_transaction(
             Some(runloop_context.clone()),
             tx_b64.clone(),
             Some(tag1.clone()),
+            None,
         )
         .await;
     assert!(
@@ -722,10 +723,11 @@ async fn test_surfnet_estimate_compute_units() {
     let tag2 = "test_tag_2".to_string();
     println!("\nTesting multiple estimations with tag: {}", tag2);
     let response_tagged_2a: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
-        .estimate_compute_units(
+        .profile_transaction(
             Some(runloop_context.clone()),
             tx_b64.clone(),
             Some(tag2.clone()),
+            None,
         )
         .await;
     assert!(response_tagged_2a.is_ok(), "First call with tag2 failed");
@@ -738,10 +740,11 @@ async fn test_surfnet_estimate_compute_units() {
     );
 
     let response_tagged_2b: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
-        .estimate_compute_units(
+        .profile_transaction(
             Some(runloop_context.clone()),
             tx_b64.clone(),
             Some(tag2.clone()),
+            None,
         )
         .await;
     assert!(response_tagged_2b.is_ok(), "Second call with tag2 failed");
@@ -790,7 +793,7 @@ async fn test_surfnet_estimate_compute_units() {
         tag1
     );
     let response_no_tag_again: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
-        .estimate_compute_units(Some(runloop_context.clone()), tx_b64.clone(), None)
+        .profile_transaction(Some(runloop_context.clone()), tx_b64.clone(), None, None)
         .await;
     assert!(
         response_no_tag_again.is_ok(),
@@ -874,4 +877,153 @@ async fn test_surfnet_estimate_compute_units() {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     }
     assert!(found_cu_event, "Did not find CU estimation SimnetEvent");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
+
+    let payer_keypair = Keypair::new();
+    let payer_pubkey = payer_keypair.pubkey();
+    let recipient_pubkey = Pubkey::new_unique();
+    let initial_payer_lamports = 2 * LAMPORTS_PER_SOL;
+    let lamports_to_send = 1 * LAMPORTS_PER_SOL;
+
+    // Airdrop to payer
+    svm_instance
+        .airdrop(&payer_pubkey, initial_payer_lamports)
+        .unwrap();
+
+    // Store initial recipient balance (should be 0 or account non-existent)
+    let initial_recipient_lamports_pre = svm_instance
+        .inner
+        .get_account(&recipient_pubkey)
+        .map_or(0, |acc| acc.lamports);
+
+    // Create a transfer transaction
+    let instruction = transfer(&payer_pubkey, &recipient_pubkey, lamports_to_send);
+    let latest_blockhash = svm_instance.latest_blockhash();
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer_pubkey), &latest_blockhash);
+    let tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(message.clone()), &[&payer_keypair])
+            .unwrap();
+
+    let tx_bytes = bincode::serialize(&tx).unwrap();
+    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
+
+    // Manually construct RunloopContext
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone()); // Clone for the locker
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    // Call profile_transaction
+    let response: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+        .profile_transaction(Some(runloop_context.clone()), tx_b64.clone(), None, None)
+        .await;
+
+    assert!(response.is_ok(), "RPC call failed: {:?}", response.err());
+    let profile_result = response.unwrap().value;
+
+    // Verify compute units part
+    assert!(profile_result.compute_units.success, "CU estimation failed");
+    assert!(
+        profile_result.compute_units.compute_units_consumed > 0,
+        "Invalid CU consumption"
+    );
+
+    // Verify pre_execution state
+    assert!(profile_result
+        .state
+        .pre_execution
+        .contains_key(&payer_pubkey));
+
+    assert!(profile_result
+        .state
+        .pre_execution
+        .contains_key(&recipient_pubkey));
+
+    let payer_pre_account = profile_result
+        .state
+        .pre_execution
+        .get(&payer_pubkey)
+        .unwrap()
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        payer_pre_account.lamports, initial_payer_lamports,
+        "Payer pre-execution lamports mismatch"
+    );
+
+    let recipient_pre_account = profile_result
+        .state
+        .pre_execution
+        .get(&recipient_pubkey)
+        .unwrap();
+
+    assert!(
+        recipient_pre_account.is_none(),
+        "Recipient pre-execution account should be None (not created yet)"
+    );
+
+    // Verify post_execution state
+    assert!(profile_result
+        .state
+        .post_execution
+        .contains_key(&payer_pubkey));
+    assert!(profile_result
+        .state
+        .post_execution
+        .contains_key(&recipient_pubkey));
+
+    let payer_post_data = profile_result
+        .state
+        .post_execution
+        .get(&payer_pubkey)
+        .unwrap()
+        .as_ref()
+        .unwrap();
+
+    // Payer's balance should decrease by lamports_to_send + fees. For simplicity, just check that it's less than initial.
+    // A more precise check would involve calculating exact fees, which LiteSVM not expose easily here.
+    assert!(
+        payer_post_data.lamports < initial_payer_lamports,
+        "Payer post-execution lamports did not decrease as expected"
+    );
+    assert!(
+        payer_post_data.lamports <= initial_payer_lamports - lamports_to_send,
+        "Payer post-execution lamports mismatch after send"
+    );
+
+    let recipient_post_data = profile_result
+        .state
+        .post_execution
+        .get(&recipient_pubkey)
+        .unwrap()
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        recipient_post_data.lamports,
+        initial_recipient_lamports_pre + lamports_to_send,
+        "Recipient post-execution lamports mismatch"
+    );
+
+    println!("Profiled transaction successfully with state snapshots.");
+    println!(
+        "  Payer pre-lamports: {}, post-lamports: {}",
+        payer_pre_account.lamports, payer_post_data.lamports
+    );
+    println!(
+        "  Recipient pre-lamports: {}, post-lamports: {}",
+        initial_recipient_lamports_pre, recipient_post_data.lamports
+    );
 }
