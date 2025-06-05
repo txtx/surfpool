@@ -8,8 +8,10 @@ use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver, Sender};
 // use litesvm::types::TransactionMetadata;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, BytesOrString};
 use solana_account_decoder_client_types::UiAccount;
 use solana_clock::Clock;
+use solana_clock::Epoch;
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
@@ -336,6 +338,7 @@ pub struct SimnetConfig {
     pub block_production_mode: BlockProductionMode,
     pub airdrop_addresses: Vec<Pubkey>,
     pub airdrop_token_amount: u64,
+    pub expiry: Option<u64>,
 }
 
 impl Default for SimnetConfig {
@@ -346,6 +349,7 @@ impl Default for SimnetConfig {
             block_production_mode: BlockProductionMode::Clock,
             airdrop_addresses: vec![],
             airdrop_token_amount: 0,
+            expiry: None,
         }
     }
 }
@@ -428,4 +432,21 @@ impl CreateNetworkRequest {
 #[derive(Serialize, Deserialize)]
 pub struct CreateNetworkResponse {
     pub rpc_url: String,
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountUpdate {
+    /// providing this value sets the lamports in the account
+    pub lamports: Option<u64>,
+    /// providing this value sets the data held in this account
+    #[serde_as(as = "Option<BytesOrString>")]
+    pub data: Option<Vec<u8>>,
+    ///  providing this value sets the program that owns this account. If executable, the program that loads this account.
+    pub owner: Option<String>,
+    /// providing this value sets whether this account's data contains a loaded program (and is now read-only)
+    pub executable: Option<bool>,
+    /// providing this value sets the epoch at which this account will next owe rent
+    pub rent_epoch: Option<Epoch>,
 }

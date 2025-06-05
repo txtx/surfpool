@@ -259,6 +259,7 @@ impl StartSimnet {
             block_production_mode: surfpool_types::BlockProductionMode::Clock,
             airdrop_addresses,
             airdrop_token_amount: self.airdrop_token_amount,
+            expiry: None,
         }
     }
 

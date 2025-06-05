@@ -9,6 +9,7 @@ use std::{
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, ReplicaTransactionInfoV2, ReplicaTransactionInfoVersions,
 };
+use chrono::Utc;
 use crossbeam::select;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ipc_channel::{
@@ -95,9 +96,11 @@ pub async fn start_local_surfnet_runloop(
         clock_event_rx,
         clock_command_tx,
         simnet_commands_rx,
+        simnet_commands_tx.clone(),
         svm_locker,
         block_production_mode,
         &remote_rpc_client,
+        simnet_config.expiry.map(|e| e * 1000),
     )
     .await
 }
@@ -106,10 +109,14 @@ pub async fn start_block_production_runloop(
     clock_event_rx: Receiver<ClockEvent>,
     clock_command_tx: Sender<ClockCommand>,
     simnet_commands_rx: Receiver<SimnetCommand>,
+    simnet_commands_tx: Sender<SimnetCommand>,
     svm_locker: SurfnetSvmLocker,
     mut block_production_mode: BlockProductionMode,
     remote_rpc_client: &Option<SurfnetRemoteClient>,
+    expiry_duration_ms: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let mut next_scheduled_expiry_check: Option<u64> =
+        expiry_duration_ms.map(|expiry_val| Utc::now().timestamp_millis() as u64 + expiry_val);
     loop {
         let mut do_produce_block = false;
 
@@ -119,6 +126,20 @@ pub async fn start_block_production_runloop(
                     ClockEvent::Tick => {
                         if block_production_mode.eq(&BlockProductionMode::Clock) {
                             do_produce_block = true;
+                        }
+
+                        if let Some(expiry_ms) = expiry_duration_ms {
+                            if let Some(scheduled_time_ref) = &mut next_scheduled_expiry_check {
+                                let now_ms = Utc::now().timestamp_millis() as u64;
+                                if now_ms >= *scheduled_time_ref {
+                                    let svm = svm_locker.0.read().await;
+                                    if svm.updated_at + expiry_ms < now_ms {
+                                        let _ = simnet_commands_tx.send(SimnetCommand::Terminate(None));
+                                    } else {
+                                        *scheduled_time_ref = svm.updated_at + expiry_ms;
+                                    }
+                                }
+                            }
                         }
                     }
                     ClockEvent::ExpireBlockHash => {
@@ -147,7 +168,8 @@ pub async fn start_block_production_runloop(
                         svm_locker.process_transaction(&remote_rpc_client, transaction, status_tx, skip_preflight).await?;
                     }
                     SimnetCommand::Terminate(_) => {
-                        std::process::exit(0)
+                        let _ = svm_locker.simnet_events_tx().send(SimnetEvent::Aborted("Terminated due to inactivity.".to_string()));
+                        break;
                     }
                 }
             },
@@ -159,6 +181,7 @@ pub async fn start_block_production_runloop(
             }
         }
     }
+    Ok(())
 }
 
 pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {

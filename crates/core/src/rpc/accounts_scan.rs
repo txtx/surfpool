@@ -636,7 +636,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
                     let remote_ctx = remote_ctx.map(|(r, _)| r);
                     let SvmAccessContext {
                         slot,
-                        inner: (keyed_accounts, missing_pubkeys),
+                        inner: (keyed_accounts, _missing_pubkeys),
                         ..
                     } = svm_locker
                         .get_all_token_accounts(&remote_ctx, owner, program_id)
