@@ -42,7 +42,7 @@ use super::{
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    surfnet::{locker::SvmAccessContext, GetTransactionResult},
+    surfnet::{locker::SvmAccessContext, GetTransactionResult, FINALIZATION_SLOT_THRESHOLD},
     types::SurfnetTransactionStatus,
 };
 
