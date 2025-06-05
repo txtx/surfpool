@@ -1,4 +1,4 @@
-use jsonrpc_core::{BoxFuture, Error, Result};
+use jsonrpc_core::{BoxFuture, Error as JsonRpcCoreError, ErrorCode, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::{
@@ -444,7 +444,7 @@ pub trait AccountsScan {
     ///
     /// # Notes
     /// - Useful for monitoring delegated token activity in governance or trading protocols.
-    /// - If a token account doesn’t have a delegate, it won’t be included in results.
+    /// - If a token account doesn't have a delegate, it won't be included in results.
     ///
     /// ## See also
     /// - [`RpcKeyedAccount`], [`RpcAccountInfoConfig`], [`CommitmentConfig`], [`UiAccountEncoding`]
@@ -458,17 +458,69 @@ pub trait AccountsScan {
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>>;
 }
 
+#[derive(Clone)]
 pub struct SurfpoolAccountsScanRpc;
 impl AccountsScan for SurfpoolAccountsScanRpc {
     type Metadata = Option<RunloopContext>;
 
     fn get_program_accounts(
         &self,
-        _meta: Self::Metadata,
-        _program_id_str: String,
-        _config: Option<RpcProgramAccountsConfig>,
+        meta: Self::Metadata,
+        program_id_str: String,
+        config: Option<RpcProgramAccountsConfig>,
     ) -> BoxFuture<Result<OptionalContext<Vec<RpcKeyedAccount>>>> {
-        not_implemented_err_async("get_program_accounts")
+        let config = config.unwrap_or_default();
+        let program_id = match verify_pubkey(&program_id_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let current_slot = svm_locker.get_latest_absolute_slot();
+
+            let account_config = config.account_config;
+
+            if let Some(min_context_slot_val) = account_config.min_context_slot.as_ref() {
+                if current_slot < *min_context_slot_val {
+                    return Err(JsonRpcCoreError {
+                        code: ErrorCode::InternalError,
+                        message: format!(
+                            "Node's current slot {} is less than requested minContextSlot {}",
+                            current_slot, min_context_slot_val
+                        ),
+                        data: None,
+                    });
+                }
+            }
+
+            // Get program-owned accounts from the account registry
+            let program_accounts = svm_locker
+                .get_program_accounts(
+                    &remote_ctx.map(|(client, _)| client),
+                    &program_id,
+                    account_config,
+                    config.filters,
+                )
+                .await?
+                .inner;
+
+            if config.with_context.unwrap_or(false) {
+                Ok(OptionalContext::Context(RpcResponse {
+                    context: RpcResponseContext::new(current_slot),
+                    value: program_accounts,
+                }))
+            } else {
+                Ok(OptionalContext::NoContext(program_accounts))
+            }
+        })
     }
 
     fn get_largest_accounts(
@@ -558,7 +610,10 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
                     let token_account = account_update.map_account()?;
 
                     let _ = TokenAccount::unpack(&token_account.data).map_err(|e| {
-                        Error::invalid_params(format!("Failed to unpack token account data: {}", e))
+                        JsonRpcCoreError::invalid_params(format!(
+                            "Failed to unpack token account data: {}",
+                            e
+                        ))
                     })?;
 
                     Ok(RpcResponse {
@@ -581,7 +636,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
                     let remote_ctx = remote_ctx.map(|(r, _)| r);
                     let SvmAccessContext {
                         slot,
-                        inner: (keyed_accounts, missing_pubkeys),
+                        inner: (keyed_accounts, _missing_pubkeys),
                         ..
                     } = svm_locker
                         .get_all_token_accounts(&remote_ctx, owner, program_id)
@@ -604,5 +659,173 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         _config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>> {
         not_implemented_err_async("get_token_accounts_by_delegate")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use core::panic;
+
+    use solana_account::Account;
+    use solana_client::{
+        rpc_config::RpcProgramAccountsConfig,
+        rpc_filter::{Memcmp, RpcFilterType},
+        rpc_response::OptionalContext,
+    };
+    use solana_pubkey::Pubkey;
+
+    use super::{AccountsScan, SurfpoolAccountsScanRpc};
+    use crate::tests::helpers::TestSetup;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_program_accounts() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        // The owner program id that owns the accounts we will query
+        let owner_pubkey = Pubkey::new_unique();
+        // The owned accounts with different data sizes to filter by
+        let owned_pubkey_short_data = Pubkey::new_unique();
+        let owner_pubkey_long_data = Pubkey::new_unique();
+        // Another account that is not owned by the owner program
+        let other_pubkey = Pubkey::new_unique();
+
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &owned_pubkey_short_data,
+                    Account {
+                        lamports: 1000,
+                        data: vec![4, 5, 6],
+                        owner: owner_pubkey,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+
+            svm_writer
+                .set_account(
+                    &owner_pubkey_long_data,
+                    Account {
+                        lamports: 2000,
+                        data: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                        owner: owner_pubkey,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+
+            svm_writer
+                .set_account(
+                    &other_pubkey,
+                    Account {
+                        lamports: 500,
+                        data: vec![4, 5, 6],
+                        owner: Pubkey::new_unique(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+        });
+
+        // Test with no filters
+        {
+            let res = setup
+                .rpc
+                .get_program_accounts(Some(setup.context.clone()), owner_pubkey.to_string(), None)
+                .await
+                .expect("Failed to get program accounts");
+            match res {
+                OptionalContext::Context(_) => {
+                    panic!("Expected no context");
+                }
+                OptionalContext::NoContext(value) => {
+                    assert_eq!(value.len(), 2);
+
+                    let short_data_account = value
+                        .iter()
+                        .find(|acc| acc.pubkey == owned_pubkey_short_data.to_string())
+                        .expect("Short data account not found");
+                    assert_eq!(short_data_account.account.lamports, 1000);
+
+                    let long_data_account = value
+                        .iter()
+                        .find(|acc| acc.pubkey == owner_pubkey_long_data.to_string())
+                        .expect("Long data account not found");
+                    assert_eq!(long_data_account.account.lamports, 2000);
+                }
+            }
+        }
+
+        // Test with data size filter
+        {
+            let res = setup
+                .rpc
+                .get_program_accounts(
+                    Some(setup.context.clone()),
+                    owner_pubkey.to_string(),
+                    Some(RpcProgramAccountsConfig {
+                        filters: Some(vec![RpcFilterType::DataSize(3)]),
+                        with_context: Some(true),
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .expect("Failed to get program accounts with data size filter");
+
+            match res {
+                OptionalContext::Context(response) => {
+                    assert_eq!(response.value.len(), 1);
+
+                    let short_data_account = response
+                        .value
+                        .iter()
+                        .find(|acc| acc.pubkey == owned_pubkey_short_data.to_string())
+                        .expect("Short data account not found");
+                    assert_eq!(short_data_account.account.lamports, 1000);
+                }
+                OptionalContext::NoContext(_) => {
+                    panic!("Expected context");
+                }
+            }
+        }
+
+        // Test with memcmp filter
+        {
+            let res = setup
+                .rpc
+                .get_program_accounts(
+                    Some(setup.context.clone()),
+                    owner_pubkey.to_string(),
+                    Some(RpcProgramAccountsConfig {
+                        filters: Some(vec![RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
+                            1,
+                            vec![5, 6],
+                        ))]),
+                        with_context: Some(false),
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .expect("Failed to get program accounts with memcmp filter");
+
+            match res {
+                OptionalContext::Context(_) => {
+                    panic!("Expected no context");
+                }
+                OptionalContext::NoContext(value) => {
+                    assert_eq!(value.len(), 1);
+
+                    let short_data_account = value
+                        .iter()
+                        .find(|acc| acc.pubkey == owned_pubkey_short_data.to_string())
+                        .expect("Short data account not found");
+                    assert_eq!(short_data_account.account.lamports, 1000);
+                }
+            }
+        }
     }
 }

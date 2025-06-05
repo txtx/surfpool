@@ -1,11 +1,16 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+};
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver, Sender};
 // use litesvm::types::TransactionMetadata;
 use serde::{Deserialize, Serialize};
-use solana_clock::Clock;
+use serde_with::{serde_as, BytesOrString};
+use solana_account_decoder_client_types::UiAccount;
+use solana_clock::{Clock, Epoch};
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
@@ -129,9 +134,26 @@ pub struct ComputeUnitsEstimationResult {
 #[serde(rename_all = "camelCase")]
 pub struct ProfileResult {
     pub compute_units: ComputeUnitsEstimationResult,
-    // We can add other variants here in the future, e.g.:
-    // pub memory_usage: MemoryUsageResult,
-    // pub instruction_trace: InstructionTraceResult,
+    pub state: ProfileState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileState {
+    pub pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+    pub post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+}
+
+impl ProfileState {
+    pub fn new(
+        pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+        post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+    ) -> Self {
+        Self {
+            pre_execution,
+            post_execution,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -315,6 +337,7 @@ pub struct SimnetConfig {
     pub block_production_mode: BlockProductionMode,
     pub airdrop_addresses: Vec<Pubkey>,
     pub airdrop_token_amount: u64,
+    pub expiry: Option<u64>,
 }
 
 impl Default for SimnetConfig {
@@ -325,6 +348,7 @@ impl Default for SimnetConfig {
             block_production_mode: BlockProductionMode::Clock,
             airdrop_addresses: vec![],
             airdrop_token_amount: 0,
+            expiry: None,
         }
     }
 }
@@ -407,4 +431,21 @@ impl CreateNetworkRequest {
 #[derive(Serialize, Deserialize)]
 pub struct CreateNetworkResponse {
     pub rpc_url: String,
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountUpdate {
+    /// providing this value sets the lamports in the account
+    pub lamports: Option<u64>,
+    /// providing this value sets the data held in this account
+    #[serde_as(as = "Option<BytesOrString>")]
+    pub data: Option<Vec<u8>>,
+    ///  providing this value sets the program that owns this account. If executable, the program that loads this account.
+    pub owner: Option<String>,
+    /// providing this value sets whether this account's data contains a loaded program (and is now read-only)
+    pub executable: Option<bool>,
+    /// providing this value sets the epoch at which this account will next owe rent
+    pub rent_epoch: Option<Epoch>,
 }

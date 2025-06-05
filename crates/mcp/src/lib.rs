@@ -16,15 +16,15 @@ pub struct McpOptions {}
 ///
 /// * `Result<(), String>` - Returns `Ok(())` if the server runs successfully, or an error string otherwise.
 pub async fn run_server(_opts: &McpOptions) -> Result<(), String> {
-    let service = Surfpool
+    let service = Surfpool::new()
         .serve(stdio())
         .await
         .inspect_err(|e| {
             tracing::error!("serving error: {:?}", e);
         })
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
-    service.waiting().await.unwrap();
+    service.waiting().await.map_err(|e| e.to_string())?;
 
     Ok(())
 }

@@ -39,12 +39,15 @@ use crate::{
     types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 
+pub type AccountOwner = Pubkey;
+
 /// `SurfnetSvm` provides a lightweight Solana Virtual Machine (SVM) for testing and simulation.
 ///
 /// It supports a local in-memory blockchain state,
 /// remote RPC connections, transaction processing, and account management.
 ///
 /// It also exposes channels to listen for simulation events (`SimnetEvent`) and Geyser plugin events (`GeyserEvent`).
+#[derive(Clone)]
 pub struct SurfnetSvm {
     pub inner: LiteSVM,
     pub remote_rpc_url: Option<String>,
@@ -62,6 +65,8 @@ pub struct SurfnetSvm {
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
+    pub updated_at: u64,
+    pub account_registry: HashMap<AccountOwner, Vec<(Pubkey, Account)>>,
 }
 
 impl SurfnetSvm {
@@ -110,6 +115,8 @@ impl SurfnetSvm {
                 transactions_queued_for_finalization: VecDeque::new(),
                 signature_subscriptions: HashMap::new(),
                 tagged_profiling_results: HashMap::new(),
+                updated_at: Utc::now().timestamp_millis() as u64,
+                account_registry: HashMap::new(),
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -126,6 +133,7 @@ impl SurfnetSvm {
     ///
     pub fn initialize(&mut self, epoch_info: EpochInfo, remote_ctx: &Option<SurfnetRemoteClient>) {
         self.latest_epoch_info = epoch_info.clone();
+        self.updated_at = Utc::now().timestamp_millis() as u64;
 
         if let Some(remote_client) = remote_ctx {
             let _ = self
@@ -155,6 +163,7 @@ impl SurfnetSvm {
     /// # Returns
     /// A `TransactionResult` indicating success or failure.
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         let res = self.inner.airdrop(pubkey, lamports);
         if let Ok(ref tx_result) = res {
             let airdrop_keypair = Keypair::new();
@@ -189,6 +198,7 @@ impl SurfnetSvm {
     /// * `lamports` - The amount of lamports to airdrop.
     /// * `addresses` - Slice of recipient public keys.
     pub fn airdrop_pubkeys(&mut self, lamports: u64, addresses: &[Pubkey]) {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         for recipient in addresses.iter() {
             let _ = self.airdrop(recipient, lamports);
             let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
@@ -219,6 +229,7 @@ impl SurfnetSvm {
     /// A new `BlockIdentifier` for the updated blockhash.
     #[allow(deprecated)]
     fn new_blockhash(&mut self) -> BlockIdentifier {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         // cache the current blockhashes
         let blockhashes = self
             .inner
@@ -284,9 +295,33 @@ impl SurfnetSvm {
     /// # Returns
     /// `Ok(())` on success, or an error if the operation fails.
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        // Remove the account from any existing registry entry
+        if let Some(existing_account) = self.inner.get_account(pubkey) {
+            // If the account we're setting already exists locally, we can remove it from the account registry
+            // to re-add the updated one later
+            if let Some(same_owner_accounts) =
+                self.account_registry.get_mut(&existing_account.owner)
+            {
+                // Remove just this account from the registry, leaving the others with the same owner intact
+                same_owner_accounts.retain(|(pk, _)| pk != pubkey);
+                // Clean up empty vectors
+                if same_owner_accounts.is_empty() {
+                    self.account_registry.remove(&existing_account.owner);
+                }
+            }
+        }
+
         self.inner
-            .set_account(*pubkey, account)
+            .set_account(*pubkey, account.clone())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+
+        // Add the account to the new owner's registry
+        self.account_registry
+            .entry(account.owner)
+            .or_insert_with(Vec::new)
+            .push((*pubkey, account));
+
         let _ = self
             .simnet_events_tx
             .send(SimnetEvent::account_update(*pubkey));
@@ -323,7 +358,7 @@ impl SurfnetSvm {
                 estimation_result.error_message
             )));
         }
-
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         self.transactions_processed += 1;
 
         if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
@@ -439,6 +474,7 @@ impl SurfnetSvm {
     /// # Returns
     /// `Ok(Vec<Signature>)` with confirmed signatures, or `Err(SurfpoolError)` on error.
     fn confirm_transactions(&mut self) -> Result<Vec<Signature>, SurfpoolError> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         let mut confirmed_transactions = vec![];
         let slot = self.latest_epoch_info.slot_index;
 
@@ -446,7 +482,6 @@ impl SurfnetSvm {
             let _ = status_tx.try_send(TransactionStatusEvent::Success(
                 TransactionConfirmationStatus::Confirmed,
             ));
-            // .map_err(Into::into)?;
             let signature = tx.signatures[0];
             let finalized_at = self.latest_epoch_info.absolute_slot + FINALIZATION_SLOT_THRESHOLD;
             self.transactions_queued_for_finalization
@@ -469,6 +504,7 @@ impl SurfnetSvm {
     /// # Returns
     /// `Ok(())` on success, or `Err(SurfpoolError)` on error.
     fn finalize_transactions(&mut self) -> Result<(), SurfpoolError> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         let current_slot = self.latest_epoch_info.absolute_slot;
         let mut requeue = VecDeque::new();
         while let Some((finalized_at, tx, status_tx)) =
@@ -484,7 +520,6 @@ impl SurfnetSvm {
                     self.latest_epoch_info.absolute_slot,
                     None,
                 );
-                // .map_err(Into::into)?;
             } else {
                 requeue.push_back((finalized_at, tx, status_tx));
             }
@@ -520,6 +555,7 @@ impl SurfnetSvm {
     /// # Arguments
     /// * `account_update` - The account update result to process.
     pub fn write_account_update(&mut self, account_update: GetAccountResult) {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         match account_update {
             GetAccountResult::FoundAccount(pubkey, account, do_update_account) => {
                 if do_update_account {
@@ -541,11 +577,11 @@ impl SurfnetSvm {
     }
 
     pub fn confirm_current_block(&mut self) -> Result<(), SurfpoolError> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         // Confirm processed transactions
         let confirmed_signatures = self.confirm_transactions()?;
         let num_transactions = confirmed_signatures.len() as u64;
 
-        // Update chain tip
         let previous_chain_tip = self.chain_tip.clone();
         self.chain_tip = self.new_blockhash();
 
@@ -561,7 +597,6 @@ impl SurfnetSvm {
             },
         );
 
-        // Update perf samples
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
         }
@@ -573,7 +608,6 @@ impl SurfnetSvm {
             num_non_vote_transactions: None,
         });
 
-        // Increment slot, block height, and epoch
         self.latest_epoch_info.slot_index += 1;
         self.latest_epoch_info.block_height = self.chain_tip.index;
         self.latest_epoch_info.absolute_slot += 1;
@@ -594,7 +628,6 @@ impl SurfnetSvm {
             .send(SimnetEvent::ClockUpdate(clock.clone()));
         self.inner.set_sysvar(&clock);
 
-        // Finalize confirmed transactions
         self.finalize_transactions()?;
 
         Ok(())
@@ -613,6 +646,7 @@ impl SurfnetSvm {
         signature: &Signature,
         subscription_type: SignatureSubscriptionType,
     ) -> Receiver<(Slot, Option<TransactionError>)> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         let (tx, rx) = unbounded();
         self.signature_subscriptions
             .entry(*signature)
@@ -635,6 +669,7 @@ impl SurfnetSvm {
         slot: Slot,
         err: Option<TransactionError>,
     ) {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
         let mut remaining = vec![];
         if let Some(subscriptions) = self.signature_subscriptions.remove(signature) {
             for (subscription_type, tx) in subscriptions {
@@ -740,5 +775,21 @@ impl SurfnetSvm {
         };
 
         Some(block)
+    }
+
+    /// Gets all accounts owned by a specific program ID from the account registry.
+    ///
+    /// # Arguments
+    ///
+    /// * `program_id` - The program ID to search for owned accounts.
+    ///
+    /// # Returns
+    ///
+    /// * A vector of (account_pubkey, account) tuples for all accounts owned by the program.
+    pub fn get_account_owned_by(&self, program_id: Pubkey) -> Vec<(Pubkey, Account)> {
+        self.account_registry
+            .get(&program_id)
+            .map(|accounts| accounts.clone())
+            .unwrap_or_else(Vec::new)
     }
 }
