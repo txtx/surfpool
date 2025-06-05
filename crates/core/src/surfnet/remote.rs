@@ -1,5 +1,9 @@
+use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::{
-    nonblocking::rpc_client::RpcClient, rpc_request::TokenAccountsFilter,
+    nonblocking::rpc_client::RpcClient,
+    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
+    rpc_filter::RpcFilterType,
+    rpc_request::TokenAccountsFilter,
     rpc_response::RpcKeyedAccount,
 };
 use solana_commitment_config::CommitmentConfig;
@@ -149,7 +153,6 @@ impl SurfnetRemoteClient {
 
     pub async fn get_token_accounts_by_owner(
         &self,
-
         owner: Pubkey,
         token_program: Pubkey,
     ) -> SurfpoolResult<Vec<RpcKeyedAccount>> {
@@ -157,5 +160,36 @@ impl SurfnetRemoteClient {
             .get_token_accounts_by_owner(&owner, TokenAccountsFilter::ProgramId(token_program))
             .await
             .map_err(|e| SurfpoolError::get_token_accounts(owner, token_program, e))
+    }
+
+    pub async fn get_program_accounts(
+        &self,
+        program_id: &Pubkey,
+        account_config: RpcAccountInfoConfig,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> SurfpoolResult<Vec<RpcKeyedAccount>> {
+        let encoding = account_config.encoding.unwrap_or(UiAccountEncoding::Base64);
+        let data_slice = account_config.data_slice;
+        self.client
+            .get_program_accounts_with_config(
+                program_id,
+                RpcProgramAccountsConfig {
+                    filters,
+                    with_context: Some(false),
+                    account_config,
+                    ..Default::default()
+                },
+            )
+            .await
+            .map(|accounts| {
+                accounts
+                    .iter()
+                    .map(|(pubkey, account)| RpcKeyedAccount {
+                        pubkey: pubkey.to_string(),
+                        account: encode_ui_account(pubkey, account, encoding, None, data_slice),
+                    })
+                    .collect()
+            })
+            .map_err(|e| SurfpoolError::get_program_accounts(*program_id, e))
     }
 }

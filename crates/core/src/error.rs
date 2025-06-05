@@ -124,6 +124,18 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn get_program_accounts<T>(program_id: Pubkey, e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to fetch program accounts for {program_id}: {}",
+            e.to_string()
+        )));
+        Self(error)
+    }
+
     pub fn get_multiple_accounts<T>(e: T) -> Self
     where
         T: ToString,
