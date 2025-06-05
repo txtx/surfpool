@@ -30,7 +30,7 @@ impl StartSurfnetResponse {
     }
 }
 
-pub fn run(surfnet_id: u16) -> StartSurfnetResponse {
+pub fn run(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnetResponse {
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
 
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam_channel::unbounded();
@@ -39,8 +39,6 @@ pub fn run(surfnet_id: u16) -> StartSurfnetResponse {
     let simnet_events_tx = surfnet_svm.simnet_events_tx.clone();
 
     let mut config = SurfpoolConfig::default();
-    let rpc_port = 8899 + 10000 * surfnet_id;
-    let ws_port = 8890 + 10000 * surfnet_id;
     config.rpc.bind_port = rpc_port;
     config.rpc.ws_port = ws_port;
 

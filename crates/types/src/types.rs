@@ -449,3 +449,12 @@ pub struct AccountUpdate {
     /// providing this value sets the epoch at which this account will next owe rent
     pub rent_epoch: Option<Epoch>,
 }
+
+#[derive(Serialize, Debug, Clone)]
+pub struct TokenAccountUpdateParams {
+    pub amount: Option<u64>,
+    // delegate: Option<String>, // null or pubkey // TODO: add this
+    // state: Option<String>, // "uninitialized", "frozen", "initialized" // TODO: add this
+    // delegated_amount: Option<u64>, // TODO: add this
+    // close_authority: Option<String>, // null or pubkey // TODO: add this
+}

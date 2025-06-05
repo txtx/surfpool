@@ -1,4 +1,8 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::HashMap,
+    net::TcpListener,
+    sync::{Arc, RwLock},
+};
 
 use rmcp::{
     handler::server::wrapper::Json,
@@ -7,147 +11,204 @@ use rmcp::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use set_token_account::{SeededAccount, SetTokenAccountResponse, SetTokenAccountsResponse};
+use set_token_account::{SeededAccount, SetAccountSuccess, SetTokenAccountsResponse};
 use start_surfnet::StartSurfnetResponse;
 
 mod set_token_account;
 mod start_surfnet;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Surfpool {
-    pub surfnets: Arc<RwLock<Vec<u16>>>,
+    pub surfnets: Arc<RwLock<HashMap<u16, u16>>>,
 }
 
 impl Surfpool {
     pub fn new() -> Self {
         Self {
-            surfnets: Arc::new(RwLock::new(vec![])),
+            surfnets: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+}
+
+impl Default for Surfpool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTokenAccountForOwnerParams {
     #[schemars(
-        description = "An optional owner address for the accounts. If provided, all token accounts will be created under this owner. If omitted, a new wallet will be generated and returned."
+        description = "The owner address for the token accounts. If omitted, a new wallet will be generated and its address returned."
     )]
-    pub owner: Option<String>, // Optional owner address for the token account
+    pub owner: Option<String>,
     #[schemars(
-        description = "A list of token parameters to dictate what the owner should be funded with. Each parameter includes the token mint, program ID, and amount."
+        description = "A list of parameters for the tokens to be funded, including mint, program ID, and amount."
     )]
-    pub params: Vec<CreateTokenAccountParams>, // Parameters for creating the token account
+    pub params: Vec<CreateTokenAccountParams>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTokenAccountParams {
+    #[schemars(description = "The base58-encoded mint address of the token to fund.")]
+    pub token_mint: String,
     #[schemars(
-        description = "The mint address or symbol of the token to set the balance for. Can be a full base58-encoded mint address or a symbol like 'SOL', 'USDC', etc."
+        description = "The token program ID (e.g., `Token` or `Token2022`). Defaults to the SPL Token Program if not provided."
     )]
-    pub token_mint: String, // Mint address or symbol of the token
+    pub token_program_id: Option<String>,
     #[schemars(
-        description = "The program ID of the token. Defaults to the SPL token program ID if not provided."
+        description = "The token symbol (e.g., USDC, JUP). If not provided, it will be inferred from the mint address."
     )]
-    pub token_program_id: Option<String>, // Program ID of the token, defaults to SPL Token program
+    pub token_symbol: Option<String>,
     #[schemars(
-        description = "The amount of tokens to assign to the wallet. Defaults to 100_000 if not provided."
+        description = "The amount of tokens to fund, in human-readable units. Defaults to 100_000 if not provided."
     )]
-    pub token_amount: Option<u64>, // Amount of tokens to assign, defaults to 100_000
+    pub token_amount: Option<u64>,
+}
+
+fn is_port_available(port: u16) -> bool {
+    TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+fn find_next_available_surfnet_port() -> Result<(u16, u16), String> {
+    let mut surfnet_id: u16 = 0;
+    while surfnet_id.checked_add(1).is_some() {
+        let port = 8899 + (surfnet_id * 10000);
+        let ws_port = port.saturating_sub(9);
+        if ws_port > 0 && is_port_available(port) && is_port_available(ws_port) {
+            return Ok((surfnet_id, port));
+        }
+        surfnet_id += 1;
+    }
+    Err(format!(
+        "No available surfnet ports of format 127.0.0.1:x8899 found."
+    ))
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct StartSurfnetWithTokenAccountsSuccess {
+    #[schemars(description = "The RPC URL of the newly started surfnet instance.")]
+    pub surfnet_url: String,
+    #[schemars(description = "The ID of the newly started surfnet instance.")]
+    pub surfnet_id: u16,
+    #[schemars(description = "A list of accounts that were created or funded.")]
+    pub accounts: Vec<SetAccountSuccess>,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct StartSurfnetWithTokenAccountsResponse {
+    pub success: Option<StartSurfnetWithTokenAccountsSuccess>,
+    pub error: Option<String>,
+}
+
+impl StartSurfnetWithTokenAccountsResponse {
+    pub fn success(data: StartSurfnetWithTokenAccountsSuccess) -> Self {
+        Self {
+            success: Some(data),
+            error: None,
+        }
+    }
+
+    pub fn error(message: String) -> Self {
+        Self {
+            success: None,
+            error: Some(message),
+        }
+    }
 }
 
 #[tool(tool_box)]
 impl Surfpool {
-    /// Start a new local Solana network, also called surfnet or localnet. Returns the binding address of the RPC server and the ID of the surfnet.
+    /// Starts a new local Solana network (surfnet).
     /// This method is exposed as a tool and can be invoked remotely.
     #[tool(
-        description = "Start a new local Solana network, also called surfnet or localnet. Returns the binding address of the RPC server, or an error that must be displayed"
+        description = "Starts a new local Solana network (surfnet). Returns the RPC server's binding address and the surfnet ID."
     )]
     pub fn start_surfnet(&self) -> Json<StartSurfnetResponse> {
-        let mut surfnets_writer = self.surfnets.as_ref().write().unwrap();
+        let (surfnet_id, port) = match find_next_available_surfnet_port() {
+            Ok((id, p)) => (id, p),
+            Err(e) => return Json(StartSurfnetResponse::error(e)),
+        };
 
-        let surfnet_id = surfnets_writer.len() as u16;
-
-        let res = start_surfnet::run(surfnet_id);
+        let res = start_surfnet::run(surfnet_id, port, port.saturating_sub(9));
         if res.success.is_some() {
-            surfnets_writer.push(surfnet_id);
+            self.surfnets.write().unwrap().insert(surfnet_id, port);
         }
         Json(res)
     }
 
-    /// Sets the token balance for any account in your local Solana network. Supports SOL and any SPL token.
+    /// Sets token balances for multiple accounts in your local Solana network (surfnet).
     /// This method is exposed as a tool and can be invoked remotely.
     #[tool(
-        description = "Sets the token balance for any account in your local Solana network. Supports SOL and any SPL token. If succesful, all the data should be displayed in the chat, if not, share the error message"
+        description = "Sets token balances for one or more accounts on a local Solana network. Supports both SOL and SPL tokens."
     )]
-    pub fn set_token_account(
+    pub fn set_token_accounts(
         &self,
         #[tool(param)]
-        #[schemars(
-            description = "The RPC url of the local surfnet instance where the operation will take place. Must reference a currently running localnet."
-        )]
+        #[schemars(description = "The RPC URL of a running local surfnet instance.")]
         surfnet_address: String,
         #[tool(param)]
         #[schemars(
-            description = "The public key of the wallet to fund. If omitted, a new wallet will be generated and returned"
+            description = "A list of accounts to create or fund. For each account, an optional owner can be specified; if omitted, a new wallet is generated. Token parameters include the mint, program ID, and amount."
         )]
-        wallet_address: Option<String>,
-        #[tool(param)]
-        #[schemars(
-            description = "The token to set the balance for. Can be a symbol (e.g., SOL, USDC) or a full base58-encoded mint address."
-        )]
-        token: String,
-        #[tool(param)]
-        #[schemars(
-            description = "The token amount to assign to the wallet. Defaults to 100_000 if not provided"
-        )]
-        token_amount: Option<u64>,
-        #[tool(param)]
-        #[schemars(
-            description = "The program ID of the token. Defaults to the SPL token program ID if not provided. Use 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpLAs' for Token-2022."
-        )]
-        program_id: Option<String>,
-    ) -> Json<SetTokenAccountResponse> {
-        let owner_seeded_account = SeededAccount::new(wallet_address);
-        let res = set_token_account::run(
-            surfnet_address,
-            owner_seeded_account,
-            token,
-            token_amount,
-            program_id,
-        );
-        Json(res)
+        token_params_with_owner: Vec<CreateTokenAccountForOwnerParams>,
+    ) -> Json<SetTokenAccountsResponse> {
+        let mut results = Vec::new();
+        for CreateTokenAccountForOwnerParams { owner, params } in token_params_with_owner {
+            let owner_seeded_account = SeededAccount::new(owner);
+
+            for CreateTokenAccountParams {
+                token_mint,
+                token_amount,
+                token_program_id,
+                token_symbol,
+            } in params
+            {
+                let set_token_result = set_token_account::run(
+                    surfnet_address.clone(),
+                    owner_seeded_account.clone(),
+                    token_mint,
+                    token_amount,
+                    token_program_id,
+                    token_symbol.clone(),
+                );
+                results.push(set_token_result);
+            }
+        }
+
+        Json(SetTokenAccountsResponse::success(
+            results.into_iter().filter_map(|r| r.success).collect(),
+        ))
     }
 
-    /// Starts a new local Solana network AND sets a token balance for an account on it.
-    /// Combines starting a surfnet and setting an initial token account.
-    /// Returns details of the token setup or an error message if any step fails.
+    /// Starts a new local Solana network and sets token balances on it.
+    /// This is a convenience method that combines `start_surfnet` and `set_token_accounts`.
     #[tool(
-        description = "Starts a new local Solana network, then sets a token balance for a specified or new account on it. Displays token setup details or errors from either start-up or token funding."
+        description = "Starts a new local Solana network and sets token balances for one or more accounts. This combines `start_surfnet` and `set_token_accounts`."
     )]
     pub fn start_surfnet_with_token_accounts(
         &self,
         #[tool(param)]
         #[schemars(
-            description = "A list of accounts to either create or fund with tokens. Each entry in the vector contains an optional owner address and a list of token parameters. If the owner address is omitted, a new wallet will be generated and returned. Each token parameter includes the token mint, program ID, and amount."
+            description = "A list of accounts to create or fund. For each account, an optional owner can be specified; if omitted, a new wallet is generated. Token parameters include the mint, program ID, and amount."
         )]
         token_params_with_owner: Vec<CreateTokenAccountForOwnerParams>,
-    ) -> Json<SetTokenAccountsResponse> {
-        let surfnet_id = {
-            let surfnets_guard = self.surfnets.read().unwrap();
-            surfnets_guard.len() as u16
+    ) -> Json<StartSurfnetWithTokenAccountsResponse> {
+        let (surfnet_id, port) = match find_next_available_surfnet_port() {
+            Ok((id, p)) => (id, p),
+            Err(e) => return Json(StartSurfnetWithTokenAccountsResponse::error(e)),
         };
 
-        let start_response = start_surfnet::run(surfnet_id);
+        let start_response = start_surfnet::run(surfnet_id, port, port.saturating_sub(9));
 
         let surfnet_url = match start_response.success {
             Some(ref success_data) => {
                 let mut surfnets_writer = self.surfnets.write().unwrap();
-                if !surfnets_writer.contains(&surfnet_id) {
-                    surfnets_writer.push(surfnet_id);
-                }
+                surfnets_writer.insert(surfnet_id, port);
                 success_data.surfnet_url.clone()
             }
             None => {
-                return Json(SetTokenAccountsResponse::error(format!(
+                return Json(StartSurfnetWithTokenAccountsResponse::error(format!(
                     "Failed to start Surfnet (ID {}): {}. Token account not set.",
                     surfnet_id,
                     start_response
@@ -165,6 +226,7 @@ impl Surfpool {
                 token_mint,
                 token_amount,
                 token_program_id,
+                token_symbol,
             } in params
             {
                 let set_token_result = set_token_account::run(
@@ -173,13 +235,18 @@ impl Surfpool {
                     token_mint,
                     token_amount,
                     token_program_id,
+                    token_symbol.clone(),
                 );
                 results.push(set_token_result);
             }
         }
 
-        Json(SetTokenAccountsResponse::success(
-            results.into_iter().filter_map(|r| r.success).collect(),
+        Json(StartSurfnetWithTokenAccountsResponse::success(
+            StartSurfnetWithTokenAccountsSuccess {
+                surfnet_url,
+                surfnet_id,
+                accounts: results.into_iter().filter_map(|r| r.success).collect(),
+            },
         ))
     }
 }
