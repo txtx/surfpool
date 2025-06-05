@@ -17,6 +17,7 @@ crossbeam-channel = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 chrono = "0.4"
+solana-account-decoder-client-types = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-clock = { workspace = true }
 solana-blake3-hasher = { workspace = true }

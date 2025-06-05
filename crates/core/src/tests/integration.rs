@@ -56,7 +56,7 @@ fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<S
     }
 }
 
-#[ignore = "flaky CI tests"]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test]
 async fn test_simnet_ready() {
     let config = SurfpoolConfig {
@@ -92,7 +92,7 @@ async fn test_simnet_ready() {
     }
 }
 
-#[ignore = "flaky CI tests"]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test]
 async fn test_simnet_ticks() {
     let bind_host = "127.0.0.1";
@@ -150,7 +150,7 @@ async fn test_simnet_ticks() {
     }
 }
 
-#[ignore = "flaky CI tests"]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test]
 async fn test_simnet_some_sol_transfers() {
     let n_addresses = 10;
@@ -302,7 +302,7 @@ async fn test_simnet_some_sol_transfers() {
 // and that the lookup table and its entries are fetched from mainnet and added to the accounts in the SVM.
 // However, we are not actually setting up a tx that will use the lookup table internally,
 // we are kind of just trusting that LiteSVM will do its job here.
-#[ignore = "flaky CI tests"]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_add_alt_entries_fetching() {
     let payer = Keypair::new();
@@ -456,7 +456,103 @@ async fn test_add_alt_entries_fetching() {
     );
 }
 
-#[ignore = "flaky CI tests"]
+// This test is pretty minimal for lookup tables at this point.
+// We are creating a v0 transaction with a lookup table that does exist on mainnet,
+// and sending that tx to surfpool. We are verifying that the transaction is processed
+// and that the lookup table and its entries are fetched from mainnet and added to the accounts in the SVM.
+// However, we are not actually setting up a tx that will use the lookup table internally,
+// we are kind of just trusting that LiteSVM will do its job here.
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_simulate_add_alt_entries_fetching() {
+    let payer = Keypair::new();
+    let pk = payer.pubkey();
+
+    let bind_host = "127.0.0.1";
+    let bind_port = get_free_port().unwrap();
+    let airdrop_token_amount = LAMPORTS_PER_SOL;
+    let config = SurfpoolConfig {
+        simnets: vec![SimnetConfig {
+            slot_time: 1,
+            airdrop_addresses: vec![pk], // just one
+            airdrop_token_amount,
+            ..SimnetConfig::default()
+        }],
+        rpc: RpcConfig {
+            bind_host: bind_host.to_string(),
+            bind_port,
+            ..Default::default()
+        },
+        ..SurfpoolConfig::default()
+    };
+
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
+
+    let moved_svm_locker = svm_locker.clone();
+    let _handle = hiro_system_kit::thread_named("test").spawn(move || {
+        let future = start_local_surfnet_runloop(
+            SurfnetSvmLocker(moved_svm_locker),
+            config,
+            subgraph_commands_tx,
+            simnet_commands_tx,
+            simnet_commands_rx,
+            geyser_events_rx,
+        );
+        if let Err(e) = hiro_system_kit::nestable_block_on(future) {
+            panic!("{e:?}");
+        }
+    });
+    let svm_locker = SurfnetSvmLocker(svm_locker);
+
+    wait_for_ready_and_connected(&simnet_events_rx);
+
+    let full_client =
+        http::connect::<FullClient>(format!("http://{bind_host}:{bind_port}").as_str())
+            .await
+            .expect("Failed to connect to Surfpool");
+
+    let random_address = pubkey!("7zdYkYf7yD83j3TLXmkhxn6LjQP9y9bQ4pjfpquP8Hqw");
+
+    let instruction = transfer(&pk, &random_address, 100);
+    let recent_blockhash = svm_locker.with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+    let alt_address = pubkey!("5KcPJehcpBLcPde2UhmY4dE9zCrv2r9AKFmW5CGtY1io"); // a mainnet lookup table
+
+    let address_lookup_table_account = AddressLookupTableAccount {
+        key: alt_address,
+        addresses: vec![random_address],
+    };
+
+    let tx = VersionedTransaction::try_new(
+        VersionedMessage::V0(
+            v0::Message::try_compile(
+                &payer.pubkey(),
+                &[instruction],
+                &[address_lookup_table_account],
+                recent_blockhash,
+            )
+            .expect("Failed to compile message"),
+        ),
+        &[payer],
+    )
+    .expect("Failed to create transaction");
+
+    let Ok(encoded) = bincode::serialize(&tx) else {
+        panic!("Failed to serialize transaction");
+    };
+    let data = bs58::encode(encoded).into_string();
+
+    let simulation_res = full_client.simulate_transaction(data, None).await.unwrap();
+    assert_eq!(
+        simulation_res.value.err, None,
+        "Unexpected simulation error"
+    );
+}
+
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_surfnet_estimate_compute_units() {
     let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
@@ -495,7 +591,7 @@ async fn test_surfnet_estimate_compute_units() {
 
     // Test with None tag
     let response_no_tag_initial: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
-        .estimate_compute_units(Some(runloop_context.clone()), tx_b64.clone(), None)
+        .profile_transaction(Some(runloop_context.clone()), tx_b64.clone(), None, None)
         .await;
 
     assert!(
@@ -543,10 +639,11 @@ async fn test_surfnet_estimate_compute_units() {
     let tag1 = "test_tag_1".to_string();
     println!("\nTesting with tag: {}", tag1);
     let response_tagged_1: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
-        .estimate_compute_units(
+        .profile_transaction(
             Some(runloop_context.clone()),
             tx_b64.clone(),
             Some(tag1.clone()),
+            None,
         )
         .await;
     assert!(
@@ -626,10 +723,11 @@ async fn test_surfnet_estimate_compute_units() {
     let tag2 = "test_tag_2".to_string();
     println!("\nTesting multiple estimations with tag: {}", tag2);
     let response_tagged_2a: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
-        .estimate_compute_units(
+        .profile_transaction(
             Some(runloop_context.clone()),
             tx_b64.clone(),
             Some(tag2.clone()),
+            None,
         )
         .await;
     assert!(response_tagged_2a.is_ok(), "First call with tag2 failed");
@@ -642,10 +740,11 @@ async fn test_surfnet_estimate_compute_units() {
     );
 
     let response_tagged_2b: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
-        .estimate_compute_units(
+        .profile_transaction(
             Some(runloop_context.clone()),
             tx_b64.clone(),
             Some(tag2.clone()),
+            None,
         )
         .await;
     assert!(response_tagged_2b.is_ok(), "Second call with tag2 failed");
@@ -694,7 +793,7 @@ async fn test_surfnet_estimate_compute_units() {
         tag1
     );
     let response_no_tag_again: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
-        .estimate_compute_units(Some(runloop_context.clone()), tx_b64.clone(), None)
+        .profile_transaction(Some(runloop_context.clone()), tx_b64.clone(), None, None)
         .await;
     assert!(
         response_no_tag_again.is_ok(),
@@ -778,4 +877,153 @@ async fn test_surfnet_estimate_compute_units() {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     }
     assert!(found_cu_event, "Did not find CU estimation SimnetEvent");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
+
+    let payer_keypair = Keypair::new();
+    let payer_pubkey = payer_keypair.pubkey();
+    let recipient_pubkey = Pubkey::new_unique();
+    let initial_payer_lamports = 2 * LAMPORTS_PER_SOL;
+    let lamports_to_send = 1 * LAMPORTS_PER_SOL;
+
+    // Airdrop to payer
+    svm_instance
+        .airdrop(&payer_pubkey, initial_payer_lamports)
+        .unwrap();
+
+    // Store initial recipient balance (should be 0 or account non-existent)
+    let initial_recipient_lamports_pre = svm_instance
+        .inner
+        .get_account(&recipient_pubkey)
+        .map_or(0, |acc| acc.lamports);
+
+    // Create a transfer transaction
+    let instruction = transfer(&payer_pubkey, &recipient_pubkey, lamports_to_send);
+    let latest_blockhash = svm_instance.latest_blockhash();
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer_pubkey), &latest_blockhash);
+    let tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(message.clone()), &[&payer_keypair])
+            .unwrap();
+
+    let tx_bytes = bincode::serialize(&tx).unwrap();
+    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
+
+    // Manually construct RunloopContext
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone()); // Clone for the locker
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    // Call profile_transaction
+    let response: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+        .profile_transaction(Some(runloop_context.clone()), tx_b64.clone(), None, None)
+        .await;
+
+    assert!(response.is_ok(), "RPC call failed: {:?}", response.err());
+    let profile_result = response.unwrap().value;
+
+    // Verify compute units part
+    assert!(profile_result.compute_units.success, "CU estimation failed");
+    assert!(
+        profile_result.compute_units.compute_units_consumed > 0,
+        "Invalid CU consumption"
+    );
+
+    // Verify pre_execution state
+    assert!(profile_result
+        .state
+        .pre_execution
+        .contains_key(&payer_pubkey));
+
+    assert!(profile_result
+        .state
+        .pre_execution
+        .contains_key(&recipient_pubkey));
+
+    let payer_pre_account = profile_result
+        .state
+        .pre_execution
+        .get(&payer_pubkey)
+        .unwrap()
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        payer_pre_account.lamports, initial_payer_lamports,
+        "Payer pre-execution lamports mismatch"
+    );
+
+    let recipient_pre_account = profile_result
+        .state
+        .pre_execution
+        .get(&recipient_pubkey)
+        .unwrap();
+
+    assert!(
+        recipient_pre_account.is_none(),
+        "Recipient pre-execution account should be None (not created yet)"
+    );
+
+    // Verify post_execution state
+    assert!(profile_result
+        .state
+        .post_execution
+        .contains_key(&payer_pubkey));
+    assert!(profile_result
+        .state
+        .post_execution
+        .contains_key(&recipient_pubkey));
+
+    let payer_post_data = profile_result
+        .state
+        .post_execution
+        .get(&payer_pubkey)
+        .unwrap()
+        .as_ref()
+        .unwrap();
+
+    // Payer's balance should decrease by lamports_to_send + fees. For simplicity, just check that it's less than initial.
+    // A more precise check would involve calculating exact fees, which LiteSVM not expose easily here.
+    assert!(
+        payer_post_data.lamports < initial_payer_lamports,
+        "Payer post-execution lamports did not decrease as expected"
+    );
+    assert!(
+        payer_post_data.lamports <= initial_payer_lamports - lamports_to_send,
+        "Payer post-execution lamports mismatch after send"
+    );
+
+    let recipient_post_data = profile_result
+        .state
+        .post_execution
+        .get(&recipient_pubkey)
+        .unwrap()
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        recipient_post_data.lamports,
+        initial_recipient_lamports_pre + lamports_to_send,
+        "Recipient post-execution lamports mismatch"
+    );
+
+    println!("Profiled transaction successfully with state snapshots.");
+    println!(
+        "  Payer pre-lamports: {}, post-lamports: {}",
+        payer_pre_account.lamports, payer_post_data.lamports
+    );
+    println!(
+        "  Recipient pre-lamports: {}, post-lamports: {}",
+        initial_recipient_lamports_pre, recipient_post_data.lamports
+    );
 }

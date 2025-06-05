@@ -54,6 +54,7 @@ impl BlockIdentifier {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct BlockHeader {
     pub hash: String,
     pub previous_blockhash: String,

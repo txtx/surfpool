@@ -21,7 +21,12 @@ use solana_client::{
 use solana_clock::{Slot, UnixTimestamp};
 use solana_commitment_config::CommitmentConfig;
 use solana_message::VersionedMessage;
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_sdk::{
+    compute_budget::{self, ComputeBudgetInstruction},
+    instruction::CompiledInstruction,
+};
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status::{
@@ -36,9 +41,12 @@ use super::{
     RunloopContext, State, SurfnetRpcContext,
 };
 use crate::{
-    error::SurfpoolError,
+    error::{SurfpoolError, SurfpoolResult},
     surfnet::{locker::SvmAccessContext, GetTransactionResult},
+    types::SurfnetTransactionStatus,
 };
+
+const MAX_PRIORITIZATION_FEE_BLOCKS_CACHE: usize = 150;
 
 #[rpc]
 pub trait Full {
@@ -774,7 +782,7 @@ pub trait Full {
     /// - The `commitment` setting determines the level of finality for the blocks returned (e.g., "finalized", "confirmed", etc.).
     ///
     /// # See Also
-    /// - `getBlock`, `getSlot`, `getBlockTime`    
+    /// - `getBlock`, `getSlot`, `getBlockTime`
     #[rpc(meta, name = "getBlocks")]
     fn get_blocks(
         &self,
@@ -1330,7 +1338,7 @@ pub trait Full {
         &self,
         meta: Self::Metadata,
         pubkey_strs: Option<Vec<String>>,
-    ) -> Result<Vec<RpcPrioritizationFee>>;
+    ) -> BoxFuture<Result<Vec<RpcPrioritizationFee>>>;
 }
 
 #[derive(Clone)]
@@ -1535,11 +1543,6 @@ impl Full for SurfpoolFullRpc {
         let (_, unsanitized_tx) =
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding).unwrap();
 
-        let pubkeys = match &unsanitized_tx.message {
-            VersionedMessage::Legacy(msg) => msg.account_keys.clone(),
-            VersionedMessage::V0(msg) => msg.account_keys.clone(),
-        };
-
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
@@ -1549,6 +1552,10 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
+            let pubkeys = svm_locker
+                .get_pubkeys_from_message(&remote_ctx, &unsanitized_tx.message)
+                .await?;
+
             let SvmAccessContext {
                 slot,
                 inner: account_updates,
@@ -1786,10 +1793,123 @@ impl Full for SurfpoolFullRpc {
 
     fn get_recent_prioritization_fees(
         &self,
-        _meta: Self::Metadata,
-        _pubkey_strs: Option<Vec<String>>,
-    ) -> Result<Vec<RpcPrioritizationFee>> {
-        not_implemented_err("get_recent_prioritization_fees")
+        meta: Self::Metadata,
+        pubkey_strs: Option<Vec<String>>,
+    ) -> BoxFuture<Result<Vec<RpcPrioritizationFee>>> {
+        let pubkeys_filter = match pubkey_strs
+            .map(|strs| {
+                strs.iter()
+                    .map(|s| verify_pubkey(s))
+                    .collect::<SurfpoolResult<Vec<_>>>()
+            })
+            .transpose()
+        {
+            Ok(pubkeys) => pubkeys,
+            Err(e) => return e.into(),
+        };
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let (blocks, transactions) = svm_locker.with_svm_reader(|svm_reader| {
+                (svm_reader.blocks.clone(), svm_reader.transactions.clone())
+            });
+
+            // Get MAX_PRIORITIZATION_FEE_BLOCKS_CACHE most recent blocks
+            let recent_headers = blocks
+                .into_iter()
+                .sorted_by_key(|(slot, _)| std::cmp::Reverse(*slot))
+                .take(MAX_PRIORITIZATION_FEE_BLOCKS_CACHE)
+                .map(|(slot, header)| (slot, header))
+                .collect::<Vec<_>>();
+
+            // Flatten the transactions map to get all transactions in the recent blocks
+            let recent_transactions = recent_headers
+                .into_iter()
+                .flat_map(|(slot, header)| {
+                    header
+                        .signatures
+                        .iter()
+                        .filter_map(|signature| {
+                            // Check if the signature exists in the transactions map
+                            transactions.get(signature).map(|tx| (slot, tx))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            // Helper function to extract compute unit price from a CompiledInstruction
+            fn get_compute_unit_price(
+                ix: CompiledInstruction,
+                accounts: &Vec<Pubkey>,
+            ) -> Option<u64> {
+                let program_account = accounts.get(ix.program_id_index as usize)?;
+                if *program_account != compute_budget::id() {
+                    return None;
+                }
+
+                if let Ok(parsed_instr) = borsh::from_slice::<ComputeBudgetInstruction>(&ix.data) {
+                    if let ComputeBudgetInstruction::SetComputeUnitPrice(price) = parsed_instr {
+                        return Some(price);
+                    }
+                }
+
+                None
+            }
+
+            let mut prioritization_fees = vec![];
+            for (slot, tx) in recent_transactions {
+                match tx {
+                    SurfnetTransactionStatus::Received => {}
+                    SurfnetTransactionStatus::Processed(status_meta) => {
+                        let tx = &status_meta.1;
+
+                        // If the transaction has an ALT and includes a compute budget instruction,
+                        // the ALT accounts are included in the recent prioritization fees,
+                        // so we get _all_ the pubkeys from the message
+                        let account_keys = svm_locker
+                            .get_pubkeys_from_message(&remote_ctx, &tx.message)
+                            .await?;
+
+                        let instructions = match &tx.message {
+                            VersionedMessage::V0(msg) => &msg.instructions,
+                            VersionedMessage::Legacy(msg) => &msg.instructions,
+                        };
+
+                        // Find all compute unit prices in the transaction's instructions
+                        let compute_unit_prices = instructions
+                            .iter()
+                            .filter_map(|ix| get_compute_unit_price(ix.clone(), &account_keys))
+                            .collect::<Vec<_>>();
+
+                        for compute_unit_price in compute_unit_prices {
+                            if let Some(pubkeys_filter) = &pubkeys_filter {
+                                // If none of the accounts involved in this transaction are in the filter,
+                                // we don't include the prioritization fee, so we continue
+                                if !pubkeys_filter
+                                    .iter()
+                                    .any(|pk| account_keys.iter().any(|a| a == pk))
+                                {
+                                    continue;
+                                }
+                            }
+                            // if there's no filter, or if the filter matches an account in this transaction, we include the fee
+                            prioritization_fees.push(RpcPrioritizationFee {
+                                slot,
+                                prioritization_fee: compute_unit_price,
+                            });
+                        }
+                    }
+                }
+            }
+            Ok(prioritization_fees)
+        })
     }
 }
 
@@ -1821,13 +1941,14 @@ mod tests {
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
         UiRawMessage, UiTransaction,
     };
-    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus};
+    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus, TransactionMetadata};
     use test_case::test_case;
 
     use super::*;
     use crate::{
         surfnet::{BlockHeader, BlockIdentifier},
         tests::helpers::TestSetup,
+        types::TransactionWithStatusMeta,
     };
 
     fn build_v0_transaction(
@@ -1856,17 +1977,18 @@ mod tests {
         VersionedTransaction::try_new(msg, signers).unwrap()
     }
 
-    fn send_and_await_transaction(
+    async fn send_and_await_transaction(
         tx: VersionedTransaction,
         setup: TestSetup<SurfpoolFullRpc>,
         mempool_rx: Receiver<SimnetCommand>,
     ) -> JoinHandle<String> {
+        let setup_clone = setup.clone();
         let handle = hiro_system_kit::thread_named("send_tx")
             .spawn(move || {
-                let res = setup
+                let res = setup_clone
                     .rpc
                     .send_transaction(
-                        Some(setup.context),
+                        Some(setup_clone.context),
                         bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
                         None,
                     )
@@ -1877,7 +1999,21 @@ mod tests {
             .unwrap();
 
         match mempool_rx.recv() {
-            Ok(SimnetCommand::TransactionReceived(_, _, status_tx, _)) => {
+            Ok(SimnetCommand::TransactionReceived(_, tx, status_tx, _)) => {
+                let mut writer = setup.context.svm_locker.0.write().await;
+                let slot = writer.get_latest_absolute_slot();
+                writer
+                    .transactions_queued_for_confirmation
+                    .push_back((tx.clone(), status_tx.clone()));
+                writer.transactions.insert(
+                    tx.signatures[0],
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                        slot,
+                        tx,
+                        TransactionMetadata::default(),
+                        None,
+                    ))),
+                );
                 status_tx
                     .send(TransactionStatusEvent::Success(
                         TransactionConfirmationStatus::Confirmed,
@@ -2069,7 +2205,7 @@ mod tests {
             .await
             .airdrop(&payer.pubkey(), 2 * LAMPORTS_PER_SOL);
 
-        let handle = send_and_await_transaction(tx.clone(), setup.clone(), mempool_rx);
+        let handle = send_and_await_transaction(tx.clone(), setup.clone(), mempool_rx).await;
         assert_eq!(
             handle.join().unwrap(),
             tx.signatures[0].to_string(),
@@ -2341,6 +2477,125 @@ mod tests {
                 .blocking_read()
                 .latest_blockhash()
                 .to_string()
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_recent_prioritization_fees() {
+        let (mempool_tx, mempool_rx) = crossbeam_channel::unbounded();
+        let setup = TestSetup::new_with_mempool(SurfpoolFullRpc, mempool_tx);
+
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        let payer_1 = Keypair::new();
+        let payer_2 = Keypair::new();
+        let receiver_pubkey = Pubkey::new_unique();
+        let random_pubkey = Pubkey::new_unique();
+
+        // setup accounts
+        {
+            let _ = setup
+                .rpc
+                .request_airdrop(
+                    Some(setup.context.clone()),
+                    payer_1.pubkey().to_string(),
+                    2 * LAMPORTS_PER_SOL,
+                    None,
+                )
+                .unwrap();
+            let _ = setup
+                .rpc
+                .request_airdrop(
+                    Some(setup.context.clone()),
+                    payer_2.pubkey().to_string(),
+                    2 * LAMPORTS_PER_SOL,
+                    None,
+                )
+                .unwrap();
+
+            setup.context.svm_locker.confirm_current_block().unwrap();
+        }
+
+        // send two transactions that include a compute budget instruction
+        {
+            let tx_1 = build_legacy_transaction(
+                &payer_1.pubkey(),
+                &[&payer_1.insecure_clone()],
+                &[
+                    system_instruction::transfer(
+                        &payer_1.pubkey(),
+                        &receiver_pubkey,
+                        LAMPORTS_PER_SOL,
+                    ),
+                    compute_budget::ComputeBudgetInstruction::set_compute_unit_price(1000),
+                ],
+                &recent_blockhash,
+            );
+            let tx_2 = build_legacy_transaction(
+                &payer_2.pubkey(),
+                &[&payer_2.insecure_clone()],
+                &[
+                    system_instruction::transfer(
+                        &payer_2.pubkey(),
+                        &receiver_pubkey,
+                        LAMPORTS_PER_SOL,
+                    ),
+                    compute_budget::ComputeBudgetInstruction::set_compute_unit_price(1002),
+                ],
+                &recent_blockhash,
+            );
+
+            send_and_await_transaction(tx_1, setup.clone(), mempool_rx.clone())
+                .await
+                .join()
+                .unwrap();
+            send_and_await_transaction(tx_2, setup.clone(), mempool_rx)
+                .await
+                .join()
+                .unwrap();
+            setup.context.svm_locker.confirm_current_block().unwrap();
+        }
+
+        // sending the get_recent_prioritization_fees request with an account
+        // should filter the results to only include fees for that account
+        let res = setup
+            .rpc
+            .get_recent_prioritization_fees(
+                Some(setup.context.clone()),
+                Some(vec![payer_1.pubkey().to_string()]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].prioritization_fee, 1000);
+
+        // sending the get_recent_prioritization_fees request without an account
+        // should return all prioritization fees
+        let res = setup
+            .rpc
+            .get_recent_prioritization_fees(Some(setup.context.clone()), None)
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 2);
+        assert_eq!(res[0].prioritization_fee, 1000);
+        assert_eq!(res[1].prioritization_fee, 1002);
+
+        // sending the get_recent_prioritization_fees request with some random account
+        // to filter should return no results
+        let res = setup
+            .rpc
+            .get_recent_prioritization_fees(
+                Some(setup.context.clone()),
+                Some(vec![random_pubkey.to_string()]),
+            )
+            .await
+            .unwrap();
+        assert!(
+            res.is_empty(),
+            "Expected no prioritization fees for random account"
         );
     }
 }

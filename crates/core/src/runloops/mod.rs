@@ -20,7 +20,6 @@ use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
 use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
-use solana_commitment_config::CommitmentConfig;
 use solana_message::{v0::LoadedAddresses, SimpleAddressLoader};
 use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
@@ -38,11 +37,7 @@ use crate::{
         ws::Rpc, RunloopContext, SurfpoolMiddleware, SurfpoolWebsocketMeta,
         SurfpoolWebsocketMiddleware,
     },
-    surfnet::{
-        locker::SurfnetSvmLocker,
-        remote::{SomeRemoteCtx, SurfnetRemoteClient},
-        GeyserEvent,
-    },
+    surfnet::{locker::SurfnetSvmLocker, remote::SurfnetRemoteClient, GeyserEvent},
     PluginManagerCommand,
 };
 
@@ -170,7 +165,7 @@ pub async fn start_block_production_runloop(
                         continue
                     }
                     SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
-                        svm_locker.process_transaction(&remote_rpc_client.get_remote_ctx(CommitmentConfig::confirmed()), transaction, status_tx, skip_preflight).await?;
+                        svm_locker.process_transaction(&remote_rpc_client, transaction, status_tx, skip_preflight).await?;
                     }
                     SimnetCommand::Terminate(_) => {
                         let _ = svm_locker.simnet_events_tx().send(SimnetEvent::Aborted("Terminated due to inactivity.".to_string()));

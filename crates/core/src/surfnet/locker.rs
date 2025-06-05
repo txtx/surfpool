@@ -1,14 +1,18 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use crossbeam_channel::{Receiver, Sender};
 use jsonrpc_core::futures::future::join_all;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
-use solana_account_decoder::parse_bpf_loader::{
-    parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram,
+use solana_account_decoder::{
+    encode_ui_account,
+    parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram},
+    UiAccount, UiAccountEncoding,
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
-use solana_client::rpc_response::RpcKeyedAccount;
+use solana_client::{
+    rpc_config::RpcAccountInfoConfig, rpc_filter::RpcFilterType, rpc_response::RpcKeyedAccount,
+};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
@@ -26,14 +30,15 @@ use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding};
 use surfpool_types::{
-    ComputeUnitsEstimationResult, ProfileResult, SimnetEvent, TransactionConfirmationStatus,
-    TransactionStatusEvent,
+    ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
+    TransactionConfirmationStatus, TransactionStatusEvent,
 };
 use tokio::sync::RwLock;
 
 use super::{
-    remote::SurfnetRemoteClient, AccountFactory, GetAccountResult, GetTransactionResult,
-    GeyserEvent, SignatureSubscriptionType, SurfnetSvm,
+    remote::{SomeRemoteCtx, SurfnetRemoteClient},
+    AccountFactory, GetAccountResult, GetTransactionResult, GeyserEvent, SignatureSubscriptionType,
+    SurfnetSvm,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -377,11 +382,12 @@ impl SurfnetSvmLocker {
     /// Processes a transaction: verifies signatures, preflight sim, sends to SVM, and enqueues status events.
     pub async fn process_transaction(
         &self,
-        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+        remote_ctx: &Option<SurfnetRemoteClient>,
         transaction: VersionedTransaction,
         status_tx: Sender<TransactionStatusEvent>,
         skip_preflight: bool,
     ) -> SurfpoolContextualizedResult<()> {
+        let remote_ctx = &remote_ctx.get_remote_ctx(CommitmentConfig::confirmed());
         let (latest_absolute_slot, latest_epoch_info, latest_blockhash) =
             self.with_svm_writer(|svm_writer| {
                 let latest_absolute_slot = svm_writer.get_latest_absolute_slot();
@@ -690,6 +696,120 @@ impl SurfnetSvmLocker {
             svm_reader.estimate_compute_units(transaction)
         })
     }
+    pub async fn profile_transaction(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+        transaction: &VersionedTransaction,
+        encoding: Option<UiAccountEncoding>,
+    ) -> SurfpoolContextualizedResult<ProfileResult> {
+        let SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: mut svm_clone,
+        } = self.with_contextualized_svm_reader(|svm_reader| svm_reader.clone());
+
+        let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
+        let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
+        svm_clone.simnet_events_tx = dummy_simnet_tx;
+        svm_clone.geyser_events_tx = dummy_geyser_tx;
+
+        let svm_locker = SurfnetSvmLocker::new(svm_clone);
+
+        let remote_ctx_with_config = remote_ctx
+            .clone()
+            .map(|client| (client, CommitmentConfig::confirmed()));
+
+        let account_keys = svm_locker
+            .get_pubkeys_from_message(&remote_ctx_with_config, &transaction.message)
+            .await?;
+
+        let pre_execution_capture = {
+            let mut capture = BTreeMap::new();
+            for pubkey in &account_keys {
+                let account = svm_locker
+                    .get_account(&remote_ctx_with_config, pubkey, None)
+                    .await?
+                    .inner;
+
+                snapshot_get_account_result(
+                    &mut capture,
+                    account,
+                    encoding.unwrap_or(UiAccountEncoding::Base64),
+                );
+            }
+            capture
+        };
+
+        let compute_units_estimation_result = svm_locker.estimate_compute_units(transaction).inner;
+
+        let (status_tx, status_rx) = crossbeam_channel::unbounded();
+        let _ = svm_locker
+            .process_transaction(remote_ctx, transaction.clone(), status_tx, true)
+            .await?;
+
+        let simnet_events_tx = self.simnet_events_tx();
+        loop {
+            if let Ok(status) = status_rx.try_recv() {
+                match status {
+                    TransactionStatusEvent::Success(_) => break,
+                    TransactionStatusEvent::ExecutionFailure((err, _)) => {
+                        let _ = simnet_events_tx.try_send(SimnetEvent::WarnLog(
+                            chrono::Local::now(),
+                            format!(
+                                "Transaction {} failed during snapshot simulation: {}",
+                                transaction.signatures[0], err
+                            ),
+                        ));
+                        return Err(SurfpoolError::internal(format!(
+                            "Transaction {} failed during snapshot simulation: {}",
+                            transaction.signatures[0], err
+                        )));
+                    }
+                    TransactionStatusEvent::SimulationFailure(_) => unreachable!(),
+                    TransactionStatusEvent::VerificationFailure(_) => {
+                        let _ = simnet_events_tx.try_send(SimnetEvent::WarnLog(
+                            chrono::Local::now(),
+                            format!(
+                                "Transaction {} verification failed during snapshot simulation",
+                                transaction.signatures[0]
+                            ),
+                        ));
+                        return Err(SurfpoolError::internal(format!(
+                            "Transaction {} verification failed during snapshot simulation",
+                            transaction.signatures[0]
+                        )));
+                    }
+                }
+            }
+        }
+
+        let post_execution_capture = {
+            let mut capture = BTreeMap::new();
+            for pubkey in &account_keys {
+                // get the account locally after execution, because execution should have inserted from
+                // the remote if not found locally
+                let account = svm_locker.get_account_local(pubkey).inner;
+
+                snapshot_get_account_result(
+                    &mut capture,
+                    account,
+                    encoding.unwrap_or(UiAccountEncoding::Base64),
+                );
+            }
+            capture
+        };
+
+        Ok(SvmAccessContext::new(
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            ProfileResult {
+                compute_units: compute_units_estimation_result,
+                state: ProfileState::new(pre_execution_capture, post_execution_capture),
+            },
+        ))
+    }
 
     /// Records profiling results under a tag and emits a tagged profile event.
     pub fn write_profiling_results(&self, tag: String, profile_result: ProfileResult) {
@@ -779,6 +899,96 @@ impl SurfnetSvmLocker {
 
         Ok(result.with_new_value(()))
     }
+
+    pub async fn get_program_accounts(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+        program_id: &Pubkey,
+        account_config: RpcAccountInfoConfig,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        if let Some(remote_client) = remote_ctx {
+            self.get_program_accounts_local_then_remote(
+                remote_client,
+                program_id,
+                account_config,
+                filters,
+            )
+            .await
+        } else {
+            self.get_program_accounts_local(program_id, account_config, filters)
+        }
+    }
+
+    /// Retrieves program accounts from the local SVM cache, returning a contextualized result.
+    pub fn get_program_accounts_local(
+        &self,
+        program_id: &Pubkey,
+        account_config: RpcAccountInfoConfig,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        let res = self.with_contextualized_svm_reader(|svm_reader| {
+            svm_reader.get_account_owned_by(*program_id)
+        });
+
+        let mut filtered = vec![];
+        for (pubkey, account) in res.inner.iter() {
+            if let Some(ref active_filters) = filters {
+                match apply_rpc_filters(&account.data, active_filters) {
+                    Ok(true) => {}           // Account matches all filters
+                    Ok(false) => continue,   // Filtered out
+                    Err(e) => return Err(e), // Error applying filter, already JsonRpcError
+                }
+            }
+            let data_slice = account_config.data_slice;
+
+            filtered.push(RpcKeyedAccount {
+                pubkey: pubkey.to_string(),
+                account: encode_ui_account(
+                    &pubkey,
+                    account,
+                    account_config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                    None, // No additional data for now
+                    data_slice,
+                ),
+            });
+        }
+        Ok(res.with_new_value(filtered))
+    }
+
+    /// Retrieves program accounts from the local cache and remote client, combining results.
+    pub async fn get_program_accounts_local_then_remote(
+        &self,
+        client: &SurfnetRemoteClient,
+        program_id: &Pubkey,
+        account_config: RpcAccountInfoConfig,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        let local_accounts =
+            self.get_program_accounts_local(program_id, account_config.clone(), filters.clone())?;
+        let remote_accounts = client
+            .get_program_accounts(program_id, account_config, filters)
+            .await?;
+
+        let mut combined_accounts = vec![];
+
+        for remote_keyed_account in remote_accounts {
+            // if the account exists locally, use that instead of the remote one
+            if let Some(local_data) = local_accounts.inner.iter().find(
+                |RpcKeyedAccount {
+                     pubkey: local_pubkey,
+                     ..
+                 }| local_pubkey.eq(&remote_keyed_account.pubkey),
+            ) {
+                combined_accounts.push(local_data.clone());
+            } else {
+                // otherwise, use the remote account
+                combined_accounts.push(remote_keyed_account);
+            }
+        }
+
+        Ok(local_accounts.with_new_value(combined_accounts))
+    }
 }
 
 /// Pass through functions for accessing the underlying SurfnetSvm instance
@@ -823,4 +1033,65 @@ impl SurfnetSvmLocker {
             svm_writer.subscribe_for_signature_updates(signature, subscription_type.clone())
         })
     }
+}
+
+fn snapshot_get_account_result(
+    capture: &mut BTreeMap<Pubkey, Option<UiAccount>>,
+    result: GetAccountResult,
+    encoding: UiAccountEncoding,
+) {
+    match result {
+        GetAccountResult::None(pubkey) => {
+            capture.insert(pubkey, None);
+        }
+        GetAccountResult::FoundAccount(pubkey, account, _) => {
+            capture.insert(
+                pubkey,
+                Some(encode_ui_account(&pubkey, &account, encoding, None, None)),
+            );
+        }
+        GetAccountResult::FoundProgramAccount((pubkey, account), (data_pubkey, data_account)) => {
+            capture.insert(
+                pubkey,
+                Some(encode_ui_account(&pubkey, &account, encoding, None, None)),
+            );
+            if let Some(data_account) = data_account {
+                capture.insert(
+                    data_pubkey,
+                    Some(encode_ui_account(
+                        &data_pubkey,
+                        &data_account,
+                        encoding,
+                        None,
+                        None,
+                    )),
+                );
+            }
+        }
+    }
+}
+
+// Helper function to apply filters
+fn apply_rpc_filters(account_data: &[u8], filters: &[RpcFilterType]) -> SurfpoolResult<bool> {
+    for filter in filters {
+        match filter {
+            RpcFilterType::DataSize(size) => {
+                if account_data.len() as u64 != *size {
+                    return Ok(false);
+                }
+            }
+            RpcFilterType::Memcmp(memcmp_filter) => {
+                // Use the public bytes_match method from solana_client::rpc_filter::Memcmp
+                if !memcmp_filter.bytes_match(account_data) {
+                    return Ok(false); // Content mismatch or out of bounds handled by bytes_match
+                }
+            }
+            RpcFilterType::TokenAccountState => {
+                return Err(SurfpoolError::internal(
+                    "TokenAccountState filter is not supported",
+                ));
+            }
+        }
+    }
+    Ok(true)
 }

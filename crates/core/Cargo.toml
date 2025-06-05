@@ -16,6 +16,7 @@ path = "src/lib.rs"
 agave-geyser-plugin-interface = { workspace = true }
 base64 = "0.22.1"
 bincode = { workspace = true }
+borsh = { workspace = true }
 bs58 = "0.5.1"
 chrono = "0.4"
 crossbeam = "0.8.4"
@@ -86,3 +87,6 @@ anyhow = "1.0.98"
 
 [dev-dependencies]
 test-case = "^3.3.1"
+
+[features]
+ignore_tests_ci = []

@@ -124,6 +124,18 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn get_program_accounts<T>(program_id: Pubkey, e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to fetch program accounts for {program_id}: {}",
+            e.to_string()
+        )));
+        Self(error)
+    }
+
     pub fn get_multiple_accounts<T>(e: T) -> Self
     where
         T: ToString,
@@ -225,6 +237,24 @@ impl SurfpoolError {
     {
         let error =
             Error::invalid_params(format!("Address lookup {pubkey} contains an invalid index"));
+        Self(error)
+    }
+
+    pub fn invalid_base64_data<D>(typing: &str, data: D) -> Self
+    where
+        D: Display,
+    {
+        let mut error = Error::invalid_params(format!("Invalid base64 {typing}"));
+        error.data = Some(json!(data.to_string()));
+        Self(error)
+    }
+
+    pub fn deserialize_error<D>(typing: &str, data: D) -> Self
+    where
+        D: Display,
+    {
+        let mut error = Error::invalid_params(format!("Failed to deserialize {typing}"));
+        error.data = Some(json!(data.to_string()));
         Self(error)
     }
 
