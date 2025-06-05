@@ -103,6 +103,20 @@ Infrastructure as code (IaC) transforms how teams deploy and operate Solana prog
 
 With Surfpool, every developer learns to deploy Solana programs the right way—scalable, secure, and production-ready from day one.
 
+## 🤖 MCP
+
+- Surfpool is getting agentic friendly, thanks to a built-in MCP. We'll be adding more tools over time, the first use case we're covering is "Start a local network with 10 users loaded with SOL, USDC, JUP and TRUMP tokens" (#130 - @BretasArthur1, @lgalabru)
+- To get started, make `surfpool` available globally by opening the command palette (Cmd/Ctrl + Shift + P) and selecting > Cursor Settings > MCP > Add new global MCP server:
+```json
+{
+  "mcpServers": {
+    "surfpool": {
+      "command": "surfpool",
+      "args": ["mcp"]
+    }
+  }
+}
+```
 
 ## Architecture & How to Contribute
 
