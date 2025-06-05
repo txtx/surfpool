@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -24,7 +24,7 @@ use solana_transaction_status::{
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
 use surfpool_types::{
-    types::{ComputeUnitsEstimationResult, ProfileResult, ProfileState},
+    types::{ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
 };
 
@@ -413,96 +413,6 @@ impl SurfnetSvm {
                 error_message: Some(failed_meta.err.to_string()),
             },
         }
-    }
-
-    pub fn simulate_with_account_snapshots(
-        &self,
-        _remote_ctx: &Option<SurfnetRemoteClient>,
-        transaction: &VersionedTransaction,
-    ) -> Option<ProfileState> {
-        if !self.check_blockhash_is_recent(transaction.message.recent_blockhash()) {
-            let _ = self.simnet_events_tx.try_send(SimnetEvent::WarnLog(
-                chrono::Local::now(),
-                format!(
-                    "Blockhash {} not found for simulate_with_account_snapshots",
-                    transaction.message.recent_blockhash()
-                ),
-            ));
-            return None;
-        }
-
-        let mut svm_clone = self.clone();
-
-        let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
-        let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
-        svm_clone.simnet_events_tx = dummy_simnet_tx;
-        svm_clone.geyser_events_tx = dummy_geyser_tx;
-
-        // Extract account keys from the transaction
-        let account_keys: Vec<Pubkey> = match &transaction.message {
-            VersionedMessage::Legacy(msg) => msg.account_keys.clone(),
-            VersionedMessage::V0(msg) => msg.account_keys.clone(),
-        };
-
-        let mut pre_execution_capture = BTreeMap::new();
-        for key in &account_keys {
-            let account_option =
-                svm_clone
-                    .inner
-                    .get_account(key)
-                    .map(|litesvm_acc| solana_sdk::account::Account {
-                        lamports: litesvm_acc.lamports,
-                        data: litesvm_acc.data.clone(),
-                        owner: litesvm_acc.owner,
-                        executable: litesvm_acc.executable,
-                        rent_epoch: litesvm_acc.rent_epoch,
-                    });
-            pre_execution_capture.insert(
-                *key,
-                account_option.map(|acc| {
-                    bincode::serialize(&acc).expect("Failed to serialize pre-execution account")
-                }),
-            );
-        }
-
-        let execution_result = svm_clone.send_transaction(transaction.clone(), false);
-
-        if execution_result.is_err() {
-            let _ = self.simnet_events_tx.try_send(SimnetEvent::WarnLog(
-                chrono::Local::now(),
-                format!(
-                    "Transaction {} failed during snapshot simulation: {:?}",
-                    transaction.signatures[0],
-                    execution_result.as_ref().err()
-                ),
-            ));
-        }
-
-        let mut post_execution_capture = BTreeMap::new();
-        for key in &account_keys {
-            let account_option =
-                svm_clone
-                    .inner
-                    .get_account(key)
-                    .map(|litesvm_acc| solana_sdk::account::Account {
-                        lamports: litesvm_acc.lamports,
-                        data: litesvm_acc.data.clone(),
-                        owner: litesvm_acc.owner,
-                        executable: litesvm_acc.executable,
-                        rent_epoch: litesvm_acc.rent_epoch,
-                    });
-            post_execution_capture.insert(
-                *key,
-                account_option.map(|acc| {
-                    bincode::serialize(&acc).expect("Failed to serialize post-execution account")
-                }),
-            );
-        }
-
-        Some(ProfileState::new(
-            pre_execution_capture,
-            post_execution_capture,
-        ))
     }
 
     /// Simulates a transaction and returns detailed simulation info or failure metadata.

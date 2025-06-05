@@ -228,6 +228,24 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn invalid_base64_data<D>(typing: &str, data: D) -> Self
+    where
+        D: Display,
+    {
+        let mut error = Error::invalid_params(format!("Invalid base64 {typing}"));
+        error.data = Some(json!(data.to_string()));
+        Self(error)
+    }
+
+    pub fn deserialize_error<D>(typing: &str, data: D) -> Self
+    where
+        D: Display,
+    {
+        let mut error = Error::invalid_params(format!("Failed to deserialize {typing}"));
+        error.data = Some(json!(data.to_string()));
+        Self(error)
+    }
+
     pub fn internal<D>(data: D) -> Self
     where
         D: Serialize,
