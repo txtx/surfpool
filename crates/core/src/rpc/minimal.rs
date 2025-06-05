@@ -861,7 +861,7 @@ mod tests {
             };
             
             let result = setup.rpc.get_block_height(Some(setup.context.clone()), Some(config));
-            assert!(result.is_ok(), "Failed to get block height for slot {}", slot);
+            assert!(result.is_ok(), "failed to get block height for slot {}", slot);
             assert_eq!(
                 result.unwrap(), 
                 expected_height, 
