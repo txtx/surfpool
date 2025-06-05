@@ -9757,6 +9757,7 @@ dependencies = [
  "crossbeam-channel",
  "serde",
  "serde_derive",
+ "solana-account-decoder-client-types",
  "solana-blake3-hasher",
  "solana-clock",
  "solana-epoch-info",

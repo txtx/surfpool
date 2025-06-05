@@ -8,6 +8,7 @@ use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver, Sender};
 // use litesvm::types::TransactionMetadata;
 use serde::{Deserialize, Serialize};
+use solana_account_decoder_client_types::UiAccount;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
@@ -138,14 +139,14 @@ pub struct ProfileResult {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileState {
-    pub pre_execution: BTreeMap<Pubkey, Option<Vec<u8>>>,
-    pub post_execution: BTreeMap<Pubkey, Option<Vec<u8>>>,
+    pub pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+    pub post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
 }
 
 impl ProfileState {
     pub fn new(
-        pre_execution: BTreeMap<Pubkey, Option<Vec<u8>>>,
-        post_execution: BTreeMap<Pubkey, Option<Vec<u8>>>,
+        pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+        post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
     ) -> Self {
         Self {
             pre_execution,
