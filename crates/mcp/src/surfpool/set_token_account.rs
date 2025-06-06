@@ -10,7 +10,7 @@ use solana_sdk::{
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token;
 use surfpool_types::{
-    types::{AccountUpdate, TokenAccountUpdateParams},
+    types::{AccountUpdate, TokenAccountUpdate},
     verified_tokens::VERIFIED_TOKENS_BY_SYMBOL,
 };
 
@@ -60,11 +60,6 @@ pub enum SetAccountSuccess {
     Token(AccountUpdated),
 }
 
-#[derive(Serialize, Debug, Clone)]
-pub struct SetTokenAccountResponse {
-    pub success: Option<SetAccountSuccess>,
-    pub error: Option<String>,
-}
 #[derive(Serialize, Debug, Clone)]
 pub struct SetTokenAccountsResponse {
     pub success: Option<Vec<SetAccountSuccess>>,
@@ -137,22 +132,6 @@ struct TokenDetails {
     decimals: u32,
 }
 
-impl SetTokenAccountResponse {
-    pub fn success(details: SetAccountSuccess) -> Self {
-        Self {
-            success: Some(details),
-            error: None,
-        }
-    }
-
-    pub fn error(message: String) -> Self {
-        Self {
-            success: None,
-            error: Some(message),
-        }
-    }
-}
-
 impl SetTokenAccountsResponse {
     pub fn success(details: Vec<SetAccountSuccess>) -> Self {
         Self {
@@ -178,7 +157,7 @@ impl SetTokenAccountsResponse {
 /// * `surfnet_address`: The HTTP RPC endpoint of the target Surfnet instance .
 /// * `wallet_address_opt`: An optional base58-encoded public key of the wallet to fund.
 ///                         If `None`, a new keypair is generated, and its details are returned.
-/// * `token_identifier`: A string indicating the token to fund. Can be "SOL" (case-insensitive),
+/// * `token_mint`: A string indicating the token to fund. If not provided, the token symbol will be inferred from the token mint address.
 ///                          a base58-encoded SPL token mint address, or a known symbol.
 /// * `token_amount`: An optional amount of the token to set (in its smallest unit, e.g., lamports for SOL).
 ///                       If `None`, a default amount is used.
@@ -190,14 +169,17 @@ impl SetTokenAccountsResponse {
 pub fn run(
     surfnet_address: String,
     owner_seeded_account: SeededAccount,
-    token_identifier: String,
+    token_mint: Option<String>,
     token_amount: Option<u64>,
     token_program_id: Option<String>,
     token_symbol: Option<String>,
-) -> SetTokenAccountResponse {
+) -> SetTokenAccountsResponse {
     let client = Client::new();
     let rpc_url = surfnet_address;
     let amount_to_set = token_amount.unwrap_or(DEFAULT_TOKEN_AMOUNT);
+    let token_identifier = token_mint
+        .or_else(|| token_symbol.clone())
+        .unwrap_or_else(|| SOL_SYMBOL.to_string());
 
     let token_details = if token_identifier.to_uppercase() == SOL_SYMBOL {
         Ok(TokenDetails {
@@ -244,7 +226,7 @@ pub fn run(
 
     let token_details = match token_details {
         Ok(details) => details,
-        Err(e) => return SetTokenAccountResponse::error(e),
+        Err(e) => return SetTokenAccountsResponse::error(e),
     };
 
     let amount_in_smallest_unit = amount_to_set
@@ -260,7 +242,7 @@ pub fn run(
         let params_value = match serde_json::to_value(params_tuple) {
             Ok(v) => v,
             Err(e) => {
-                return SetTokenAccountResponse::error(format!(
+                return SetTokenAccountsResponse::error(format!(
                     "Failed to serialize params for surfnet_setAccount: {}",
                     e
                 ))
@@ -273,8 +255,9 @@ pub fn run(
             params: params_value,
         }
     } else {
-        let update_params = TokenAccountUpdateParams {
+        let update_params = TokenAccountUpdate {
             amount: Some(amount_in_smallest_unit),
+            ..Default::default()
         };
         let params_tuple = (
             owner_seeded_account.pubkey(),
@@ -285,7 +268,7 @@ pub fn run(
         let params_value = match serde_json::to_value(params_tuple) {
             Ok(v) => v,
             Err(e) => {
-                return SetTokenAccountResponse::error(format!(
+                return SetTokenAccountsResponse::error(format!(
                     "Failed to serialize params for surfnet_setTokenAccount: {}",
                     e
                 ))
@@ -305,7 +288,7 @@ pub fn run(
                 match response.json::<JsonRpcResponse<serde_json::Value>>() {
                     Ok(rpc_response) => {
                         if let Some(err) = rpc_response.error {
-                            return SetTokenAccountResponse::error(format!(
+                            return SetTokenAccountsResponse::error(format!(
                                 "RPC Error (code {}): {}",
                                 err.code, err.message
                             ));
@@ -330,7 +313,7 @@ pub fn run(
                                     Some(id_str) => match Pubkey::try_from(id_str.as_str()) {
                                         Ok(pk) => pk,
                                         Err(_) => {
-                                            return SetTokenAccountResponse::error(format!(
+                                            return SetTokenAccountsResponse::error(format!(
                                                 "Invalid program_id provided: {}",
                                                 id_str
                                             ))
@@ -359,15 +342,15 @@ pub fn run(
                             };
                             SetAccountSuccess::Token(account_updated)
                         };
-                        SetTokenAccountResponse::success(success_details)
+                        SetTokenAccountsResponse::success(vec![success_details])
                     }
-                    Err(e) => SetTokenAccountResponse::error(format!(
+                    Err(e) => SetTokenAccountsResponse::error(format!(
                         "Failed to parse JSON RPC response: {}",
                         e
                     )),
                 }
             } else {
-                SetTokenAccountResponse::error(format!(
+                SetTokenAccountsResponse::error(format!(
                     "HTTP Error: {} - {}",
                     response.status(),
                     response
@@ -376,7 +359,7 @@ pub fn run(
                 ))
             }
         }
-        Err(_e) => SetTokenAccountResponse::error(
+        Err(_e) => SetTokenAccountsResponse::error(
             "RPC request failed (timeout or other network error)".to_string(),
         ),
     }

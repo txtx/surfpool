@@ -50,8 +50,10 @@ pub struct CreateTokenAccountForOwnerParams {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTokenAccountParams {
-    #[schemars(description = "The base58-encoded mint address of the token to fund.")]
-    pub token_mint: String,
+    #[schemars(
+        description = "The base58-encoded mint address of the token to fund. If not provided, the token symbol will be inferred from the token mint address."
+    )]
+    pub token_mint: Option<String>,
     #[schemars(
         description = "The token program ID (e.g., `Token` or `Token2022`). Defaults to the SPL Token Program if not provided."
     )]
@@ -177,7 +179,11 @@ impl Surfpool {
         }
 
         Json(SetTokenAccountsResponse::success(
-            results.into_iter().filter_map(|r| r.success).collect(),
+            results
+                .into_iter()
+                .filter_map(|r| r.success)
+                .flatten()
+                .collect(),
         ))
     }
 
@@ -245,7 +251,11 @@ impl Surfpool {
             StartSurfnetWithTokenAccountsSuccess {
                 surfnet_url,
                 surfnet_id,
-                accounts: results.into_iter().filter_map(|r| r.success).collect(),
+                accounts: results
+                    .into_iter()
+                    .filter_map(|r| r.success)
+                    .flatten()
+                    .collect(),
             },
         ))
     }
