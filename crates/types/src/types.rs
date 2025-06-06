@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    fmt,
     path::PathBuf,
 };
 
@@ -7,7 +8,7 @@ use blake3::Hash;
 use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver, Sender};
 // use litesvm::types::TransactionMetadata;
-use serde::{Deserialize, Serialize};
+use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{serde_as, BytesOrString};
 use solana_account_decoder_client_types::UiAccount;
 use solana_clock::{Clock, Epoch};
@@ -448,4 +449,67 @@ pub struct AccountUpdate {
     pub executable: Option<bool>,
     /// providing this value sets the epoch at which this account will next owe rent
     pub rent_epoch: Option<Epoch>,
+}
+
+#[derive(Debug, Clone)]
+pub enum SetSomeAccount {
+    Account(String),
+    NoAccount,
+}
+
+impl<'de> Deserialize<'de> for SetSomeAccount {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct SetSomeAccountVisitor;
+
+        impl<'de> Visitor<'de> for SetSomeAccountVisitor {
+            type Value = SetSomeAccount;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a Pubkey String or the String 'null'")
+            }
+
+            fn visit_some<D_>(self, deserializer: D_) -> std::result::Result<Self::Value, D_::Error>
+            where
+                D_: Deserializer<'de>,
+            {
+                Deserialize::deserialize(deserializer).map(|v: String| match v.as_str() {
+                    "null" => SetSomeAccount::NoAccount,
+                    _ => SetSomeAccount::Account(v.to_string()),
+                })
+            }
+        }
+
+        deserializer.deserialize_option(SetSomeAccountVisitor)
+    }
+}
+
+impl Serialize for SetSomeAccount {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            SetSomeAccount::Account(val) => serializer.serialize_str(val),
+            SetSomeAccount::NoAccount => serializer.serialize_str("null"),
+        }
+    }
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenAccountUpdate {
+    /// providing this value sets the amount of the token in the account data
+    pub amount: Option<u64>,
+    /// providing this value sets the delegate of the token account
+    pub delegate: Option<SetSomeAccount>,
+    /// providing this value sets the state of the token account
+    pub state: Option<String>,
+    /// providing this value sets the amount authorized to the delegate
+    pub delegated_amount: Option<u64>,
+    /// providing this value sets the close authority of the token account
+    pub close_authority: Option<SetSomeAccount>,
 }

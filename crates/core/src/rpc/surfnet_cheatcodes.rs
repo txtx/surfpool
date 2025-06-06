@@ -1,10 +1,6 @@
-use std::fmt;
-
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use jsonrpc_core::{futures::future, BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
-use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::serde_as;
 use solana_account::Account;
 use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_response::RpcResponseContext;
@@ -16,7 +12,7 @@ use solana_sdk::{
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
 use surfpool_types::{
-    types::{AccountUpdate, ComputeUnitsEstimationResult, ProfileResult},
+    types::{AccountUpdate, ProfileResult, SetSomeAccount, TokenAccountUpdate},
     SimnetEvent,
 };
 
@@ -86,72 +82,13 @@ impl AccountUpdateExt for AccountUpdate {
     }
 }
 
-#[serde_as]
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TokenAccountUpdate {
-    /// providing this value sets the amount of the token in the account data
-    pub amount: Option<u64>,
-    /// providing this value sets the delegate of the token account
-    pub delegate: Option<SetSomeAccount>,
-    /// providing this value sets the state of the token account
-    pub state: Option<String>,
-    /// providing this value sets the amount authorized to the delegate
-    pub delegated_amount: Option<u64>,
-    /// providing this value sets the close authority of the token account
-    pub close_authority: Option<SetSomeAccount>,
+pub trait TokenAccountUpdateExt {
+    fn apply(self, token_account: &mut TokenAccount) -> Result<()>;
 }
 
-#[derive(Debug, Clone)]
-pub enum SetSomeAccount {
-    Account(String),
-    NoAccount,
-}
-
-impl<'de> Deserialize<'de> for SetSomeAccount {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct SetSomeAccountVisitor;
-
-        impl<'de> Visitor<'de> for SetSomeAccountVisitor {
-            type Value = SetSomeAccount;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a Pubkey String or the String 'null'")
-            }
-
-            fn visit_some<D>(self, deserializer: D) -> std::result::Result<Self::Value, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                Deserialize::deserialize(deserializer).map(|v: String| match v.as_str() {
-                    "null" => SetSomeAccount::NoAccount,
-                    _ => SetSomeAccount::Account(v.to_string()),
-                })
-            }
-        }
-
-        deserializer.deserialize_option(SetSomeAccountVisitor)
-    }
-}
-
-impl Serialize for SetSomeAccount {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            SetSomeAccount::Account(val) => serializer.serialize_str(val),
-            SetSomeAccount::NoAccount => serializer.serialize_str("null"),
-        }
-    }
-}
-
-impl TokenAccountUpdate {
+impl TokenAccountUpdateExt for TokenAccountUpdate {
     /// Apply the update to the account
-    pub fn apply(self, token_account: &mut TokenAccount) -> Result<()> {
+    fn apply(self, token_account: &mut TokenAccount) -> Result<()> {
         if let Some(amount) = self.amount {
             token_account.amount = amount;
         }
