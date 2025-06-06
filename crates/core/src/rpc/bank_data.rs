@@ -2,7 +2,9 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_client::{
     rpc_config::{RpcBlockProductionConfig, RpcContextConfig},
-    rpc_response::{RpcBlockProduction, RpcInflationGovernor, RpcInflationRate},
+    rpc_response::{
+        RpcBlockProduction, RpcInflationGovernor, RpcInflationRate, RpcResponseContext,
+    },
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -444,15 +446,45 @@ impl BankData for SurfpoolBankDataRpc {
 
     fn get_block_production(
         &self,
-        _meta: Self::Metadata,
-        _config: Option<RpcBlockProductionConfig>,
+        meta: Self::Metadata,
+        config: Option<RpcBlockProductionConfig>,
     ) -> Result<RpcResponse<RpcBlockProduction>> {
-        not_implemented_err("get_block_production")
+        meta.with_svm_reader(|svm_reader| {
+            let current_slot = svm_reader.get_latest_absolute_slot();
+            let epoch_info = &svm_reader.latest_epoch_info;
+
+            let (first_slot, last_slot) = if let Some(ref config) = config {
+                if let Some(ref range) = config.range {
+                    (range.first_slot, range.last_slot.unwrap_or(current_slot))
+                } else {
+                    let epoch_start_slot = epoch_info.absolute_slot - epoch_info.slot_index;
+                    (epoch_start_slot, current_slot)
+                }
+            } else {
+                let epoch_start_slot = epoch_info.absolute_slot - epoch_info.slot_index;
+                (epoch_start_slot, current_slot)
+            };
+
+            RpcResponse {
+                context: RpcResponseContext::new(current_slot),
+                value: RpcBlockProduction {
+                    // Empty HashMap - no validator block production data in simulation
+                    by_identity: std::collections::HashMap::new(),
+                    range: solana_client::rpc_response::RpcBlockProductionRange {
+                        first_slot,
+                        last_slot,
+                    },
+                },
+            }
+        })
+        .map_err(Into::into)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use solana_client::rpc_config::RpcBlockProductionConfigRange;
+
     use super::*;
     use crate::tests::helpers::TestSetup;
 
@@ -462,5 +494,45 @@ mod tests {
         let res = setup.rpc.get_epoch_schedule(Some(setup.context)).unwrap();
 
         assert_eq!(res, EpochSchedule::default());
+    }
+
+    #[test]
+    fn test_get_block_production() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+
+        // test with no config
+        let result = setup
+            .rpc
+            .get_block_production(Some(setup.context.clone()), None)
+            .unwrap();
+
+        // verify empty results (simulation mode)
+        assert!(
+            result.value.by_identity.is_empty(),
+            "Should have no validators in simulation"
+        );
+        assert!(
+            result.value.range.first_slot <= result.value.range.last_slot,
+            "Valid slot range"
+        );
+
+        // test with custom range
+        let config = Some(RpcBlockProductionConfig {
+            identity: None,
+            range: Some(RpcBlockProductionConfigRange {
+                first_slot: 100,
+                last_slot: Some(200),
+            }),
+            commitment: None,
+        });
+
+        let result2 = setup
+            .rpc
+            .get_block_production(Some(setup.context), config)
+            .unwrap();
+
+        assert_eq!(result2.value.range.first_slot, 100);
+        assert_eq!(result2.value.range.last_slot, 200);
+        assert!(result2.value.by_identity.is_empty());
     }
 }
