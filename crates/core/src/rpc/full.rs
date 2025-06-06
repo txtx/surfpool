@@ -1818,12 +1818,38 @@ impl Full for SurfpoolFullRpc {
 
         let SurfnetRpcContext {
             svm_locker,
-            remote_ctx,
+            remote_ctx: _,
         } = match meta.get_rpc_context(commitment) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
 
+        if limit == 0 {
+            return Box::pin(async move {
+                Err(Error::invalid_params("Limit must be greater than 0"))
+            });
+        }
+    
+
+        const MAX_LIMIT: usize = 500_000;
+        if limit > MAX_LIMIT {
+            return Box::pin(async move {
+                Err(Error::invalid_params(format!(
+                    "Limit too large. Maximum limit allowed: {}",
+                    MAX_LIMIT
+                )))
+            });
+        }
+
+        if let Some(min_context_slot) = config.min_context_slot {
+            if start_slot < min_context_slot {
+                return Box::pin(async move {
+                    Err(RpcCustomError::MinContextSlotNotReached {
+                        context_slot: min_context_slot,
+                    }.into())
+                });
+            }
+        }
 
         Box::pin(async move {
             svm_locker.with_svm_reader(|svm_reader| {
@@ -1835,25 +1861,6 @@ impl Full for SurfpoolFullRpc {
                     CommitmentLevel::Finalized => latest_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD),
                 };
     
-                if limit == 0 {
-                    return Err(Error::invalid_params("Limit must be greater than 0"));
-                }
-    
-                const MAX_LIMIT: usize = 500_000;
-                if limit > MAX_LIMIT {
-                    return Err(Error::invalid_params(format!(
-                        "Limit too large. Maximum limit allowed: {}",
-                        MAX_LIMIT
-                    )));
-                }
-    
-                if let Some(min_context_slot) = config.min_context_slot {
-                    if start_slot < min_context_slot {
-                        return Err(RpcCustomError::MinContextSlotNotReached {
-                            context_slot: min_context_slot,
-                        }.into());
-                    }
-                }
     
                 let effective_end_slot = committed_latest_slot;
     
