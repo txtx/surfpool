@@ -670,10 +670,42 @@ impl Minimal for SurfpoolMinimalRpc {
     fn get_block_height(
         &self,
         meta: Self::Metadata,
-        _config: Option<RpcContextConfig>,
+        config: Option<RpcContextConfig>,
     ) -> Result<u64> {
-        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.block_height)
-            .map_err(Into::into)
+        let config = config.unwrap_or_default();
+
+        if let Some(target_slot) = config.min_context_slot {
+            let block_exists = meta
+                .with_svm_reader(|svm_reader| svm_reader.blocks.contains_key(&target_slot))
+                .map_err(Into::<jsonrpc_core::Error>::into)?;
+
+            if !block_exists {
+                return Err(jsonrpc_core::Error::invalid_params(format!(
+                    "Block not found for slot: {}",
+                    target_slot
+                )));
+            }
+        }
+
+        meta.with_svm_reader(|svm_reader| {
+            if let Some(target_slot) = config.min_context_slot {
+                if let Some(block_header) = svm_reader.blocks.get(&target_slot) {
+                    return block_header.block_height;
+                }
+            }
+
+            // default behavior: return the latest block height with commitment adjustments
+            let latest_block_height = svm_reader.latest_epoch_info.block_height;
+
+            match config.commitment.unwrap_or_default().commitment {
+                CommitmentLevel::Processed => latest_block_height,
+                CommitmentLevel::Confirmed => latest_block_height.saturating_sub(1),
+                CommitmentLevel::Finalized => {
+                    latest_block_height.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
+                }
+            }
+        })
+        .map_err(Into::into)
     }
 
     fn get_highest_snapshot_slot(&self, _meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
@@ -752,8 +784,154 @@ impl Minimal for SurfpoolMinimalRpc {
 
 #[cfg(test)]
 mod tests {
+    use solana_client::rpc_config::RpcContextConfig;
+    use solana_commitment_config::CommitmentConfig;
+    use solana_epoch_info::EpochInfo;
+
     use super::*;
     use crate::tests::helpers::TestSetup;
+
+    #[test]
+    fn test_get_block_height_processed_commitment() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        let config = RpcContextConfig {
+            commitment: Some(CommitmentConfig::processed()),
+            min_context_slot: None,
+        };
+
+        let expected_height = setup
+            .rpc
+            .get_block_height(Some(setup.context.clone()), Some(config));
+        assert!(expected_height.is_ok());
+
+        let latest_epoch_block_height = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.block_height);
+
+        assert_eq!(expected_height.unwrap(), latest_epoch_block_height);
+    }
+
+    #[test]
+    fn test_get_block_height_confirmed_commitment() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        let config = RpcContextConfig {
+            commitment: Some(CommitmentConfig::confirmed()),
+            min_context_slot: None,
+        };
+
+        let expected_height = setup
+            .rpc
+            .get_block_height(Some(setup.context.clone()), Some(config));
+        assert!(expected_height.is_ok());
+
+        let latest_epoch_block_height = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.block_height);
+
+        assert_eq!(expected_height.unwrap(), latest_epoch_block_height - 1);
+    }
+
+    #[test]
+    fn test_get_block_height_with_min_context_slot() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        // create blocks at specific slots with known block heights
+        let test_cases = vec![(100, 50), (200, 150), (300, 275)];
+
+        {
+            let mut svm_writer = setup.context.svm_locker.0.blocking_write();
+            for (slot, block_height) in &test_cases {
+                svm_writer.blocks.insert(
+                    *slot,
+                    crate::surfnet::BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: *block_height,
+                        parent_slot: slot - 1,
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+        }
+
+        for (slot, expected_height) in test_cases {
+            let config = RpcContextConfig {
+                commitment: None,
+                min_context_slot: Some(slot),
+            };
+
+            let result = setup
+                .rpc
+                .get_block_height(Some(setup.context.clone()), Some(config));
+            assert!(
+                result.is_ok(),
+                "failed to get block height for slot {}",
+                slot
+            );
+            assert_eq!(
+                result.unwrap(),
+                expected_height,
+                "Wrong block height for slot {}",
+                slot
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_block_height_error_case_slot_not_found() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        {
+            let mut svm_writer = setup.context.svm_locker.0.blocking_write();
+            svm_writer.blocks.insert(
+                100,
+                crate::surfnet::BlockHeader {
+                    hash: "hash_100".to_string(),
+                    previous_blockhash: "prev_hash_99".to_string(),
+                    block_time: chrono::Utc::now().timestamp_millis(),
+                    block_height: 50,
+                    parent_slot: 99,
+                    signatures: Vec::new(),
+                },
+            );
+        }
+
+        // slot that definitely doesn't exist
+        let nonexistent_slot = 999;
+        let config = RpcContextConfig {
+            commitment: None,
+            min_context_slot: Some(nonexistent_slot),
+        };
+
+        let result = setup
+            .rpc
+            .get_block_height(Some(setup.context), Some(config));
+
+        assert!(
+            result.is_err(),
+            "Expected error for nonexistent slot {}",
+            nonexistent_slot
+        );
+
+        let error = result.unwrap_err();
+
+        assert_eq!(error.code, jsonrpc_core::types::ErrorCode::InvalidParams);
+        assert!(
+            error.message.contains("Block not found for slot"),
+            "Error message should mention block not found, got: {}",
+            error.message
+        );
+        assert!(
+            error.message.contains(&nonexistent_slot.to_string()),
+            "Error message should include the slot number, got: {}",
+            error.message
+        );
+    }
 
     #[test]
     fn test_get_health() {
