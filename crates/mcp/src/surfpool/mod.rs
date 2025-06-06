@@ -51,7 +51,7 @@ pub struct CreateTokenAccountForOwnerParams {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTokenAccountParams {
     #[schemars(
-        description = "The base58-encoded mint address of the token to fund. If not provided, the token symbol will be inferred from the token mint address."
+        description = "The base58-encoded mint address of the token to fund. If provided, the token symbol will be inferred from the token mint address. If not provided, the token symbol must be provided to infer the token mint address."
     )]
     pub token_mint: Option<String>,
     #[schemars(
