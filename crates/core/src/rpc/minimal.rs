@@ -711,29 +711,25 @@ impl Minimal for SurfpoolMinimalRpc {
     fn get_highest_snapshot_slot(&self, meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
         meta.with_svm_reader(|svm_reader| {
             let latest_slot = svm_reader.get_latest_absolute_slot();
-            
+
             // theoretical finalized slot
             let finalized_slot = if latest_slot >= FINALIZATION_SLOT_THRESHOLD {
                 latest_slot - FINALIZATION_SLOT_THRESHOLD
             } else {
                 0
             };
-            
+
             let highest_confirmed_slot = svm_reader.blocks.keys().max().copied();
-            
+
             // For snapshot slot, we want the intersection of -> slots that are finalized (old enough) and the ones that actually have confirmed blocks
             let snapshot_slot = match highest_confirmed_slot {
-                Some(highest_slot) => {
-                    std::cmp::min(highest_slot, finalized_slot)
-                }
-                None => {
-                    finalized_slot
-                }
+                Some(highest_slot) => std::cmp::min(highest_slot, finalized_slot),
+                None => finalized_slot,
             };
-            
+
             RpcSnapshotSlotInfo {
                 full: snapshot_slot,
-                incremental: None, 
+                incremental: None,
             }
         })
         .map_err(Into::into)
@@ -999,13 +995,16 @@ mod tests {
         let result = setup.rpc.get_slot(Some(setup.context), None).unwrap();
         assert_eq!(result, 92);
     }
-    
+
     #[test]
     fn test_get_highest_snapshot_slot_no_blocks() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
-        
-        let result = setup.rpc.get_highest_snapshot_slot(Some(setup.context.clone())).unwrap();
-        
+
+        let result = setup
+            .rpc
+            .get_highest_snapshot_slot(Some(setup.context.clone()))
+            .unwrap();
+
         // with no confirmed blocks, should return finalized slot or 0
         let current_slot = setup.context.svm_locker.get_latest_absolute_slot();
         let expected = if current_slot >= FINALIZATION_SLOT_THRESHOLD {
@@ -1013,7 +1012,7 @@ mod tests {
         } else {
             0
         };
-        
+
         assert_eq!(result.full, expected);
         assert_eq!(result.incremental, None);
     }
@@ -1021,112 +1020,144 @@ mod tests {
     #[test]
     fn test_get_highest_snapshot_slot_with_blocks() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
-        
+
         // confirm some blocks
         setup.context.svm_locker.confirm_current_block().unwrap();
         setup.context.svm_locker.confirm_current_block().unwrap();
         setup.context.svm_locker.confirm_current_block().unwrap();
-        
-        let result = setup.rpc.get_highest_snapshot_slot(Some(setup.context.clone())).unwrap();
-        
+
+        let result = setup
+            .rpc
+            .get_highest_snapshot_slot(Some(setup.context.clone()))
+            .unwrap();
+
         // should return min -> highest_block_slot, finalized_slot
         let current_slot = setup.context.svm_locker.get_latest_absolute_slot();
-        let highest_block_slot = setup.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.blocks.keys().max().copied().unwrap_or(0)
-        });
+        let highest_block_slot = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.blocks.keys().max().copied().unwrap_or(0));
         let finalized_slot = if current_slot >= FINALIZATION_SLOT_THRESHOLD {
             current_slot - FINALIZATION_SLOT_THRESHOLD
         } else {
             0
         };
         let expected = std::cmp::min(highest_block_slot, finalized_slot);
-        
+
         assert_eq!(result.full, expected);
         assert_eq!(result.incremental, None);
-        assert!(result.full <= highest_block_slot, "Snapshot slot should not exceed highest block");
+        assert!(
+            result.full <= highest_block_slot,
+            "Snapshot slot should not exceed highest block"
+        );
     }
-
 
     #[test]
     fn test_get_highest_snapshot_slot_many_blocks() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
-        
+
         // confirm enough blocks to exceed finalization threshold
         for _ in 0..(FINALIZATION_SLOT_THRESHOLD + 10) {
             setup.context.svm_locker.confirm_current_block().unwrap();
         }
-        
-        let result = setup.rpc.get_highest_snapshot_slot(Some(setup.context.clone())).unwrap();
-        
+
+        let result = setup
+            .rpc
+            .get_highest_snapshot_slot(Some(setup.context.clone()))
+            .unwrap();
+
         let current_slot = setup.context.svm_locker.get_latest_absolute_slot();
         let expected_finalized = current_slot - FINALIZATION_SLOT_THRESHOLD;
-        
+
         // with many blocks, should return a finalized slot
         assert_eq!(result.full, expected_finalized);
         assert_eq!(result.incremental, None);
-        assert!(result.full < current_slot, "Snapshot should be behind current slot");
-        
+        assert!(
+            result.full < current_slot,
+            "Snapshot should be behind current slot"
+        );
 
-        let has_block = setup.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.blocks.contains_key(&result.full)
-        });
-        assert!(has_block, "Snapshot slot should correspond to an actual block");
+        let has_block = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.blocks.contains_key(&result.full));
+        assert!(
+            has_block,
+            "Snapshot slot should correspond to an actual block"
+        );
     }
-
 
     #[test]
     fn test_get_highest_snapshot_slot_incremental_always_none() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
-        
+
         // test with no blocks
-        let result1 = setup.rpc.get_highest_snapshot_slot(Some(setup.context.clone())).unwrap();
+        let result1 = setup
+            .rpc
+            .get_highest_snapshot_slot(Some(setup.context.clone()))
+            .unwrap();
         assert_eq!(result1.incremental, None);
-        
+
         setup.context.svm_locker.confirm_current_block().unwrap();
-        let result2 = setup.rpc.get_highest_snapshot_slot(Some(setup.context.clone())).unwrap();
+        let result2 = setup
+            .rpc
+            .get_highest_snapshot_slot(Some(setup.context.clone()))
+            .unwrap();
         assert_eq!(result2.incremental, None);
-        
+
         // surfpool doesn't implement incremental snapshots
     }
 
     #[test]
     fn test_get_highest_snapshot_slot_progression() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
-        
+
         let mut previous_snapshot = 0;
-        
+
         // test that snapshot slot progresses as we add blocks
         for i in 1..=5 {
             setup.context.svm_locker.confirm_current_block().unwrap();
-            
-            let result = setup.rpc.get_highest_snapshot_slot(Some(setup.context.clone())).unwrap();
-            
+
+            let result = setup
+                .rpc
+                .get_highest_snapshot_slot(Some(setup.context.clone()))
+                .unwrap();
+
             // snapshot slot should be monotonically increasing -> or stay the same
-            assert!(result.full >= previous_snapshot, 
-                "Snapshot slot should not decrease: iteration {}, current: {}, previous: {}", 
-                i, result.full, previous_snapshot);
-            
+            assert!(
+                result.full >= previous_snapshot,
+                "Snapshot slot should not decrease: iteration {}, current: {}, previous: {}",
+                i,
+                result.full,
+                previous_snapshot
+            );
+
             previous_snapshot = result.full;
         }
     }
 
-
     #[test]
     fn test_get_highest_snapshot_slot_realistic_scenario() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
-        
+
         // simulate a realistic scenario: some initial blocks, then check snapshot
         for _ in 0..10 {
             setup.context.svm_locker.confirm_current_block().unwrap();
         }
-        
-        let result = setup.rpc.get_highest_snapshot_slot(Some(setup.context.clone())).unwrap();
-        
+
+        let result = setup
+            .rpc
+            .get_highest_snapshot_slot(Some(setup.context.clone()))
+            .unwrap();
+
         // basic sanity checks for realistic values
         assert!(result.full <= setup.context.svm_locker.get_latest_absolute_slot());
         assert_eq!(result.incremental, None);
-        
-        let result2 = setup.rpc.get_highest_snapshot_slot(Some(setup.context.clone())).unwrap();
+
+        let result2 = setup
+            .rpc
+            .get_highest_snapshot_slot(Some(setup.context.clone()))
+            .unwrap();
         assert_eq!(result.full, result2.full);
         assert_eq!(result.incremental, result2.incremental);
     }
@@ -1134,7 +1165,7 @@ mod tests {
     #[test]
     fn test_get_highest_snapshot_slot_error_handling() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
-        
+
         let result = setup.rpc.get_highest_snapshot_slot(None);
         assert!(result.is_err(), "Should error with None metadata");
 
@@ -1149,16 +1180,21 @@ mod tests {
     #[test]
     fn test_get_highest_snapshot_slot_stress_conditions() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
-        
+
         // test with extreme number of blocks to ensure no overflow/panic
         for _ in 0..1000 {
             let result = setup.context.svm_locker.confirm_current_block();
-            assert!(result.is_ok(), "Block confirmation should not fail under stress");
+            assert!(
+                result.is_ok(),
+                "Block confirmation should not fail under stress"
+            );
         }
-        
-        let result = setup.rpc.get_highest_snapshot_slot(Some(setup.context.clone()));
+
+        let result = setup
+            .rpc
+            .get_highest_snapshot_slot(Some(setup.context.clone()));
         assert!(result.is_ok(), "Should handle large number of blocks");
-        
+
         let snapshot_info = result.unwrap();
         assert!(snapshot_info.full <= setup.context.svm_locker.get_latest_absolute_slot());
         assert_eq!(snapshot_info.incremental, None);
@@ -1166,22 +1202,23 @@ mod tests {
 
     #[test]
     fn test_get_highest_snapshot_slot_concurrent_access() {
-        use std::sync::Arc;
-        use std::thread;
-        
+        use std::{sync::Arc, thread};
+
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let setup = Arc::new(setup);
-        
+
         setup.context.svm_locker.confirm_current_block().unwrap();
         setup.context.svm_locker.confirm_current_block().unwrap();
-        
+
         // test concurrent access to the method
         let mut handles = vec![];
-        
+
         for _ in 0..10 {
             let setup_clone = Arc::clone(&setup);
             let handle = thread::spawn(move || {
-                setup_clone.rpc.get_highest_snapshot_slot(Some(setup_clone.context.clone()))
+                setup_clone
+                    .rpc
+                    .get_highest_snapshot_slot(Some(setup_clone.context.clone()))
             });
             handles.push(handle);
         }
@@ -1192,12 +1229,17 @@ mod tests {
             assert!(result.is_ok(), "Concurrent access should not fail");
             results.push(result.unwrap());
         }
-        
-      
+
         let first_result = &results[0];
         for result in &results[1..] {
-            assert_eq!(result.full, first_result.full, "Concurrent calls should return same snapshot slot");
-            assert_eq!(result.incremental, first_result.incremental, "Concurrent calls should return same incremental");
+            assert_eq!(
+                result.full, first_result.full,
+                "Concurrent calls should return same snapshot slot"
+            );
+            assert_eq!(
+                result.incremental, first_result.incremental,
+                "Concurrent calls should return same incremental"
+            );
         }
     }
 }
