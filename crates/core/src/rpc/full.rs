@@ -2423,7 +2423,7 @@ mod tests {
                 Some(setup.context),
                 bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
                 Some(RpcSimulateTransactionConfig {
-                    sig_verify: false,
+                    sig_verify: true,
                     replace_recent_blockhash: false,
                     commitment: Some(CommitmentConfig::finalized()),
                     encoding: None,
