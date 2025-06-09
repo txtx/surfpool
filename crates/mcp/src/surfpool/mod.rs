@@ -400,10 +400,10 @@ impl ServerHandler for Surfpool {
         &self,
         ReadResourceRequestParam { uri }: ReadResourceRequestParam,
         _: RequestContext<RoleServer>,
-    ) -> Result<ReadResourceResult, McpError> { 
+    ) -> Result<ReadResourceResult, McpError> {
         match uri.as_str() {
             "str:///rpc_endpoint_list" => {
-                let rpc_endpoints = include_str!("rpc_endpoints.json");
+                let rpc_endpoints = include_str!("../../../types/src/rpc_endpoints.json");
                 Ok(ReadResourceResult {
                     contents: vec![ResourceContents::TextResourceContents {
                         uri,
