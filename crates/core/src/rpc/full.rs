@@ -1552,6 +1552,8 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
+            svm_locker
+                .with_svm_writer(|svm_writer| svm_writer.inner.set_sigverify(config.sig_verify));
             let pubkeys = svm_locker
                 .get_pubkeys_from_message(&remote_ctx, &unsanitized_tx.message)
                 .await?;
@@ -2259,6 +2261,73 @@ mod tests {
                 bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
                 Some(RpcSimulateTransactionConfig {
                     sig_verify: true,
+                    replace_recent_blockhash: false,
+                    commitment: Some(CommitmentConfig::finalized()),
+                    encoding: None,
+                    accounts: Some(RpcSimulateTransactionAccountsConfig {
+                        encoding: None,
+                        addresses: vec![pk.to_string()],
+                    }),
+                    min_context_slot: None,
+                    inner_instructions: false,
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            simulation_res.value.err, None,
+            "Unexpected simulation error"
+        );
+        assert_eq!(
+            simulation_res.value.accounts,
+            Some(vec![Some(UiAccount {
+                lamports,
+                data: UiAccountData::Binary(BASE64_STANDARD.encode(""), UiAccountEncoding::Base64),
+                owner: system_program::id().to_string(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(0),
+            })]),
+            "Wrong account content"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_simulate_transaction_no_signers() {
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let lamports = LAMPORTS_PER_SOL;
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        let _ = setup
+            .rpc
+            .request_airdrop(
+                Some(setup.context.clone()),
+                payer.pubkey().to_string(),
+                2 * lamports,
+                None,
+            )
+            .unwrap();
+        //build_legacy_transaction
+        let mut msg = LegacyMessage::new(
+            &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+            Some(&payer.pubkey()),
+        );
+        msg.recent_blockhash = recent_blockhash;
+        let tx = Transaction::new_unsigned(msg);
+
+        let simulation_res = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(RpcSimulateTransactionConfig {
+                    sig_verify: false,
                     replace_recent_blockhash: false,
                     commitment: Some(CommitmentConfig::finalized()),
                     encoding: None,
