@@ -29,6 +29,7 @@ use solana_sdk::{
 };
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
+use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatus,
     UiConfirmedBlock, UiTransactionEncoding,
@@ -1552,8 +1553,6 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            svm_locker
-                .with_svm_writer(|svm_writer| svm_writer.inner.set_sigverify(config.sig_verify));
             let pubkeys = svm_locker
                 .get_pubkeys_from_message(&remote_ctx, &unsanitized_tx.message)
                 .await?;
@@ -1573,6 +1572,28 @@ impl Full for SurfpoolFullRpc {
                 blockhash: latest_blockhash.to_string(),
                 last_valid_block_height: latest_epoch_info.block_height,
             });
+            // verify valid signatures on the transaction
+            if config.sig_verify {
+                if unsanitized_tx
+                    .verify_with_results()
+                    .iter()
+                    .any(|valid| !*valid)
+                {
+                    let value = RpcSimulateTransactionResult {
+                        err: Some(TransactionError::SignatureFailure),
+                        logs: None,
+                        accounts: None,
+                        units_consumed: None,
+                        return_data: None,
+                        inner_instructions: None,
+                        replacement_blockhash: None,
+                    };
+                    return Ok(RpcResponse {
+                        context: RpcResponseContext::new(slot),
+                        value,
+                    });
+                }
+            }
 
             let value = match svm_locker.simulate_transaction(unsanitized_tx) {
                 Ok(tx_info) => {
@@ -2299,6 +2320,10 @@ mod tests {
         let pk = Pubkey::new_unique();
         let lamports = LAMPORTS_PER_SOL;
         let setup = TestSetup::new(SurfpoolFullRpc);
+        setup
+            .context
+            .svm_locker
+            .with_svm_writer(|svm_writer| svm_writer.inner.set_sigverify(false));
         let recent_blockhash = setup
             .context
             .svm_locker
@@ -2357,6 +2382,65 @@ mod tests {
                 space: Some(0),
             })]),
             "Wrong account content"
+        );
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_simulate_transaction_no_signers_err() {
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let lamports = LAMPORTS_PER_SOL;
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        let _ = setup
+            .rpc
+            .request_airdrop(
+                Some(setup.context.clone()),
+                payer.pubkey().to_string(),
+                2 * lamports,
+                None,
+            )
+            .unwrap();
+        setup
+            .context
+            .svm_locker
+            .with_svm_writer(|svm_writer| svm_writer.inner.set_sigverify(true));
+
+        //build_legacy_transaction
+        let mut msg = LegacyMessage::new(
+            &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+            Some(&payer.pubkey()),
+        );
+        msg.recent_blockhash = recent_blockhash;
+        let tx = Transaction::new_unsigned(msg);
+
+        let simulation_res = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(RpcSimulateTransactionConfig {
+                    sig_verify: false,
+                    replace_recent_blockhash: false,
+                    commitment: Some(CommitmentConfig::finalized()),
+                    encoding: None,
+                    accounts: Some(RpcSimulateTransactionAccountsConfig {
+                        encoding: None,
+                        addresses: vec![pk.to_string()],
+                    }),
+                    min_context_slot: None,
+                    inner_instructions: false,
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            simulation_res.value.err,
+            Some(TransactionError::SignatureFailure)
         );
     }
 
