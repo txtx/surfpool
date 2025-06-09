@@ -154,42 +154,6 @@ impl Surfpool {
         Json(res)
     }
 
-    async fn list_resources(
-        &self,
-        _request: Option<PaginatedRequestParam>,
-        _: RequestContext<RoleServer>,
-    ) -> Result<ListResourcesResult, McpError> {
-        Ok(ListResourcesResult {
-            resources: vec![RawResource::new(
-                "str:///rpc_endpoint_list",
-                "List of RPC endpoints available".to_string(),
-            )
-            .no_annotation()],
-            next_cursor: None,
-        })
-    }
-
-    async fn read_resource(
-        &self,
-        ReadResourceRequestParam { uri }: ReadResourceRequestParam,
-        _: RequestContext<RoleServer>,
-    ) -> Result<ReadResourceResult, McpError> {
-        match uri.as_str() {
-            "str:///rpc_endpoint_list" => {
-                let rpc_endpoints = include_str!("rpc_endpoints.json");
-                Ok(ReadResourceResult {
-                    contents: vec![ResourceContents::text(rpc_endpoints, uri)],
-                })
-            }
-            _ => Err(McpError::resource_not_found(
-                "resource_not_found",
-                Some(serde_json::json!({
-                    "uri": uri
-                })),
-            )),
-        }
-    }
-
     /// Sets token balances for multiple accounts in your local Solana network (surfnet).
     /// This method is exposed as a tool and can be invoked remotely.
     #[tool(
@@ -315,7 +279,7 @@ impl Surfpool {
     /// This generic method allows calling any of the available surfnet cheatcode RPC methods.
     /// The LLM will interpret user requests and determine which method to call with appropriate parameters.
     #[tool(
-        description = "Calls any RPC method on a running surfnet instance. This is a generic method that can invoke any surfnet cheatcode RPC method. The LLM should interpret user requests and determine the appropriate method and parameters to call."
+        description = "Calls any RPC method on a running surfnet instance. This is a generic method that can invoke any surfnet cheatcode RPC method. The LLM should interpret user requests and determine the appropriate method and parameters to call. The retrive the list of RPC endpoints available check the resource str:///rpc_endpoint_list"
     )]
     pub async fn call_surfnet_rpc(
         &self,
@@ -412,6 +376,48 @@ impl ServerHandler for Surfpool {
                 .enable_resources()
                 .build(),
             ..Default::default()
+        }
+    }
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParam>,
+        _: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, McpError> {
+        Ok(ListResourcesResult {
+            resources: vec![RawResource {
+                uri: "str:///rpc_endpoint_list".to_string(),
+                name: "List of RPC endpoints available".to_string(),
+                description: Some("A json file containing all the RPC methods and the parameters available for being able to handle any RPC call with the tool call_surfnet_rpc".to_string()),
+                mime_type: Some("application/json".to_string()),
+                size: None,
+            }
+            .no_annotation()],
+            next_cursor: None,
+        })
+    }
+
+    async fn read_resource(
+        &self,
+        ReadResourceRequestParam { uri }: ReadResourceRequestParam,
+        _: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, McpError> { 
+        match uri.as_str() {
+            "str:///rpc_endpoint_list" => {
+                let rpc_endpoints = include_str!("rpc_endpoints.json");
+                Ok(ReadResourceResult {
+                    contents: vec![ResourceContents::TextResourceContents {
+                        uri,
+                        mime_type: Some("application/json".to_string()),
+                        text: rpc_endpoints.to_string(),
+                    }],
+                })
+            }
+            _ => Err(McpError::resource_not_found(
+                "resource_not_found",
+                Some(serde_json::json!({
+                    "uri": uri
+                })),
+            )),
         }
     }
 }

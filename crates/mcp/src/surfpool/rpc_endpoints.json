@@ -1,50 +1,136 @@
-[
-  {
-    "method_name": "surfnet_setAccount",
-    "description": "A 'cheat code' method for developers to set or update an account in Surfpool. This method allows developers to set or update the lamports, data, owner, executable status, and rent epoch of a given account.",
-    "example_request": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"surfnet_setAccount\",\n  \"params\": [\"account_pubkey\", {\"lamports\": 1000, \"data\": \"base58string\", \"owner\": \"program_pubkey\"}]\n}",
-    "example_response": "{\n  \"jsonrpc\": \"2.0\",\n  \"result\": {},\n  \"id\": 1\n}",
-    "status": "unimplemented",
-    "params": [
-      {
-        "name": "pubkey",
-        "type": "string",
-        "description": "The public key of the account to be updated, as a base-58 encoded string."
-      },
-      {
-        "name": "update",
-        "type": "AccountUpdate",
-        "description": "The `AccountUpdate` struct containing the fields to update the account."
+{
+  "endpoints": [
+    {
+      "method": "surfnet_setAccount",
+      "description": "A 'cheat code' method for developers to set or update an account in Surfpool. It allows for modifying lamports, data, owner, executable status, and rent epoch. This method is designed to help developers quickly test or update account attributes, such as lamports, program ownership, and executable status.",
+      "params": [
+        {
+          "name": "pubkey",
+          "type": "string",
+          "description": "The public key of the account to be updated, as a base-58 encoded string."
+        },
+        {
+          "name": "update",
+          "type": "object",
+          "description": "The `AccountUpdate` struct containing the fields to update the account.",
+          "schema": {
+            "lamports": "Option<u64>",
+            "owner": "Option<string> (base-58 encoded pubkey)",
+            "executable": "Option<bool>",
+            "rent_epoch": "Option<u64>",
+            "data": "Option<string> (hex encoded)"
+          }
+        }
+      ],
+      "returns": "A `RpcResponse<()>` indicating whether the account update was successful.",
+      "example": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "surfnet_setAccount",
+        "params": [
+          "account_pubkey",
+          {
+            "lamports": 1000,
+            "data": "hex_encoded_string",
+            "owner": "program_pubkey"
+          }
+        ]
       }
-    ]
-  },
-  {
-    "method_name": "surfnet_setTokenAccount",
-    "description": "A 'cheat code' method for developers to set or update a token account in Surfpool. This method allows developers to set or update various properties of a token account, including the token amount, delegate, state, delegated amount, and close authority.",
-    "example_request": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"surfnet_setTokenAccount\",\n  \"params\": [\"owner_pubkey\", \"mint_pubkey\", {\"amount\": 1000, \"state\": \"initialized\"}]\n}",
-    "example_response": "{\n  \"jsonrpc\": \"2.0\",\n  \"result\": {},\n  \"id\": 1\n}",
-    "params": [
-      {
-        "name": "owner",
-        "type": "string",
-        "description": "The base-58 encoded public key of the token account's owner."
-      },
-      {
-        "name": "mint",
-        "type": "string",
-        "description": "The base-58 encoded public key of the token mint (e.g., the token type)."
-      },
-      {
-        "name": "update",
-        "type": "TokenAccountUpdate",
-        "description": "The `TokenAccountUpdate` struct containing the fields to update the token account."
-      },
-      {
-        "name": "token_program",
-        "type": "string (optional)",
-        "description":
-          "The optional base-58 encoded address of the token program (defaults to the system token program)."
+    },
+    {
+      "method": "surfnet_setTokenAccount",
+      "description": "A 'cheat code' method for developers to set or update a token account in Surfpool. It allows for updating properties like amount, delegate, state, delegated amount, and close authority. This is designed to help developers quickly modify token account properties like amounts, delegates, and authorities.",
+      "params": [
+        {
+          "name": "owner",
+          "type": "string",
+          "description": "The base-58 encoded public key of the token account's owner."
+        },
+        {
+          "name": "mint",
+          "type": "string",
+          "description": "The base-58 encoded public key of the token mint."
+        },
+        {
+          "name": "update",
+          "type": "object",
+          "description": "The `TokenAccountUpdate` struct containing the fields to update the token account.",
+          "schema": {
+            "amount": "Option<u64>",
+            "delegate": "Option<SetSomeAccount>",
+            "state": "Option<string> ('uninitialized', 'frozen', 'initialized')",
+            "delegated_amount": "Option<u64>",
+            "close_authority": "Option<SetSomeAccount>"
+          }
+        },
+        {
+          "name": "token_program",
+          "type": "string",
+          "description": "Optional: The base-58 encoded address of the token program. Defaults to SPL Token program."
+        }
+      ],
+      "returns": "A `RpcResponse<()>` indicating whether the token account update was successful.",
+      "example": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "surfnet_setTokenAccount",
+        "params": [
+          "owner_pubkey",
+          "mint_pubkey",
+          { "amount": 1000, "state": "initialized" }
+        ]
       }
-    ]
-  }
-]
+    },
+    {
+      "method": "surfnet_cloneProgramAccount",
+      "description": "Clones a program account from a source to a destination program ID. Since a program account points to a program data account (a PDA), this method clones the program data account as well. It gets the source program and data accounts, calculates the destination program data address, points the destination program account to it, and copies the data.",
+      "params": [
+        {
+          "name": "source_program_id",
+          "type": "string",
+          "description": "The base-58 encoded public key of the source program."
+        },
+        {
+          "name": "destination_program_id",
+          "type": "string",
+          "description": "The base-58 encoded public key of the destination program."
+        }
+      ],
+      "returns": "A `RpcResponse<()>` indicating whether the cloning was successful."
+    },
+    {
+      "method": "surfnet_profileTransaction",
+      "description": "Estimates the compute units that a given transaction will consume by simulating it without committing state changes. Returns an estimation of the compute units used, along with logs and potential errors.",
+      "params": [
+        {
+          "name": "transaction_data",
+          "type": "string",
+          "description": "A base64 encoded string of the `VersionedTransaction`."
+        },
+        {
+          "name": "tag",
+          "type": "string",
+          "description": "Optional tag for the transaction to group profiling results."
+        },
+        {
+          "name": "encoding",
+          "type": "string",
+          "description": "Optional encoding for returned account data (e.g., 'base64', 'jsonParsed')."
+        }
+      ],
+      "returns": "A `RpcResponse<ProfileResult>` containing the estimation details."
+    },
+    {
+      "method": "surfnet_getProfileResults",
+      "description": "Retrieves all profiling results for a given tag.",
+      "params": [
+        {
+          "name": "tag",
+          "type": "string",
+          "description": "The tag to retrieve profiling results for."
+        }
+      ],
+      "returns": "A `RpcResponse<Vec<ProfileResult>>` containing the profiling results."
+    }
+  ]
+}
