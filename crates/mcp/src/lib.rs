@@ -1,6 +1,7 @@
 use rmcp::{transport::stdio, ServiceExt};
 use surfpool::Surfpool;
 
+mod helpers;
 mod surfpool;
 
 #[derive(PartialEq, Clone, Debug, Default)]

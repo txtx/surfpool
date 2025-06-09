@@ -1,0 +1,50 @@
+[
+  {
+    "method_name": "surfnet_setAccount",
+    "description": "A 'cheat code' method for developers to set or update an account in Surfpool. This method allows developers to set or update the lamports, data, owner, executable status, and rent epoch of a given account.",
+    "example_request": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"surfnet_setAccount\",\n  \"params\": [\"account_pubkey\", {\"lamports\": 1000, \"data\": \"base58string\", \"owner\": \"program_pubkey\"}]\n}",
+    "example_response": "{\n  \"jsonrpc\": \"2.0\",\n  \"result\": {},\n  \"id\": 1\n}",
+    "status": "unimplemented",
+    "params": [
+      {
+        "name": "pubkey",
+        "type": "string",
+        "description": "The public key of the account to be updated, as a base-58 encoded string."
+      },
+      {
+        "name": "update",
+        "type": "AccountUpdate",
+        "description": "The `AccountUpdate` struct containing the fields to update the account."
+      }
+    ]
+  },
+  {
+    "method_name": "surfnet_setTokenAccount",
+    "description": "A 'cheat code' method for developers to set or update a token account in Surfpool. This method allows developers to set or update various properties of a token account, including the token amount, delegate, state, delegated amount, and close authority.",
+    "example_request": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"surfnet_setTokenAccount\",\n  \"params\": [\"owner_pubkey\", \"mint_pubkey\", {\"amount\": 1000, \"state\": \"initialized\"}]\n}",
+    "example_response": "{\n  \"jsonrpc\": \"2.0\",\n  \"result\": {},\n  \"id\": 1\n}",
+    "params": [
+      {
+        "name": "owner",
+        "type": "string",
+        "description": "The base-58 encoded public key of the token account's owner."
+      },
+      {
+        "name": "mint",
+        "type": "string",
+        "description": "The base-58 encoded public key of the token mint (e.g., the token type)."
+      },
+      {
+        "name": "update",
+        "type": "TokenAccountUpdate",
+        "description": "The `TokenAccountUpdate` struct containing the fields to update the token account."
+      },
+      {
+        "name": "token_program",
+        "type": "string (optional)",
+        "description":
+          "The optional base-58 encoded address of the token program (defaults to the system token program)."
+      }
+    ]
+  }
+]
