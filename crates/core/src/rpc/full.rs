@@ -2407,7 +2407,7 @@ mod tests {
         setup
             .context
             .svm_locker
-            .with_svm_writer(|svm_writer| svm_writer.inner.set_sigverify(true));
+            .with_svm_writer(|svm_writer| svm_writer.inner.set_sigverify(false));
 
         //build_legacy_transaction
         let mut msg = LegacyMessage::new(
