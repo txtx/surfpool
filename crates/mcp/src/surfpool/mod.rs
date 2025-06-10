@@ -40,6 +40,22 @@ impl Default for Surfpool {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub enum JsonValue {
+    #[schemars(description = "A JSON representation of null")]
+    Null,
+    #[schemars(description = "A JSON representation of a boolean")]
+    Bool(bool),
+    #[schemars(description = "A JSON representation of a number")]
+    Number(i64),
+    #[schemars(description = "A JSON representation of a string")]
+    String(String),
+    #[schemars(description = "A JSON representation of an array")]
+    Array(Vec<JsonValue>),
+    #[schemars(description = "A JSON representation of an object with key-value pairs")]
+    Object(HashMap<String, JsonValue>),
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTokenAccountForOwnerParams {
     #[schemars(
@@ -281,7 +297,7 @@ impl Surfpool {
     #[tool(
         description = "Calls any RPC method on a running surfnet instance. This is a generic method that can invoke any surfnet cheatcode RPC method. The LLM should interpret user requests and determine the appropriate method and parameters to call. The retrive the list of RPC endpoints available check the resource str:///rpc_endpoint_list"
     )]
-    pub async fn call_surfnet_rpc(
+    pub fn call_surfnet_rpc(
         &self,
         #[tool(param)]
         #[schemars(
@@ -294,10 +310,8 @@ impl Surfpool {
         )]
         method: String,
         #[tool(param)]
-        #[schemars(
-            description = "The parameters to pass to the RPC method as a JSON array. The structure depends on the specific method being called."
-        )]
-        params: Vec<Value>,
+        #[schemars(description = "The parameters to pass to the RPC method")]
+        params: Vec<JsonValue>,
     ) -> Json<SurfnetRpcCallResponse> {
         let surfnet_endpoint = format!("http://127.0.0.1:{}", surfnet_port);
         let rpc_request = serde_json::json!({
@@ -307,14 +321,13 @@ impl Surfpool {
             "params": params
         });
 
-        // Make the HTTP request to the surfnet RPC endpoint
-        let client = reqwest::Client::new();
+        // Make the RPC request to the surfnet RPC endpoint
+        let client = reqwest::blocking::Client::new();
         let response = match client
             .post(&surfnet_endpoint)
             .header("Content-Type", "application/json")
             .json(&rpc_request)
             .send()
-            .await
         {
             Ok(resp) => resp,
             Err(e) => {
@@ -325,7 +338,7 @@ impl Surfpool {
             }
         };
 
-        let response_text = match response.text().await {
+        let response_text = match response.text() {
             Ok(text) => text,
             Err(e) => {
                 return Json(SurfnetRpcCallResponse::error(format!(
