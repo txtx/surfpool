@@ -395,7 +395,6 @@ impl ServerHandler for Surfpool {
             next_cursor: None,
         })
     }
-
     async fn read_resource(
         &self,
         ReadResourceRequestParam { uri }: ReadResourceRequestParam,
@@ -419,5 +418,12 @@ impl ServerHandler for Surfpool {
                 })),
             )),
         }
+    }
+    async fn initialize(
+        &self,
+        _request: InitializeRequestParam,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, McpError> {
+        Ok(self.get_info())
     }
 }
