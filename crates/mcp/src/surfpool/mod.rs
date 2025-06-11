@@ -54,6 +54,24 @@ pub enum JsonValue {
     Array(Vec<JsonValue>),
     #[schemars(description = "A JSON representation of an object with key-value pairs")]
     Object(HashMap<String, JsonValue>),
+    #[schemars(description = "A JSON representation of a base58-encoded public key")]
+    PublicKey(String),
+}
+
+impl From<JsonValue> for Value {
+    fn from(val: JsonValue) -> Self {
+        match val {
+            JsonValue::Null => Value::Null,
+            JsonValue::Bool(b) => Value::Bool(b),
+            JsonValue::Number(n) => Value::Number(serde_json::Number::from(n)),
+            JsonValue::String(s) => Value::String(s),
+            JsonValue::PublicKey(s) => Value::String(s),
+            JsonValue::Array(arr) => Value::Array(arr.into_iter().map(Value::from).collect()),
+            JsonValue::Object(obj) => {
+                Value::Object(obj.into_iter().map(|(k, v)| (k, Value::from(v))).collect())
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -306,7 +324,10 @@ impl Surfpool {
         surfnet_port: u16,
         #[tool(param)]
         #[schemars(
-            description = "The RPC method name to call (e.g., 'surfnet_setAccount', 'surfnet_setTokenAccount', 'surfnet_cloneProgramAccount', 'surfnet_profileTransaction', 'surfnet_getProfileResults, etc.)"
+            description = "The RPC method name to call,for example: 'sendTransaction', 'simulateTransaction', 'getAccountInfo', 'getBalance', 'getTokenAccountBalance', 'getTokenSupply', 'getProgramAccounts', 'getTokenAccountsByOwner', 'getSlot',
+            'getEpochInfo', 'requestAirdrop', 'surfnet_setAccount', 'getHealth', 'getTokenAccountsByOwner', 'getTokenAccountsByDelegate', 
+            'getTokenAccountsByDelegateAndMint', 'getTokenAccountsByDelegateAndMintAndOwner', 'getTokenAccountsByDelegateAndMintAndOwnerAndProgramId', 'getTokenAccountsByDelegateAndMintAndOwnerAndProgramIdAndOwner', surfnet_getProfileResults, etc. 
+            A list of all the RPC methods available can be found at str:///rpc_endpoint_list"
         )]
         method: String,
         #[tool(param)]
@@ -314,6 +335,7 @@ impl Surfpool {
         params: Vec<JsonValue>,
     ) -> Json<SurfnetRpcCallResponse> {
         let surfnet_endpoint = format!("http://127.0.0.1:{}", surfnet_port);
+        let params: Vec<Value> = params.into_iter().map(Into::into).collect();
         let rpc_request = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -398,7 +420,7 @@ impl ServerHandler for Surfpool {
     ) -> Result<ListResourcesResult, McpError> {
         Ok(ListResourcesResult {
             resources: vec![RawResource {
-                uri: "str:///rpc_endpoint_list".to_string(),
+                uri: "str:///rpc_endpoints".to_string(),
                 name: "List of RPC endpoints available".to_string(),
                 description: Some("A json file containing all the RPC methods and the parameters available for being able to handle any RPC call with the tool call_surfnet_rpc".to_string()),
                 mime_type: Some("application/json".to_string()),
@@ -414,7 +436,7 @@ impl ServerHandler for Surfpool {
         _: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, McpError> {
         match uri.as_str() {
-            "str:///rpc_endpoint_list" => {
+            "str:///rpc_endpoints" => {
                 let rpc_endpoints = include_str!("../../../types/src/rpc_endpoints.json");
                 Ok(ReadResourceResult {
                     contents: vec![ResourceContents::TextResourceContents {
