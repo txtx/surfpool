@@ -313,7 +313,7 @@ impl Surfpool {
     /// This generic method allows calling any of the available surfnet cheatcode RPC methods.
     /// The LLM will interpret user requests and determine which method to call with appropriate parameters.
     #[tool(
-        description = "Calls any RPC method on a running surfnet instance. This is a generic method that can invoke any surfnet cheatcode RPC method. The LLM should interpret user requests and determine the appropriate method and parameters to call. The retrive the list of RPC endpoints available check the resource str:///rpc_endpoint_list"
+        description = "Calls any RPC method on a running surfnet instance. This is a generic method that can invoke any surfnet RPC method. The LLM should interpret user requests and determine the appropriate method and parameters to call. To retrieve the list of RPC endpoints available check the resource str:///rpc_endpoint_list"
     )]
     pub fn call_surfnet_rpc(
         &self,
