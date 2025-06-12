@@ -19,7 +19,7 @@ use solana_client::{
     },
 };
 use solana_clock::{Slot, UnixTimestamp};
-use solana_commitment_config::CommitmentConfig;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -42,7 +42,7 @@ use super::{
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    surfnet::{locker::SvmAccessContext, GetTransactionResult},
+    surfnet::{locker::SvmAccessContext, GetTransactionResult, FINALIZATION_SLOT_THRESHOLD},
     types::SurfnetTransactionStatus,
 };
 
@@ -1639,7 +1639,7 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         slot: Slot,
-        _config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
+        config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
@@ -1661,20 +1661,155 @@ impl Full for SurfpoolFullRpc {
 
     fn get_blocks(
         &self,
-        _meta: Self::Metadata,
-        _start_slot: Slot,
-        _wrapper: Option<RpcBlocksConfigWrapper>,
-        _config: Option<RpcContextConfig>,
+        meta: Self::Metadata,
+        start_slot: Slot,
+        wrapper: Option<RpcBlocksConfigWrapper>,
+        config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>> {
-        not_implemented_err_async("get_blocks")
+        let end_slot = match wrapper {
+            Some(RpcBlocksConfigWrapper::EndSlotOnly(end_slot)) => end_slot,
+            Some(RpcBlocksConfigWrapper::ConfigOnly(_)) => None,
+            None => None,
+        };
+
+        let config = config.unwrap_or_default();
+        let commitment = config.commitment.unwrap_or_default();
+
+        const MAX_SLOT_RANGE: u64 = 500_000;
+        if let Some(end) = end_slot {
+            if end < start_slot {
+                // early return for invalid range
+                return Box::pin(async { Ok(vec![]) });
+            }
+            if end.saturating_sub(start_slot) > MAX_SLOT_RANGE {
+                return Box::pin(async move {
+                    Err(Error::invalid_params(format!(
+                        "Slot range too large. Maximum: {}, Requested: {}",
+                        MAX_SLOT_RANGE,
+                        end.saturating_sub(start_slot)
+                    )))
+                });
+            }
+        }
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(commitment) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            // single read lock acquisition for all local state
+            let (local_min_slot, local_slots, effective_end_slot, committed_latest_slot) =
+                svm_locker.with_svm_reader(|svm_reader| {
+                    let latest_slot = svm_reader.get_latest_absolute_slot();
+                    let committed_latest_slot = match commitment.commitment {
+                        CommitmentLevel::Processed => latest_slot,
+                        CommitmentLevel::Confirmed => latest_slot.saturating_sub(1),
+                        CommitmentLevel::Finalized => {
+                            latest_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
+                        }
+                    };
+
+                    let effective_end_slot = end_slot
+                        .map(|end| end.min(committed_latest_slot))
+                        .unwrap_or(committed_latest_slot);
+
+                    if effective_end_slot < start_slot {
+                        return (None, vec![], effective_end_slot, committed_latest_slot);
+                    }
+
+                    let local_min_slot = svm_reader.blocks.keys().min().copied();
+
+                    let local_slots: Vec<Slot> = svm_reader
+                        .blocks
+                        .keys()
+                        .filter(|&&slot| {
+                            let in_range = slot >= start_slot
+                                && slot <= effective_end_slot
+                                && slot <= committed_latest_slot;
+                            in_range
+                        })
+                        .copied()
+                        .collect();
+
+                    (
+                        local_min_slot,
+                        local_slots,
+                        effective_end_slot,
+                        committed_latest_slot,
+                    )
+                });
+
+            if let Some(min_context_slot) = config.min_context_slot {
+                if committed_latest_slot < min_context_slot {
+                    return Err(RpcCustomError::MinContextSlotNotReached {
+                        context_slot: min_context_slot,
+                    }
+                    .into());
+                }
+            }
+
+            if effective_end_slot.saturating_sub(start_slot) > MAX_SLOT_RANGE {
+                return Err(Error::invalid_params(format!(
+                    "Slot range too large. Maximum: {}, Requested: {}",
+                    MAX_SLOT_RANGE,
+                    effective_end_slot.saturating_sub(start_slot)
+                )));
+            }
+
+            let remote_slots = if let (Some((remote_client, _)), Some(local_min)) =
+                (&remote_ctx, local_min_slot)
+            {
+                if start_slot < local_min {
+                    let remote_end = effective_end_slot.min(local_min.saturating_sub(1));
+                    if start_slot <= remote_end {
+                        remote_client
+                            .client
+                            .get_blocks(start_slot, Some(remote_end))
+                            .await
+                            .unwrap_or_else(|_| vec![])
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                }
+            } else if remote_ctx.is_some() && local_min_slot.is_none() {
+                remote_ctx
+                    .as_ref()
+                    .unwrap()
+                    .0
+                    .client
+                    .get_blocks(start_slot, Some(effective_end_slot))
+                    .await
+                    .unwrap_or_else(|_| vec![])
+            } else {
+                vec![]
+            };
+
+            // Combine results
+            let mut combined_slots = remote_slots;
+            combined_slots.extend(local_slots);
+            combined_slots.sort_unstable();
+            combined_slots.dedup();
+
+            if combined_slots.len() > MAX_SLOT_RANGE as usize {
+                combined_slots.truncate(MAX_SLOT_RANGE as usize);
+            }
+
+            Ok(combined_slots)
+        })
     }
 
     fn get_blocks_with_limit(
         &self,
-        _meta: Self::Metadata,
-        _start_slot: Slot,
-        _limit: usize,
-        _config: Option<RpcContextConfig>,
+        meta: Self::Metadata,
+        start_slot: Slot,
+        limit: usize,
+        config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>> {
         not_implemented_err_async("get_blocks_with_limit")
     }
@@ -2728,5 +2863,511 @@ mod tests {
             res.is_empty(),
             "Expected no prioritization fees for random account"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_basic() {
+        // basic functionality with explicit start and end slots
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+
+            for slot in 100..=102 {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+
+            svm_writer.latest_epoch_info.absolute_slot = 150;
+        }
+
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                100,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(102))),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result, vec![100, 101, 102]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_no_end_slot() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+
+            for slot in 100..=105 {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+
+            svm_writer.latest_epoch_info.absolute_slot = 105;
+        }
+
+        // test without end slot - should return up to committed latest
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                100,
+                None,
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Confirmed,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .await
+            .unwrap();
+
+        // with confirmed commitment, latest should be 105 - 1 = 104
+        assert_eq!(result, vec![100, 101, 102, 103, 104]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_commitment_levels() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+
+            for slot in 50..=100 {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+
+            svm_writer.latest_epoch_info.absolute_slot = 100;
+        }
+
+        // processed commitment -> latest = 100
+        let processed_result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                95,
+                None,
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Processed,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(processed_result, vec![95, 96, 97, 98, 99, 100]);
+
+        // confirmed commitment -> latest = 99
+        let confirmed_result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                95,
+                None,
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Confirmed,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(confirmed_result, vec![95, 96, 97, 98, 99]);
+
+        // finalized commitment -> latest = 100 - 31(finalization threshold)
+        let finalized_result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                65,
+                None,
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Finalized,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(finalized_result, vec![65, 66, 67, 68, 69]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_min_context_slot() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+
+            for slot in 100..=110 {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+
+            svm_writer.latest_epoch_info.absolute_slot = 110;
+        }
+
+        // min_context_slot = 105 > 79, so should return MinContextSlotNotReached error
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                100,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(105))),
+                Some(RpcContextConfig {
+                    commitment: None,
+                    min_context_slot: Some(105),
+                }),
+            )
+            .await;
+
+        assert!(result.is_err());
+
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                105,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(108))),
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Processed,
+                    }),
+                    min_context_slot: Some(105),
+                }),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result, vec![105, 106, 107, 108]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_sparse_blocks() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+
+            // sparse blocks (only some slots have blocks)
+            for slot in [100, 102, 105, 107, 110].iter() {
+                svm_writer.blocks.insert(
+                    *slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: *slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+
+            svm_writer.latest_epoch_info.absolute_slot = 150;
+        }
+
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                100,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(115))),
+                None,
+            )
+            .await
+            .unwrap();
+
+        // should only return slots that actually have blocks
+        assert_eq!(result, vec![100, 102, 105, 107, 110]);
+    }
+
+    // helper to insert blocks into the SVM at specific slots
+    fn insert_test_blocks(setup: &TestSetup<SurfpoolFullRpc>, slots: Vec<Slot>) {
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            for slot in &slots {
+                svm_writer.blocks.insert(
+                    *slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot.saturating_sub(1)),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: *slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: vec![],
+                    },
+                );
+            }
+        });
+    }
+
+    // helper to set up SVM state with proper latest_slot
+    fn setup_svm_state(setup: &TestSetup<SurfpoolFullRpc>, latest_slot: Slot, blocks: Vec<Slot>) {
+        // set latest_slot first
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer.latest_epoch_info.absolute_slot = latest_slot;
+            println!("🔧 Set latest_slot to {}", latest_slot);
+        });
+
+        // then insert blocks
+        insert_test_blocks(setup, blocks);
+
+        let (local_min, local_max, current_latest) =
+            setup.context.svm_locker.with_svm_reader(|svm_reader| {
+                let min = svm_reader.blocks.keys().min().copied();
+                let max = svm_reader.blocks.keys().max().copied();
+                let latest = svm_reader.get_latest_absolute_slot();
+                (min, max, latest)
+            });
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_local_only() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        insert_test_blocks(&setup, (50..=100).collect());
+
+        // request blocks 75-90 (all local)
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context),
+                75,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(90))),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let expected: Vec<Slot> = (75..=90).collect();
+        assert_eq!(result, expected, "Should return all local blocks in range");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_no_remote_context() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        insert_test_blocks(&setup, (50..=100).collect());
+
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context),
+                10,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(60))),
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Should only return local blocks 50-60 (no remote fetching without remote context)
+        let expected: Vec<Slot> = (50..=60).collect();
+        assert_eq!(
+            result, expected,
+            "Should return only local blocks when no remote context"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_remote_fetch_below_local_minimum() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let local_slots = vec![50, 51, 52, 60, 61, 70, 80, 90, 100];
+        insert_test_blocks(&setup, local_slots);
+
+        let local_min = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+            let min = svm_reader.blocks.keys().min().copied();
+            let all_blocks: Vec<_> = svm_reader.blocks.keys().copied().collect();
+            min
+        });
+        assert_eq!(local_min, Some(50), "Local minimum should be slot 50");
+
+        // case 1: request blocks 10-30 (entirely before local minimum)
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                10,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(30))),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Vec::<Slot>::new(),
+            "Should return empty when no remote context available for pre-local range"
+        );
+
+        // case 2: request blocks 10-60 (spans below and into local range)
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                10,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(60))),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let expected_local_portion = vec![50, 51, 52, 60];
+        assert_eq!(
+            result, expected_local_portion,
+            "Should return only local blocks when no remote context"
+        );
+
+        // test Case 3: request blocks 45-55 (some before, some in local range)
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                45,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(55))),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let expected = vec![50, 51, 52];
+        assert_eq!(
+            result, expected,
+            "Should return only available local blocks in range"
+        );
+
+        // case 4: Request blocks 55-65 (entirely within/after local minimum)
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context),
+                55,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(65))),
+                None,
+            )
+            .await
+            .unwrap();
+
+        //return local blocks [60, 61] -> no remote fetch needed since start_slot >= local_min
+        let expected = vec![60, 61];
+        assert_eq!(
+            result, expected,
+            "Should return local blocks when request is at/after local minimum"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_all_below_range_mock_remote() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer.latest_epoch_info.absolute_slot = 200; // set to 200 so all blocks are "committed"
+        });
+
+        insert_test_blocks(&setup, (100..=150).collect());
+
+        let (local_min, latest_slot) = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+            let min = svm_reader.blocks.keys().min().copied();
+            let latest = svm_reader.get_latest_absolute_slot();
+            let _available: Vec<_> = svm_reader.blocks.keys().copied().collect();
+            (min, latest)
+        });
+        assert_eq!(local_min, Some(100), "Local minimum should be 100");
+        assert_eq!(latest_slot, 200, "Latest slot should be 200");
+
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                10,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(50))),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Vec::<Slot>::new(),
+            "Should be empty without remote context"
+        );
+
+        // case 2: Request blocks 5-30 (even further below)
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context.clone()),
+                5,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(30))),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Vec::<Slot>::new(),
+            "Should be empty without remote context"
+        );
+
+        // case 3: Request blocks 80-120 (spans below and into local)
+        let result = setup
+            .rpc
+            .get_blocks(
+                Some(setup.context),
+                80,
+                Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(120))),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let expected_local: Vec<Slot> = (100..=120).collect();
+        assert_eq!(result, expected_local, "Should return local blocks 100-120");
     }
 }
