@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
+    path::PathBuf,
     sync::Arc,
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
@@ -9,7 +10,7 @@ use std::{
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, ReplicaTransactionInfoV2, ReplicaTransactionInfoVersions,
 };
-use chrono::Utc;
+use chrono::{Local, Utc};
 use crossbeam::select;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ipc_channel::{
@@ -20,6 +21,8 @@ use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
 use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
+use libloading::Library;
+use solana_geyser_plugin_manager::geyser_plugin_manager::GeyserPluginManagerError;
 use solana_message::{v0::LoadedAddresses, SimpleAddressLoader};
 use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
@@ -241,36 +244,36 @@ fn start_geyser_runloop(
         //
         // Proof of concept:
         //
-        // let geyser_plugin_config_file = PathBuf::from("../../surfpool_subgraph_plugin.json");
-        // let contents = "{\"name\": \"surfpool-subgraph\", \"libpath\": \"target/release/libsurfpool_subgraph.dylib\"}";
-        // let result: serde_json::Value = json5::from_str(&contents).unwrap();
-        // let libpath = result["libpath"]
-        //     .as_str()
-        //     .unwrap();
-        // let mut libpath = PathBuf::from(libpath);
-        // if libpath.is_relative() {
-        //     let config_dir = geyser_plugin_config_file.parent().ok_or_else(|| {
-        //         GeyserPluginManagerError::CannotOpenConfigFile(format!(
-        //             "Failed to resolve parent of {geyser_plugin_config_file:?}",
-        //         ))
-        //     }).unwrap();
-        //     libpath = config_dir.join(libpath);
-        // }
-        // let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or(format!("surfpool-subgraph"));
-        // let (plugin, lib) = unsafe {
-        //     let lib = match Library::new(&surfpool_subgraph_path) {
-        //         Ok(lib) => lib,
-        //         Err(e) => {
-        //             let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
-        //             continue;
-        //         }
-        //     };
-        //     let constructor: Symbol<PluginConstructor> = lib
-        //         .get(b"_create_plugin")
-        //         .map_err(|e| format!("{}", e.to_string()))?;
-        //     let plugin_raw = constructor();
-        //     (Box::from_raw(plugin_raw), lib)
-        // };
+        let geyser_plugin_config_file = PathBuf::from("../../surfpool_subgraph_plugin.json");
+        let contents = "{\"name\": \"surfpool-subgraph\", \"libpath\": \"target/release/libsurfpool_subgraph.dylib\"}";
+        let result: serde_json::Value = json5::from_str(&contents).unwrap();
+        let libpath = result["libpath"]
+            .as_str()
+            .unwrap();
+        let mut libpath = PathBuf::from(libpath);
+        if libpath.is_relative() {
+            let config_dir = geyser_plugin_config_file.parent().ok_or_else(|| {
+                GeyserPluginManagerError::CannotOpenConfigFile(format!(
+                    "Failed to resolve parent of {geyser_plugin_config_file:?}",
+                ))
+            }).unwrap();
+            libpath = config_dir.join(libpath);
+        }
+        let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or(format!("surfpool-subgraph"));
+        let (plugin, lib) = unsafe {
+            let lib = match Library::new(&surfpool_subgraph_path) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
+                    continue;
+                }
+            };
+            let constructor: Symbol<PluginConstructor> = lib
+                .get(b"_create_plugin")
+                .map_err(|e| format!("{}", e.to_string()))?;
+            let plugin_raw = constructor();
+            (Box::from_raw(plugin_raw), lib)
+        };
 
         let err = loop {
             select! {
