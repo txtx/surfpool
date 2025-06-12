@@ -56,6 +56,10 @@ pub enum JsonValue {
     Object(HashMap<String, JsonValue>),
     #[schemars(description = "A JSON representation of a base58-encoded public key")]
     PublicKey(String),
+    #[schemars(description = "A JSON representation of a base58-encoded mint address")]
+    MintAddress(String),
+    #[schemars(description = "A JSON representation of a program ID")]
+    ProgramId(String),
 }
 
 impl From<JsonValue> for Value {
@@ -66,6 +70,8 @@ impl From<JsonValue> for Value {
             JsonValue::Number(n) => Value::Number(serde_json::Number::from(n)),
             JsonValue::String(s) => Value::String(s),
             JsonValue::PublicKey(s) => Value::String(s),
+            JsonValue::MintAddress(s) => Value::String(s),
+            JsonValue::ProgramId(s) => Value::String(s),
             JsonValue::Array(arr) => Value::Array(arr.into_iter().map(Value::from).collect()),
             JsonValue::Object(obj) => {
                 Value::Object(obj.into_iter().map(|(k, v)| (k, Value::from(v))).collect())
