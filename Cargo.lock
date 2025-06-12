@@ -5591,7 +5591,7 @@ dependencies = [
 [[package]]
 name = "rmcp"
 version = "0.1.5"
-source = "git+https://github.com/modelcontextprotocol/rust-sdk?branch=main#db03f63e76b5b32f65d34a1bd08ae56dab595f60"
+source = "git+https://github.com/modelcontextprotocol/rust-sdk?branch=main#ff71a526156e6c9409c450f71eccd6aced9bc339"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5621,7 +5621,7 @@ dependencies = [
 [[package]]
 name = "rmcp-macros"
 version = "0.1.5"
-source = "git+https://github.com/modelcontextprotocol/rust-sdk?branch=main#db03f63e76b5b32f65d34a1bd08ae56dab595f60"
+source = "git+https://github.com/modelcontextprotocol/rust-sdk?branch=main#ff71a526156e6c9409c450f71eccd6aced9bc339"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9734,7 +9734,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "surfpool-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -9786,7 +9786,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -9862,7 +9862,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-gql"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "blake3",
  "convert_case 0.8.0",
@@ -9880,7 +9880,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-mcp"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "axum",
  "bs58",
@@ -9901,7 +9901,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-subgraph"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "ipc-channel",
@@ -9915,7 +9915,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-types"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "blake3",
  "chrono",
