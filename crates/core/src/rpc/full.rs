@@ -29,7 +29,6 @@ use solana_sdk::{
 };
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatus,
     UiConfirmedBlock, UiTransactionEncoding,
@@ -1572,30 +1571,8 @@ impl Full for SurfpoolFullRpc {
                 blockhash: latest_blockhash.to_string(),
                 last_valid_block_height: latest_epoch_info.block_height,
             });
-            // verify valid signatures on the transaction
-            if config.sig_verify {
-                if unsanitized_tx
-                    .verify_with_results()
-                    .iter()
-                    .any(|valid| !*valid)
-                {
-                    let value = RpcSimulateTransactionResult {
-                        err: Some(TransactionError::SignatureFailure),
-                        logs: None,
-                        accounts: None,
-                        units_consumed: None,
-                        return_data: None,
-                        inner_instructions: None,
-                        replacement_blockhash: None,
-                    };
-                    return Ok(RpcResponse {
-                        context: RpcResponseContext::new(slot),
-                        value,
-                    });
-                }
-            }
 
-            let value = match svm_locker.simulate_transaction(unsanitized_tx) {
+            let value = match svm_locker.simulate_transaction(unsanitized_tx, config.sig_verify) {
                 Ok(tx_info) => {
                     let mut accounts = None;
                     if let Some(observed_accounts) = config.accounts {
@@ -1960,6 +1937,7 @@ mod tests {
         versioned::{Legacy, TransactionVersion},
         Transaction,
     };
+    use solana_transaction_error::TransactionError;
     use solana_transaction_status::{
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
         UiRawMessage, UiTransaction,

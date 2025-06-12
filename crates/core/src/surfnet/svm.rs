@@ -3,7 +3,9 @@ use std::collections::{HashMap, VecDeque};
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use litesvm::{
-    types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult},
+    types::{
+        FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
+    },
     LiteSVM,
 };
 use solana_account::Account;
@@ -90,7 +92,8 @@ impl SurfnetSvm {
 
         let inner = LiteSVM::new()
             .with_feature_set(feature_set)
-            .with_blockhash_check(false);
+            .with_blockhash_check(false)
+            .with_sigverify(false);
 
         (
             Self {
@@ -346,6 +349,13 @@ impl SurfnetSvm {
         tx: VersionedTransaction,
         cu_analysis_enabled: bool,
     ) -> TransactionResult {
+        if tx.verify_with_results().iter().any(|valid| !*valid) {
+            return Err(FailedTransactionMetadata {
+                err: TransactionError::SignatureFailure,
+                meta: TransactionMetadata::default(),
+            });
+        }
+
         if cu_analysis_enabled {
             let estimation_result = self.estimate_compute_units(&tx);
             let _ =
@@ -362,7 +372,7 @@ impl SurfnetSvm {
         self.transactions_processed += 1;
 
         if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
-            let meta = litesvm::types::TransactionMetadata::default();
+            let meta = TransactionMetadata::default();
             let err = solana_transaction_error::TransactionError::BlockhashNotFound;
 
             let transaction_meta = convert_transaction_metadata_from_canonical(&meta);
@@ -459,10 +469,19 @@ impl SurfnetSvm {
     pub fn simulate_transaction(
         &self,
         tx: VersionedTransaction,
+        sigverify: bool,
     ) -> Result<SimulatedTransactionInfo, FailedTransactionMetadata> {
+        if sigverify {
+            if tx.verify_with_results().iter().any(|valid| !*valid) {
+                return Err(FailedTransactionMetadata {
+                    err: TransactionError::SignatureFailure,
+                    meta: TransactionMetadata::default(),
+                });
+            }
+        }
         if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
-            let meta = litesvm::types::TransactionMetadata::default();
-            let err = solana_transaction_error::TransactionError::BlockhashNotFound;
+            let meta = TransactionMetadata::default();
+            let err = TransactionError::BlockhashNotFound;
 
             return Err(FailedTransactionMetadata { err, meta });
         }
