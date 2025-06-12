@@ -976,14 +976,17 @@ mod tests {
         let result = setup.rpc.get_slot(Some(setup.context), None).unwrap();
         assert_eq!(result, 92);
     }
-    
+
     #[test]
     fn test_get_highest_snapshot_slot_returns_error() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
 
         let result = setup.rpc.get_highest_snapshot_slot(Some(setup.context));
 
-        assert!(result.is_err(), "Expected get_highest_snapshot_slot to return an error");
+        assert!(
+            result.is_err(),
+            "Expected get_highest_snapshot_slot to return an error"
+        );
 
         if let Err(error) = result {
             assert_eq!(
@@ -993,8 +996,7 @@ mod tests {
                 error.code
             );
             assert_eq!(
-                error.message, 
-                "No snapshot",
+                error.message, "No snapshot",
                 "Expected error message 'No snapshot', got '{}'",
                 error.message
             );
