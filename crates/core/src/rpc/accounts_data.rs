@@ -443,36 +443,30 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         meta: Self::Metadata,
         block: Slot,
     ) -> Result<RpcBlockCommitment<BlockCommitmentArray>> {
-            // get the info we need and free up lock before validation
-            let (current_slot, block_exists) = meta.with_svm_reader(|svm_reader| {
+        // get the info we need and free up lock before validation
+        let (current_slot, block_exists) = meta
+            .with_svm_reader(|svm_reader| {
                 (
                     svm_reader.get_latest_absolute_slot(),
-                    svm_reader.blocks.contains_key(&block)
+                    svm_reader.blocks.contains_key(&block),
                 )
-            }).map_err(Into::<jsonrpc_core::Error>::into)?;
-            
-            // block is valid if it exists in our block history or it's not too far in the future
-            if !block_exists && block > current_slot {
-                return Err(jsonrpc_core::Error::invalid_params(format!("Block {} not found", block)));
-            }
-            
-            
-            let mut commitment_array = [0u64; 32];
-            
-            // for blocks that exist OR are <= current slot
-            // this handles both:
-            // 1. blocks that are explicitly in the blocks HashMap (confirmed blocks)
-            // 2. current and past slots that might not be in blocks HashMap yet
-            if block_exists || block <= current_slot {
-                commitment_array[30] = 100;
-                commitment_array[31] = 50;
-            }
-            
-            Ok(RpcBlockCommitment {
-                commitment: Some(commitment_array),
-                total_stake: 150, 
             })
-        
+            .map_err(Into::<jsonrpc_core::Error>::into)?;
+
+        // block is valid if it exists in our block history or it's not too far in the future
+        if !block_exists && block > current_slot {
+            return Err(jsonrpc_core::Error::invalid_params(format!(
+                "Block {} not found",
+                block
+            )));
+        }
+
+        let commitment_array = [0u64; 32];
+
+        Ok(RpcBlockCommitment {
+            commitment: Some(commitment_array),
+            total_stake: 0,
+        })
     }
 
     // SPL Token-specific RPC endpoints
@@ -668,60 +662,34 @@ mod tests {
     }
 
     #[test]
-    fn test_get_block_commitment_basic() {
-        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-        let current_slot = setup.context.svm_locker.get_latest_absolute_slot();
-        let past_slot = if current_slot > 10 { current_slot - 10 } else { 0 };
-        
-        let result = setup.rpc.get_block_commitment(Some(setup.context), past_slot).unwrap();
-        
-        println!(" Response: {:?}", result);
-    }
-
-
-    #[test]
-    fn test_get_block_commitment_current_slot() {
-        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-        let current_slot = setup.context.svm_locker.get_latest_absolute_slot();
-        
-        let result = setup.rpc.get_block_commitment(Some(setup.context), current_slot).unwrap();
-        
-        // Should return commitment data for current slot
-        assert!(result.commitment.is_some());
-        assert_eq!(result.total_stake, 150);
-        
-        let commitment_array = result.commitment.unwrap();
-        assert_eq!(commitment_array[30], 100);
-        assert_eq!(commitment_array[31], 50);
-
-        // other indices should be 0
-        for i in 0..30 {
-            assert_eq!(commitment_array[i], 0);
-        }
-    }
-
-    #[test]
     fn test_get_block_commitment_past_slot() {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
         let current_slot = setup.context.svm_locker.get_latest_absolute_slot();
-        let past_slot = if current_slot > 10 { current_slot - 10 } else { 0 };
-        
-        let result = setup.rpc.get_block_commitment(Some(setup.context), past_slot).unwrap();
-        
+        let past_slot = if current_slot > 10 {
+            current_slot - 10
+        } else {
+            0
+        };
+
+        let result = setup
+            .rpc
+            .get_block_commitment(Some(setup.context), past_slot)
+            .unwrap();
+
         // Should return commitment data for past slot
         assert!(result.commitment.is_some());
-        assert_eq!(result.total_stake, 150);
+        assert_eq!(result.total_stake, 0);
     }
 
     #[test]
     fn test_get_block_commitment_with_actual_block() {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-        
+
         // create a block in the SVM's block history
         let test_slot = 12345;
         setup.context.svm_locker.with_svm_writer(|svm_writer| {
             use crate::surfnet::BlockHeader;
-            
+
             svm_writer.blocks.insert(
                 test_slot,
                 BlockHeader {
@@ -734,20 +702,23 @@ mod tests {
                 },
             );
         });
-        
-        let result = setup.rpc.get_block_commitment(Some(setup.context), test_slot).unwrap();
-        
+
+        let result = setup
+            .rpc
+            .get_block_commitment(Some(setup.context), test_slot)
+            .unwrap();
+
         // should return commitment data for the existing block
         assert!(result.commitment.is_some());
-        assert_eq!(result.total_stake, 150);
+        assert_eq!(result.total_stake, 0);
     }
 
-    #[test] 
+    #[test]
     fn test_get_block_commitment_no_metadata() {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-        
+
         let result = setup.rpc.get_block_commitment(None, 123);
-        
+
         assert!(result.is_err());
         // This should fail because meta is None, triggering the SurfpoolError::no_locker() path
     }
@@ -757,15 +728,16 @@ mod tests {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
         let current_slot = setup.context.svm_locker.get_latest_absolute_slot();
         let future_slot = current_slot + 1000;
-        
-        let result = setup.rpc.get_block_commitment(Some(setup.context), future_slot);
-        
+
+        let result = setup
+            .rpc
+            .get_block_commitment(Some(setup.context), future_slot);
+
         // Should return an error for future slots
         assert!(result.is_err());
-        
+
         let error = result.unwrap_err();
         assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
         assert!(error.message.contains("Block") && error.message.contains("not found"));
     }
-
 }
