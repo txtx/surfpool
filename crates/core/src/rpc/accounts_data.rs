@@ -440,10 +440,33 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
     fn get_block_commitment(
         &self,
-        _meta: Self::Metadata,
-        _block: Slot,
+        meta: Self::Metadata,
+        block: Slot,
     ) -> Result<RpcBlockCommitment<BlockCommitmentArray>> {
-        not_implemented_err("get_block_commitment")
+        // get the info we need and free up lock before validation
+        let (current_slot, block_exists) = meta
+            .with_svm_reader(|svm_reader| {
+                (
+                    svm_reader.get_latest_absolute_slot(),
+                    svm_reader.blocks.contains_key(&block),
+                )
+            })
+            .map_err(Into::<jsonrpc_core::Error>::into)?;
+
+        // block is valid if it exists in our block history or it's not too far in the future
+        if !block_exists && block > current_slot {
+            return Err(jsonrpc_core::Error::invalid_params(format!(
+                "Block {} not found",
+                block
+            )));
+        }
+
+        let commitment_array = [0u64; 32];
+
+        Ok(RpcBlockCommitment {
+            commitment: Some(commitment_array),
+            total_stake: 0,
+        })
     }
 
     // SPL Token-specific RPC endpoints
@@ -636,5 +659,85 @@ mod tests {
                 ui_amount_string: String::from("100")
             }
         );
+    }
+
+    #[test]
+    fn test_get_block_commitment_past_slot() {
+        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
+        let current_slot = setup.context.svm_locker.get_latest_absolute_slot();
+        let past_slot = if current_slot > 10 {
+            current_slot - 10
+        } else {
+            0
+        };
+
+        let result = setup
+            .rpc
+            .get_block_commitment(Some(setup.context), past_slot)
+            .unwrap();
+
+        // Should return commitment data for past slot
+        assert!(result.commitment.is_some());
+        assert_eq!(result.total_stake, 0);
+    }
+
+    #[test]
+    fn test_get_block_commitment_with_actual_block() {
+        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
+
+        // create a block in the SVM's block history
+        let test_slot = 12345;
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            use crate::surfnet::BlockHeader;
+
+            svm_writer.blocks.insert(
+                test_slot,
+                BlockHeader {
+                    hash: "test_hash".to_string(),
+                    previous_blockhash: "prev_hash".to_string(),
+                    parent_slot: test_slot - 1,
+                    block_time: chrono::Utc::now().timestamp_millis(),
+                    block_height: test_slot,
+                    signatures: vec![],
+                },
+            );
+        });
+
+        let result = setup
+            .rpc
+            .get_block_commitment(Some(setup.context), test_slot)
+            .unwrap();
+
+        // should return commitment data for the existing block
+        assert!(result.commitment.is_some());
+        assert_eq!(result.total_stake, 0);
+    }
+
+    #[test]
+    fn test_get_block_commitment_no_metadata() {
+        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
+
+        let result = setup.rpc.get_block_commitment(None, 123);
+
+        assert!(result.is_err());
+        // This should fail because meta is None, triggering the SurfpoolError::no_locker() path
+    }
+
+    #[test]
+    fn test_get_block_commitment_future_slot_error() {
+        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
+        let current_slot = setup.context.svm_locker.get_latest_absolute_slot();
+        let future_slot = current_slot + 1000;
+
+        let result = setup
+            .rpc
+            .get_block_commitment(Some(setup.context), future_slot);
+
+        // Should return an error for future slots
+        assert!(result.is_err());
+
+        let error = result.unwrap_err();
+        assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
+        assert!(error.message.contains("Block") && error.message.contains("not found"));
     }
 }
