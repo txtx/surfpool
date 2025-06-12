@@ -1,18 +1,22 @@
 use std::{
     collections::HashMap,
-    net::TcpListener,
     sync::{Arc, RwLock},
 };
 
 use rmcp::{
     handler::server::wrapper::Json,
-    model::{ServerCapabilities, ServerInfo},
-    schemars, tool, ServerHandler,
+    model::{ListResourcesResult, RawResource, ReadResourceResult, *},
+    schemars,
+    service::RequestContext,
+    tool, Error as McpError, RoleServer, ServerHandler,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use set_token_account::{SeededAccount, SetAccountSuccess, SetTokenAccountsResponse};
 use start_surfnet::StartSurfnetResponse;
+
+use crate::helpers::find_next_available_surfnet_port;
 
 mod set_token_account;
 mod start_surfnet;
@@ -33,6 +37,46 @@ impl Surfpool {
 impl Default for Surfpool {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub enum JsonValue {
+    #[schemars(description = "A JSON representation of null")]
+    Null,
+    #[schemars(description = "A JSON representation of a boolean")]
+    Bool(bool),
+    #[schemars(description = "A JSON representation of a number")]
+    Number(i64),
+    #[schemars(description = "A JSON representation of a string")]
+    String(String),
+    #[schemars(description = "A JSON representation of an array")]
+    Array(Vec<JsonValue>),
+    #[schemars(description = "A JSON representation of an object with key-value pairs")]
+    Object(HashMap<String, JsonValue>),
+    #[schemars(description = "A JSON representation of a base58-encoded public key")]
+    PublicKey(String),
+    #[schemars(description = "A JSON representation of a base58-encoded mint address")]
+    MintAddress(String),
+    #[schemars(description = "A JSON representation of a program ID")]
+    ProgramId(String),
+}
+
+impl From<JsonValue> for Value {
+    fn from(val: JsonValue) -> Self {
+        match val {
+            JsonValue::Null => Value::Null,
+            JsonValue::Bool(b) => Value::Bool(b),
+            JsonValue::Number(n) => Value::Number(serde_json::Number::from(n)),
+            JsonValue::String(s) => Value::String(s),
+            JsonValue::PublicKey(s) => Value::String(s),
+            JsonValue::MintAddress(s) => Value::String(s),
+            JsonValue::ProgramId(s) => Value::String(s),
+            JsonValue::Array(arr) => Value::Array(arr.into_iter().map(Value::from).collect()),
+            JsonValue::Object(obj) => {
+                Value::Object(obj.into_iter().map(|(k, v)| (k, Value::from(v))).collect())
+            }
+        }
     }
 }
 
@@ -68,25 +112,6 @@ pub struct CreateTokenAccountParams {
     pub token_amount: Option<u64>,
 }
 
-fn is_port_available(port: u16) -> bool {
-    TcpListener::bind(("127.0.0.1", port)).is_ok()
-}
-
-fn find_next_available_surfnet_port() -> Result<(u16, u16), String> {
-    let mut surfnet_id: u16 = 0;
-    while surfnet_id.checked_add(1).is_some() {
-        let port = 8899 + (surfnet_id * 10000);
-        let ws_port = port.saturating_sub(9);
-        if ws_port > 0 && is_port_available(port) && is_port_available(ws_port) {
-            return Ok((surfnet_id, port));
-        }
-        surfnet_id += 1;
-    }
-    Err(format!(
-        "No available surfnet ports of format 127.0.0.1:x8899 found."
-    ))
-}
-
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct StartSurfnetWithTokenAccountsSuccess {
     #[schemars(description = "The RPC URL of the newly started surfnet instance.")]
@@ -107,6 +132,36 @@ impl StartSurfnetWithTokenAccountsResponse {
     pub fn success(data: StartSurfnetWithTokenAccountsSuccess) -> Self {
         Self {
             success: Some(data),
+            error: None,
+        }
+    }
+
+    pub fn error(message: String) -> Self {
+        Self {
+            success: None,
+            error: Some(message),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct SurfnetRpcCallSuccess {
+    #[schemars(description = "The RPC method that was called")]
+    pub method: String,
+    #[schemars(description = "The result returned by the RPC method")]
+    pub result: Value,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct SurfnetRpcCallResponse {
+    pub success: Option<SurfnetRpcCallSuccess>,
+    pub error: Option<String>,
+}
+
+impl SurfnetRpcCallResponse {
+    pub fn success(method: String, result: Value) -> Self {
+        Self {
+            success: Some(SurfnetRpcCallSuccess { method, result }),
             error: None,
         }
     }
@@ -259,6 +314,93 @@ impl Surfpool {
             },
         ))
     }
+
+    /// Calls any RPC method on a running surfnet instance.
+    /// This generic method allows calling any of the available surfnet cheatcode RPC methods.
+    /// The LLM will interpret user requests and determine which method to call with appropriate parameters.
+    #[tool(
+        description = "Calls any RPC method on a running surfnet instance. This is a generic method that can invoke any surfnet RPC method. The LLM should interpret user requests and determine the appropriate method and parameters to call. To retrieve the list of RPC endpoints available check the resource str:///rpc_endpoints"
+    )]
+    pub fn call_surfnet_rpc(
+        &self,
+        #[tool(param)]
+        #[schemars(
+            description = "The port of a running local surfnet instance (e.g., 8899, 18899, 28899, etc.)."
+        )]
+        surfnet_port: u16,
+        #[tool(param)]
+        #[schemars(
+            description = "The RPC method name to call,for example: 'sendTransaction', 'simulateTransaction', 'getAccountInfo', 'getBalance', 'getTokenAccountBalance', 'getTokenSupply', 'getProgramAccounts', 'getTokenAccountsByOwner', 'getSlot',
+            'getEpochInfo', 'requestAirdrop', 'surfnet_setAccount', 'getHealth', 'getTokenAccountsByOwner', 'getTokenAccountsByDelegate', 
+            'getTokenAccountsByDelegateAndMint', 'getTokenAccountsByDelegateAndMintAndOwner', 'getTokenAccountsByDelegateAndMintAndOwnerAndProgramId', 'getTokenAccountsByDelegateAndMintAndOwnerAndProgramIdAndOwner', surfnet_getProfileResults, etc. 
+            A list of all the RPC methods available can be found at str:///rpc_endpoints"
+        )]
+        method: String,
+        #[tool(param)]
+        #[schemars(description = "The parameters to pass to the RPC method")]
+        params: Vec<JsonValue>,
+    ) -> Json<SurfnetRpcCallResponse> {
+        let surfnet_endpoint = format!("http://127.0.0.1:{}", surfnet_port);
+        let params: Vec<Value> = params.into_iter().map(Into::into).collect();
+        let rpc_request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": params
+        });
+
+        // Make the RPC request to the surfnet RPC endpoint
+        let client = reqwest::blocking::Client::new();
+        let response = match client
+            .post(&surfnet_endpoint)
+            .header("Content-Type", "application/json")
+            .json(&rpc_request)
+            .send()
+        {
+            Ok(resp) => resp,
+            Err(e) => {
+                return Json(SurfnetRpcCallResponse::error(format!(
+                    "Failed to send RPC request to {}: {}",
+                    surfnet_endpoint, e
+                )));
+            }
+        };
+
+        let response_text = match response.text() {
+            Ok(text) => text,
+            Err(e) => {
+                return Json(SurfnetRpcCallResponse::error(format!(
+                    "Failed to read response text: {}",
+                    e
+                )));
+            }
+        };
+
+        let rpc_response: serde_json::Value = match serde_json::from_str(&response_text) {
+            Ok(json) => json,
+            Err(e) => {
+                return Json(SurfnetRpcCallResponse::error(format!(
+                    "Failed to parse JSON response: {}. Response: {}",
+                    e, response_text
+                )));
+            }
+        };
+
+        if let Some(error) = rpc_response.get("error") {
+            return Json(SurfnetRpcCallResponse::error(format!(
+                "RPC error: {}",
+                error
+            )));
+        }
+
+        // Extract the result
+        let result = rpc_response
+            .get("result")
+            .unwrap_or(&serde_json::Value::Null)
+            .clone();
+
+        Json(SurfnetRpcCallResponse::success(method, result))
+    }
 }
 
 #[tool(tool_box)]
@@ -270,8 +412,59 @@ impl ServerHandler for Surfpool {
                 "Surfpool MCP server, your personal surfnet manager to start surfing on Solana!"
                     .into(),
             ),
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            capabilities: ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
             ..Default::default()
         }
+    }
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParam>,
+        _: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, McpError> {
+        Ok(ListResourcesResult {
+            resources: vec![RawResource {
+                uri: "str:///rpc_endpoints".to_string(),
+                name: "List of available RPC endpoints".to_string(),
+                description: Some("A json file containing all the RPC methods and the parameters available for being able to handle any RPC call with the tool call_surfnet_rpc".to_string()),
+                mime_type: Some("application/json".to_string()),
+                size: None,
+            }
+            .no_annotation()],
+            next_cursor: None,
+        })
+    }
+    async fn read_resource(
+        &self,
+        ReadResourceRequestParam { uri }: ReadResourceRequestParam,
+        _: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, McpError> {
+        match uri.as_str() {
+            "str:///rpc_endpoints" => {
+                let rpc_endpoints = include_str!("../../../types/src/rpc_endpoints.json");
+                Ok(ReadResourceResult {
+                    contents: vec![ResourceContents::TextResourceContents {
+                        uri,
+                        mime_type: Some("application/json".to_string()),
+                        text: rpc_endpoints.to_string(),
+                    }],
+                })
+            }
+            _ => Err(McpError::resource_not_found(
+                "resource_not_found",
+                Some(serde_json::json!({
+                    "uri": uri
+                })),
+            )),
+        }
+    }
+    async fn initialize(
+        &self,
+        _request: InitializeRequestParam,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, McpError> {
+        Ok(self.get_info())
     }
 }

@@ -1,0 +1,1425 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "name": "Transactions",
+      "description": "Endpoints for creating, sending, simulating, and querying the status of transactions.",
+      "endpoints": [
+        {
+          "method": "sendTransaction",
+          "description": "Sends a transaction.",
+          "params": [
+            {
+              "name": "transaction",
+              "type": "string",
+              "description": "The encoded transaction."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "skipPreflight": "boolean",
+                "preflightCommitment": "string",
+                "encoding": "string",
+                "maxRetries": "number",
+                "minContextSlot": "number"
+              }
+            }
+          ],
+          "returns": "The signature of the transaction."
+        },
+        {
+          "method": "simulateTransaction",
+          "description": "Simulates a transaction.",
+          "params": [
+            {
+              "name": "transaction",
+              "type": "string",
+              "description": "The encoded transaction."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "sigVerify": "boolean",
+                "replaceRecentBlockhash": "boolean",
+                "commitment": "string",
+                "encoding": "string",
+                "accounts": {
+                  "encoding": "string",
+                  "addresses": "array"
+                },
+                "minContextSlot": "number"
+              }
+            }
+          ],
+          "returns": "The result of the simulation."
+        },
+        {
+          "method": "getTransaction",
+          "description": "Returns a transaction.",
+          "params": [
+            {
+              "name": "signature",
+              "type": "string",
+              "description": "The signature of the transaction."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "encoding": "string",
+                "commitment": "string",
+                "maxSupportedTransactionVersion": "number"
+              }
+            }
+          ],
+          "returns": "The transaction."
+        },
+        {
+          "method": "getSignatureStatuses",
+          "description": "Returns the statuses of a list of signatures.",
+          "params": [
+            {
+              "name": "signatures",
+              "type": "array",
+              "description": "A list of transaction signatures."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "searchTransactionHistory": "boolean"
+              }
+            }
+          ],
+          "returns": "A list of transaction status objects."
+        },
+        {
+          "method": "getSignaturesForAddress",
+          "description": "Returns signatures for an address.",
+          "params": [
+            {
+              "name": "address",
+              "type": "string",
+              "description": "The address to get signatures for."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "before": "string",
+                "until": "string",
+                "limit": "number",
+                "commitment": "string",
+                "minContextSlot": "number"
+              }
+            }
+          ],
+          "returns": "A list of transaction signatures."
+        },
+        {
+          "method": "getFeeForMessage",
+          "description": "Returns the fee for a message.",
+          "params": [
+            {
+              "name": "message",
+              "type": "string",
+              "description": "The encoded message."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "The fee for the message."
+        },
+        {
+          "method": "getRecentPrioritizationFees",
+          "description": "Returns recent prioritization fees.",
+          "params": [
+            {
+              "name": "addresses",
+              "type": "array",
+              "description": "A list of addresses to get fees for."
+            }
+          ],
+          "returns": "A list of prioritization fees."
+        },
+        {
+          "method": "requestAirdrop",
+          "description": "Requests an airdrop of lamports to an account.",
+          "params": [
+            {
+              "name": "pubkey",
+              "type": "string",
+              "description": "The public key of the account to receive the airdrop."
+            },
+            {
+              "name": "lamports",
+              "type": "number",
+              "description": "The amount of lamports to airdrop."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "The signature of the airdrop transaction."
+        },
+        {
+          "method": "signatureSubscribe",
+          "description": "Subscribes to receive notifications for a given transaction signature.",
+          "params": [
+            {
+              "name": "signature",
+              "type": "string",
+              "description": "The transaction signature to subscribe to."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration for the subscription.",
+              "schema": {
+                "commitment": "string",
+                "enableReceivedNotification": "boolean"
+              }
+            }
+          ],
+          "returns": "A subscription ID."
+        },
+        {
+          "method": "signatureUnsubscribe",
+          "description": "Unsubscribes from signature notifications.",
+          "params": [
+            {
+              "name": "subscriptionId",
+              "type": "number",
+              "description": "The ID of the subscription to unsubscribe from."
+            }
+          ],
+          "returns": "A boolean indicating success."
+        }
+      ]
+    },
+    {
+      "name": "Accounts",
+      "description": "Endpoints for retrieving information about accounts, including balances, tokens, and program-owned accounts.",
+      "endpoints": [
+        {
+          "method": "getAccountInfo",
+          "description": "Returns detailed information about an account given its public key. This method queries the blockchain for the account associated with the provided public key string. It can be used to inspect balances, ownership, and program-related metadata.",
+          "params": [
+            {
+              "name": "pubkey",
+              "type": "string",
+              "description": "A base-58 encoded string representing the account's public key."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Optional configuration that controls encoding, commitment level, data slicing, and other response details.",
+              "schema": {
+                "encoding": "string",
+                "commitment": "string",
+                "dataSlice": "object"
+              }
+            }
+          ],
+          "returns": "A `RpcResponse` containing an optional `UiAccount` object if the account exists. If the account does not exist, the response will contain `null`.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getAccountInfo",
+            "params": [
+              "9XQeWMPMPXwW1fzLEQeTTrfF5Eb9dj8Qs3tCPoMw3GiE",
+              {
+                "encoding": "jsonParsed",
+                "commitment": "finalized"
+              }
+            ]
+          }
+        },
+        {
+          "method": "getMultipleAccounts",
+          "description": "Returns account information for multiple public keys in a single call. This method allows batching of account lookups for improved performance and fewer network roundtrips. It returns a list of `UiAccount` values in the same order as the provided public keys.",
+          "params": [
+            {
+              "name": "pubkeys",
+              "type": "array",
+              "description": "A list of base-58 encoded public key strings representing accounts to query.",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Optional configuration to control encoding, commitment level, data slicing, etc.",
+              "schema": {
+                "encoding": "string",
+                "commitment": "string",
+                "dataSlice": "object"
+              }
+            }
+          ],
+          "returns": "A `RpcResponse` wrapping a vector of optional `UiAccount` objects. Each element in the response corresponds to the public key at the same index in the request. If an account is not found, the corresponding entry will be `null`.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getMultipleAccounts",
+            "params": [
+              [
+                "9XQeWMPMPXwW1fzLEQeTTrfF5Eb9dj8Qs3tCPoMw3GiE",
+                "3nN8SBQ2HqTDNnaCzryrSv4YHd4d6GpVCEyDhKMPxN4o"
+              ],
+              {
+                "encoding": "jsonParsed",
+                "commitment": "confirmed"
+              }
+            ]
+          }
+        },
+        {
+          "method": "getBalance",
+          "description": "Returns the balance of the account of a given public key.",
+          "params": [
+            {
+              "name": "pubkey",
+              "type": "string",
+              "description": "Public key of account to query."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "The account balance, in lamports."
+        },
+        {
+          "method": "getTokenAccountBalance",
+          "description": "Returns the balance of a token account, given its public key. This method fetches the token balance of an account, including its amount and user-friendly information (like the UI amount in human-readable format). It is useful for token-related applications, such as checking balances in wallets or exchanges.",
+          "params": [
+            {
+              "name": "pubkey",
+              "type": "string",
+              "description": "The base-58 encoded string of the public key of the token account."
+            },
+            {
+              "name": "commitment",
+              "type": "object",
+              "description": "Optional commitment configuration to specify the desired confirmation level of the query.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "A `RpcResponse` containing the token balance in a `UiTokenAmount` struct. If the account doesn't hold any tokens or is invalid, the response will contain `null`.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountBalance",
+            "params": [
+              "3nN8SBQ2HqTDNnaCzryrSv4YHd4d6GpVCEyDhKMPxN4o",
+              {
+                "commitment": "confirmed"
+              }
+            ]
+          }
+        },
+        {
+          "method": "getTokenSupply",
+          "description": "Returns the total supply of a token, given its mint address. This method provides the total circulating supply of a specific token, including the raw amount and human-readable UI-formatted values. It can be useful for tracking token issuance and verifying the supply of a token on-chain.",
+          "params": [
+            {
+              "name": "mint",
+              "type": "string",
+              "description": "The base-58 encoded string of the mint address for the token."
+            },
+            {
+              "name": "commitment",
+              "type": "object",
+              "description": "Optional commitment configuration to specify the desired confirmation level of the query.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "A `RpcResponse` containing the total token supply in a `UiTokenAmount` struct. If the token does not exist or is invalid, the response will return an error.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenSupply",
+            "params": [
+              "So11111111111111111111111111111111111111112",
+              {
+                "commitment": "confirmed"
+              }
+            ]
+          }
+        },
+        {
+          "method": "getProgramAccounts",
+          "description": "Returns all accounts owned by the specified program ID, optionally filtered and configured. This RPC method retrieves all accounts whose owner is the given program. It is commonly used to scan on-chain program state, such as finding all token accounts, order books, or PDAs owned by a given program. The results can be filtered using data size, memory comparisons, and token-specific criteria.",
+          "params": [
+            {
+              "name": "programId",
+              "type": "string",
+              "description": "Base-58 encoded program ID to scan for owned accounts."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Optional configuration object allowing filters, encoding options, context inclusion, and sorting of results.",
+              "schema": {
+                "filters": "array",
+                "encoding": "string",
+                "withContext": "boolean",
+                "dataSlice": "object",
+                "commitment": "string",
+                "minContextSlot": "number"
+              }
+            }
+          ],
+          "returns": "A future resolving to a vector of `RpcKeyedAccount`s wrapped in an `OptionalContext`. Each result includes the account's public key and full account data.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getProgramAccounts",
+            "params": [
+              "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              {
+                "filters": [
+                  {
+                    "dataSize": 165
+                  },
+                  {
+                    "memcmp": {
+                      "offset": 0,
+                      "bytes": "3N5kaPhfUGuTQZPQ3mnDZZGkUZ97rS1NVSC94QkgUzKN"
+                    }
+                  }
+                ],
+                "encoding": "jsonParsed",
+                "commitment": "finalized",
+                "withContext": true
+              }
+            ]
+          }
+        },
+        {
+          "method": "getTokenLargestAccounts",
+          "description": "Returns the addresses and balances of the largest accounts for a given SPL token mint. This method is useful for analyzing token distribution and concentration, especially to assess decentralization or identify whales.",
+          "params": [
+            {
+              "name": "mint",
+              "type": "string",
+              "description": "The base-58 encoded public key of the mint account of the SPL token."
+            },
+            {
+              "name": "commitment",
+              "type": "object",
+              "description": "Optional commitment level to query the state of the ledger at different levels of finality.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "A `BoxFuture` resolving to a `RpcResponse` with a vector of `RpcTokenAccountBalance`s, representing the largest accounts holding the token.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenLargestAccounts",
+            "params": [
+              "So11111111111111111111111111111111111111112"
+            ]
+          }
+        },
+        {
+          "method": "getTokenAccountsByOwner",
+          "description": "Returns all SPL Token accounts owned by a specific wallet address, optionally filtered by mint or program. This endpoint is commonly used by wallets and explorers to retrieve all token balances associated with a user, and optionally narrow results to a specific token mint or program.",
+          "params": [
+            {
+              "name": "owner",
+              "type": "string",
+              "description": "The base-58 encoded public key of the wallet owner."
+            },
+            {
+              "name": "tokenAccountFilter",
+              "type": "object",
+              "description": "A `RpcTokenAccountsFilter` enum that allows filtering results by mint address or program ID.",
+              "schema": {
+                "mint": "string",
+                "programId": "string"
+              }
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Optional configuration for encoding, data slicing, and commitment.",
+              "schema": {
+                "encoding": "string",
+                "dataSlice": "object",
+                "commitment": "string",
+                "minContextSlot": "number"
+              }
+            }
+          ],
+          "returns": "A `BoxFuture` resolving to a `RpcResponse` containing a vector of `RpcKeyedAccount`s. Each entry contains the public key of a token account and its deserialized account data.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [
+              "4Nd1mKxQmZj...Aa123",
+              {
+                "mint": "So11111111111111111111111111111111111111112"
+              },
+              {
+                "encoding": "jsonParsed"
+              }
+            ]
+          }
+        },
+        {
+          "method": "getTokenAccountsByDelegate",
+          "description": "Returns all SPL Token accounts that have delegated authority to a specific address, with optional filters. This RPC method is useful for identifying which token accounts have granted delegate rights to a particular wallet or program (commonly used in DeFi apps or custodial flows).",
+          "params": [
+            {
+              "name": "delegate",
+              "type": "string",
+              "description": "The base-58 encoded public key of the delegate authority."
+            },
+            {
+              "name": "tokenAccountFilter",
+              "type": "object",
+              "description": "A `RpcTokenAccountsFilter` enum to filter results by mint or program.",
+              "schema": {
+                "mint": "string",
+                "programId": "string"
+              }
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Optional `RpcAccountInfoConfig` for controlling account encoding, commitment level, etc.",
+              "schema": {
+                "encoding": "string",
+                "dataSlice": "object",
+                "commitment": "string",
+                "minContextSlot": "number"
+              }
+            }
+          ],
+          "returns": "A `BoxFuture` resolving to a `RpcResponse` containing a vector of `RpcKeyedAccount`s, each pairing a token account public key with its associated on-chain data.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByDelegate",
+            "params": [
+              "3qTwHcdK1j...XYZ",
+              {
+                "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+              },
+              {
+                "encoding": "jsonParsed"
+              }
+            ]
+          }
+        },
+        {
+          "method": "getLargestAccounts",
+          "description": "Returns the 20 largest accounts by lamport balance, optionally filtered by account type. This RPC endpoint is useful for analytics, network monitoring, or understanding the distribution of large token holders. It can also be used for sanity checks on protocol activity or whale tracking.",
+          "params": [
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Optional configuration allowing for filtering on specific account types such as circulating or non-circulating accounts.",
+              "schema": {
+                "filter": "string"
+              }
+            }
+          ],
+          "returns": "A future resolving to a `RpcResponse` containing a list of the 20 largest accounts by lamports, each represented as an `RpcAccountBalance`.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getLargestAccounts",
+            "params": [
+              {
+                "filter": "circulating"
+              }
+            ]
+          }
+        },
+        {
+          "method": "getStakeMinimumDelegation",
+          "description": "Returns the minimum stake delegation.",
+          "params": [
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "The minimum stake delegation."
+        },
+        {
+          "method": "getMinimumBalanceForRentExemption",
+          "description": "Returns the minimum balance for rent exemption.",
+          "params": [
+            {
+              "name": "data_len",
+              "type": "number",
+              "description": "The length of the account data."
+            },
+            {
+              "name": "commitment",
+              "type": "string",
+              "description": "The commitment level."
+            }
+          ],
+          "returns": "The minimum balance for rent exemption."
+        }
+      ]
+    },
+    {
+      "name": "Cheatcodes",
+      "description": "Custom endpoints for developers to manipulate on-chain state for testing and development purposes.",
+      "endpoints": [
+        {
+          "method": "surfnet_setAccount",
+          "description": "A 'cheat code' method for developers to set or update an account in Surfpool. It allows for modifying lamports, data, owner, executable status, and rent epoch. This method is designed to help developers quickly test or update account attributes, such as lamports, program ownership, and executable status.",
+          "params": [
+            {
+              "name": "pubkey",
+              "type": "string",
+              "description": "The public key of the account to be updated, as a base-58 encoded string."
+            },
+            {
+              "name": "update",
+              "type": "object",
+              "description": "The `AccountUpdate` struct containing the fields to update the account.",
+              "schema": {
+                "lamports": "Option<u64>",
+                "owner": "Option<string> (base-58 encoded pubkey)",
+                "executable": "Option<bool>",
+                "rent_epoch": "Option<u64>",
+                "data": "Option<string> (hex encoded)"
+              }
+            }
+          ],
+          "returns": "A `RpcResponse<()>` indicating whether the account update was successful.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "surfnet_setAccount",
+            "params": [
+              "account_pubkey",
+              {
+                "lamports": 1000,
+                "data": "hex_encoded_string",
+                "owner": "program_pubkey"
+              }
+            ]
+          }
+        },
+        {
+          "method": "surfnet_setTokenAccount",
+          "description": "A 'cheat code' method for developers to set or update a token account in Surfpool. It allows for updating properties like amount, delegate, state, delegated amount, and close authority. This is designed to help developers quickly modify token account properties like amounts, delegates, and authorities.",
+          "params": [
+            {
+              "name": "owner",
+              "type": "string",
+              "description": "The base-58 encoded public key of the token account's owner."
+            },
+            {
+              "name": "mint",
+              "type": "string",
+              "description": "The base-58 encoded public key of the token mint."
+            },
+            {
+              "name": "update",
+              "type": "object",
+              "description": "The `TokenAccountUpdate` struct containing the fields to update the token account.",
+              "schema": {
+                "amount": "Option<u64>",
+                "delegate": "Option<SetSomeAccount>",
+                "state": "Option<string> ('uninitialized', 'frozen', 'initialized')",
+                "delegated_amount": "Option<u64>",
+                "close_authority": "Option<SetSomeAccount>"
+              }
+            },
+            {
+              "name": "token_program",
+              "type": "string",
+              "description": "Optional: The base-58 encoded address of the token program. Defaults to SPL Token program."
+            }
+          ],
+          "returns": "A `RpcResponse<()>` indicating whether the token account update was successful.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "surfnet_setTokenAccount",
+            "params": [
+              "owner_pubkey",
+              "mint_pubkey",
+              {
+                "amount": 1000,
+                "state": "initialized"
+              }
+            ]
+          }
+        },
+        {
+          "method": "surfnet_cloneProgramAccount",
+          "description": "Clones a program account from a source to a destination program ID. Since a program account points to a program data account (a PDA), this method clones the program data account as well. It gets the source program and data accounts, calculates the destination program data address, points the destination program account to it, and copies the data.",
+          "params": [
+            {
+              "name": "source_program_id",
+              "type": "string",
+              "description": "The base-58 encoded public key of the source program."
+            },
+            {
+              "name": "destination_program_id",
+              "type": "string",
+              "description": "The base-58 encoded public key of the destination program."
+            }
+          ],
+          "returns": "A `RpcResponse<()>` indicating whether the cloning was successful."
+        },
+        {
+          "method": "surfnet_profileTransaction",
+          "description": "Estimates the compute units that a given transaction will consume by simulating it without committing state changes. Returns an estimation of the compute units used, along with logs and potential errors.",
+          "params": [
+            {
+              "name": "transaction_data",
+              "type": "string",
+              "description": "A base64 encoded string of the `VersionedTransaction`."
+            },
+            {
+              "name": "tag",
+              "type": "string",
+              "description": "Optional tag for the transaction to group profiling results."
+            },
+            {
+              "name": "encoding",
+              "type": "string",
+              "description": "Optional encoding for returned account data (e.g., 'base64', 'jsonParsed')."
+            }
+          ],
+          "returns": "A `RpcResponse<ProfileResult>` containing the estimation details."
+        },
+        {
+          "method": "surfnet_getProfileResults",
+          "description": "Retrieves all profiling results for a given tag.",
+          "params": [
+            {
+              "name": "tag",
+              "type": "string",
+              "description": "The tag to retrieve profiling results for."
+            }
+          ],
+          "returns": "A `RpcResponse<Vec<ProfileResult>>` containing the profiling results."
+        }
+      ]
+    },
+    {
+      "name": "Node Health",
+      "description": "Endpoints for querying the health, identity, and version of the connected RPC node.",
+      "endpoints": [
+        {
+          "method": "getHealth",
+          "description": "Returns the health of the node.",
+          "params": [],
+          "returns": "A string indicating the health status."
+        },
+        {
+          "method": "getIdentity",
+          "description": "Returns the identity of the node.",
+          "params": [],
+          "returns": "An `RpcIdentity` object."
+        },
+        {
+          "method": "getVersion",
+          "description": "Returns the current version of the server.",
+          "params": [],
+          "returns": "A `SurfpoolRpcVersionInfo` object."
+        },
+        {
+          "method": "getHighestSnapshotSlot",
+          "description": "Returns the highest snapshot slot.",
+          "params": [],
+          "returns": "An `RpcSnapshotSlotInfo` object."
+        },
+        {
+          "method": "minimumLedgerSlot",
+          "description": "Returns the minimum ledger slot.",
+          "params": [],
+          "returns": "The minimum ledger slot."
+        },
+        {
+          "method": "getFirstAvailableBlock",
+          "description": "Returns the first available block.",
+          "params": [],
+          "returns": "The first available block."
+        },
+        {
+          "method": "startTime",
+          "description": "Returns the start time of the node.",
+          "params": [],
+          "returns": "The start time."
+        },
+        {
+          "method": "rpcAddress",
+          "description": "Returns the RPC address of the node.",
+          "params": [],
+          "returns": "The RPC address."
+        }
+      ]
+    },
+    {
+      "name": "Network Health",
+      "description": "Endpoints for querying the overall status of the Solana network, including information about blocks, epochs, and validators.",
+      "endpoints": [
+        {
+          "method": "getSlot",
+          "description": "Returns the current slot.",
+          "params": [
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "The current slot."
+        },
+        {
+          "method": "getBlockHeight",
+          "description": "Returns the current block height.",
+          "params": [
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "The current block height."
+        },
+        {
+          "method": "getTransactionCount",
+          "description": "Returns the total number of transactions processed.",
+          "params": [
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "The total transaction count."
+        },
+        {
+          "method": "getEpochInfo",
+          "description": "Returns information about the current epoch.",
+          "params": [
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "An `EpochInfo` object."
+        },
+        {
+          "method": "getEpochSchedule",
+          "description": "Returns the epoch schedule.",
+          "params": [],
+          "returns": "The epoch schedule."
+        },
+        {
+          "method": "getGenesisHash",
+          "description": "Returns the genesis hash.",
+          "params": [],
+          "returns": "The genesis hash."
+        },
+        {
+          "method": "getInflationGovernor",
+          "description": "Returns the inflation governor.",
+          "params": [
+            {
+              "name": "commitment",
+              "type": "string",
+              "description": "The commitment level."
+            }
+          ],
+          "returns": "The inflation governor."
+        },
+        {
+          "method": "getInflationRate",
+          "description": "Returns the inflation rate.",
+          "params": [],
+          "returns": "The inflation rate."
+        },
+        {
+          "method": "getInflationReward",
+          "description": "Returns the inflation reward for a given address.",
+          "params": [
+            {
+              "name": "addresses",
+              "type": "array",
+              "description": "A list of addresses to query."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "epoch": "number",
+                "commitment": "string",
+                "minContextSlot": "number"
+              }
+            }
+          ],
+          "returns": "A list of inflation reward objects."
+        },
+        {
+          "method": "getSupply",
+          "description": "Returns information about the current token supply on the network, including circulating and non-circulating amounts. This method provides visibility into the economic state of the chain by exposing the total amount of tokens issued, how much is in circulation, and what is held in non-circulating accounts.",
+          "params": [
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Optional `RpcSupplyConfig` that allows specifying commitment level and whether to exclude the list of non-circulating accounts from the response.",
+              "schema": {
+                "excludeNonCirculatingAccountsList": "boolean",
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "A future resolving to a `RpcResponse` containing a `RpcSupply` struct with supply metrics in lamports.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getSupply",
+            "params": [
+              {
+                "excludeNonCirculatingAccountsList": true
+              }
+            ]
+          }
+        },
+        {
+          "method": "getBlockCommitment",
+          "description": "Returns commitment levels for a given block (slot). This method provides insight into how many validators have voted for a specific block and with what level of lockout. This can be used to analyze consensus progress and determine finality confidence.",
+          "params": [
+            {
+              "name": "block",
+              "type": "number",
+              "description": "The target slot (block) to query."
+            }
+          ],
+          "returns": "A `RpcBlockCommitment` containing a `BlockCommitmentArray`, which is an array of 32 integers representing the number of votes at each lockout level for that block. Each index corresponds to a lockout level (i.e., confidence in finality).",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getBlockCommitment",
+            "params": [
+              150000000
+            ]
+          }
+        },
+        {
+          "method": "getVoteAccounts",
+          "description": "Returns the current vote accounts.",
+          "params": [
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "votePubkey": "string",
+                "commitment": "string",
+                "keepUnstakedDelinquents": "boolean",
+                "delinquentSlotDistance": "number"
+              }
+            }
+          ],
+          "returns": "An `RpcVoteAccountStatus` object."
+        },
+        {
+          "method": "getRecentPerformanceSamples",
+          "description": "Returns recent performance samples.",
+          "params": [
+            {
+              "name": "limit",
+              "type": "number",
+              "description": "The maximum number of samples to return."
+            }
+          ],
+          "returns": "A list of performance sample objects."
+        },
+        {
+          "method": "getClusterNodes",
+          "description": "Returns information about the nodes in the cluster.",
+          "params": [],
+          "returns": "A list of contact information objects."
+        },
+        {
+          "method": "getBlock",
+          "description": "Returns a block.",
+          "params": [
+            {
+              "name": "slot",
+              "type": "number",
+              "description": "The slot of the block to return."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "encoding": "string",
+                "transactionDetails": "string",
+                "rewards": "boolean",
+                "commitment": "string",
+                "maxSupportedTransactionVersion": "number"
+              }
+            }
+          ],
+          "returns": "The block."
+        },
+        {
+          "method": "getBlocks",
+          "description": "Returns a list of blocks.",
+          "params": [
+            {
+              "name": "start_slot",
+              "type": "number",
+              "description": "The starting slot."
+            },
+            {
+              "name": "end_slot",
+              "type": "number",
+              "description": "The ending slot."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "A list of slots."
+        },
+        {
+          "method": "getBlocksWithLimit",
+          "description": "Returns a list of blocks with a limit.",
+          "params": [
+            {
+              "name": "start_slot",
+              "type": "number",
+              "description": "The starting slot."
+            },
+            {
+              "name": "limit",
+              "type": "number",
+              "description": "The maximum number of blocks to return."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "A list of slots."
+        },
+        {
+          "method": "getBlockTime",
+          "description": "Returns the timestamp of a block.",
+          "params": [
+            {
+              "name": "slot",
+              "type": "number",
+              "description": "The slot of the block."
+            }
+          ],
+          "returns": "The block timestamp."
+        },
+        {
+          "method": "getLeaderSchedule",
+          "description": "Returns the leader schedule for an epoch.",
+          "params": [
+            {
+              "name": "slot",
+              "type": "number",
+              "description": "The slot to get the leader schedule for."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "identity": "string",
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "The leader schedule."
+        },
+        {
+          "method": "getSlotLeader",
+          "description": "Returns the leader for the current slot.",
+          "params": [
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "The public key of the slot leader."
+        },
+        {
+          "method": "getSlotLeaders",
+          "description": "Returns the leaders for a range of slots.",
+          "params": [
+            {
+              "name": "start_slot",
+              "type": "number",
+              "description": "The starting slot."
+            },
+            {
+              "name": "limit",
+              "type": "number",
+              "description": "The number of slots to get leaders for."
+            }
+          ],
+          "returns": "A list of public keys of the slot leaders."
+        },
+        {
+          "method": "getBlockProduction",
+          "description": "Returns block production information.",
+          "params": [
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "identity": "string",
+                "range": {
+                  "firstSlot": "number",
+                  "lastSlot": "number"
+                },
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "Block production information."
+        },
+        {
+          "method": "getMaxRetransmitSlot",
+          "description": "Returns the maximum slot for retransmission.",
+          "params": [],
+          "returns": "The maximum retransmit slot."
+        },
+        {
+          "method": "getMaxShredInsertSlot",
+          "description": "Returns the maximum slot for shred insertion.",
+          "params": [],
+          "returns": "The maximum shred insert slot."
+        },
+        {
+          "method": "isBlockhashValid",
+          "description": "Checks if a blockhash is valid.",
+          "params": [
+            {
+              "name": "blockhash",
+              "type": "string",
+              "description": "The blockhash to check."
+            },
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "Whether the blockhash is valid."
+        },
+        {
+          "method": "getLatestBlockhash",
+          "description": "Returns the latest blockhash.",
+          "params": [
+            {
+              "name": "config",
+              "type": "object",
+              "description": "Configuration object.",
+              "schema": {
+                "commitment": "string"
+              }
+            }
+          ],
+          "returns": "The latest blockhash."
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "description": "Administrative endpoints for managing the RPC node, including plugins, voters, and network settings.",
+      "endpoints": [
+        {
+          "method": "exit",
+          "description": "Exits the node.",
+          "params": [],
+          "returns": null
+        },
+        {
+          "method": "reloadPlugin",
+          "description": "Reloads a plugin.",
+          "params": [
+            {
+              "name": "name",
+              "type": "string",
+              "description": "The name of the plugin to reload."
+            },
+            {
+              "name": "config_file",
+              "type": "string",
+              "description": "The path to the plugin config file."
+            }
+          ],
+          "returns": null
+        },
+        {
+          "method": "unloadPlugin",
+          "description": "Unloads a plugin.",
+          "params": [
+            {
+              "name": "name",
+              "type": "string",
+              "description": "The name of the plugin to unload."
+            }
+          ],
+          "returns": null
+        },
+        {
+          "method": "loadPlugin",
+          "description": "Loads a plugin.",
+          "params": [
+            {
+              "name": "config_file",
+              "type": "string",
+              "description": "The path to the plugin config file."
+            }
+          ],
+          "returns": "The name of the loaded plugin."
+        },
+        {
+          "method": "listPlugins",
+          "description": "Lists loaded plugins.",
+          "params": [],
+          "returns": "A list of plugin names."
+        },
+        {
+          "method": "setLogFilter",
+          "description": "Sets the log filter for the node.",
+          "params": [
+            {
+              "name": "filter",
+              "type": "string",
+              "description": "The log filter to set."
+            }
+          ],
+          "returns": null
+        },
+        {
+          "method": "addAuthorizedVoter",
+          "description": "Adds an authorized voter.",
+          "params": [
+            {
+              "name": "keypair_file",
+              "type": "string",
+              "description": "The path to the voter's keypair file."
+            }
+          ],
+          "returns": null
+        },
+        {
+          "method": "addAuthorizedVoterFromBytes",
+          "description": "Adds an authorized voter from a byte array.",
+          "params": [
+            {
+              "name": "keypair",
+              "type": "array",
+              "description": "The voter's keypair as a byte array."
+            }
+          ],
+          "returns": null
+        },
+        {
+          "method": "removeAllAuthorizedVoters",
+          "description": "Removes all authorized voters.",
+          "params": [],
+          "returns": null
+        },
+        {
+          "method": "setIdentity",
+          "description": "Sets the identity of the node.",
+          "params": [
+            {
+              "name": "keypair_file",
+              "type": "string",
+              "description": "The path to the identity keypair file."
+            },
+            {
+              "name": "require_tower",
+              "type": "boolean",
+              "description": "Whether to require a tower for the identity."
+            }
+          ],
+          "returns": null
+        },
+        {
+          "method": "setIdentityFromBytes",
+          "description": "Sets the identity of the node from a byte array.",
+          "params": [
+            {
+              "name": "identity_keypair",
+              "type": "array",
+              "description": "The identity keypair as a byte array."
+            },
+            {
+              "name": "require_tower",
+              "type": "boolean",
+              "description": "Whether to require a tower for the identity."
+            }
+          ],
+          "returns": null
+        },
+        {
+          "method": "setStakedNodesOverrides",
+          "description": "Sets the staked nodes overrides.",
+          "params": [
+            {
+              "name": "path",
+              "type": "string",
+              "description": "The path to the overrides file."
+            }
+          ],
+          "returns": null
+        },
+        {
+          "method": "repairShredFromPeer",
+          "description": "Repairs a shred from a peer.",
+          "params": [
+            {
+              "name": "pubkey",
+              "type": "string",
+              "description": "The public key of the peer."
+            },
+            {
+              "name": "slot",
+              "type": "number",
+              "description": "The slot of the shred."
+            },
+            {
+              "name": "shred_index",
+              "type": "number",
+              "description": "The index of the shred."
+            }
+          ],
+          "returns": null
+        },
+        {
+          "method": "setRepairWhitelist",
+          "description": "Sets the repair whitelist.",
+          "params": [
+            {
+              "name": "whitelist",
+              "type": "array",
+              "description": "A list of public keys to whitelist."
+            }
+          ],
+          "returns": null
+        },
+        {
+          "method": "getSecondaryIndexKeySize",
+          "description": "Gets the size of a secondary index key.",
+          "params": [
+            {
+              "name": "pubkey",
+              "type": "string",
+              "description": "The public key to query."
+            }
+          ],
+          "returns": "A map of index types to key sizes."
+        },
+        {
+          "method": "setPublicTpuAddress",
+          "description": "Sets the public TPU address.",
+          "params": [
+            {
+              "name": "address",
+              "type": "string",
+              "description": "The public TPU address to set."
+            }
+          ],
+          "returns": null
+        },
+        {
+          "method": "setPublicTpuForwardsAddress",
+          "description": "Sets the public TPU forwards address.",
+          "params": [
+            {
+              "name": "address",
+              "type": "string",
+              "description": "The public TPU forwards address to set."
+            }
+          ],
+          "returns": null
+        }
+      ]
+    }
+  ]
+}
