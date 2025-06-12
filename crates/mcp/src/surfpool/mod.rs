@@ -319,7 +319,7 @@ impl Surfpool {
     /// This generic method allows calling any of the available surfnet cheatcode RPC methods.
     /// The LLM will interpret user requests and determine which method to call with appropriate parameters.
     #[tool(
-        description = "Calls any RPC method on a running surfnet instance. This is a generic method that can invoke any surfnet RPC method. The LLM should interpret user requests and determine the appropriate method and parameters to call. To retrieve the list of RPC endpoints available check the resource str:///rpc_endpoint_list"
+        description = "Calls any RPC method on a running surfnet instance. This is a generic method that can invoke any surfnet RPC method. The LLM should interpret user requests and determine the appropriate method and parameters to call. To retrieve the list of RPC endpoints available check the resource str:///rpc_endpoints"
     )]
     pub fn call_surfnet_rpc(
         &self,
@@ -333,7 +333,7 @@ impl Surfpool {
             description = "The RPC method name to call,for example: 'sendTransaction', 'simulateTransaction', 'getAccountInfo', 'getBalance', 'getTokenAccountBalance', 'getTokenSupply', 'getProgramAccounts', 'getTokenAccountsByOwner', 'getSlot',
             'getEpochInfo', 'requestAirdrop', 'surfnet_setAccount', 'getHealth', 'getTokenAccountsByOwner', 'getTokenAccountsByDelegate', 
             'getTokenAccountsByDelegateAndMint', 'getTokenAccountsByDelegateAndMintAndOwner', 'getTokenAccountsByDelegateAndMintAndOwnerAndProgramId', 'getTokenAccountsByDelegateAndMintAndOwnerAndProgramIdAndOwner', surfnet_getProfileResults, etc. 
-            A list of all the RPC methods available can be found at str:///rpc_endpoint_list"
+            A list of all the RPC methods available can be found at str:///rpc_endpoints"
         )]
         method: String,
         #[tool(param)]
@@ -427,7 +427,7 @@ impl ServerHandler for Surfpool {
         Ok(ListResourcesResult {
             resources: vec![RawResource {
                 uri: "str:///rpc_endpoints".to_string(),
-                name: "List of RPC endpoints available".to_string(),
+                name: "List of available RPC endpoints".to_string(),
                 description: Some("A json file containing all the RPC methods and the parameters available for being able to handle any RPC call with the tool call_surfnet_rpc".to_string()),
                 mime_type: Some("application/json".to_string()),
                 size: None,
