@@ -437,11 +437,30 @@ impl BankData for SurfpoolBankDataRpc {
 
     fn get_slot_leaders(
         &self,
-        _meta: Self::Metadata,
-        _start_slot: Slot,
-        _limit: u64,
+        meta: Self::Metadata,
+        start_slot: Slot,
+        limit: u64,
     ) -> Result<Vec<String>> {
-        not_implemented_err("get_slot_leaders")
+        if limit == 0 || limit > 5000 {
+            return Err(jsonrpc_core::Error {
+                code: jsonrpc_core::ErrorCode::InvalidParams,
+                message: "Limit must be between 1 and 5000".to_string(),
+                data: None,
+            });
+        }
+
+        let svm_locker = meta.get_svm_locker()?;
+        let latest_slot = svm_locker.get_latest_absolute_slot();
+        if start_slot >= latest_slot {
+            return Err(jsonrpc_core::Error {
+                code: jsonrpc_core::ErrorCode::InvalidParams,
+                message: "Invalid slot range: start slot must be less than the latest slot"
+                    .to_string(),
+                data: None,
+            });
+        }
+
+        Ok(vec![])
     }
 
     fn get_block_production(
@@ -534,5 +553,47 @@ mod tests {
         assert_eq!(result2.value.range.first_slot, 100);
         assert_eq!(result2.value.range.last_slot, 200);
         assert!(result2.value.by_identity.is_empty());
+    }
+
+    #[test]
+    fn test_get_slot_leaders() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+
+        // test with valid parameters
+        let result = setup
+            .rpc
+            .get_slot_leaders(Some(setup.context.clone()), 0, 10)
+            .unwrap();
+
+        assert!(
+            result.is_empty(),
+            "Should return empty leaders in simulation"
+        );
+
+        // test with invalid limit
+        let err = setup
+            .rpc
+            .get_slot_leaders(Some(setup.context.clone()), 0, 6000)
+            .unwrap_err();
+
+        assert_eq!(
+            err.code,
+            jsonrpc_core::ErrorCode::InvalidParams,
+            "Should return InvalidParams error for limit > 5000"
+        );
+
+        let latest_slot = setup.context.svm_locker.get_latest_absolute_slot();
+
+        // test with start_slot >= latest_slot
+        let err = setup
+            .rpc
+            .get_slot_leaders(Some(setup.context), latest_slot + 100, 10)
+            .unwrap_err();
+
+        assert_eq!(
+            err.code,
+            jsonrpc_core::ErrorCode::InvalidParams,
+            "Should return InvalidParams error for start_slot >= latest_slot"
+        );
     }
 }
