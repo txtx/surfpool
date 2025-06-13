@@ -1,8 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
-    sync::RwLock,
-    sync::Arc,
+    sync::{Arc, RwLock},
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
 };

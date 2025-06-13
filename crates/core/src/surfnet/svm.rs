@@ -736,7 +736,8 @@ impl SurfnetSvm {
         let mut remaining = vec![];
         if let Some(subscriptions) = self.account_subscriptions.remove(account_updated_pubkey) {
             for (encoding, tx) in subscriptions {
-                if tx.send(account.clone()).is_err() { // being encoded in the WS layer
+                if tx.send(account.clone()).is_err() {
+                    // being encoded in the WS layer
                     // when the receiver is dropped, we can skip notifying
                     continue;
                 } else {
