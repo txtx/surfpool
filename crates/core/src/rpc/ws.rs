@@ -10,7 +10,7 @@ use jsonrpc_pubsub::{
     typed::{Sink, Subscriber},
     SubscriptionId,
 };
-use solana_account_decoder::{UiAccount, UiAccountEncoding};
+use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
 use solana_client::{
     rpc_config::RpcSignatureSubscribeConfig,
     rpc_response::{
@@ -18,13 +18,17 @@ use solana_client::{
     },
 };
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
 
 use super::{State, SurfnetRpcContext, SurfpoolWebsocketMeta};
-use crate::surfnet::{locker::SvmAccessContext, GetTransactionResult, SignatureSubscriptionType};
+use crate::surfnet::{
+    locker::SvmAccessContext, GetAccountResult, GetTransactionResult, SignatureSubscriptionType,
+};
 
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RpcAccountSubscribeConfig {
     pub commitment: Option<CommitmentConfig>,
     pub encoding: Option<UiAccountEncoding>,
@@ -86,6 +90,7 @@ pub trait Rpc {
 pub struct SurfpoolWsRpc {
     pub uid: atomic::AtomicUsize,
     pub active: Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcSignatureResult>>>>>,
+    pub account_active: Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<UiAccount>>>>>,
     pub tokio_handle: tokio::runtime::Handle,
 }
 impl Rpc for SurfpoolWsRpc {
@@ -231,33 +236,112 @@ impl Rpc for SurfpoolWsRpc {
         pubkey_str: String,
         config: Option<RpcAccountSubscribeConfig>,
     ) {
+        let pubkey = match Pubkey::from_str(&pubkey_str) {
+            Ok(pk) => pk,
+            Err(_) => {
+                let error = Error {
+                    code: ErrorCode::InvalidParams,
+                    message: "Invalid pubkey format.".into(),
+                    data: None,
+                };
+                subscriber.reject(error.clone()).unwrap();
+                return;
+            }
+        };
+
+        let config = config.unwrap_or(RpcAccountSubscribeConfig {
+            commitment: None,
+            encoding: None,
+        });
+
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
         let sink = subscriber
             .assign_id(sub_id.clone())
             .expect("Failed to assign subscription ID");
 
-        let active = Arc::clone(&self.active);
+        let account_active = Arc::clone(&self.account_active);
         let meta = meta.clone();
 
         self.tokio_handle.spawn(async move {
-            // first, subscribe to the account updates with the svm locker and get back an rx
-            // then loop over that rx to wait for an account update
-            // then, sink.notify the subscriber with the account update
-            // in the loop, check if the user unsubscribed and if so, break the loop and remove the subscription
-            // if active.read().unwrap().get(&sub_id).is_none() {
-            //     // if the subscription was removed, we stop listening
-            //     return;
-            // }
+            account_active.write().unwrap().insert(sub_id.clone(), sink);
+
+            let SurfnetRpcContext {
+                svm_locker,
+                remote_ctx,
+            } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+                Ok(res) => res,
+                Err(_) => panic!(),
+            };
+
+            // get the account from the SVM to see if it exists
+            let result = svm_locker.get_account(&remote_ctx, &pubkey, None).await;
+
+            if let Ok(SvmAccessContext {
+                inner: account_result,
+                ..
+            }) = result
+            {
+                // if we found the account, send the initial notification
+                if let GetAccountResult::FoundAccount(_, account, _) = account_result {
+                    let ui_account = encode_ui_account(
+                        &pubkey,
+                        &account,
+                        config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                        None,
+                        None,
+                    );
+                    if let Some(sink) = account_active.read().unwrap().get(&sub_id) {
+                        let _ = sink.notify(Ok(RpcResponse {
+                            context: RpcResponseContext::new(
+                                svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot()),
+                            ),
+                            value: ui_account,
+                        }));
+                    }
+                }
+            }
+
+            // subscribe to account updates
+            let rx = svm_locker.subscribe_for_account_updates(&pubkey, config.encoding);
+
+            loop {
+                if let Ok(account) = rx.try_recv() {
+                    if let Some(sink) = account_active.read().unwrap().get(&sub_id) {
+                        let ui_account = encode_ui_account(
+                            &pubkey,
+                            &account,
+                            config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                            None,
+                            None,
+                        );
+                        let _ = sink.notify(Ok(RpcResponse {
+                            context: RpcResponseContext::new(
+                                svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot()),
+                            ),
+                            value: ui_account,
+                        }));
+                    }
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            }
         });
-        todo!()
     }
 
     fn account_unsubscribe(
         &self,
-        meta: Option<Self::Metadata>,
+        _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        todo!()
+        let removed = self.account_active.write().unwrap().remove(&subscription);
+        if removed.is_some() {
+            Ok(true)
+        } else {
+            Err(Error {
+                code: ErrorCode::InvalidParams,
+                message: "Invalid subscription.".into(),
+                data: None,
+            })
+        }
     }
 }

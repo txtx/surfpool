@@ -68,10 +68,6 @@ pub struct SurfnetSvm {
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub account_subscriptions: HashMap<Pubkey, Vec<(Option<UiAccountEncoding>, Sender<Account>)>>,
-    // A, map will contain { A: [("jsonParsed", tx_1)] }
-    // subscribe to A again with base64, map will contain
-    // { A: [("jsonParsed", tx_1), ("base64", tx_2)] }
-    //  { A: [("jsonParsed", tx_1), ("jsonParsed", tx_2)] }
     pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
     pub updated_at: u64,
     pub account_registry: HashMap<AccountOwner, Vec<(Pubkey, Account)>>,
@@ -123,6 +119,7 @@ impl SurfnetSvm {
                 transactions_queued_for_confirmation: VecDeque::new(),
                 transactions_queued_for_finalization: VecDeque::new(),
                 signature_subscriptions: HashMap::new(),
+                account_subscriptions: HashMap::new(),
                 tagged_profiling_results: HashMap::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 account_registry: HashMap::new(),
@@ -329,7 +326,10 @@ impl SurfnetSvm {
         self.account_registry
             .entry(account.owner)
             .or_insert_with(Vec::new)
-            .push((*pubkey, account));
+            .push((*pubkey, account.clone()));
+
+        // Notify account subscribers
+        self.notify_account_subscribers(pubkey, &account);
 
         let _ = self
             .simnet_events_tx
@@ -683,7 +683,7 @@ impl SurfnetSvm {
     pub fn subscribe_for_account_updates(
         &mut self,
         account_pubkey: &Pubkey,
-        encoding: Option<solana_sdk::account::UiAccountEncoding>,
+        encoding: Option<UiAccountEncoding>,
     ) -> Receiver<Account> {
         self.updated_at = Utc::now().timestamp_millis() as u64;
         let (tx, rx) = unbounded();
@@ -732,8 +732,22 @@ impl SurfnetSvm {
         account_updated_pubkey: &Pubkey,
         account: &Account,
     ) {
-        // loop over our `account_subscriptions` and notify them if the account matches the given pubkey
-        // encode the account according to the requested encoding
+        //TODO should we notify the subscribers in a separate thread?
+        let mut remaining = vec![];
+        if let Some(subscriptions) = self.account_subscriptions.remove(account_updated_pubkey) {
+            for (encoding, tx) in subscriptions {
+                if tx.send(account.clone()).is_err() { // being encoded in the WS layer
+                    // when the receiver is dropped, we can skip notifying
+                    continue;
+                } else {
+                    remaining.push((encoding, tx));
+                }
+            }
+            if !remaining.is_empty() {
+                self.account_subscriptions
+                    .insert(*account_updated_pubkey, remaining);
+            }
+        }
     }
 
     /// Retrieves a confirmed block at the given slot, including transactions and metadata.

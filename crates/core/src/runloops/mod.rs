@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
+    sync::RwLock,
     sync::Arc,
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
@@ -472,7 +473,7 @@ async fn start_ws_rpc_server_runloop(
         .map_err(|e| e.to_string())?;
 
     let uid = std::sync::atomic::AtomicUsize::new(0);
-    let subscription_map = Arc::new(std::sync::RwLock::new(HashMap::new()));
+    let subscription_map = Arc::new(RwLock::new(HashMap::new()));
     let ws_middleware = SurfpoolWebsocketMiddleware::new(middleware.clone(), None);
 
     let mut rpc_io = PubSubHandler::new(MetaIoHandler::with_middleware(ws_middleware));
@@ -490,6 +491,7 @@ async fn start_ws_rpc_server_runloop(
                 rpc::ws::SurfpoolWsRpc {
                     uid,
                     active: subscription_map,
+                    account_active: Arc::new(RwLock::new(HashMap::new())),
                     tokio_handle: tokio_handle.clone(),
                 }
                 .to_delegate(),

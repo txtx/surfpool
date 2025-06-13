@@ -1022,6 +1022,18 @@ impl SurfnetSvmLocker {
             svm_writer.subscribe_for_signature_updates(signature, subscription_type.clone())
         })
     }
+
+    /// Subscribes for account updates and returns a receiver of account updates.
+    pub fn subscribe_for_account_updates(
+        &self,
+        account_pubkey: &Pubkey,
+        encoding: Option<UiAccountEncoding>,
+    ) -> Receiver<Account> {
+        // Handles the locking/unlocking safely
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.subscribe_for_account_updates(account_pubkey, encoding)
+        })
+    }
 }
 
 fn snapshot_get_account_result(
