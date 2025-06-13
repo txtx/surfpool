@@ -9,6 +9,7 @@ use litesvm::{
     LiteSVM,
 };
 use solana_account::Account;
+use solana_account_decoder::UiAccountEncoding;
 use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_epoch_info::EpochInfo;
@@ -70,6 +71,11 @@ pub struct SurfnetSvm {
     pub simnet_events_tx: Sender<SimnetEvent>,
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
+    pub account_subscriptions: HashMap<Pubkey, Vec<(Option<UiAccountEncoding>, Sender<Account>)>>,
+    // A, map will contain { A: [("jsonParsed", tx_1)] }
+    // subscribe to A again with base64, map will contain
+    // { A: [("jsonParsed", tx_1), ("base64", tx_2)] }
+    //  { A: [("jsonParsed", tx_1), ("jsonParsed", tx_2)] }
     pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
@@ -769,6 +775,20 @@ impl SurfnetSvm {
         rx
     }
 
+    pub fn subscribe_for_account_updates(
+        &mut self,
+        account_pubkey: &Pubkey,
+        encoding: Option<solana_sdk::account::UiAccountEncoding>,
+    ) -> Receiver<Account> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        let (tx, rx) = unbounded();
+        self.account_subscriptions
+            .entry(*account_pubkey)
+            .or_default()
+            .push((encoding, tx));
+        rx
+    }
+
     /// Notifies signature subscribers of a status update, sending slot and error info.
     ///
     /// # Arguments
@@ -800,6 +820,15 @@ impl SurfnetSvm {
                 self.signature_subscriptions.insert(*signature, remaining);
             }
         }
+    }
+
+    pub fn notify_account_subscribers(
+        &mut self,
+        account_updated_pubkey: &Pubkey,
+        account: &Account,
+    ) {
+        // loop over our `account_subscriptions` and notify them if the account matches the given pubkey
+        // encode the account according to the requested encoding
     }
 
     /// Retrieves a confirmed block at the given slot, including transactions and metadata.

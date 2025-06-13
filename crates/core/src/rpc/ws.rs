@@ -10,19 +10,25 @@ use jsonrpc_pubsub::{
     typed::{Sink, Subscriber},
     SubscriptionId,
 };
+use solana_account_decoder::{UiAccount, UiAccountEncoding};
 use solana_client::{
     rpc_config::RpcSignatureSubscribeConfig,
     rpc_response::{
         ProcessedSignatureResult, ReceivedSignatureResult, RpcResponseContext, RpcSignatureResult,
     },
 };
-use solana_commitment_config::CommitmentLevel;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
 
 use super::{State, SurfnetRpcContext, SurfpoolWebsocketMeta};
 use crate::surfnet::{locker::SvmAccessContext, GetTransactionResult, SignatureSubscriptionType};
+
+pub struct RpcAccountSubscribeConfig {
+    pub commitment: Option<CommitmentConfig>,
+    pub encoding: Option<UiAccountEncoding>,
+}
 
 #[rpc]
 pub trait Rpc {
@@ -47,6 +53,30 @@ pub trait Rpc {
         name = "signatureUnsubscribe"
     )]
     fn signature_unsubscribe(
+        &self,
+        meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool>;
+
+    #[pubsub(
+        subscription = "accountNotification",
+        subscribe,
+        name = "accountSubscribe"
+    )]
+    fn account_subscribe(
+        &self,
+        meta: Self::Metadata,
+        subscriber: Subscriber<RpcResponse<UiAccount>>,
+        pubkey_str: String,
+        config: Option<RpcAccountSubscribeConfig>,
+    );
+
+    #[pubsub(
+        subscription = "accountNotification",
+        unsubscribe,
+        name = "accountUnsubscribe"
+    )]
+    fn account_unsubscribe(
         &self,
         meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
@@ -192,5 +222,42 @@ impl Rpc for SurfpoolWsRpc {
                 data: None,
             })
         }
+    }
+
+    fn account_subscribe(
+        &self,
+        meta: Self::Metadata,
+        subscriber: Subscriber<RpcResponse<UiAccount>>,
+        pubkey_str: String,
+        config: Option<RpcAccountSubscribeConfig>,
+    ) {
+        let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
+        let sub_id = SubscriptionId::Number(id as u64);
+        let sink = subscriber
+            .assign_id(sub_id.clone())
+            .expect("Failed to assign subscription ID");
+
+        let active = Arc::clone(&self.active);
+        let meta = meta.clone();
+
+        self.tokio_handle.spawn(async move {
+            // first, subscribe to the account updates with the svm locker and get back an rx
+            // then loop over that rx to wait for an account update
+            // then, sink.notify the subscriber with the account update
+            // in the loop, check if the user unsubscribed and if so, break the loop and remove the subscription
+            // if active.read().unwrap().get(&sub_id).is_none() {
+            //     // if the subscription was removed, we stop listening
+            //     return;
+            // }
+        });
+        todo!()
+    }
+
+    fn account_unsubscribe(
+        &self,
+        meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool> {
+        todo!()
     }
 }
