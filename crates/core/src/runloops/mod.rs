@@ -168,7 +168,7 @@ pub async fn start_block_production_runloop(
                         continue
                     }
                     SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
-                        svm_locker.process_transaction(&remote_rpc_client, transaction, status_tx, skip_preflight).await?;
+                        svm_locker.process_transaction(remote_rpc_client, transaction, status_tx, skip_preflight).await?;
                     }
                     SimnetCommand::Terminate(_) => {
                         let _ = svm_locker.simnet_events_tx().send(SimnetEvent::Aborted("Terminated due to inactivity.".to_string()));
@@ -246,7 +246,7 @@ fn start_geyser_runloop(
         //
         let geyser_plugin_config_file = PathBuf::from("../../surfpool_subgraph_plugin.json");
         let contents = "{\"name\": \"surfpool-subgraph\", \"libpath\": \"target/release/libsurfpool_subgraph.dylib\"}";
-        let result: serde_json::Value = json5::from_str(&contents).unwrap();
+        let result: serde_json::Value = json5::from_str(contents).unwrap();
         let libpath = result["libpath"]
             .as_str()
             .unwrap();
@@ -259,21 +259,21 @@ fn start_geyser_runloop(
             }).unwrap();
             libpath = config_dir.join(libpath);
         }
-        let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or(format!("surfpool-subgraph"));
-        let (plugin, lib) = unsafe {
-            let lib = match Library::new(&surfpool_subgraph_path) {
-                Ok(lib) => lib,
-                Err(e) => {
-                    let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
-                    continue;
-                }
-            };
-            let constructor: Symbol<PluginConstructor> = lib
-                .get(b"_create_plugin")
-                .map_err(|e| format!("{}", e.to_string()))?;
-            let plugin_raw = constructor();
-            (Box::from_raw(plugin_raw), lib)
-        };
+        let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or_else(||"surfpool-subgraph".to_string());
+        // let (plugin, lib) = unsafe {
+        //     let lib = match Library::new(&surfpool_subgraph_path) {
+        //         Ok(lib) => lib,
+        //         Err(e) => {
+        //             let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
+        //             continue;
+        //         }
+        //     };
+        //     let constructor: Symbol<PluginConstructor> = lib
+        //         .get(b"_create_plugin")
+        //         .map_err(|e| format!("{}", e.to_string()))?;
+        //     let plugin_raw = constructor();
+        //     (Box::from_raw(plugin_raw), lib)
+        // };
 
         let err = loop {
             select! {
@@ -369,7 +369,7 @@ fn start_geyser_runloop(
                             transaction_status_meta: &transaction_status_meta,
                             index: 0
                         };
-                        for plugin in plugin_manager.iter() {
+                        for plugin in &plugin_manager {
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
                             };
@@ -424,7 +424,7 @@ async fn start_http_rpc_server_runloop(
         .parse::<SocketAddr>()
         .map_err(|e| e.to_string())?;
 
-    let mut io = MetaIoHandler::with_middleware(middleware.clone());
+    let mut io = MetaIoHandler::with_middleware(middleware);
     io.extend_with(rpc::minimal::SurfpoolMinimalRpc.to_delegate());
     io.extend_with(rpc::full::SurfpoolFullRpc.to_delegate());
     io.extend_with(rpc::accounts_data::SurfpoolAccountsDataRpc.to_delegate());

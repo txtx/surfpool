@@ -142,7 +142,7 @@ impl SurfnetSvm {
         }
         let _ = self
             .simnet_events_tx
-            .send(SimnetEvent::EpochInfoUpdate(epoch_info.clone()));
+            .send(SimnetEvent::EpochInfoUpdate(epoch_info));
 
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.absolute_slot,
@@ -199,7 +199,7 @@ impl SurfnetSvm {
     /// * `addresses` - Slice of recipient public keys.
     pub fn airdrop_pubkeys(&mut self, lamports: u64, addresses: &[Pubkey]) {
         self.updated_at = Utc::now().timestamp_millis() as u64;
-        for recipient in addresses.iter() {
+        for recipient in addresses {
             let _ = self.airdrop(recipient, lamports);
             let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
                 "Genesis airdrop successful {}: {}",
@@ -209,7 +209,7 @@ impl SurfnetSvm {
     }
 
     /// Returns the latest known absolute slot from the local epoch info.
-    pub fn get_latest_absolute_slot(&self) -> Slot {
+    pub const fn get_latest_absolute_slot(&self) -> Slot {
         self.latest_epoch_info.absolute_slot
     }
 
@@ -319,7 +319,7 @@ impl SurfnetSvm {
         // Add the account to the new owner's registry
         self.account_registry
             .entry(account.owner)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push((*pubkey, account));
 
         let _ = self
@@ -559,18 +559,18 @@ impl SurfnetSvm {
         match account_update {
             GetAccountResult::FoundAccount(pubkey, account, do_update_account) => {
                 if do_update_account {
-                    let _ = self.set_account(&pubkey, account.clone());
+                    let _ = self.set_account(&pubkey, account);
                 }
             }
             GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
-                let _ = self.set_account(&pubkey, account.clone());
+                let _ = self.set_account(&pubkey, account);
             }
             GetAccountResult::FoundProgramAccount(
                 (pubkey, account),
                 (data_pubkey, Some(data_account)),
             ) => {
-                let _ = self.set_account(&pubkey, account.clone());
-                let _ = self.set_account(&data_pubkey, data_account.clone());
+                let _ = self.set_account(&pubkey, account);
+                let _ = self.set_account(&data_pubkey, data_account);
             }
             GetAccountResult::None(_) => {}
         }
@@ -589,7 +589,7 @@ impl SurfnetSvm {
             self.get_latest_absolute_slot(),
             BlockHeader {
                 hash: self.chain_tip.hash.clone(),
-                previous_blockhash: previous_chain_tip.hash.clone(),
+                previous_blockhash: previous_chain_tip.hash,
                 block_time: chrono::Utc::now().timestamp_millis(),
                 block_height: self.chain_tip.index,
                 parent_slot: self.get_latest_absolute_slot(),
@@ -703,7 +703,7 @@ impl SurfnetSvm {
 
         // Retrieve transactions
         let mut transactions = vec![];
-        for signature in block.signatures.iter() {
+        for signature in &block.signatures {
             let Some(TransactionWithStatusMeta(_slot, tx, _meta, _err)) = self
                 .transactions
                 .get(signature)
@@ -789,7 +789,7 @@ impl SurfnetSvm {
     pub fn get_account_owned_by(&self, program_id: Pubkey) -> Vec<(Pubkey, Account)> {
         self.account_registry
             .get(&program_id)
-            .map(|accounts| accounts.clone())
-            .unwrap_or_else(Vec::new)
+            .cloned()
+            .unwrap_or_default()
     }
 }
