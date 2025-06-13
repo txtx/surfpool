@@ -53,6 +53,7 @@ solana-commitment-config = "2.2.1"
 solana-epoch-info = { version = "2.2.1", features = ["serde"] }
 solana-epoch-schedule = "2.2.1"
 solana-feature-set = "2.2.1"
+solana-geyser-plugin-manager = "2.2.1"
 solana-hash = "2.2.1"
 solana-keypair = "2.2.1"
 solana-message = { version = "2.2.1", features = ["serde"]}
