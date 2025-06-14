@@ -1028,7 +1028,7 @@ impl SurfnetSvmLocker {
         &self,
         account_pubkey: &Pubkey,
         encoding: Option<UiAccountEncoding>,
-    ) -> Receiver<Account> {
+    ) -> Receiver<UiAccount> {
         // Handles the locking/unlocking safely
         self.with_svm_writer(|svm_writer| {
             svm_writer.subscribe_for_account_updates(account_pubkey, encoding)
