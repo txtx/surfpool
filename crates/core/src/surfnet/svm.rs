@@ -9,6 +9,7 @@ use litesvm::{
     LiteSVM,
 };
 use solana_account::Account;
+use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
 use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_epoch_info::EpochInfo;
@@ -66,6 +67,7 @@ pub struct SurfnetSvm {
     pub simnet_events_tx: Sender<SimnetEvent>,
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
+    pub account_subscriptions: HashMap<Pubkey, Vec<(Option<UiAccountEncoding>, Sender<UiAccount>)>>,
     pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
     pub updated_at: u64,
     pub account_registry: HashMap<AccountOwner, Vec<(Pubkey, Account)>>,
@@ -117,6 +119,7 @@ impl SurfnetSvm {
                 transactions_queued_for_confirmation: VecDeque::new(),
                 transactions_queued_for_finalization: VecDeque::new(),
                 signature_subscriptions: HashMap::new(),
+                account_subscriptions: HashMap::new(),
                 tagged_profiling_results: HashMap::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 account_registry: HashMap::new(),
@@ -318,6 +321,9 @@ impl SurfnetSvm {
         self.inner
             .set_account(*pubkey, account.clone())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+
+        // Notify account subscribers
+        self.notify_account_subscribers(pubkey, &account);
 
         // Add the account to the new owner's registry
         self.account_registry
@@ -674,6 +680,20 @@ impl SurfnetSvm {
         rx
     }
 
+    pub fn subscribe_for_account_updates(
+        &mut self,
+        account_pubkey: &Pubkey,
+        encoding: Option<UiAccountEncoding>,
+    ) -> Receiver<UiAccount> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        let (tx, rx) = unbounded();
+        self.account_subscriptions
+            .entry(*account_pubkey)
+            .or_default()
+            .push((encoding, tx));
+        rx
+    }
+
     /// Notifies signature subscribers of a status update, sending slot and error info.
     ///
     /// # Arguments
@@ -703,6 +723,36 @@ impl SurfnetSvm {
             }
             if !remaining.is_empty() {
                 self.signature_subscriptions.insert(*signature, remaining);
+            }
+        }
+    }
+
+    pub fn notify_account_subscribers(
+        &mut self,
+        account_updated_pubkey: &Pubkey,
+        account: &Account,
+    ) {
+        //TODO should we notify the subscribers in a separate thread?
+        let mut remaining = vec![];
+        if let Some(subscriptions) = self.account_subscriptions.remove(account_updated_pubkey) {
+            for (encoding, tx) in subscriptions {
+                let account = encode_ui_account(
+                    account_updated_pubkey,
+                    account,
+                    encoding.unwrap_or(UiAccountEncoding::Base64),
+                    None,
+                    None,
+                );
+                if tx.send(account).is_err() {
+                    // The receiver has been dropped, so we can skip notifying
+                    continue;
+                } else {
+                    remaining.push((encoding, tx));
+                }
+            }
+            if !remaining.is_empty() {
+                self.account_subscriptions
+                    .insert(*account_updated_pubkey, remaining);
             }
         }
     }
