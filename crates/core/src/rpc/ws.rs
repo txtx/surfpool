@@ -306,15 +306,13 @@ impl Rpc for SurfpoolWsRpc {
             let rx = svm_locker.subscribe_for_account_updates(&pubkey, config.encoding);
 
             loop {
-                if let Ok(account) = rx.try_recv() {
+                // if the subscription has been removed, break the loop
+                if account_active.read().unwrap().get(&sub_id).is_none() {
+                    break;
+                }
+
+                if let Ok(ui_account) = rx.try_recv() {
                     if let Some(sink) = account_active.read().unwrap().get(&sub_id) {
-                        let ui_account = encode_ui_account(
-                            &pubkey,
-                            &account,
-                            config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                            None,
-                            None,
-                        );
                         let _ = sink.notify(Ok(RpcResponse {
                             context: RpcResponseContext::new(
                                 svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot()),
