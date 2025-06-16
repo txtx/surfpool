@@ -70,7 +70,7 @@ pub struct SurfnetSvm {
     pub updated_at: u64,
     pub account_registry: HashMap<AccountOwner, Vec<(Pubkey, Account)>>,
     pub total_supply: u64,
-    pub circulating_supply: u64, 
+    pub circulating_supply: u64,
     pub non_circulating_supply: u64,
     pub non_circulating_accounts: Vec<String>,
 }

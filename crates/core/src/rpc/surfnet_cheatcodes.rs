@@ -12,7 +12,7 @@ use solana_sdk::{
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
 use surfpool_types::{
-    types::{AccountUpdate, ProfileResult, SetSomeAccount, TokenAccountUpdate, SupplyUpdate},
+    types::{AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate},
     SimnetEvent,
 };
 
@@ -288,11 +288,10 @@ pub trait SvmTricksRpc {
         tag: String,
     ) -> Result<RpcResponse<Vec<ProfileResult>>>;
 
-
     /// A "cheat code" method for developers to set or update the network supply information in Surfpool.
     ///
-    /// This method allows developers to configure the total supply, circulating supply, 
-    /// non-circulating supply, and non-circulating accounts list that will be returned 
+    /// This method allows developers to configure the total supply, circulating supply,
+    /// non-circulating supply, and non-circulating accounts list that will be returned
     /// by the `getSupply` RPC method.
     ///
     /// ## Parameters
@@ -344,7 +343,6 @@ pub trait SvmTricksRpc {
         update: SupplyUpdate,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
 }
-
 
 #[derive(Clone)]
 pub struct SurfnetCheatcodesRpc;
@@ -646,9 +644,8 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                         let account_clone = account.clone();
                         return Box::pin(async move {
                             Err(Error::invalid_params(format!(
-                                "Invalid pubkey at index {}: '{}'", 
-                                index, 
-                                account_clone
+                                "Invalid pubkey at index {}: '{}'",
+                                index, account_clone
                             )))
                         });
                     }
@@ -662,15 +659,15 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 if let Some(total) = update.total {
                     svm_writer.total_supply = total;
                 }
-                
+
                 if let Some(circulating) = update.circulating {
                     svm_writer.circulating_supply = circulating;
                 }
-                
+
                 if let Some(non_circulating) = update.non_circulating {
                     svm_writer.non_circulating_supply = non_circulating;
                 }
-                
+
                 if let Some(ref accounts) = update.non_circulating_accounts {
                     svm_writer.non_circulating_accounts = accounts.clone();
                 }
@@ -685,5 +682,4 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             })
         })
     }
-
 }

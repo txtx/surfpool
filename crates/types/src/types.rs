@@ -518,7 +518,7 @@ pub struct TokenAccountUpdate {
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct SupplyUpdate {
     pub total: Option<u64>,
-    pub circulating: Option<u64>, 
+    pub circulating: Option<u64>,
     pub non_circulating: Option<u64>,
     pub non_circulating_accounts: Option<Vec<String>>,
 }
