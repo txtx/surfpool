@@ -126,7 +126,7 @@ We are actively developing Surfpool and welcome contributions from the community
 
 - Explore and contribute to open issues: [GitHub Issues](https://github.com/txtx/surfpool/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22help%20wanted%22)
 
-- Join the discussion on [Discord](https://discord.gg/DJY6Wf28)
+- Join the discussion on [Discord](https://discord.gg/qXmWsn2ja)
 
 - Get releases updates via [X](https://x.com/txtx_sol) or [Telegram Channel](https://t.me/surfpool)
 
