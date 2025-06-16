@@ -1857,9 +1857,7 @@ impl Full for SurfpoolFullRpc {
                     let local_slots: Vec<Slot> = svm_reader
                         .blocks
                         .keys()
-                        .filter(|&&slot| {
-                            slot >= start_slot && slot <= committed_latest_slot
-                        })
+                        .filter(|&&slot| slot >= start_slot && slot <= committed_latest_slot)
                         .copied()
                         .collect();
 
@@ -1906,7 +1904,6 @@ impl Full for SurfpoolFullRpc {
             } else {
                 vec![]
             };
-
 
             let mut combined_slots = remote_slots;
             combined_slots.extend(local_slots);
