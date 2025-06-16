@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crossbeam_channel::Sender;
 use jsonrpc_core::Result as RpcError;
 use locker::SurfnetSvmLocker;
@@ -74,6 +76,9 @@ pub type SignatureSubscriptionData = (
     SignatureSubscriptionType,
     Sender<(Slot, Option<TransactionError>)>,
 );
+
+pub type AccountSubscriptionData =
+    HashMap<Pubkey, Vec<(Option<UiAccountEncoding>, Sender<UiAccount>)>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SignatureSubscriptionType {

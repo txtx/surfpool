@@ -263,14 +263,11 @@ impl Rpc for SurfpoolWsRpc {
         let account_active = Arc::clone(&self.account_active);
         let meta = meta.clone();
 
+        let svm_locker = meta.get_svm_locker().unwrap();
+        let slot = svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot());
+
         self.tokio_handle.spawn(async move {
             account_active.write().unwrap().insert(sub_id.clone(), sink);
-
-            let SurfnetRpcContext { svm_locker, .. } =
-                match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
-                    Ok(res) => res,
-                    Err(_) => panic!(),
-                };
 
             // subscribe to account updates
             let rx = svm_locker.subscribe_for_account_updates(&pubkey, config.encoding);
@@ -284,9 +281,7 @@ impl Rpc for SurfpoolWsRpc {
                 if let Ok(ui_account) = rx.try_recv() {
                     if let Some(sink) = account_active.read().unwrap().get(&sub_id) {
                         let _ = sink.notify(Ok(RpcResponse {
-                            context: RpcResponseContext::new(
-                                svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot()),
-                            ),
+                            context: RpcResponseContext::new(slot),
                             value: ui_account,
                         }));
                     }

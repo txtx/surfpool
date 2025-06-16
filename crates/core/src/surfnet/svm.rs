@@ -36,9 +36,9 @@ use surfpool_types::{
 };
 
 use super::{
-    remote::SurfnetRemoteClient, BlockHeader, BlockIdentifier, GetAccountResult, GeyserEvent,
-    SignatureSubscriptionData, SignatureSubscriptionType, FINALIZATION_SLOT_THRESHOLD,
-    SLOTS_PER_EPOCH,
+    remote::SurfnetRemoteClient, AccountSubscriptionData, BlockHeader, BlockIdentifier,
+    GetAccountResult, GeyserEvent, SignatureSubscriptionData, SignatureSubscriptionType,
+    FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -71,7 +71,7 @@ pub struct SurfnetSvm {
     pub simnet_events_tx: Sender<SimnetEvent>,
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
-    pub account_subscriptions: HashMap<Pubkey, Vec<(Option<UiAccountEncoding>, Sender<UiAccount>)>>,
+    pub account_subscriptions: AccountSubscriptionData,
     pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
@@ -827,7 +827,6 @@ impl SurfnetSvm {
         account_updated_pubkey: &Pubkey,
         account: &Account,
     ) {
-        //TODO should we notify the subscribers in a separate thread?
         let mut remaining = vec![];
         if let Some(subscriptions) = self.account_subscriptions.remove(account_updated_pubkey) {
             for (encoding, tx) in subscriptions {
