@@ -21,7 +21,7 @@ bs58 = "0.5.1"
 chrono = "0.4"
 crossbeam = "0.8.4"
 crossbeam-channel = { workspace = true }
-hex = { workspace = true}
+hex = { workspace = true }
 hiro-system-kit = { version = "0.3.4" }
 ipc-channel = { workspace = true }
 itertools = "0.14.0"
@@ -35,7 +35,7 @@ litesvm = { workspace = true }
 log = "0.4.22"
 serde = { workspace = true }
 serde_bytes = { workspace = true }
-serde_derive = { workspace = true } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
+serde_derive = { workspace = true }                               # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = { workspace = true }
 serde_with = { workspace = true }
 solana-account = { workspace = true }
@@ -49,10 +49,11 @@ solana-epoch-info = { workspace = true }
 solana-epoch-schedule = { workspace = true }
 solana-feature-set = { workspace = true }
 solana-hash = { workspace = true }
+solana-geyser-plugin-manager = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-native-token = { workspace = true }
-solana-packet  = { workspace = true }
+solana-packet = { workspace = true }
 solana-program-runtime = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-rpc-client = { workspace = true }
@@ -64,7 +65,7 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-transaction = { workspace = true }
-solana-transaction-error = { workspace = true } 
+solana-transaction-error = { workspace = true }
 solana-transaction-status = { workspace = true }
 solana-version = { workspace = true }
 spl-associated-token-account = { workspace = true }
