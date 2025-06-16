@@ -69,6 +69,10 @@ pub struct SurfnetSvm {
     pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
     pub updated_at: u64,
     pub account_registry: HashMap<AccountOwner, Vec<(Pubkey, Account)>>,
+    pub total_supply: u64,
+    pub circulating_supply: u64, 
+    pub non_circulating_supply: u64,
+    pub non_circulating_accounts: Vec<String>,
 }
 
 impl SurfnetSvm {
@@ -120,6 +124,10 @@ impl SurfnetSvm {
                 tagged_profiling_results: HashMap::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 account_registry: HashMap::new(),
+                total_supply: 0,
+                circulating_supply: 0,
+                non_circulating_supply: 0,
+                non_circulating_accounts: Vec::new(),
             },
             simnet_events_rx,
             geyser_events_rx,
