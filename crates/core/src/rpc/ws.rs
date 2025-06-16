@@ -10,7 +10,7 @@ use jsonrpc_pubsub::{
     typed::{Sink, Subscriber},
     SubscriptionId,
 };
-use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
+use solana_account_decoder::{UiAccount, UiAccountEncoding};
 use solana_client::{
     rpc_config::RpcSignatureSubscribeConfig,
     rpc_response::{
@@ -24,12 +24,12 @@ use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
 
 use super::{State, SurfnetRpcContext, SurfpoolWebsocketMeta};
-use crate::surfnet::{
-    locker::SvmAccessContext, GetAccountResult, GetTransactionResult, SignatureSubscriptionType,
-};
+use crate::surfnet::{locker::SvmAccessContext, GetTransactionResult, SignatureSubscriptionType};
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RpcAccountSubscribeConfig {
+    #[serde(flatten)]
     pub commitment: Option<CommitmentConfig>,
     pub encoding: Option<UiAccountEncoding>,
 }
@@ -286,7 +286,6 @@ impl Rpc for SurfpoolWsRpc {
                         }));
                     }
                 }
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
             }
         });
     }

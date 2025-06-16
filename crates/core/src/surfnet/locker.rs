@@ -411,12 +411,12 @@ impl SurfnetSvmLocker {
 
         // find accounts that are needed for this transaction but are missing from the local
         // svm cache, fetch them from the RPC, and insert them locally
-        let accounts = self
+        let pubkeys_from_message = self
             .get_pubkeys_from_message(remote_ctx, &transaction.message)
             .await?;
 
         let account_updates = self
-            .get_multiple_accounts(remote_ctx, &accounts, None)
+            .get_multiple_accounts(remote_ctx, &pubkeys_from_message, None)
             .await?
             .inner;
 
@@ -424,6 +424,12 @@ impl SurfnetSvmLocker {
             for update in &account_updates {
                 svm_writer.write_account_update(update.clone());
             }
+
+            let accounts_before = pubkeys_from_message
+                .iter()
+                .map(|p| svm_writer.inner.get_account(p))
+                .collect::<Vec<Option<Account>>>();
+
             // if not skipping preflight, simulate the transaction
             if !skip_preflight {
                 match svm_writer.simulate_transaction(transaction.clone(), true) {
@@ -455,6 +461,21 @@ impl SurfnetSvmLocker {
                 .send_transaction(transaction.clone(), false /* cu_analysis_enabled */)
             {
                 Ok(res) => {
+                    let accounts_after = pubkeys_from_message
+                        .iter()
+                        .map(|p| svm_writer.inner.get_account(p))
+                        .collect::<Vec<Option<Account>>>();
+
+                    for (pubkey, (before, after)) in pubkeys_from_message
+                        .iter()
+                        .zip(accounts_before.iter().zip(accounts_after))
+                    {
+                        if before.ne(&after) {
+                            svm_writer
+                                .notify_account_subscribers(pubkey, &after.unwrap_or_default());
+                        }
+                    }
+
                     let transaction_meta = convert_transaction_metadata_from_canonical(&res);
                     let _ = svm_writer
                         .geyser_events_tx

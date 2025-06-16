@@ -503,6 +503,7 @@ impl SurfnetSvm {
                 let _ = self
                     .simnet_events_tx
                     .try_send(SimnetEvent::transaction_processed(transaction_meta, None));
+
                 Ok(res)
             }
             Err(tx_failure) => {
