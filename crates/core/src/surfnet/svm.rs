@@ -308,45 +308,59 @@ impl SurfnetSvm {
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
         self.updated_at = Utc::now().timestamp_millis() as u64;
         
-        if let Some(old_account) = self.accounts_registry.get(pubkey).cloned() {
-            self.remove_from_indexes(pubkey, &old_account);
-        }
+        // store old account for cleanup, but don't remove yet
+        let old_account = self.accounts_registry.get(pubkey).cloned();
 
         self.inner
             .set_account(*pubkey, account.clone())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
 
+         // only if successful, update our indexes
+        if let Some(old_account) = old_account {
+            self.remove_from_indexes(pubkey, &old_account);
+        }
+
+        // update the main registry
         self.accounts_registry.insert(*pubkey, account.clone());
 
-        self.accounts_by_owner
-            .entry(account.owner)
-            .or_default()
-            .push(*pubkey);
-        
+        // add to owner index (check for duplicates)
+        let owner_accounts = self.accounts_by_owner.entry(account.owner).or_default();
+        if !owner_accounts.contains(pubkey) {
+            owner_accounts.push(*pubkey);
+        }
+            
         // if it's a token account, update token-specific indexes
         if account.owner == spl_token::id() {
             if let Ok(token_account) = TokenAccount::unpack(&account.data) {
 
                 self.token_accounts.insert(*pubkey, token_account);
                 
-                // index by owner
-                self.token_accounts_by_owner
+                // index by owner -> check for duplicates
+                let token_owner_accounts = self.token_accounts_by_owner
                     .entry(token_account.owner)
-                    .or_default()
-                    .push(*pubkey);
+                    .or_default();
+
+                if !token_owner_accounts.contains(pubkey) {
+                    token_owner_accounts.push(*pubkey);
+                }
                 
-                // index by mint
-                self.token_accounts_by_mint
+                // index by mint -> check for duplicates
+                let mint_accounts = self.token_accounts_by_mint
                     .entry(token_account.mint)
-                    .or_default()
-                    .push(*pubkey);
-                
+                    .or_default();
+
+                if !mint_accounts.contains(pubkey) {
+                    mint_accounts.push(*pubkey);
+                }
+                    
 
                 if let COption::Some(delegate) = token_account.delegate {
-                    self.token_accounts_by_delegate
+                    let delegate_accounts = self.token_accounts_by_delegate
                         .entry(delegate)
-                        .or_default()
-                        .push(*pubkey);
+                        .or_default();
+                    if !delegate_accounts.contains(&pubkey) {
+                        delegate_accounts.push(*pubkey);
+                    }
                 }
             }
         }
@@ -864,5 +878,217 @@ impl SurfnetSvm {
         } else {
             Vec::new()
         }
+    }
+
+    /// Gets all token accounts that have delegated authority to a specific delegate.
+    ///
+    /// # Arguments
+    ///
+    /// * `delegate` - The delegate pubkey to search for token accounts that have granted authority.
+    ///
+    /// # Returns
+    ///
+    /// * A vector of (account_pubkey, token_account) tuples for all token accounts delegated to the specified delegate.
+    pub fn get_token_accounts_by_delegate(&self, delegate: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
+        if let Some(account_pubkeys) = self.token_accounts_by_delegate.get(delegate) {
+            account_pubkeys.iter()
+                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .collect()
+        } else { 
+            Vec::new() 
+        }
+
+    }
+
+    /// Gets all token accounts owned by a specific owner.
+    ///
+    /// # Arguments
+    ///
+    /// * `owner` - The owner pubkey to search for token accounts.
+    ///
+    /// # Returns
+    ///
+    /// * A vector of (account_pubkey, token_account) tuples for all token accounts owned by the specified owner.
+    pub fn get_token_accounts_by_owner(&self, owner: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
+        if let Some(account_pubkeys) = self.token_accounts_by_owner.get(owner) {
+            account_pubkeys.iter()
+                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Gets all token accounts for a specific mint (token type).
+    ///
+    /// # Arguments
+    ///
+    /// * `mint` - The mint pubkey to search for token accounts.
+    ///
+    /// # Returns
+    ///
+    /// * A vector of (account_pubkey, token_account) tuples for all token accounts of the specified mint.
+    pub fn get_token_accounts_by_mint(&self, mint: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
+        if let Some(account_pubkeys) = self.token_accounts_by_mint.get(mint) {
+            account_pubkeys.iter()
+                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use solana_sdk::program_pack::Pack;
+    use spl_token::state::{Account as TokenAccount, AccountState, Mint};
+    use solana_account::Account;
+
+    #[test]
+    fn test_token_account_indexing() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        
+        let owner = Pubkey::new_unique();
+        let delegate = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let token_account_pubkey = Pubkey::new_unique();
+        
+        // create a token account with delegate
+        let mut token_account_data = [0u8; TokenAccount::LEN];
+        let token_account = TokenAccount {
+            mint,
+            owner,
+            amount: 1000,
+            delegate: COption::Some(delegate),
+            state: AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 500,
+            close_authority: COption::None,
+        };
+        token_account.pack_into_slice(&mut token_account_data);
+        
+        let account = Account {
+            lamports: 1000000,
+            data: token_account_data.to_vec(),
+            owner: spl_token::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        
+        svm.set_account(&token_account_pubkey, account).unwrap();
+        
+        // test all indexes were created correctly
+        assert_eq!(svm.accounts_registry.len(), 1);
+        assert_eq!(svm.token_accounts.len(), 1);
+        
+        // test owner index
+        let owner_accounts = svm.get_token_accounts_by_owner(&owner);
+        assert_eq!(owner_accounts.len(), 1);
+        assert_eq!(owner_accounts[0].0, token_account_pubkey);
+        
+        // test delegate index
+        let delegate_accounts = svm.get_token_accounts_by_delegate(&delegate);
+        assert_eq!(delegate_accounts.len(), 1);
+        assert_eq!(delegate_accounts[0].0, token_account_pubkey);
+        
+        // test mint index
+        let mint_accounts = svm.get_token_accounts_by_mint(&mint);
+        assert_eq!(mint_accounts.len(), 1);
+        assert_eq!(mint_accounts[0].0, token_account_pubkey);
+    }
+
+    #[test]
+    fn test_account_update_removes_old_indexes() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        
+        let owner = Pubkey::new_unique();
+        let old_delegate = Pubkey::new_unique();
+        let new_delegate = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let token_account_pubkey = Pubkey::new_unique();
+        
+        //  reate initial token account with old delegate
+        let mut token_account_data = [0u8; TokenAccount::LEN];
+        let token_account = TokenAccount {
+            mint,
+            owner,
+            amount: 1000,
+            delegate: COption::Some(old_delegate),
+            state: AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 500,
+            close_authority: COption::None,
+        };
+        token_account.pack_into_slice(&mut token_account_data);
+        
+        let account = Account {
+            lamports: 1000000,
+            data: token_account_data.to_vec(),
+            owner: spl_token::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        
+        // insert initial account
+        svm.set_account(&token_account_pubkey, account).unwrap();
+        
+        // verify old delegate has the account
+        assert_eq!(svm.get_token_accounts_by_delegate(&old_delegate).len(), 1);
+        assert_eq!(svm.get_token_accounts_by_delegate(&new_delegate).len(), 0);
+        
+        // update with new delegate
+        let updated_token_account = TokenAccount {
+            mint,
+            owner,
+            amount: 1000,
+            delegate: COption::Some(new_delegate), 
+            state: AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 500,
+            close_authority: COption::None,
+        };
+        updated_token_account.pack_into_slice(&mut token_account_data);
+        
+        let updated_account = Account {
+            lamports: 1000000,
+            data: token_account_data.to_vec(),
+            owner: spl_token::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        
+        // update the account
+        svm.set_account(&token_account_pubkey, updated_account).unwrap();
+        
+        // verify indexes were updated correctly
+        assert_eq!(svm.get_token_accounts_by_delegate(&old_delegate).len(), 0);
+        assert_eq!(svm.get_token_accounts_by_delegate(&new_delegate).len(), 1);
+        assert_eq!(svm.get_token_accounts_by_owner(&owner).len(), 1);
+    }
+
+    #[test]
+    fn test_non_token_accounts_not_indexed() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        
+        let system_account_pubkey = Pubkey::new_unique();
+        let account = Account {
+            lamports: 1000000,
+            data: vec![],
+            owner: solana_system_interface::program::id(), // system program, not token program
+            executable: false,
+            rent_epoch: 0,
+        };
+        
+        svm.set_account(&system_account_pubkey, account).unwrap();
+        
+        // should be in general registry but not token indexes
+        assert_eq!(svm.accounts_registry.len(), 1);
+        assert_eq!(svm.token_accounts.len(), 0);
+        assert_eq!(svm.token_accounts_by_owner.len(), 0);
+        assert_eq!(svm.token_accounts_by_delegate.len(), 0);
+        assert_eq!(svm.token_accounts_by_mint.len(), 0);
     }
 }
