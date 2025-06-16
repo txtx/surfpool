@@ -1811,7 +1811,68 @@ impl Full for SurfpoolFullRpc {
         limit: usize,
         config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<Vec<Slot>>> {
-        not_implemented_err_async("get_blocks_with_limit")
+        let config = config.unwrap_or_default();
+        let commitment = config.commitment.unwrap_or(CommitmentConfig {
+            commitment: CommitmentLevel::Processed,
+        });
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(commitment) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+
+        Box::pin(async move {
+            svm_locker.with_svm_reader(|svm_reader| {
+                let latest_slot: Slot = svm_reader.get_latest_absolute_slot();
+
+                let committed_latest_slot: Slot = match commitment.commitment {
+                    CommitmentLevel::Processed => latest_slot,
+                    CommitmentLevel::Confirmed => latest_slot.saturating_sub(1),
+                    CommitmentLevel::Finalized => latest_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD),
+                };
+    
+                if limit == 0 {
+                    return Err(Error::invalid_params("Limit must be greater than 0"));
+                }
+    
+                const MAX_LIMIT: usize = 500_000;
+                if limit > MAX_LIMIT {
+                    return Err(Error::invalid_params(format!(
+                        "Limit too large. Maximum limit allowed: {}",
+                        MAX_LIMIT
+                    )));
+                }
+    
+                if let Some(min_context_slot) = config.min_context_slot {
+                    if start_slot < min_context_slot {
+                        return Err(RpcCustomError::MinContextSlotNotReached {
+                            context_slot: min_context_slot,
+                        }.into());
+                    }
+                }
+    
+                let effective_end_slot = committed_latest_slot;
+    
+                // collect slots that have blocks, starting from start_slot
+                let mut slots: Vec<Slot> = svm_reader
+                    .blocks
+                    .keys()
+                    .filter(|&&slot| slot >= start_slot && slot <= effective_end_slot)
+                    .copied()
+                    .collect();
+    
+                slots.sort_unstable();
+    
+                // apply the limit (take only the first 'limit' slots)
+                slots.truncate(limit);
+    
+                Ok(slots)
+            })
+        })
     }
 
     fn get_transaction(
@@ -2863,6 +2924,271 @@ mod tests {
             res.is_empty(),
             "Expected no prioritization fees for random account"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_with_limit_basic() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+            
+            for slot in 100..=110 {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+            
+            svm_writer.latest_epoch_info.absolute_slot = 110;
+        }
+
+        let result = setup
+            .rpc
+            .get_blocks_with_limit(
+                Some(setup.context.clone()),
+                100,
+                5, 
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result, vec![100, 101, 102, 103, 104]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_with_limit_exceeds_available() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+            
+            for slot in [100, 101, 102] {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+            
+            svm_writer.latest_epoch_info.absolute_slot = 102;
+        }
+
+        let result = setup
+            .rpc
+            .get_blocks_with_limit(
+                Some(setup.context.clone()),
+                100,
+                10, 
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result, vec![100, 101, 102]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_with_limit_commitment_levels() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+            
+            // Create blocks for slots 80-120
+            for slot in 80..=120 {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+            
+            svm_writer.latest_epoch_info.absolute_slot = 120;
+        }
+
+        // Test processed commitment (latest = 120)
+        let processed_result = setup
+            .rpc
+            .get_blocks_with_limit(
+                Some(setup.context.clone()),
+                115,
+                10,
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Processed,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(processed_result, vec![115, 116, 117, 118, 119, 120]);
+
+        // Test confirmed commitment (latest = 119)
+        let confirmed_result = setup
+            .rpc
+            .get_blocks_with_limit(
+                Some(setup.context.clone()),
+                115,
+                10,
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Confirmed,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(confirmed_result, vec![115, 116, 117, 118, 119]);
+
+        // Test finalized commitment (latest = 120 - 31 = 89)
+        let finalized_result = setup
+            .rpc
+            .get_blocks_with_limit(
+                Some(setup.context.clone()),
+                85,
+                10,
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Finalized,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(finalized_result, vec![85, 86, 87, 88, 89]);
+    }
+ 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_with_limit_sparse_blocks() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+            
+            // sparse blocks -> not every slot has a block
+            for slot in [100, 103, 105, 107, 109, 112, 115, 118, 120, 122] {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+            
+            svm_writer.latest_epoch_info.absolute_slot = 125;
+        }
+
+        let result = setup
+            .rpc
+            .get_blocks_with_limit(
+                Some(setup.context.clone()),
+                100,
+                6,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // should return only slots that have blocks, up to the limit
+        assert_eq!(result, vec![100, 103, 105, 107, 109, 112]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_with_limit_empty_result() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+            svm_writer.latest_epoch_info.absolute_slot = 100;
+            // no blocks added - empty blockchain state
+        }
+
+        // request blocks where none exist
+        let result = setup
+            .rpc
+            .get_blocks_with_limit(
+                Some(setup.context.clone()),
+                50,
+                10,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result, Vec::<Slot>::new());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_blocks_with_limit_large_limit() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+            
+            for slot in 0..1000 {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot.saturating_sub(1)),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+            
+            svm_writer.latest_epoch_info.absolute_slot = 999;
+        }
+
+        let result = setup
+            .rpc
+            .get_blocks_with_limit(
+                Some(setup.context.clone()),
+                0,
+                1000,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.len(), 1000);
+        assert_eq!(result[0], 0);
+        assert_eq!(result[999], 999);
+        
+        for i in 1..result.len() {
+            assert!(result[i] > result[i-1], "Results should be in ascending order");
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
