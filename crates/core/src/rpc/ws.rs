@@ -266,41 +266,11 @@ impl Rpc for SurfpoolWsRpc {
         self.tokio_handle.spawn(async move {
             account_active.write().unwrap().insert(sub_id.clone(), sink);
 
-            let SurfnetRpcContext {
-                svm_locker,
-                remote_ctx,
-            } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
-                Ok(res) => res,
-                Err(_) => panic!(),
-            };
-
-            // get the account from the SVM to see if it exists
-            let result = svm_locker.get_account(&remote_ctx, &pubkey, None).await;
-
-            if let Ok(SvmAccessContext {
-                inner: account_result,
-                ..
-            }) = result
-            {
-                // if we found the account, send the initial notification
-                if let GetAccountResult::FoundAccount(_, account, _) = account_result {
-                    let ui_account = encode_ui_account(
-                        &pubkey,
-                        &account,
-                        config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                        None,
-                        None,
-                    );
-                    if let Some(sink) = account_active.read().unwrap().get(&sub_id) {
-                        let _ = sink.notify(Ok(RpcResponse {
-                            context: RpcResponseContext::new(
-                                svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot()),
-                            ),
-                            value: ui_account,
-                        }));
-                    }
-                }
-            }
+            let SurfnetRpcContext { svm_locker, .. } =
+                match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
+                    Ok(res) => res,
+                    Err(_) => panic!(),
+                };
 
             // subscribe to account updates
             let rx = svm_locker.subscribe_for_account_updates(&pubkey, config.encoding);
