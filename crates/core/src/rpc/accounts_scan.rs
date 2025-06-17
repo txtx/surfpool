@@ -534,7 +534,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
     fn get_supply(
         &self,
         meta: Self::Metadata,
-        _config: Option<RpcSupplyConfig>,
+        config: Option<RpcSupplyConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSupply>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
@@ -544,13 +544,24 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         Box::pin(async move {
             svm_locker.with_svm_reader(|svm_reader| {
                 let slot = svm_reader.get_latest_absolute_slot();
+
+                // Check if we should exclude non-circulating accounts list
+                let exclude_accounts = config
+                    .as_ref()
+                    .map(|c| c.exclude_non_circulating_accounts_list)
+                    .unwrap_or(false);
+
                 Ok(RpcResponse {
                     context: RpcResponseContext::new(slot),
                     value: RpcSupply {
-                        total: 1,
-                        circulating: 0,
-                        non_circulating: 0,
-                        non_circulating_accounts: vec![],
+                        total: svm_reader.total_supply,
+                        circulating: svm_reader.circulating_supply,
+                        non_circulating: svm_reader.non_circulating_supply,
+                        non_circulating_accounts: if exclude_accounts {
+                            vec![]
+                        } else {
+                            svm_reader.non_circulating_accounts.clone()
+                        },
                     },
                 })
             })
@@ -669,14 +680,20 @@ mod tests {
 
     use solana_account::Account;
     use solana_client::{
-        rpc_config::RpcProgramAccountsConfig,
+        rpc_config::{RpcProgramAccountsConfig, RpcSupplyConfig},
         rpc_filter::{Memcmp, RpcFilterType},
         rpc_response::OptionalContext,
     };
     use solana_pubkey::Pubkey;
+    use surfpool_types::SupplyUpdate;
 
     use super::{AccountsScan, SurfpoolAccountsScanRpc};
-    use crate::tests::helpers::TestSetup;
+    use crate::{
+        rpc::surfnet_cheatcodes::{SurfnetCheatcodesRpc, SvmTricksRpc},
+        tests::helpers::TestSetup,
+    };
+
+    const VALID_PUBKEY_1: &str = "11111111111111111111111111111112";
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_program_accounts() {
@@ -827,5 +844,277 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_set_and_get_supply() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+
+        // test initial default values
+        let initial_supply = setup
+            .rpc
+            .get_supply(Some(setup.context.clone()), None)
+            .await
+            .unwrap();
+
+        assert_eq!(initial_supply.value.total, 0);
+        assert_eq!(initial_supply.value.circulating, 0);
+        assert_eq!(initial_supply.value.non_circulating, 0);
+        assert_eq!(initial_supply.value.non_circulating_accounts.len(), 0);
+
+        // set supply values using cheatcode
+        let supply_update = SupplyUpdate {
+            total: Some(1_000_000_000_000_000),
+            circulating: Some(800_000_000_000_000),
+            non_circulating: Some(200_000_000_000_000),
+            non_circulating_accounts: Some(vec![
+                VALID_PUBKEY_1.to_string(),
+                VALID_PUBKEY_1.to_string(),
+            ]),
+        };
+
+        let set_result = cheatcodes_rpc
+            .set_supply(Some(setup.context.clone()), supply_update)
+            .await
+            .unwrap();
+
+        assert_eq!(set_result.value, ());
+
+        // verify the values are returned by getSupply
+        let supply = setup
+            .rpc
+            .get_supply(Some(setup.context.clone()), None)
+            .await
+            .unwrap();
+
+        assert_eq!(supply.value.total, 1_000_000_000_000_000);
+        assert_eq!(supply.value.circulating, 800_000_000_000_000);
+        assert_eq!(supply.value.non_circulating, 200_000_000_000_000);
+        assert_eq!(supply.value.non_circulating_accounts.len(), 2);
+        assert_eq!(supply.value.non_circulating_accounts[0], VALID_PUBKEY_1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_supply_exclude_accounts() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+
+        // set supply with non-circulating accounts
+        let supply_update = SupplyUpdate {
+            total: Some(1_000_000_000_000_000),
+            circulating: Some(800_000_000_000_000),
+            non_circulating: Some(200_000_000_000_000),
+            non_circulating_accounts: Some(vec![
+                VALID_PUBKEY_1.to_string(),
+                VALID_PUBKEY_1.to_string(),
+            ]),
+        };
+
+        cheatcodes_rpc
+            .set_supply(Some(setup.context.clone()), supply_update)
+            .await
+            .unwrap();
+
+        // test with exclude_non_circulating_accounts_list = true
+        let config_exclude = RpcSupplyConfig {
+            commitment: None,
+            exclude_non_circulating_accounts_list: true,
+        };
+
+        let supply_excluded = setup
+            .rpc
+            .get_supply(Some(setup.context.clone()), Some(config_exclude))
+            .await
+            .unwrap();
+
+        assert_eq!(supply_excluded.value.total, 1_000_000_000_000_000);
+        assert_eq!(supply_excluded.value.circulating, 800_000_000_000_000);
+        assert_eq!(supply_excluded.value.non_circulating, 200_000_000_000_000);
+        assert_eq!(supply_excluded.value.non_circulating_accounts.len(), 0); // should be empty
+
+        // test with exclude_non_circulating_accounts_list = false (default)
+        let supply_included = setup
+            .rpc
+            .get_supply(Some(setup.context.clone()), None)
+            .await
+            .unwrap();
+
+        assert_eq!(supply_included.value.non_circulating_accounts.len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_partial_supply_update() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+
+        // set initial values
+        let initial_update = SupplyUpdate {
+            total: Some(1_000_000_000_000_000),
+            circulating: Some(800_000_000_000_000),
+            non_circulating: Some(200_000_000_000_000),
+            non_circulating_accounts: Some(vec![VALID_PUBKEY_1.to_string()]),
+        };
+
+        cheatcodes_rpc
+            .set_supply(Some(setup.context.clone()), initial_update)
+            .await
+            .unwrap();
+
+        // update only the total supply
+        let partial_update = SupplyUpdate {
+            total: Some(2_000_000_000_000_000),
+            circulating: None,
+            non_circulating: None,
+            non_circulating_accounts: None,
+        };
+
+        cheatcodes_rpc
+            .set_supply(Some(setup.context.clone()), partial_update)
+            .await
+            .unwrap();
+
+        // verify only total was updated, others remain the same
+        let supply = setup
+            .rpc
+            .get_supply(Some(setup.context), None)
+            .await
+            .unwrap();
+
+        assert_eq!(supply.value.total, 2_000_000_000_000_000); // updated
+        assert_eq!(supply.value.circulating, 800_000_000_000_000);
+        assert_eq!(supply.value.non_circulating, 200_000_000_000_000);
+        assert_eq!(supply.value.non_circulating_accounts.len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_set_supply_with_multiple_invalid_pubkeys() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+
+        // test with multiple invalid pubkeys - should fail on the first one
+        let supply_update = SupplyUpdate {
+            total: Some(1_000_000_000_000_000),
+            circulating: Some(800_000_000_000_000),
+            non_circulating: Some(200_000_000_000_000),
+            non_circulating_accounts: Some(vec![
+                VALID_PUBKEY_1.to_string(),   // Valid
+                "invalid_pubkey".to_string(), // Invalid - should fail here
+                "also_invalid".to_string(),   // Also invalid but won't reach here
+            ]),
+        };
+
+        let result = cheatcodes_rpc
+            .set_supply(Some(setup.context), supply_update)
+            .await;
+
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
+        assert!(error.message.contains("Invalid pubkey at index 1"));
+        assert!(error.message.contains("invalid_pubkey"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_set_supply_with_max_values() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+
+        let supply_update = SupplyUpdate {
+            total: Some(u64::MAX),
+            circulating: Some(u64::MAX - 1),
+            non_circulating: Some(1),
+            non_circulating_accounts: Some(vec![VALID_PUBKEY_1.to_string()]),
+        };
+
+        let result = cheatcodes_rpc
+            .set_supply(Some(setup.context.clone()), supply_update)
+            .await;
+
+        assert!(result.is_ok());
+
+        let supply = setup
+            .rpc
+            .get_supply(Some(setup.context), None)
+            .await
+            .unwrap();
+
+        assert_eq!(supply.value.total, u64::MAX);
+        assert_eq!(supply.value.circulating, u64::MAX - 1);
+        assert_eq!(supply.value.non_circulating, 1);
+        assert_eq!(supply.value.non_circulating_accounts[0], VALID_PUBKEY_1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_set_supply_large_valid_account_list() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+
+        let large_account_list: Vec<String> = (0..100)
+            .map(|i| match i % 10 {
+                0 => "3rSZJHysEk2ueFVovRLtZ8LGnQBMZGg96H2Q4jErspAF".to_string(),
+                1 => "11111111111111111111111111111111".to_string(),
+                2 => "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA".to_string(),
+                3 => "So11111111111111111111111111111111111111112".to_string(),
+                4 => "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                5 => "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(),
+                6 => "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R".to_string(),
+                7 => "9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E".to_string(),
+                8 => "2FPyTwcZLUg1MDrwsyoP4D6s1tM7hAkHYRjkNb5w6Pxk".to_string(),
+                _ => "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
+            })
+            .collect();
+
+        let supply_update = SupplyUpdate {
+            total: Some(1_000_000_000_000_000),
+            circulating: Some(800_000_000_000_000),
+            non_circulating: Some(200_000_000_000_000),
+            non_circulating_accounts: Some(large_account_list.clone()),
+        };
+
+        let result = cheatcodes_rpc
+            .set_supply(Some(setup.context.clone()), supply_update)
+            .await;
+
+        assert!(result.is_ok());
+
+        let supply = setup
+            .rpc
+            .get_supply(Some(setup.context), None)
+            .await
+            .unwrap();
+
+        assert_eq!(supply.value.non_circulating_accounts.len(), 100);
+        assert_eq!(
+            supply.value.non_circulating_accounts[0],
+            "3rSZJHysEk2ueFVovRLtZ8LGnQBMZGg96H2Q4jErspAF"
+        );
+        assert_eq!(
+            supply.value.non_circulating_accounts[1],
+            "11111111111111111111111111111111"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_supply_with_invalid_config() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        let config = RpcSupplyConfig {
+            commitment: Some(solana_commitment_config::CommitmentConfig {
+                commitment: solana_commitment_config::CommitmentLevel::Processed,
+            }),
+            exclude_non_circulating_accounts_list: false,
+        };
+
+        let result = setup
+            .rpc
+            .get_supply(Some(setup.context), Some(config))
+            .await;
+
+        assert!(result.is_ok());
+        let supply = result.unwrap();
+        assert_eq!(supply.value.total, 0);
+        assert_eq!(supply.value.circulating, 0);
+        assert_eq!(supply.value.non_circulating, 0);
     }
 }

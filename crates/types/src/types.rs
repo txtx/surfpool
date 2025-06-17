@@ -513,3 +513,12 @@ pub struct TokenAccountUpdate {
     /// providing this value sets the close authority of the token account
     pub close_authority: Option<SetSomeAccount>,
 }
+
+// token supply update for set supply method in SVM tricks
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct SupplyUpdate {
+    pub total: Option<u64>,
+    pub circulating: Option<u64>,
+    pub non_circulating: Option<u64>,
+    pub non_circulating_accounts: Option<Vec<String>>,
+}
