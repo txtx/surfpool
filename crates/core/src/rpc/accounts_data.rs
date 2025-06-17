@@ -10,7 +10,7 @@ use solana_client::{
     rpc_response::{RpcBlockCommitment, RpcResponseContext},
 };
 use solana_clock::Slot;
-use solana_commitment_config::CommitmentConfig;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_runtime::commitment::BlockCommitmentArray;
 use solana_sdk::program_pack::Pack;
@@ -343,7 +343,7 @@ pub trait AccountsData {
         meta: Self::Metadata,
         mint_str: String,
         commitment: Option<CommitmentConfig>,
-    ) -> Result<RpcResponse<UiTokenAmount>>;
+    ) -> BoxFuture<Result<RpcResponse<UiTokenAmount>>>;
 }
 
 #[derive(Clone)]
@@ -554,11 +554,82 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
     fn get_token_supply(
         &self,
-        _meta: Self::Metadata,
-        _mint_str: String,
-        _commitment: Option<CommitmentConfig>,
-    ) -> Result<RpcResponse<UiTokenAmount>> {
-        not_implemented_err("get_token_supply")
+        meta: Self::Metadata,
+        mint_str: String,
+        commitment: Option<CommitmentConfig>,
+    ) -> BoxFuture<Result<RpcResponse<UiTokenAmount>>> {
+        let mint_pubkey = match verify_pubkey(&mint_str) {
+            Ok(pubkey) => pubkey,
+            Err(e) => return e.into(),
+        };
+    
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(commitment.unwrap_or_default()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+    
+        Box::pin(async move {
+            let SvmAccessContext {
+                slot,
+                inner: mint_account_result,
+                ..
+            } = svm_locker
+                .get_account(&remote_ctx, &mint_pubkey, None)
+                .await?;
+    
+            svm_locker.write_account_update(mint_account_result.clone());
+    
+            let mint_account = mint_account_result.map_account()?;
+    
+            if mint_account.owner != spl_token::id() {
+                return Err(SurfpoolError::invalid_account_data(
+                    mint_pubkey,
+                    "Account is not owned by the SPL Token program",
+                    None::<String>,
+                ).into());
+            }
+    
+            let mint_data = Mint::unpack(&mint_account.data).map_err(|e| {
+                SurfpoolError::invalid_account_data(
+                    mint_pubkey,
+                    "Invalid token mint account data",
+                    Some(e.to_string()),
+                )
+            })?;
+    
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
+                value: {
+                    parse_token_v3(
+                        &mint_account.data,
+                        Some(&SplTokenAdditionalDataV2 {
+                            decimals: mint_data.decimals,
+                            ..Default::default()
+                        }),
+                    )
+                    .ok()
+                    .and_then(|t| match t {
+                        TokenAccountType::Mint(mint) => Some(UiTokenAmount {
+                            amount: mint.supply.clone(),
+                            decimals: mint.decimals,
+                            ui_amount: None, // let client calculate if needed?
+                            ui_amount_string: mint.supply,
+                        }),
+                        _ => None,
+                    })
+                    .ok_or_else(|| {
+                        SurfpoolError::invalid_account_data(
+                            mint_pubkey,
+                            "Failed to parse token mint account",
+                            None::<String>,
+                        )
+                    })?
+                },
+            })
+        })
     }
 }
 
@@ -570,7 +641,7 @@ mod tests {
     use spl_token::state::{Account as TokenAccount, AccountState, Mint};
 
     use super::*;
-    use crate::{surfnet::GetAccountResult, tests::helpers::TestSetup};
+    use crate::{surfnet::{remote::SurfnetRemoteClient, GetAccountResult}, tests::helpers::TestSetup};
 
     #[ignore = "connection-required"]
     #[tokio::test(flavor = "multi_thread")]
@@ -739,5 +810,255 @@ mod tests {
         let error = result.unwrap_err();
         assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
         assert!(error.message.contains("Block") && error.message.contains("not found"));
+    }
+
+    #[ignore = "requires-network"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_token_supply_with_real_mint() {
+        let remote_client = SurfnetRemoteClient::new("https://api.mainnet-beta.solana.com");
+        let mut setup = TestSetup::new(SurfpoolAccountsDataRpc);
+        
+        setup.context.remote_rpc_client = Some(remote_client);
+        
+        // usdc mint
+        let usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+        
+        let res = setup
+            .rpc
+            .get_token_supply(
+                Some(setup.context),
+                usdc_mint.to_string(),
+                Some(CommitmentConfig::confirmed()),
+            )
+            .await
+            .unwrap();
+
+        println!("USDC Token Supply Response: {:?}", res);
+        
+
+        assert_eq!(res.value.decimals, 6, "USDC should have 6 decimals");
+        assert!(!res.value.amount.is_empty(), "Amount should not be empty");
+        assert!(res.value.amount.parse::<u64>().is_ok(), "Amount should be a valid number");
+        
+        let supply: u64 = res.value.amount.parse().unwrap();
+        assert!(supply > 1_000_000_000_000, "USDC supply should be > 1 trillion (with 6 decimals)");
+        
+        println!("✅ USDC Supply: {} (raw)", res.value.amount);
+        println!("✅ USDC Decimals: {}", res.value.decimals);
+        println!("✅ USDC UI Amount String: {}", res.value.ui_amount_string);
+    }
+
+    #[ignore = "requires-network"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_token_supply_caches_remote_account() {
+        let remote_client = SurfnetRemoteClient::new("https://api.mainnet-beta.solana.com");
+        let mut setup = TestSetup::new(SurfpoolAccountsDataRpc);
+        setup.context.remote_rpc_client = Some(remote_client);
+        
+        let usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+        let mint_pubkey = Pubkey::from_str_const(usdc_mint);
+        
+
+        let account_before = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader.inner.get_account(&mint_pubkey)
+        });
+        assert!(account_before.is_none(), "Account should not be cached initially");
+        println!("✅ Confirmed: USDC mint not in local cache initially");
+        
+        // call get_token_supply -> should fetch from remote and cache
+        let res = setup
+            .rpc
+            .get_token_supply(
+                Some(setup.context.clone()),
+                usdc_mint.to_string(),
+                Some(CommitmentConfig::confirmed()),
+            )
+            .await
+            .unwrap();
+        
+        println!("✅ First call completed - fetched from remote");
+        println!("   Supply: {}, Decimals: {}", res.value.amount, res.value.decimals);
+        
+        let account_after = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader.inner.get_account(&mint_pubkey)
+        });
+        assert!(account_after.is_some(), "Account should be cached after first call");
+        println!("✅ Confirmed: USDC mint now cached locally");
+        
+        let cached_account = account_after.unwrap();
+        assert_eq!(cached_account.owner, spl_token::id(), "Cached account should be owned by SPL Token program");
+        
+        // verify we can unpack the cached mint data
+        let cached_mint = Mint::unpack(&cached_account.data).unwrap();
+        assert_eq!(cached_mint.decimals, 6, "Cached mint should have 6 decimals");
+        assert!(cached_mint.supply > 0, "Cached mint should have positive supply");
+        println!("✅ Cached account data is valid: supply={}, decimals={}", 
+                cached_mint.supply, cached_mint.decimals);
+        
+        // make second call - should use cache (no network call)
+        let start_time = std::time::Instant::now();
+        let res2 = setup
+            .rpc
+            .get_token_supply(
+                Some(setup.context.clone()),
+                usdc_mint.to_string(),
+                Some(CommitmentConfig::confirmed()),
+            )
+            .await
+            .unwrap();
+        let duration = start_time.elapsed();
+        
+        println!("✅ Second call completed in {:?} (should be much faster)", duration);
+        
+        assert_eq!(res.value.amount, res2.value.amount, "Both calls should return same supply");
+        assert_eq!(res.value.decimals, res2.value.decimals, "Both calls should return same decimals");
+        
+        // second call should be much faster 
+        assert!(duration < std::time::Duration::from_millis(50), 
+            "Second call should be fast (cached), took {:?}", duration);
+        
+        println!("✅ Caching test passed!");
+        println!("   First call: Fetched from remote and cached");
+        println!("   Second call: Used cache (completed in {:?})", duration);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_invalid_pubkey_format() {
+        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
+        
+        // test various invalid pubkey formats
+        let invalid_pubkeys = vec![
+            "",                               
+            "invalid",              
+            "123",              
+            "not-a-valid-base58-string!@#$", 
+            "11111111111111111111111111111111111111111111111111111111111111111", 
+            "invalid-base58-characters-ö", 
+        ];
+        
+        for invalid_pubkey in invalid_pubkeys {
+            let res = setup
+                .rpc
+                .get_token_supply(
+                    Some(setup.context.clone()),
+                    invalid_pubkey.to_string(),
+                    Some(CommitmentConfig::confirmed()),
+                )
+                .await;
+            
+            assert!(res.is_err(), "Should fail for invalid pubkey: '{}'", invalid_pubkey);
+            
+            let error_msg = res.unwrap_err().to_string();
+            assert!(error_msg.contains("Invalid") || error_msg.contains("invalid"), 
+                   "Error should mention invalidity for '{}': {}", invalid_pubkey, error_msg);
+        }
+        
+        println!("✅ All invalid pubkey formats correctly rejected");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_nonexistent_account() {
+        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
+        
+        // valid pubkey format but nonexistent account
+        let nonexistent_mint = Pubkey::new_unique();
+        
+        let res = setup
+            .rpc
+            .get_token_supply(
+                Some(setup.context),
+                nonexistent_mint.to_string(),
+                Some(CommitmentConfig::confirmed()),
+            )
+            .await;
+        
+        assert!(res.is_err(), "Should fail for nonexistent account");
+        
+        let error_msg = res.unwrap_err().to_string();
+        assert!(error_msg.contains("not found") || error_msg.contains("account"), 
+               "Error should mention account not found: {}", error_msg);
+        
+        println!("✅ Nonexistent account correctly rejected: {}", error_msg);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_invalid_mint_data() {
+        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
+        
+        let fake_mint = Pubkey::new_unique();
+
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            // create an account owned by SPL Token but with invalid data
+            let invalid_mint_account = Account {
+                lamports: 1000000,
+                data: vec![0xFF; 50], // invalid mint data (random bytes)
+                owner: spl_token::id(), 
+                executable: false,
+                rent_epoch: 0,
+            };
+
+            svm_writer.set_account(&fake_mint, invalid_mint_account).unwrap();
+        });
+
+        let res = setup
+            .rpc
+            .get_token_supply(
+                Some(setup.context),
+                fake_mint.to_string(),
+                Some(CommitmentConfig::confirmed()),
+            )
+            .await;
+
+        assert!(res.is_err(), "Should fail for account with invalid mint data");
+        
+        let error_msg = res.unwrap_err().to_string();
+        assert!(error_msg.contains("deserialize") || error_msg.contains("Invalid") || error_msg.contains("parse"), 
+               "Error should mention deserialization failure: {}", error_msg);
+        
+        println!("✅ Invalid mint data correctly rejected: {}", error_msg);
+    }
+
+    #[ignore = "requires-network"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_remote_rpc_failure() {
+        // test with invalid remote RPC URL
+        let bad_remote_client = SurfnetRemoteClient::new("https://invalid-url-that-doesnt-exist.com");
+        let mut setup = TestSetup::new(SurfpoolAccountsDataRpc);
+        setup.context.remote_rpc_client = Some(bad_remote_client);
+        
+        let nonexistent_mint = Pubkey::new_unique();
+        
+        let res = setup
+            .rpc
+            .get_token_supply(
+                Some(setup.context),
+                nonexistent_mint.to_string(),
+                Some(CommitmentConfig::confirmed()),
+            )
+            .await;
+
+        assert!(res.is_err(), "Should fail when remote RPC is unreachable");
+        
+        let error_msg = res.unwrap_err().to_string();
+        println!("✅ Remote RPC failure handled: {}", error_msg);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_no_context_metadata() {
+        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
+        
+        // test with None metadata (no context)
+        let valid_mint = Pubkey::new_unique();
+        
+        let res = setup
+            .rpc
+            .get_token_supply(
+                None, // no context
+                valid_mint.to_string(),
+                Some(CommitmentConfig::confirmed()),
+            )
+            .await;
+
+        assert!(res.is_err(), "Should fail when no context provided");
     }
 }
