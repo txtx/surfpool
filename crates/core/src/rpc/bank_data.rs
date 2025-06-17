@@ -2,7 +2,9 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_client::{
     rpc_config::{RpcBlockProductionConfig, RpcContextConfig},
-    rpc_response::{RpcBlockProduction, RpcInflationGovernor, RpcInflationRate},
+    rpc_response::{
+        RpcBlockProduction, RpcInflationGovernor, RpcInflationRate, RpcResponseContext,
+    },
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -435,24 +437,73 @@ impl BankData for SurfpoolBankDataRpc {
 
     fn get_slot_leaders(
         &self,
-        _meta: Self::Metadata,
-        _start_slot: Slot,
-        _limit: u64,
+        meta: Self::Metadata,
+        start_slot: Slot,
+        limit: u64,
     ) -> Result<Vec<String>> {
-        not_implemented_err("get_slot_leaders")
+        if limit == 0 || limit > 5000 {
+            return Err(jsonrpc_core::Error {
+                code: jsonrpc_core::ErrorCode::InvalidParams,
+                message: "Limit must be between 1 and 5000".to_string(),
+                data: None,
+            });
+        }
+
+        let svm_locker = meta.get_svm_locker()?;
+        let latest_slot = svm_locker.get_latest_absolute_slot();
+        if start_slot >= latest_slot {
+            return Err(jsonrpc_core::Error {
+                code: jsonrpc_core::ErrorCode::InvalidParams,
+                message: "Invalid slot range: start slot must be less than the latest slot"
+                    .to_string(),
+                data: None,
+            });
+        }
+
+        Ok(vec![])
     }
 
     fn get_block_production(
         &self,
-        _meta: Self::Metadata,
-        _config: Option<RpcBlockProductionConfig>,
+        meta: Self::Metadata,
+        config: Option<RpcBlockProductionConfig>,
     ) -> Result<RpcResponse<RpcBlockProduction>> {
-        not_implemented_err("get_block_production")
+        meta.with_svm_reader(|svm_reader| {
+            let current_slot = svm_reader.get_latest_absolute_slot();
+            let epoch_info = &svm_reader.latest_epoch_info;
+
+            let (first_slot, last_slot) = if let Some(ref config) = config {
+                if let Some(ref range) = config.range {
+                    (range.first_slot, range.last_slot.unwrap_or(current_slot))
+                } else {
+                    let epoch_start_slot = epoch_info.absolute_slot - epoch_info.slot_index;
+                    (epoch_start_slot, current_slot)
+                }
+            } else {
+                let epoch_start_slot = epoch_info.absolute_slot - epoch_info.slot_index;
+                (epoch_start_slot, current_slot)
+            };
+
+            RpcResponse {
+                context: RpcResponseContext::new(current_slot),
+                value: RpcBlockProduction {
+                    // Empty HashMap - no validator block production data in simulation
+                    by_identity: std::collections::HashMap::new(),
+                    range: solana_client::rpc_response::RpcBlockProductionRange {
+                        first_slot,
+                        last_slot,
+                    },
+                },
+            }
+        })
+        .map_err(Into::into)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use solana_client::rpc_config::RpcBlockProductionConfigRange;
+
     use super::*;
     use crate::tests::helpers::TestSetup;
 
@@ -462,5 +513,87 @@ mod tests {
         let res = setup.rpc.get_epoch_schedule(Some(setup.context)).unwrap();
 
         assert_eq!(res, EpochSchedule::default());
+    }
+
+    #[test]
+    fn test_get_block_production() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+
+        // test with no config
+        let result = setup
+            .rpc
+            .get_block_production(Some(setup.context.clone()), None)
+            .unwrap();
+
+        // verify empty results (simulation mode)
+        assert!(
+            result.value.by_identity.is_empty(),
+            "Should have no validators in simulation"
+        );
+        assert!(
+            result.value.range.first_slot <= result.value.range.last_slot,
+            "Valid slot range"
+        );
+
+        // test with custom range
+        let config = Some(RpcBlockProductionConfig {
+            identity: None,
+            range: Some(RpcBlockProductionConfigRange {
+                first_slot: 100,
+                last_slot: Some(200),
+            }),
+            commitment: None,
+        });
+
+        let result2 = setup
+            .rpc
+            .get_block_production(Some(setup.context), config)
+            .unwrap();
+
+        assert_eq!(result2.value.range.first_slot, 100);
+        assert_eq!(result2.value.range.last_slot, 200);
+        assert!(result2.value.by_identity.is_empty());
+    }
+
+    #[test]
+    fn test_get_slot_leaders() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+
+        // test with valid parameters
+        let result = setup
+            .rpc
+            .get_slot_leaders(Some(setup.context.clone()), 0, 10)
+            .unwrap();
+
+        assert!(
+            result.is_empty(),
+            "Should return empty leaders in simulation"
+        );
+
+        // test with invalid limit
+        let err = setup
+            .rpc
+            .get_slot_leaders(Some(setup.context.clone()), 0, 6000)
+            .unwrap_err();
+
+        assert_eq!(
+            err.code,
+            jsonrpc_core::ErrorCode::InvalidParams,
+            "Should return InvalidParams error for limit > 5000"
+        );
+
+        let latest_slot = setup.context.svm_locker.get_latest_absolute_slot();
+
+        // test with start_slot >= latest_slot
+        let err = setup
+            .rpc
+            .get_slot_leaders(Some(setup.context), latest_slot + 100, 10)
+            .unwrap_err();
+
+        assert_eq!(
+            err.code,
+            jsonrpc_core::ErrorCode::InvalidParams,
+            "Should return InvalidParams error for start_slot >= latest_slot"
+        );
     }
 }

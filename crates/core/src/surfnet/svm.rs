@@ -3,7 +3,9 @@ use std::collections::{HashMap, VecDeque};
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use litesvm::{
-    types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult},
+    types::{
+        FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
+    },
     LiteSVM,
 };
 use solana_account::Account;
@@ -76,6 +78,10 @@ pub struct SurfnetSvm {
     pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_mint: HashMap<Pubkey, Vec<Pubkey>>,
+    pub total_supply: u64,
+    pub circulating_supply: u64,
+    pub non_circulating_supply: u64,
+    pub non_circulating_accounts: Vec<String>,
 }
 
 impl SurfnetSvm {
@@ -99,7 +105,8 @@ impl SurfnetSvm {
 
         let inner = LiteSVM::new()
             .with_feature_set(feature_set)
-            .with_blockhash_check(false);
+            .with_blockhash_check(false)
+            .with_sigverify(false);
 
         (
             Self {
@@ -131,6 +138,10 @@ impl SurfnetSvm {
                 token_accounts_by_owner: HashMap::new(),
                 token_accounts_by_delegate: HashMap::new(),
                 token_accounts_by_mint: HashMap::new(),
+                total_supply: 0,
+                circulating_supply: 0,
+                non_circulating_supply: 0,
+                non_circulating_accounts: Vec::new(),
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -433,6 +444,13 @@ impl SurfnetSvm {
         tx: VersionedTransaction,
         cu_analysis_enabled: bool,
     ) -> TransactionResult {
+        if tx.verify_with_results().iter().any(|valid| !*valid) {
+            return Err(FailedTransactionMetadata {
+                err: TransactionError::SignatureFailure,
+                meta: TransactionMetadata::default(),
+            });
+        }
+
         if cu_analysis_enabled {
             let estimation_result = self.estimate_compute_units(&tx);
             let _ =
@@ -449,7 +467,7 @@ impl SurfnetSvm {
         self.transactions_processed += 1;
 
         if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
-            let meta = litesvm::types::TransactionMetadata::default();
+            let meta = TransactionMetadata::default();
             let err = solana_transaction_error::TransactionError::BlockhashNotFound;
 
             let transaction_meta = convert_transaction_metadata_from_canonical(&meta);
@@ -546,10 +564,19 @@ impl SurfnetSvm {
     pub fn simulate_transaction(
         &self,
         tx: VersionedTransaction,
+        sigverify: bool,
     ) -> Result<SimulatedTransactionInfo, FailedTransactionMetadata> {
+        if sigverify {
+            if tx.verify_with_results().iter().any(|valid| !*valid) {
+                return Err(FailedTransactionMetadata {
+                    err: TransactionError::SignatureFailure,
+                    meta: TransactionMetadata::default(),
+                });
+            }
+        }
         if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
-            let meta = litesvm::types::TransactionMetadata::default();
-            let err = solana_transaction_error::TransactionError::BlockhashNotFound;
+            let meta = TransactionMetadata::default();
+            let err = TransactionError::BlockhashNotFound;
 
             return Err(FailedTransactionMetadata { err, meta });
         }

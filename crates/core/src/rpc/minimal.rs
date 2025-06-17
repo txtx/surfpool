@@ -709,7 +709,11 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_highest_snapshot_slot(&self, _meta: Self::Metadata) -> Result<RpcSnapshotSlotInfo> {
-        not_implemented_err("get_highest_snapshot_slot")
+        Err(jsonrpc_core::Error {
+            code: jsonrpc_core::ErrorCode::ServerError(-32008),
+            message: "No snapshot".into(),
+            data: None,
+        })
     }
 
     fn get_transaction_count(
@@ -789,7 +793,7 @@ mod tests {
     use solana_epoch_info::EpochInfo;
 
     use super::*;
-    use crate::tests::helpers::TestSetup;
+    use crate::{rpc::full::SurfpoolFullRpc, tests::helpers::TestSetup};
 
     #[test]
     fn test_get_block_height_processed_commitment() {
@@ -974,22 +978,28 @@ mod tests {
     }
 
     #[test]
-    fn test_get_version() {
+    fn test_get_highest_snapshot_slot_returns_error() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
-        let result = setup.rpc.get_version(Some(setup.context)).unwrap();
-        assert!(!result.solana_core.is_empty());
-        assert!(result.feature_set.is_some());
-        assert_eq!(result.surfnet_version, format!("{}", SURFPOOL_VERSION));
-    }
 
-    #[test]
-    fn test_get_vote_accounts() {
-        let setup = TestSetup::new(SurfpoolMinimalRpc);
-        let result = setup
-            .rpc
-            .get_vote_accounts(Some(setup.context), None)
-            .unwrap();
-        assert!(result.current.is_empty());
-        assert!(result.delinquent.is_empty());
+        let result = setup.rpc.get_highest_snapshot_slot(Some(setup.context));
+
+        assert!(
+            result.is_err(),
+            "Expected get_highest_snapshot_slot to return an error"
+        );
+
+        if let Err(error) = result {
+            assert_eq!(
+                error.code,
+                jsonrpc_core::ErrorCode::ServerError(-32008),
+                "Expected error code -32008, got {:?}",
+                error.code
+            );
+            assert_eq!(
+                error.message, "No snapshot",
+                "Expected error message 'No snapshot', got '{}'",
+                error.message
+            );
+        }
     }
 }

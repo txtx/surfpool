@@ -375,8 +375,11 @@ impl SurfnetSvmLocker {
     pub fn simulate_transaction(
         &self,
         transaction: VersionedTransaction,
+        sigverify: bool,
     ) -> Result<SimulatedTransactionInfo, FailedTransactionMetadata> {
-        self.with_svm_reader(|svm_reader| svm_reader.simulate_transaction(transaction.clone()))
+        self.with_svm_reader(|svm_reader| {
+            svm_reader.simulate_transaction(transaction.clone(), sigverify)
+        })
     }
 
     /// Processes a transaction: verifies signatures, preflight sim, sends to SVM, and enqueues status events.
@@ -404,20 +407,6 @@ impl SurfnetSvmLocker {
                 )
             });
 
-        // verify valid signatures on the transaction
-        {
-            if transaction
-                .verify_with_results()
-                .iter()
-                .any(|valid| !*valid)
-            {
-                return Ok(self.with_contextualized_svm_reader(|svm_reader| {
-                    svm_reader
-                        .notify_invalid_transaction(transaction.signatures[0], status_tx.clone());
-                }));
-            }
-        }
-
         let signature = transaction.signatures[0];
 
         // find accounts that are needed for this transaction but are missing from the local
@@ -437,7 +426,7 @@ impl SurfnetSvmLocker {
             }
             // if not skipping preflight, simulate the transaction
             if !skip_preflight {
-                match svm_writer.simulate_transaction(transaction.clone()) {
+                match svm_writer.simulate_transaction(transaction.clone(), true) {
                     Ok(_) => {}
                     Err(res) => {
                         let _ = svm_writer
