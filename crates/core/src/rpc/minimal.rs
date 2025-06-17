@@ -15,6 +15,7 @@ use solana_clock::Slot;
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_sdk::genesis_config::GenesisConfig;
 
 use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
 use crate::{
@@ -632,7 +633,8 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_genesis_hash(&self, _meta: Self::Metadata) -> Result<String> {
-        not_implemented_err("get_genesis_hash")
+        let genesis_config = GenesisConfig::default();
+        Ok(genesis_config.hash().to_string())
     }
 
     fn get_health(&self, _meta: Self::Metadata) -> Result<String> {
@@ -1001,5 +1003,14 @@ mod tests {
                 error.message
             );
         }
+    }
+
+    #[test]
+    fn test_get_genesis_hash() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        let genesis_hash = setup.rpc.get_genesis_hash(Some(setup.context)).unwrap();
+
+        assert_eq!(genesis_hash, GenesisConfig::default().hash().to_string())
     }
 }
