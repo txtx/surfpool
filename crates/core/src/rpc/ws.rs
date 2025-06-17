@@ -19,10 +19,9 @@ use solana_client::{
 };
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_pubkey::Pubkey;
-use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_rpc_client_api::response::{Response as RpcResponse, SlotInfo};
 use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
-use surfpool_types::RpcSlotResult;
 
 use super::{State, SurfnetRpcContext, SurfpoolWebsocketMeta};
 use crate::surfnet::{locker::SvmAccessContext, GetTransactionResult, SignatureSubscriptionType};
@@ -57,13 +56,6 @@ pub struct RpcAccountSubscribeConfig {
     #[serde(flatten)]
     pub commitment: Option<CommitmentConfig>,
     pub encoding: Option<UiAccountEncoding>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcSlotSubscribeConfig {
-    #[serde(flatten)]
-    pub commitment: Option<CommitmentConfig>,
 }
 
 #[rpc]
@@ -345,9 +337,109 @@ pub trait Rpc {
         meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool>;
-    #[pubsub(subscription = "slotNotification", subscribe, name = "slotSubscribe")]
-    fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<RpcSlotResult>);
 
+    /// Subscribe to slot notifications.
+    ///
+    /// This method allows clients to subscribe to updates for a specific slot.
+    /// The subscriber will receive notifications whenever the slot changes.
+    ///
+    /// ## Parameters
+    /// - `meta`: WebSocket metadata containing RPC context and connection information.
+    /// - `subscriber`: The subscription sink for sending slot update notifications to the client.
+    ///
+    /// ## Returns
+    /// This method does not return a value directly. Instead, it establishes a continuous WebSocket
+    /// subscription that will send `SlotInfo` notifications to the subscriber whenever
+    /// the slot changes.
+    ///
+    /// ## Example WebSocket Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "slotSubscribe",
+    ///   "params": [
+    ///     {
+    ///       "commitment": "finalized"
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Response (Subscription Confirmation)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": 5207624,
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Notification
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "method": "slotNotification",
+    ///   "params": {
+    ///     "result": {
+    ///       "slot": 5207624
+    ///     },
+    ///     "subscription": 5207624
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// ## Notes
+    /// - The subscription remains active until explicitly unsubscribed or the connection is closed.
+    /// - Slot notifications are sent whenever the slot changes.
+    /// - The subscription automatically terminates when the slot changes.
+    /// - Each subscription runs in its own async task for optimal performance.
+    ///
+    /// ## See Also
+    /// - `slotUnsubscribe`: Remove an active slot subscription
+    #[pubsub(subscription = "slotNotification", subscribe, name = "slotSubscribe")]
+    fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<SlotInfo>);
+
+    /// Unsubscribe from slot notifications.
+    ///
+    /// This method removes an active slot subscription, stopping further notifications
+    /// for the specified subscription ID.
+    ///
+    /// ## Parameters
+    /// - `meta`: Optional WebSocket metadata containing connection information.
+    /// - `subscription`: The subscription ID to remove, as returned by `slotSubscribe`.
+    ///
+    /// ## Returns
+    /// A `Result<bool>` indicating whether the unsubscription was successful:
+    /// - `Ok(true)` if the subscription was successfully removed
+    /// - `Err(Error)` with `InvalidParams` if the subscription ID doesn't exist
+    ///
+    /// ## Example WebSocket Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "slotUnsubscribe",
+    ///   "params": [0]
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": true,
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// ## Notes
+    /// - Attempting to unsubscribe from a non-existent subscription will return an error.
+    /// - Successfully unsubscribed connections will no longer receive notifications.
+    /// - This method is thread-safe and can be called concurrently.
+    ///
+    /// ## See Also
+    /// - `slotSubscribe`: Create a slot subscription
     #[pubsub(
         subscription = "slotNotification",
         unsubscribe,
@@ -369,9 +461,9 @@ pub trait Rpc {
 ///
 /// ## Fields
 /// - `uid`: Atomic counter for generating unique subscription IDs across all subscription types.
-/// - `active`: Thread-safe HashMap containing active signature subscriptions, mapping subscription IDs to their notification sinks.
-/// - `account_active`: Thread-safe HashMap containing active account subscriptions, mapping subscription IDs to their notification sinks.
-/// - `slot_active`: Thread-safe HashMap containing active slot subscriptions, mapping subscription IDs to their notification sinks.
+/// - `signature_subscription_map`: Thread-safe HashMap containing active signature subscriptions, mapping subscription IDs to their notification sinks.
+/// - `account_subscription_map`: Thread-safe HashMap containing active account subscriptions, mapping subscription IDs to their notification sinks.
+/// - `slot_subscription_map`: Thread-safe HashMap containing active slot subscriptions, mapping subscription IDs to their notification sinks.
 /// - `tokio_handle`: Runtime handle for spawning asynchronous subscription monitoring tasks.
 ///
 /// ## Features
@@ -395,9 +487,11 @@ pub trait Rpc {
 /// - `RpcAccountSubscribeConfig`: Configuration options for account subscriptions
 pub struct SurfpoolWsRpc {
     pub uid: atomic::AtomicUsize,
-    pub active: Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcSignatureResult>>>>>,
-    pub account_active: Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<UiAccount>>>>>,
-    pub slot_active: Arc<RwLock<HashMap<SubscriptionId, Sink<RpcSlotResult>>>>,
+    pub signature_subscription_map:
+        Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcSignatureResult>>>>>,
+    pub account_subscription_map:
+        Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<UiAccount>>>>>,
+    pub slot_subscription_map: Arc<RwLock<HashMap<SubscriptionId, Sink<SlotInfo>>>>,
     pub tokio_handle: tokio::runtime::Handle,
 }
 
@@ -454,7 +548,7 @@ impl Rpc for SurfpoolWsRpc {
             .assign_id(sub_id.clone())
             .expect("Failed to assign subscription ID");
 
-        let active = Arc::clone(&self.active);
+        let active = Arc::clone(&self.signature_subscription_map);
         let meta = meta.clone();
 
         self.tokio_handle.spawn(async move {
@@ -555,7 +649,11 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = self.active.write().unwrap().remove(&subscription);
+        let removed = self
+            .signature_subscription_map
+            .write()
+            .unwrap()
+            .remove(&subscription);
         if removed.is_some() {
             Ok(true)
         } else {
@@ -622,7 +720,7 @@ impl Rpc for SurfpoolWsRpc {
             .assign_id(sub_id.clone())
             .expect("Failed to assign subscription ID");
 
-        let account_active = Arc::clone(&self.account_active);
+        let account_active = Arc::clone(&self.account_subscription_map);
         let meta = meta.clone();
 
         let svm_locker = meta.get_svm_locker().unwrap();
@@ -674,7 +772,11 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = self.account_active.write().unwrap().remove(&subscription);
+        let removed = self
+            .account_subscription_map
+            .write()
+            .unwrap()
+            .remove(&subscription);
         if removed.is_some() {
             Ok(true)
         } else {
@@ -686,14 +788,14 @@ impl Rpc for SurfpoolWsRpc {
         }
     }
 
-    fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<RpcSlotResult>) {
+    fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<SlotInfo>) {
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
         let sink = subscriber
             .assign_id(sub_id.clone())
             .expect("Failed to assign subscription ID");
 
-        let slot_active = Arc::clone(&self.slot_active);
+        let slot_active = Arc::clone(&self.slot_subscription_map);
         let meta = meta.clone();
 
         let svm_locker = meta.get_svm_locker().unwrap();
@@ -723,7 +825,11 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = self.slot_active.write().unwrap().remove(&subscription);
+        let removed = self
+            .slot_subscription_map
+            .write()
+            .unwrap()
+            .remove(&subscription);
         if removed.is_some() {
             Ok(true)
         } else {

@@ -22,6 +22,7 @@ use solana_message::{
     VersionedMessage,
 };
 use solana_pubkey::Pubkey;
+use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
     transaction::VersionedTransaction,
@@ -30,7 +31,7 @@ use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding};
 use surfpool_types::{
-    ComputeUnitsEstimationResult, ProfileResult, ProfileState, RpcSlotResult, SimnetEvent,
+    ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
     TransactionConfirmationStatus, TransactionStatusEvent,
 };
 use tokio::sync::RwLock;
@@ -1060,7 +1061,7 @@ impl SurfnetSvmLocker {
     }
 
     /// Subscribes for slot updates and returns a receiver of slot updates.
-    pub fn subscribe_for_slot_updates(&self) -> Receiver<RpcSlotResult> {
+    pub fn subscribe_for_slot_updates(&self) -> Receiver<SlotInfo> {
         self.with_svm_writer(|svm_writer| svm_writer.subscribe_for_slot_updates())
     }
 }

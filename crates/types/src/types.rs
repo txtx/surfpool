@@ -522,11 +522,3 @@ pub struct SupplyUpdate {
     pub non_circulating: Option<u64>,
     pub non_circulating_accounts: Option<Vec<String>>,
 }
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcSlotResult {
-    pub parent: u64,
-    pub root: u64,
-    pub slot: u64,
-}

@@ -472,7 +472,6 @@ async fn start_ws_rpc_server_runloop(
         .map_err(|e| e.to_string())?;
 
     let uid = std::sync::atomic::AtomicUsize::new(0);
-    let subscription_map = Arc::new(RwLock::new(HashMap::new()));
     let ws_middleware = SurfpoolWebsocketMiddleware::new(middleware.clone(), None);
 
     let mut rpc_io = PubSubHandler::new(MetaIoHandler::with_middleware(ws_middleware));
@@ -489,10 +488,10 @@ async fn start_ws_rpc_server_runloop(
             rpc_io.extend_with(
                 rpc::ws::SurfpoolWsRpc {
                     uid,
-                    active: subscription_map,
-                    account_active: Arc::new(RwLock::new(HashMap::new())),
+                    signature_subscription_map: Arc::new(RwLock::new(HashMap::new())),
+                    account_subscription_map: Arc::new(RwLock::new(HashMap::new())),
+                    slot_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     tokio_handle: tokio_handle.clone(),
-                    slot_active: Arc::new(RwLock::new(HashMap::new())),
                 }
                 .to_delegate(),
             );
