@@ -584,7 +584,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
     
             let mint_account = mint_account_result.map_account()?;
     
-            if mint_account.owner != spl_token::id() {
+            if !matches!(mint_account.owner, owner if owner == spl_token::id() || owner == spl_token_2022::id()) {
                 return Err(SurfpoolError::invalid_account_data(
                     mint_pubkey,
                     "Account is not owned by the SPL Token program",
@@ -612,12 +612,22 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                     )
                     .ok()
                     .and_then(|t| match t {
-                        TokenAccountType::Mint(mint) => Some(UiTokenAmount {
+                        TokenAccountType::Mint(mint) => {
+                        let supply_u64 = mint.supply.parse::<u64>().unwrap_or(0);
+                        let ui_amount = if supply_u64 == 0 {
+                            Some(0.0)
+                        } else {
+                            let divisor = 10_u64.pow(mint.decimals as u32);
+                            Some(supply_u64 as f64 / divisor as f64)
+                        };
+
+                        Some(UiTokenAmount {
                             amount: mint.supply.clone(),
                             decimals: mint.decimals,
-                            ui_amount: None, // let client calculate if needed?
+                            ui_amount,
                             ui_amount_string: mint.supply,
-                        }),
+                        })
+                    },
                         _ => None,
                     })
                     .ok_or_else(|| {
@@ -637,7 +647,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 mod tests {
     use solana_account::Account;
     use solana_pubkey::Pubkey;
-    use solana_sdk::program_pack::Pack;
+    use solana_sdk::{program_option::COption, program_pack::Pack};
     use spl_token::state::{Account as TokenAccount, AccountState, Mint};
 
     use super::*;
@@ -812,60 +822,106 @@ mod tests {
         assert!(error.message.contains("Block") && error.message.contains("not found"));
     }
 
-    #[ignore = "requires-network"]
-    #[tokio::test(flavor = "multi_thread")]
+
+    #[tokio::test(flavor = "multi_thread")]  
     async fn test_get_token_supply_with_real_mint() {
-        let remote_client = SurfnetRemoteClient::new("https://api.mainnet-beta.solana.com");
-        let mut setup = TestSetup::new(SurfpoolAccountsDataRpc);
+        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
         
-        setup.context.remote_rpc_client = Some(remote_client);
+        let mint_pubkey = Pubkey::new_unique();
         
-        // usdc mint
-        let usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-        
+        // Create mint account data
+        let mut mint_data = [0u8; Mint::LEN];
+        let mint = Mint {
+            mint_authority: COption::Some(Pubkey::new_unique()),
+            supply: 1_000_000_000_000,
+            decimals: 6,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        };
+        Mint::pack(mint, &mut mint_data).unwrap();
+
+        let mint_account = Account {
+            lamports: setup.context.svm_locker.with_svm_reader(|svm_reader| {
+                svm_reader.inner.minimum_balance_for_rent_exemption(Mint::LEN)
+            }),
+            data: mint_data.to_vec(),
+            owner: spl_token::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer.set_account(&mint_pubkey, mint_account.clone()).unwrap();
+        });
+
         let res = setup
             .rpc
             .get_token_supply(
                 Some(setup.context),
-                usdc_mint.to_string(),
+                mint_pubkey.to_string(),
                 Some(CommitmentConfig::confirmed()),
             )
             .await
             .unwrap();
 
-        println!("USDC Token Supply Response: {:?}", res);
-        
-
-        assert_eq!(res.value.decimals, 6, "USDC should have 6 decimals");
-        assert!(!res.value.amount.is_empty(), "Amount should not be empty");
-        assert!(res.value.amount.parse::<u64>().is_ok(), "Amount should be a valid number");
-        
-        let supply: u64 = res.value.amount.parse().unwrap();
-        assert!(supply > 1_000_000_000_000, "USDC supply should be > 1 trillion (with 6 decimals)");
-        
-        println!("✅ USDC Supply: {} (raw)", res.value.amount);
-        println!("✅ USDC Decimals: {}", res.value.decimals);
-        println!("✅ USDC UI Amount String: {}", res.value.ui_amount_string);
+        assert_eq!(res.value.amount, "1000000000000");
+        assert_eq!(res.value.decimals, 6);
+        assert_eq!(res.value.ui_amount_string, "1000000000000");
     }
 
-    #[ignore = "requires-network"]
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_get_token_supply_caches_remote_account() {
-        let remote_client = SurfnetRemoteClient::new("https://api.mainnet-beta.solana.com");
-        let mut setup = TestSetup::new(SurfpoolAccountsDataRpc);
-        setup.context.remote_rpc_client = Some(remote_client);
+    async fn test_get_token_supply_caches_local_account() {
+        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
         
+        // USDC mint pubkey
         let usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
         let mint_pubkey = Pubkey::from_str_const(usdc_mint);
         
-
+        // verify account is not cached initially
         let account_before = setup.context.svm_locker.with_svm_reader(|svm_reader| {
             svm_reader.inner.get_account(&mint_pubkey)
         });
         assert!(account_before.is_none(), "Account should not be cached initially");
-        println!("✅ Confirmed: USDC mint not in local cache initially");
+        println!("Confirmed: USDC mint not in local cache initially");
         
-        // call get_token_supply -> should fetch from remote and cache
+        // create dummy mint account data
+        let minimum_rent = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .inner
+                .minimum_balance_for_rent_exemption(Mint::LEN)
+        });
+        
+        let mut mint_data = [0; Mint::LEN];
+        let dummy_mint = Mint {
+            mint_authority: COption::None,
+            supply: 41_000_000_000_000_000,
+            decimals: 6,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        };
+        dummy_mint.pack_into_slice(&mut mint_data);
+        
+        let mint_account = Account {
+            lamports: minimum_rent,
+            owner: spl_token::ID,
+            executable: false,
+            rent_epoch: 0,
+            data: mint_data.to_vec(),
+        };
+        
+        // write the dummy account to local storage
+        setup
+            .context
+            .svm_locker
+            .write_account_update(GetAccountResult::FoundAccount(
+                mint_pubkey,
+                mint_account.clone(),
+                true,
+            ));
+        
+        println!("created dummy USDC mint account locally");
+        
+        let start_time = std::time::Instant::now();
         let res = setup
             .rpc
             .get_token_supply(
@@ -875,27 +931,30 @@ mod tests {
             )
             .await
             .unwrap();
+        let first_call_duration = start_time.elapsed();
         
-        println!("✅ First call completed - fetched from remote");
-        println!("   Supply: {}, Decimals: {}", res.value.amount, res.value.decimals);
+        println!("First call completed in {:?}", first_call_duration);
+        println!("Supply: {}, Decimals: {}", res.value.amount, res.value.decimals);
         
+        // verify account is cached
         let account_after = setup.context.svm_locker.with_svm_reader(|svm_reader| {
             svm_reader.inner.get_account(&mint_pubkey)
         });
-        assert!(account_after.is_some(), "Account should be cached after first call");
-        println!("✅ Confirmed: USDC mint now cached locally");
+        assert!(account_after.is_some(), "Account should be available after first call");
+        println!("Confirmed: USDC mint available locally");
         
         let cached_account = account_after.unwrap();
-        assert_eq!(cached_account.owner, spl_token::id(), "Cached account should be owned by SPL Token program");
+        assert_eq!(cached_account.owner, spl_token::id(), "Account should be owned by SPL Token program");
         
-        // verify we can unpack the cached mint data
+        // verify we can unpack the account data
         let cached_mint = Mint::unpack(&cached_account.data).unwrap();
-        assert_eq!(cached_mint.decimals, 6, "Cached mint should have 6 decimals");
-        assert!(cached_mint.supply > 0, "Cached mint should have positive supply");
-        println!("✅ Cached account data is valid: supply={}, decimals={}", 
+        assert_eq!(cached_mint.decimals, 6, "Mint should have 6 decimals");
+        assert_eq!(cached_mint.supply, 41_000_000_000_000_000, "Mint should have expected supply");
+        assert!(cached_mint.is_initialized, "Mint should be initialized");
+        println!("Account data is valid: supply={}, decimals={}", 
                 cached_mint.supply, cached_mint.decimals);
         
-        // make second call - should use cache (no network call)
+        // second call - should be fast since it's already in memory
         let start_time = std::time::Instant::now();
         let res2 = setup
             .rpc
@@ -906,20 +965,23 @@ mod tests {
             )
             .await
             .unwrap();
-        let duration = start_time.elapsed();
+        let second_call_duration = start_time.elapsed();
         
-        println!("✅ Second call completed in {:?} (should be much faster)", duration);
+        println!("Second call completed in {:?}", second_call_duration);
         
+        // verify both calls return same data
         assert_eq!(res.value.amount, res2.value.amount, "Both calls should return same supply");
         assert_eq!(res.value.decimals, res2.value.decimals, "Both calls should return same decimals");
         
-        // second call should be much faster 
-        assert!(duration < std::time::Duration::from_millis(50), 
-            "Second call should be fast (cached), took {:?}", duration);
+        // both calls should be fast since no network is involved
+        assert!(first_call_duration < std::time::Duration::from_millis(100), 
+            "First call should be fast (local), took {:?}", first_call_duration);
+        assert!(second_call_duration < std::time::Duration::from_millis(100), 
+            "Second call should be fast (local), took {:?}", second_call_duration);
         
-        println!("✅ Caching test passed!");
-        println!("   First call: Fetched from remote and cached");
-        println!("   Second call: Used cache (completed in {:?})", duration);
+        println!("Local account test passed!");
+        println!("Both calls used local data");
+        println!("First call: {:?}, Second call: {:?}", first_call_duration, second_call_duration);
     }
 
     #[tokio::test(flavor = "multi_thread")]
