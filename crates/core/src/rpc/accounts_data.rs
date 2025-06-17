@@ -562,7 +562,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Ok(pubkey) => pubkey,
             Err(e) => return e.into(),
         };
-    
+
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
@@ -570,7 +570,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
-    
+
         Box::pin(async move {
             let SvmAccessContext {
                 slot,
@@ -579,19 +579,21 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             } = svm_locker
                 .get_account(&remote_ctx, &mint_pubkey, None)
                 .await?;
-    
+
             svm_locker.write_account_update(mint_account_result.clone());
-    
+
             let mint_account = mint_account_result.map_account()?;
-    
-            if !matches!(mint_account.owner, owner if owner == spl_token::id() || owner == spl_token_2022::id()) {
+
+            if !matches!(mint_account.owner, owner if owner == spl_token::id() || owner == spl_token_2022::id())
+            {
                 return Err(SurfpoolError::invalid_account_data(
                     mint_pubkey,
                     "Account is not owned by the SPL Token program",
                     None::<String>,
-                ).into());
+                )
+                .into());
             }
-    
+
             let mint_data = Mint::unpack(&mint_account.data).map_err(|e| {
                 SurfpoolError::invalid_account_data(
                     mint_pubkey,
@@ -599,7 +601,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                     Some(e.to_string()),
                 )
             })?;
-    
+
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
                 value: {
@@ -613,21 +615,21 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                     .ok()
                     .and_then(|t| match t {
                         TokenAccountType::Mint(mint) => {
-                        let supply_u64 = mint.supply.parse::<u64>().unwrap_or(0);
-                        let ui_amount = if supply_u64 == 0 {
-                            Some(0.0)
-                        } else {
-                            let divisor = 10_u64.pow(mint.decimals as u32);
-                            Some(supply_u64 as f64 / divisor as f64)
-                        };
+                            let supply_u64 = mint.supply.parse::<u64>().unwrap_or(0);
+                            let ui_amount = if supply_u64 == 0 {
+                                Some(0.0)
+                            } else {
+                                let divisor = 10_u64.pow(mint.decimals as u32);
+                                Some(supply_u64 as f64 / divisor as f64)
+                            };
 
-                        Some(UiTokenAmount {
-                            amount: mint.supply.clone(),
-                            decimals: mint.decimals,
-                            ui_amount,
-                            ui_amount_string: mint.supply,
-                        })
-                    },
+                            Some(UiTokenAmount {
+                                amount: mint.supply.clone(),
+                                decimals: mint.decimals,
+                                ui_amount,
+                                ui_amount_string: mint.supply,
+                            })
+                        }
                         _ => None,
                     })
                     .ok_or_else(|| {
@@ -651,7 +653,10 @@ mod tests {
     use spl_token::state::{Account as TokenAccount, AccountState, Mint};
 
     use super::*;
-    use crate::{surfnet::{remote::SurfnetRemoteClient, GetAccountResult}, tests::helpers::TestSetup};
+    use crate::{
+        surfnet::{remote::SurfnetRemoteClient, GetAccountResult},
+        tests::helpers::TestSetup,
+    };
 
     #[ignore = "connection-required"]
     #[tokio::test(flavor = "multi_thread")]
@@ -822,13 +827,12 @@ mod tests {
         assert!(error.message.contains("Block") && error.message.contains("not found"));
     }
 
-
-    #[tokio::test(flavor = "multi_thread")]  
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_token_supply_with_real_mint() {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-        
+
         let mint_pubkey = Pubkey::new_unique();
-        
+
         // Create mint account data
         let mut mint_data = [0u8; Mint::LEN];
         let mint = Mint {
@@ -842,7 +846,9 @@ mod tests {
 
         let mint_account = Account {
             lamports: setup.context.svm_locker.with_svm_reader(|svm_reader| {
-                svm_reader.inner.minimum_balance_for_rent_exemption(Mint::LEN)
+                svm_reader
+                    .inner
+                    .minimum_balance_for_rent_exemption(Mint::LEN)
             }),
             data: mint_data.to_vec(),
             owner: spl_token::id(),
@@ -851,7 +857,9 @@ mod tests {
         };
 
         setup.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer.set_account(&mint_pubkey, mint_account.clone()).unwrap();
+            svm_writer
+                .set_account(&mint_pubkey, mint_account.clone())
+                .unwrap();
         });
 
         let res = setup
@@ -872,25 +880,29 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_token_supply_caches_local_account() {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-        
+
         // USDC mint pubkey
         let usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
         let mint_pubkey = Pubkey::from_str_const(usdc_mint);
-        
+
         // verify account is not cached initially
-        let account_before = setup.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&mint_pubkey)
-        });
-        assert!(account_before.is_none(), "Account should not be cached initially");
+        let account_before = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.inner.get_account(&mint_pubkey));
+        assert!(
+            account_before.is_none(),
+            "Account should not be cached initially"
+        );
         println!("Confirmed: USDC mint not in local cache initially");
-        
+
         // create dummy mint account data
         let minimum_rent = setup.context.svm_locker.with_svm_reader(|svm_reader| {
             svm_reader
                 .inner
                 .minimum_balance_for_rent_exemption(Mint::LEN)
         });
-        
+
         let mut mint_data = [0; Mint::LEN];
         let dummy_mint = Mint {
             mint_authority: COption::None,
@@ -900,7 +912,7 @@ mod tests {
             freeze_authority: COption::None,
         };
         dummy_mint.pack_into_slice(&mut mint_data);
-        
+
         let mint_account = Account {
             lamports: minimum_rent,
             owner: spl_token::ID,
@@ -908,7 +920,7 @@ mod tests {
             rent_epoch: 0,
             data: mint_data.to_vec(),
         };
-        
+
         // write the dummy account to local storage
         setup
             .context
@@ -918,9 +930,9 @@ mod tests {
                 mint_account.clone(),
                 true,
             ));
-        
+
         println!("created dummy USDC mint account locally");
-        
+
         let start_time = std::time::Instant::now();
         let res = setup
             .rpc
@@ -932,28 +944,44 @@ mod tests {
             .await
             .unwrap();
         let first_call_duration = start_time.elapsed();
-        
+
         println!("First call completed in {:?}", first_call_duration);
-        println!("Supply: {}, Decimals: {}", res.value.amount, res.value.decimals);
-        
+        println!(
+            "Supply: {}, Decimals: {}",
+            res.value.amount, res.value.decimals
+        );
+
         // verify account is cached
-        let account_after = setup.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&mint_pubkey)
-        });
-        assert!(account_after.is_some(), "Account should be available after first call");
+        let account_after = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.inner.get_account(&mint_pubkey));
+        assert!(
+            account_after.is_some(),
+            "Account should be available after first call"
+        );
         println!("Confirmed: USDC mint available locally");
-        
+
         let cached_account = account_after.unwrap();
-        assert_eq!(cached_account.owner, spl_token::id(), "Account should be owned by SPL Token program");
-        
+        assert_eq!(
+            cached_account.owner,
+            spl_token::id(),
+            "Account should be owned by SPL Token program"
+        );
+
         // verify we can unpack the account data
         let cached_mint = Mint::unpack(&cached_account.data).unwrap();
         assert_eq!(cached_mint.decimals, 6, "Mint should have 6 decimals");
-        assert_eq!(cached_mint.supply, 41_000_000_000_000_000, "Mint should have expected supply");
+        assert_eq!(
+            cached_mint.supply, 41_000_000_000_000_000,
+            "Mint should have expected supply"
+        );
         assert!(cached_mint.is_initialized, "Mint should be initialized");
-        println!("Account data is valid: supply={}, decimals={}", 
-                cached_mint.supply, cached_mint.decimals);
-        
+        println!(
+            "Account data is valid: supply={}, decimals={}",
+            cached_mint.supply, cached_mint.decimals
+        );
+
         // second call - should be fast since it's already in memory
         let start_time = std::time::Instant::now();
         let res2 = setup
@@ -966,38 +994,53 @@ mod tests {
             .await
             .unwrap();
         let second_call_duration = start_time.elapsed();
-        
+
         println!("Second call completed in {:?}", second_call_duration);
-        
+
         // verify both calls return same data
-        assert_eq!(res.value.amount, res2.value.amount, "Both calls should return same supply");
-        assert_eq!(res.value.decimals, res2.value.decimals, "Both calls should return same decimals");
-        
+        assert_eq!(
+            res.value.amount, res2.value.amount,
+            "Both calls should return same supply"
+        );
+        assert_eq!(
+            res.value.decimals, res2.value.decimals,
+            "Both calls should return same decimals"
+        );
+
         // both calls should be fast since no network is involved
-        assert!(first_call_duration < std::time::Duration::from_millis(100), 
-            "First call should be fast (local), took {:?}", first_call_duration);
-        assert!(second_call_duration < std::time::Duration::from_millis(100), 
-            "Second call should be fast (local), took {:?}", second_call_duration);
-        
+        assert!(
+            first_call_duration < std::time::Duration::from_millis(100),
+            "First call should be fast (local), took {:?}",
+            first_call_duration
+        );
+        assert!(
+            second_call_duration < std::time::Duration::from_millis(100),
+            "Second call should be fast (local), took {:?}",
+            second_call_duration
+        );
+
         println!("Local account test passed!");
         println!("Both calls used local data");
-        println!("First call: {:?}, Second call: {:?}", first_call_duration, second_call_duration);
+        println!(
+            "First call: {:?}, Second call: {:?}",
+            first_call_duration, second_call_duration
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_invalid_pubkey_format() {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-        
+
         // test various invalid pubkey formats
         let invalid_pubkeys = vec![
-            "",                               
-            "invalid",              
-            "123",              
-            "not-a-valid-base58-string!@#$", 
-            "11111111111111111111111111111111111111111111111111111111111111111", 
-            "invalid-base58-characters-ö", 
+            "",
+            "invalid",
+            "123",
+            "not-a-valid-base58-string!@#$",
+            "11111111111111111111111111111111111111111111111111111111111111111",
+            "invalid-base58-characters-ö",
         ];
-        
+
         for invalid_pubkey in invalid_pubkeys {
             let res = setup
                 .rpc
@@ -1007,24 +1050,32 @@ mod tests {
                     Some(CommitmentConfig::confirmed()),
                 )
                 .await;
-            
-            assert!(res.is_err(), "Should fail for invalid pubkey: '{}'", invalid_pubkey);
-            
+
+            assert!(
+                res.is_err(),
+                "Should fail for invalid pubkey: '{}'",
+                invalid_pubkey
+            );
+
             let error_msg = res.unwrap_err().to_string();
-            assert!(error_msg.contains("Invalid") || error_msg.contains("invalid"), 
-                   "Error should mention invalidity for '{}': {}", invalid_pubkey, error_msg);
+            assert!(
+                error_msg.contains("Invalid") || error_msg.contains("invalid"),
+                "Error should mention invalidity for '{}': {}",
+                invalid_pubkey,
+                error_msg
+            );
         }
-        
+
         println!("✅ All invalid pubkey formats correctly rejected");
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_nonexistent_account() {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-        
+
         // valid pubkey format but nonexistent account
         let nonexistent_mint = Pubkey::new_unique();
-        
+
         let res = setup
             .rpc
             .get_token_supply(
@@ -1033,20 +1084,23 @@ mod tests {
                 Some(CommitmentConfig::confirmed()),
             )
             .await;
-        
+
         assert!(res.is_err(), "Should fail for nonexistent account");
-        
+
         let error_msg = res.unwrap_err().to_string();
-        assert!(error_msg.contains("not found") || error_msg.contains("account"), 
-               "Error should mention account not found: {}", error_msg);
-        
+        assert!(
+            error_msg.contains("not found") || error_msg.contains("account"),
+            "Error should mention account not found: {}",
+            error_msg
+        );
+
         println!("✅ Nonexistent account correctly rejected: {}", error_msg);
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_invalid_mint_data() {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-        
+
         let fake_mint = Pubkey::new_unique();
 
         setup.context.svm_locker.with_svm_writer(|svm_writer| {
@@ -1054,12 +1108,14 @@ mod tests {
             let invalid_mint_account = Account {
                 lamports: 1000000,
                 data: vec![0xFF; 50], // invalid mint data (random bytes)
-                owner: spl_token::id(), 
+                owner: spl_token::id(),
                 executable: false,
                 rent_epoch: 0,
             };
 
-            svm_writer.set_account(&fake_mint, invalid_mint_account).unwrap();
+            svm_writer
+                .set_account(&fake_mint, invalid_mint_account)
+                .unwrap();
         });
 
         let res = setup
@@ -1071,12 +1127,20 @@ mod tests {
             )
             .await;
 
-        assert!(res.is_err(), "Should fail for account with invalid mint data");
-        
+        assert!(
+            res.is_err(),
+            "Should fail for account with invalid mint data"
+        );
+
         let error_msg = res.unwrap_err().to_string();
-        assert!(error_msg.contains("deserialize") || error_msg.contains("Invalid") || error_msg.contains("parse"), 
-               "Error should mention deserialization failure: {}", error_msg);
-        
+        assert!(
+            error_msg.contains("deserialize")
+                || error_msg.contains("Invalid")
+                || error_msg.contains("parse"),
+            "Error should mention deserialization failure: {}",
+            error_msg
+        );
+
         println!("✅ Invalid mint data correctly rejected: {}", error_msg);
     }
 
@@ -1084,12 +1148,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_remote_rpc_failure() {
         // test with invalid remote RPC URL
-        let bad_remote_client = SurfnetRemoteClient::new("https://invalid-url-that-doesnt-exist.com");
+        let bad_remote_client =
+            SurfnetRemoteClient::new("https://invalid-url-that-doesnt-exist.com");
         let mut setup = TestSetup::new(SurfpoolAccountsDataRpc);
         setup.context.remote_rpc_client = Some(bad_remote_client);
-        
+
         let nonexistent_mint = Pubkey::new_unique();
-        
+
         let res = setup
             .rpc
             .get_token_supply(
@@ -1100,7 +1165,7 @@ mod tests {
             .await;
 
         assert!(res.is_err(), "Should fail when remote RPC is unreachable");
-        
+
         let error_msg = res.unwrap_err().to_string();
         println!("✅ Remote RPC failure handled: {}", error_msg);
     }
@@ -1108,10 +1173,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_no_context_metadata() {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-        
+
         // test with None metadata (no context)
         let valid_mint = Pubkey::new_unique();
-        
+
         let res = setup
             .rpc
             .get_token_supply(
