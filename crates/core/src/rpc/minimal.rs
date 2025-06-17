@@ -640,8 +640,11 @@ impl Minimal for SurfpoolMinimalRpc {
         Ok("ok".to_string())
     }
 
-    fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
-        not_implemented_err("get_identity")
+    fn get_identity(&self, meta: Self::Metadata) -> Result<RpcIdentity> {
+        meta.with_svm_reader(|svm_reader| RpcIdentity {
+            identity: svm_reader.cluster_info.id().to_string(),
+        })
+        .map_err(Into::into)
     }
 
     fn get_slot(&self, meta: Self::Metadata, config: Option<RpcContextConfig>) -> Result<Slot> {
@@ -1001,5 +1004,12 @@ mod tests {
                 error.message
             );
         }
+    }
+
+    #[test]
+    fn test_get_identity() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+        let result = setup.rpc.get_identity(Some(setup.context));
+        assert!(result.is_ok(), "failed to get identity")
     }
 }

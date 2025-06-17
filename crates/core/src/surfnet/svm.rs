@@ -1,4 +1,8 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    net::Ipv4Addr,
+    sync::Arc,
+};
 
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -13,6 +17,7 @@ use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSa
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_epoch_info::EpochInfo;
 use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
+use solana_gossip::{cluster_info::ClusterInfo, contact_info::ContactInfo, socketaddr};
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
@@ -23,6 +28,7 @@ use solana_sdk::{
 };
 use solana_signature::Signature;
 use solana_signer::Signer;
+use solana_streamer::socket::SocketAddrSpace;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedTransaction, EncodedTransactionWithStatusMeta, UiAddressTableLookup,
@@ -82,6 +88,7 @@ pub struct SurfnetSvm {
     pub circulating_supply: u64,
     pub non_circulating_supply: u64,
     pub non_circulating_accounts: Vec<String>,
+    pub cluster_info: Arc<ClusterInfo>,
 }
 
 impl SurfnetSvm {
@@ -107,6 +114,15 @@ impl SurfnetSvm {
             .with_feature_set(feature_set)
             .with_blockhash_check(false)
             .with_sigverify(false);
+
+        let cluster_info = {
+            let keypair = Arc::new(Keypair::new());
+            let contact_info = ContactInfo::new_with_socketaddr(
+                &keypair.pubkey(),
+                &socketaddr!(Ipv4Addr::LOCALHOST, 1234),
+            );
+            ClusterInfo::new(contact_info, keypair, SocketAddrSpace::Unspecified)
+        };
 
         (
             Self {
@@ -142,6 +158,7 @@ impl SurfnetSvm {
                 circulating_supply: 0,
                 non_circulating_supply: 0,
                 non_circulating_accounts: Vec::new(),
+                cluster_info: Arc::new(cluster_info),
             },
             simnet_events_rx,
             geyser_events_rx,
