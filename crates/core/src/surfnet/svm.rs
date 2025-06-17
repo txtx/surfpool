@@ -325,15 +325,25 @@ impl SurfnetSvm {
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
         self.updated_at = Utc::now().timestamp_millis() as u64;
 
-        // store old account for cleanup, but don't remove yet
-        let old_account = self.accounts_registry.get(pubkey).cloned();
-
         self.inner
             .set_account(*pubkey, account.clone())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
 
+        // Update the account registries and indexes
+        self.update_account_registries(pubkey, &account);
+
+        // Notify account subscribers
+        self.notify_account_subscribers(pubkey, &account);
+
+        let _ = self
+            .simnet_events_tx
+            .send(SimnetEvent::account_update(*pubkey));
+        Ok(())
+    }
+
+    pub fn update_account_registries(&mut self, pubkey: &Pubkey, account: &Account) {
         // only if successful, update our indexes
-        if let Some(old_account) = old_account {
+        if let Some(old_account) = self.accounts_registry.get(pubkey).cloned() {
             self.remove_from_indexes(pubkey, &old_account);
         }
 
@@ -380,14 +390,6 @@ impl SurfnetSvm {
                 }
             }
         }
-
-        // Notify account subscribers
-        self.notify_account_subscribers(pubkey, &account);
-
-        let _ = self
-            .simnet_events_tx
-            .send(SimnetEvent::account_update(*pubkey));
-        Ok(())
     }
 
     fn remove_from_indexes(&mut self, pubkey: &Pubkey, old_account: &Account) {
@@ -1030,7 +1032,7 @@ impl SurfnetSvm {
 mod tests {
     use solana_account::Account;
     use solana_sdk::program_pack::Pack;
-    use spl_token::state::{Account as TokenAccount, AccountState, Mint};
+    use spl_token::state::{Account as TokenAccount, AccountState};
 
     use super::*;
 

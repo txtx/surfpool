@@ -471,6 +471,9 @@ impl SurfnetSvmLocker {
                         .zip(accounts_before.iter().zip(accounts_after))
                     {
                         if before.ne(&after) {
+                            if let Some(after) = &after {
+                                svm_writer.update_account_registries(pubkey, after);
+                            }
                             svm_writer
                                 .notify_account_subscribers(pubkey, &after.unwrap_or_default());
                         }
