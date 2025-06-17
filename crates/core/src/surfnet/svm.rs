@@ -31,7 +31,7 @@ use solana_transaction_status::{
 };
 use spl_token::state::Account as TokenAccount;
 use surfpool_types::{
-    types::{ComputeUnitsEstimationResult, ProfileResult},
+    types::{ComputeUnitsEstimationResult, ProfileResult, RpcSlotResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
 };
 
@@ -72,6 +72,7 @@ pub struct SurfnetSvm {
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub account_subscriptions: AccountSubscriptionData,
+    pub slot_subscriptions: Vec<Sender<RpcSlotResult>>,
     pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
@@ -133,6 +134,7 @@ impl SurfnetSvm {
                 transactions_queued_for_finalization: VecDeque::new(),
                 signature_subscriptions: HashMap::new(),
                 account_subscriptions: HashMap::new(),
+                slot_subscriptions: Vec::new(),
                 tagged_profiling_results: HashMap::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 accounts_registry: HashMap::new(),
@@ -738,6 +740,12 @@ impl SurfnetSvm {
             self.latest_epoch_info.slot_index = 0;
             self.latest_epoch_info.epoch += 1;
         }
+
+        let parent_slot = self.latest_epoch_info.absolute_slot - 1;
+        let new_slot = self.latest_epoch_info.absolute_slot;
+        let root = parent_slot;
+        self.notify_slot_subscribers(new_slot, parent_slot, root);
+
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
@@ -1025,6 +1033,19 @@ impl SurfnetSvm {
         } else {
             Vec::new()
         }
+    }
+
+    pub fn subscribe_for_slot_updates(&mut self) -> Receiver<RpcSlotResult> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        let (tx, rx) = unbounded();
+        self.slot_subscriptions.push(tx);
+        rx
+    }
+
+    pub fn notify_slot_subscribers(&mut self, slot: Slot, parent: Slot, root: Slot) {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        self.slot_subscriptions
+            .retain(|tx| tx.send(RpcSlotResult { slot, parent, root }).is_ok());
     }
 }
 

@@ -22,6 +22,7 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
+use surfpool_types::RpcSlotResult;
 
 use super::{State, SurfnetRpcContext, SurfpoolWebsocketMeta};
 use crate::surfnet::{locker::SvmAccessContext, GetTransactionResult, SignatureSubscriptionType};
@@ -56,6 +57,13 @@ pub struct RpcAccountSubscribeConfig {
     #[serde(flatten)]
     pub commitment: Option<CommitmentConfig>,
     pub encoding: Option<UiAccountEncoding>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcSlotSubscribeConfig {
+    #[serde(flatten)]
+    pub commitment: Option<CommitmentConfig>,
 }
 
 #[rpc]
@@ -337,6 +345,19 @@ pub trait Rpc {
         meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool>;
+    #[pubsub(subscription = "slotNotification", subscribe, name = "slotSubscribe")]
+    fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<RpcSlotResult>);
+
+    #[pubsub(
+        subscription = "slotNotification",
+        unsubscribe,
+        name = "slotUnsubscribe"
+    )]
+    fn slot_unsubscribe(
+        &self,
+        meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool>;
 }
 
 /// WebSocket RPC server implementation for Surfpool.
@@ -350,6 +371,7 @@ pub trait Rpc {
 /// - `uid`: Atomic counter for generating unique subscription IDs across all subscription types.
 /// - `active`: Thread-safe HashMap containing active signature subscriptions, mapping subscription IDs to their notification sinks.
 /// - `account_active`: Thread-safe HashMap containing active account subscriptions, mapping subscription IDs to their notification sinks.
+/// - `slot_active`: Thread-safe HashMap containing active slot subscriptions, mapping subscription IDs to their notification sinks.
 /// - `tokio_handle`: Runtime handle for spawning asynchronous subscription monitoring tasks.
 ///
 /// ## Features
@@ -375,6 +397,7 @@ pub struct SurfpoolWsRpc {
     pub uid: atomic::AtomicUsize,
     pub active: Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcSignatureResult>>>>>,
     pub account_active: Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<UiAccount>>>>>,
+    pub slot_active: Arc<RwLock<HashMap<SubscriptionId, Sink<RpcSlotResult>>>>,
     pub tokio_handle: tokio::runtime::Handle,
 }
 
@@ -652,6 +675,55 @@ impl Rpc for SurfpoolWsRpc {
         subscription: SubscriptionId,
     ) -> Result<bool> {
         let removed = self.account_active.write().unwrap().remove(&subscription);
+        if removed.is_some() {
+            Ok(true)
+        } else {
+            Err(Error {
+                code: ErrorCode::InvalidParams,
+                message: "Invalid subscription.".into(),
+                data: None,
+            })
+        }
+    }
+
+    fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<RpcSlotResult>) {
+        let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
+        let sub_id = SubscriptionId::Number(id as u64);
+        let sink = subscriber
+            .assign_id(sub_id.clone())
+            .expect("Failed to assign subscription ID");
+
+        let slot_active = Arc::clone(&self.slot_active);
+        let meta = meta.clone();
+
+        let svm_locker = meta.get_svm_locker().unwrap();
+
+        self.tokio_handle.spawn(async move {
+            slot_active.write().unwrap().insert(sub_id.clone(), sink);
+
+            let rx = svm_locker.subscribe_for_slot_updates();
+
+            loop {
+                // if the subscription has been removed, break the loop
+                if slot_active.read().unwrap().get(&sub_id).is_none() {
+                    break;
+                }
+
+                if let Ok(slot_info) = rx.try_recv() {
+                    if let Some(sink) = slot_active.read().unwrap().get(&sub_id) {
+                        let _ = sink.notify(Ok(slot_info));
+                    }
+                }
+            }
+        });
+    }
+
+    fn slot_unsubscribe(
+        &self,
+        _meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool> {
+        let removed = self.slot_active.write().unwrap().remove(&subscription);
         if removed.is_some() {
             Ok(true)
         } else {

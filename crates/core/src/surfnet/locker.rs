@@ -30,7 +30,7 @@ use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding};
 use surfpool_types::{
-    ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
+    ComputeUnitsEstimationResult, ProfileResult, ProfileState, RpcSlotResult, SimnetEvent,
     TransactionConfirmationStatus, TransactionStatusEvent,
 };
 use tokio::sync::RwLock;
@@ -1057,6 +1057,11 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm_writer| {
             svm_writer.subscribe_for_account_updates(account_pubkey, encoding)
         })
+    }
+
+    /// Subscribes for slot updates and returns a receiver of slot updates.
+    pub fn subscribe_for_slot_updates(&self) -> Receiver<RpcSlotResult> {
+        self.with_svm_writer(|svm_writer| svm_writer.subscribe_for_slot_updates())
     }
 }
 
