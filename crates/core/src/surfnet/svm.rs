@@ -18,7 +18,7 @@ use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_sdk::{
-    program_option::COption, program_pack::Pack, system_instruction,
+    genesis_config::GenesisConfig, program_option::COption, program_pack::Pack, system_instruction,
     transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
@@ -82,6 +82,7 @@ pub struct SurfnetSvm {
     pub circulating_supply: u64,
     pub non_circulating_supply: u64,
     pub non_circulating_accounts: Vec<String>,
+    pub genesis_config: GenesisConfig,
 }
 
 impl SurfnetSvm {
@@ -142,6 +143,7 @@ impl SurfnetSvm {
                 circulating_supply: 0,
                 non_circulating_supply: 0,
                 non_circulating_accounts: Vec::new(),
+                genesis_config: GenesisConfig::default(),
             },
             simnet_events_rx,
             geyser_events_rx,
