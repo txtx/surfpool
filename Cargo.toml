@@ -61,6 +61,7 @@ solana-packet = "2.2.1"
 solana-program = "2.2.1"
 solana-program-runtime = "2.2.1"
 solana-pubkey = { version = "2.2.1", features = ["serde"]}
+solana-rpc = { version = "2.2.1" }
 solana-rpc-client = "2.2.1"
 solana-rpc-client-api = "2.2.1"
 solana-runtime = "2.2.1"
