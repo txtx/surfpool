@@ -531,7 +531,9 @@ impl Rpc for SurfpoolWsRpc {
                     message: "Invalid signature format.".into(),
                     data: None,
                 };
-                subscriber.reject(error.clone()).unwrap();
+                if let Err(e) = subscriber.reject(error.clone()) {
+                    log::error!("Failed to reject subscriber: {:?}", e);
+                }
                 return;
             }
         };
@@ -544,22 +546,38 @@ impl Rpc for SurfpoolWsRpc {
 
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
-        let sink = subscriber
-            .assign_id(sub_id.clone())
-            .expect("Failed to assign subscription ID");
-
+        let sink = match subscriber.assign_id(sub_id.clone()) {
+            Ok(sink) => sink,
+            Err(e) => {
+                log::error!("Failed to assign subscription ID: {:?}", e);
+                return;
+            }
+        };
         let active = Arc::clone(&self.signature_subscription_map);
         let meta = meta.clone();
 
         self.tokio_handle.spawn(async move {
-            active.write().unwrap().insert(sub_id.clone(), sink);
+            if let Ok(mut guard) = active.write() {
+                guard.insert(sub_id.clone(), sink);
+            } else {
+                log::error!("Failed to acquire write lock on signature_subscription_map");
+                return;
+            }
 
             let SurfnetRpcContext {
                 svm_locker,
                 remote_ctx,
             } = match meta.get_rpc_context(None) {
                 Ok(res) => res,
-                Err(_) => panic!(),
+                Err(e) => {
+                    log::error!("Failed to get RPC context: {:?}", e);
+                    if let Ok(mut guard) = active.write() {
+                        if let Some(_) = guard.remove(&sub_id) {
+                            log::error!("Failed to remove sink after RPC context error.");
+                        }
+                    }
+                    return;
+                }
             };
 
             // get the signature from the SVM to see if it's already been processed
@@ -585,13 +603,15 @@ impl Rpc for SurfpoolWsRpc {
                         &SignatureSubscriptionType::Commitment(CommitmentLevel::Finalized),
                         Some(TransactionConfirmationStatus::Finalized),
                     ) => {
-                        if let Some(sink) = active.write().unwrap().remove(&sub_id) {
-                            let _ = sink.notify(Ok(RpcResponse {
-                                context: RpcResponseContext::new(tx.slot),
-                                value: RpcSignatureResult::ProcessedSignature(
-                                    ProcessedSignatureResult { err: None },
-                                ),
-                            }));
+                        if let Ok(mut guard) = active.write() {
+                            if let Some(sink) = guard.remove(&sub_id) {
+                                let _ = sink.notify(Ok(RpcResponse {
+                                    context: RpcResponseContext::new(tx.slot),
+                                    value: RpcSignatureResult::ProcessedSignature(
+                                        ProcessedSignatureResult { err: None },
+                                    ),
+                                }));
+                            }
                         }
                         return;
                     }
@@ -605,23 +625,25 @@ impl Rpc for SurfpoolWsRpc {
 
             loop {
                 if let Ok((slot, some_err)) = rx.try_recv() {
-                    if let Some(sink) = active.write().unwrap().remove(&sub_id) {
-                        match subscription_type {
-                            SignatureSubscriptionType::Received => {
-                                let _ = sink.notify(Ok(RpcResponse {
-                                    context: RpcResponseContext::new(slot),
-                                    value: RpcSignatureResult::ReceivedSignature(
-                                        ReceivedSignatureResult::ReceivedSignature,
-                                    ),
-                                }));
-                            }
-                            SignatureSubscriptionType::Commitment(_) => {
-                                let _ = sink.notify(Ok(RpcResponse {
-                                    context: RpcResponseContext::new(slot),
-                                    value: RpcSignatureResult::ProcessedSignature(
-                                        ProcessedSignatureResult { err: some_err },
-                                    ),
-                                }));
+                    if let Ok(mut guard) = active.write() {
+                        if let Some(sink) = guard.remove(&sub_id) {
+                            match subscription_type {
+                                SignatureSubscriptionType::Received => {
+                                    let _ = sink.notify(Ok(RpcResponse {
+                                        context: RpcResponseContext::new(slot),
+                                        value: RpcSignatureResult::ReceivedSignature(
+                                            ReceivedSignatureResult::ReceivedSignature,
+                                        ),
+                                    }));
+                                }
+                                SignatureSubscriptionType::Commitment(_) => {
+                                    let _ = sink.notify(Ok(RpcResponse {
+                                        context: RpcResponseContext::new(slot),
+                                        value: RpcSignatureResult::ProcessedSignature(
+                                            ProcessedSignatureResult { err: some_err },
+                                        ),
+                                    }));
+                                }
                             }
                         }
                     }
@@ -649,11 +671,12 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = self
-            .signature_subscription_map
-            .write()
-            .unwrap()
-            .remove(&subscription);
+        let removed = if let Ok(mut guard) = self.signature_subscription_map.write() {
+            guard.remove(&subscription)
+        } else {
+            log::error!("Failed to acquire write lock on signature_subscription_map");
+            None
+        };
         if removed.is_some() {
             Ok(true)
         } else {
@@ -704,7 +727,9 @@ impl Rpc for SurfpoolWsRpc {
                     message: "Invalid pubkey format.".into(),
                     data: None,
                 };
-                subscriber.reject(error.clone()).unwrap();
+                if subscriber.reject(error.clone()).is_err() {
+                    log::error!("Failed to reject subscriber for invalid pubkey format.");
+                }
                 return;
             }
         };
@@ -716,34 +741,61 @@ impl Rpc for SurfpoolWsRpc {
 
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
-        let sink = subscriber
-            .assign_id(sub_id.clone())
-            .expect("Failed to assign subscription ID");
+        let sink = match subscriber.assign_id(sub_id.clone()) {
+            Ok(sink) => sink,
+            Err(e) => {
+                log::error!("Failed to assign subscription ID: {:?}", e);
+                return;
+            }
+        };
 
         let account_active = Arc::clone(&self.account_subscription_map);
         let meta = meta.clone();
 
-        let svm_locker = meta.get_svm_locker().unwrap();
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(_) => {
+                log::error!("Failed to get SVM locker for account subscription.");
+                if let Ok(mut guard) = account_active.write() {
+                    if let Some(_) = guard.remove(&sub_id) {
+                        log::error!("Failed to remove sink after SVM locker error for account subscription.");
+                    }
+                }
+                return;
+            }
+        };
         let slot = svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot());
 
         self.tokio_handle.spawn(async move {
-            account_active.write().unwrap().insert(sub_id.clone(), sink);
+            if let Ok(mut guard) = account_active.write() {
+                guard.insert(sub_id.clone(), sink);
+            } else {
+                log::error!("Failed to acquire write lock on account_subscription_map");
+                return;
+            }
 
             // subscribe to account updates
             let rx = svm_locker.subscribe_for_account_updates(&pubkey, config.encoding);
 
             loop {
                 // if the subscription has been removed, break the loop
-                if account_active.read().unwrap().get(&sub_id).is_none() {
+                if let Ok(guard) = account_active.read() {
+                    if guard.get(&sub_id).is_none() {
+                        break;
+                    }
+                } else {
+                    log::error!("Failed to acquire read lock on account_subscription_map");
                     break;
                 }
 
                 if let Ok(ui_account) = rx.try_recv() {
-                    if let Some(sink) = account_active.read().unwrap().get(&sub_id) {
-                        let _ = sink.notify(Ok(RpcResponse {
-                            context: RpcResponseContext::new(slot),
-                            value: ui_account,
-                        }));
+                    if let Ok(guard) = account_active.read() {
+                        if let Some(sink) = guard.get(&sub_id) {
+                            let _ = sink.notify(Ok(RpcResponse {
+                                context: RpcResponseContext::new(slot),
+                                value: ui_account,
+                            }));
+                        }
                     }
                 }
             }
@@ -772,11 +824,12 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = self
-            .account_subscription_map
-            .write()
-            .unwrap()
-            .remove(&subscription);
+        let removed = if let Ok(mut guard) = self.account_subscription_map.write() {
+            guard.remove(&subscription)
+        } else {
+            log::error!("Failed to acquire write lock on account_subscription_map");
+            None
+        };
         if removed.is_some() {
             Ok(true)
         } else {
@@ -791,29 +844,58 @@ impl Rpc for SurfpoolWsRpc {
     fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<SlotInfo>) {
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
-        let sink = subscriber
-            .assign_id(sub_id.clone())
-            .expect("Failed to assign subscription ID");
+        let sink = match subscriber.assign_id(sub_id.clone()) {
+            Ok(sink) => sink,
+            Err(e) => {
+                log::error!("Failed to assign subscription ID: {:?}", e);
+                return;
+            }
+        };
 
         let slot_active = Arc::clone(&self.slot_subscription_map);
         let meta = meta.clone();
 
-        let svm_locker = meta.get_svm_locker().unwrap();
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(_) => {
+                log::error!("Failed to get SVM locker for slot subscription.");
+                if let Ok(mut guard) = slot_active.write() {
+                    if let Some(_) = guard.remove(&sub_id) {
+                        log::error!(
+                            "Failed to remove sink after SVM locker error for slot subscription."
+                        );
+                    }
+                }
+                return;
+            }
+        };
 
         self.tokio_handle.spawn(async move {
-            slot_active.write().unwrap().insert(sub_id.clone(), sink);
+            if let Ok(mut guard) = slot_active.write() {
+                guard.insert(sub_id.clone(), sink);
+            } else {
+                log::error!("Failed to acquire write lock on slot_subscription_map");
+                return;
+            }
 
             let rx = svm_locker.subscribe_for_slot_updates();
 
             loop {
                 // if the subscription has been removed, break the loop
-                if slot_active.read().unwrap().get(&sub_id).is_none() {
+                if let Ok(guard) = slot_active.read() {
+                    if guard.get(&sub_id).is_none() {
+                        break;
+                    }
+                } else {
+                    log::error!("Failed to acquire read lock on slot_subscription_map");
                     break;
                 }
 
                 if let Ok(slot_info) = rx.try_recv() {
-                    if let Some(sink) = slot_active.read().unwrap().get(&sub_id) {
-                        let _ = sink.notify(Ok(slot_info));
+                    if let Ok(guard) = slot_active.read() {
+                        if let Some(sink) = guard.get(&sub_id) {
+                            let _ = sink.notify(Ok(slot_info));
+                        }
                     }
                 }
             }
@@ -825,11 +907,12 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = self
-            .slot_subscription_map
-            .write()
-            .unwrap()
-            .remove(&subscription);
+        let removed = if let Ok(mut guard) = self.slot_subscription_map.write() {
+            guard.remove(&subscription)
+        } else {
+            log::error!("Failed to acquire write lock on slot_subscription_map");
+            None
+        };
         if removed.is_some() {
             Ok(true)
         } else {
