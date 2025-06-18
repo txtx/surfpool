@@ -1162,15 +1162,19 @@ mod tests {
         let large_account_pubkey = Pubkey::new_unique();
         let large_amount = 1_000_000_000_000_000u64;
 
-        setup.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer.set_account(
-                &large_account_pubkey,
-                Account {
-                    lamports: large_amount,
-                    ..Default::default()
-                },
-            )
-        });
+        setup
+            .context
+            .svm_locker
+            .with_svm_writer(|svm_writer| {
+                svm_writer.set_account(
+                    &large_account_pubkey,
+                    Account {
+                        lamports: large_amount,
+                        ..Default::default()
+                    },
+                )
+            })
+            .unwrap();
 
         let result = setup
             .rpc
