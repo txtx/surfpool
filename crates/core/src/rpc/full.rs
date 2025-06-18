@@ -2003,10 +2003,10 @@ impl Full for SurfpoolFullRpc {
             .parse::<solana_hash::Hash>()
             .map_err(|e| Error::invalid_params(format!("Invalid blockhash: {e:?}")))?;
 
-        let ctx = meta.get_rpc_context(config)?;
+        let svm_locker = meta.get_svm_locker()?;
 
         // get current state and determine effective slot based on commitment level
-        let (is_valid, current_slot, committed_slot) = ctx.svm_locker.with_svm_reader(|svm| {
+        let (is_valid, _current_slot, committed_slot) = svm_locker.with_svm_reader(|svm| {
             let current_slot = svm.get_latest_absolute_slot();
 
             let committed_slot = if let Some(ref config) = config {
