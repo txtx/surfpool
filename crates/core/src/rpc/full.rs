@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::atomic::Ordering};
 
 use itertools::Itertools;
 use jsonrpc_core::{BoxFuture, Error, Result};
@@ -1422,8 +1422,9 @@ impl Full for SurfpoolFullRpc {
         })
     }
 
-    fn get_max_retransmit_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        not_implemented_err("get_max_retransmit_slot")
+    fn get_max_retransmit_slot(&self, meta: Self::Metadata) -> Result<Slot> {
+        meta.with_svm_reader(|svm_reader| svm_reader.max_slots.retransmit.load(Ordering::Relaxed))
+            .map_err(Into::into)
     }
 
     fn get_max_shred_insert_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
@@ -2168,6 +2169,7 @@ mod tests {
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
+    use solana_rpc::max_slots::MaxSlots;
     use solana_sdk::{instruction::Instruction, system_instruction};
     use solana_signer::Signer;
     use solana_system_interface::program as system_program;
@@ -3715,5 +3717,20 @@ mod tests {
 
         let expected_local: Vec<Slot> = (100..=120).collect();
         assert_eq!(result, expected_local, "Should return local blocks 100-120");
+    }
+
+    #[test]
+    fn test_get_max_retransmit_slot() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup
+            .rpc
+            .get_max_retransmit_slot(Some(setup.context))
+            .unwrap();
+
+        assert_eq!(
+            result,
+            MaxSlots::default().retransmit.load(Ordering::Relaxed)
+        )
     }
 }
