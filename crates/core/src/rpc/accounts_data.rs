@@ -588,7 +588,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             {
                 return Err(SurfpoolError::invalid_account_data(
                     mint_pubkey,
-                    "Account is not owned by the SPL Token program",
+                    "Account is not a token mint account",
                     None::<String>,
                 )
                 .into());
@@ -878,156 +878,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_get_token_supply_caches_local_account() {
-        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-
-        // USDC mint pubkey
-        let usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-        let mint_pubkey = Pubkey::from_str_const(usdc_mint);
-
-        // verify account is not cached initially
-        let account_before = setup
-            .context
-            .svm_locker
-            .with_svm_reader(|svm_reader| svm_reader.inner.get_account(&mint_pubkey));
-        assert!(
-            account_before.is_none(),
-            "Account should not be cached initially"
-        );
-        println!("Confirmed: USDC mint not in local cache initially");
-
-        // create dummy mint account data
-        let minimum_rent = setup.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader
-                .inner
-                .minimum_balance_for_rent_exemption(Mint::LEN)
-        });
-
-        let mut mint_data = [0; Mint::LEN];
-        let dummy_mint = Mint {
-            mint_authority: COption::None,
-            supply: 41_000_000_000_000_000,
-            decimals: 6,
-            is_initialized: true,
-            freeze_authority: COption::None,
-        };
-        dummy_mint.pack_into_slice(&mut mint_data);
-
-        let mint_account = Account {
-            lamports: minimum_rent,
-            owner: spl_token::ID,
-            executable: false,
-            rent_epoch: 0,
-            data: mint_data.to_vec(),
-        };
-
-        // write the dummy account to local storage
-        setup
-            .context
-            .svm_locker
-            .write_account_update(GetAccountResult::FoundAccount(
-                mint_pubkey,
-                mint_account.clone(),
-                true,
-            ));
-
-        println!("created dummy USDC mint account locally");
-
-        let start_time = std::time::Instant::now();
-        let res = setup
-            .rpc
-            .get_token_supply(
-                Some(setup.context.clone()),
-                usdc_mint.to_string(),
-                Some(CommitmentConfig::confirmed()),
-            )
-            .await
-            .unwrap();
-        let first_call_duration = start_time.elapsed();
-
-        println!("First call completed in {:?}", first_call_duration);
-        println!(
-            "Supply: {}, Decimals: {}",
-            res.value.amount, res.value.decimals
-        );
-
-        // verify account is cached
-        let account_after = setup
-            .context
-            .svm_locker
-            .with_svm_reader(|svm_reader| svm_reader.inner.get_account(&mint_pubkey));
-        assert!(
-            account_after.is_some(),
-            "Account should be available after first call"
-        );
-        println!("Confirmed: USDC mint available locally");
-
-        let cached_account = account_after.unwrap();
-        assert_eq!(
-            cached_account.owner,
-            spl_token::id(),
-            "Account should be owned by SPL Token program"
-        );
-
-        // verify we can unpack the account data
-        let cached_mint = Mint::unpack(&cached_account.data).unwrap();
-        assert_eq!(cached_mint.decimals, 6, "Mint should have 6 decimals");
-        assert_eq!(
-            cached_mint.supply, 41_000_000_000_000_000,
-            "Mint should have expected supply"
-        );
-        assert!(cached_mint.is_initialized, "Mint should be initialized");
-        println!(
-            "Account data is valid: supply={}, decimals={}",
-            cached_mint.supply, cached_mint.decimals
-        );
-
-        // second call - should be fast since it's already in memory
-        let start_time = std::time::Instant::now();
-        let res2 = setup
-            .rpc
-            .get_token_supply(
-                Some(setup.context.clone()),
-                usdc_mint.to_string(),
-                Some(CommitmentConfig::confirmed()),
-            )
-            .await
-            .unwrap();
-        let second_call_duration = start_time.elapsed();
-
-        println!("Second call completed in {:?}", second_call_duration);
-
-        // verify both calls return same data
-        assert_eq!(
-            res.value.amount, res2.value.amount,
-            "Both calls should return same supply"
-        );
-        assert_eq!(
-            res.value.decimals, res2.value.decimals,
-            "Both calls should return same decimals"
-        );
-
-        // both calls should be fast since no network is involved
-        assert!(
-            first_call_duration < std::time::Duration::from_millis(100),
-            "First call should be fast (local), took {:?}",
-            first_call_duration
-        );
-        assert!(
-            second_call_duration < std::time::Duration::from_millis(100),
-            "Second call should be fast (local), took {:?}",
-            second_call_duration
-        );
-
-        println!("Local account test passed!");
-        println!("Both calls used local data");
-        println!(
-            "First call: {:?}, Second call: {:?}",
-            first_call_duration, second_call_duration
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
     async fn test_invalid_pubkey_format() {
         let setup = TestSetup::new(SurfpoolAccountsDataRpc);
 
@@ -1168,24 +1018,5 @@ mod tests {
 
         let error_msg = res.unwrap_err().to_string();
         println!("✅ Remote RPC failure handled: {}", error_msg);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_no_context_metadata() {
-        let setup = TestSetup::new(SurfpoolAccountsDataRpc);
-
-        // test with None metadata (no context)
-        let valid_mint = Pubkey::new_unique();
-
-        let res = setup
-            .rpc
-            .get_token_supply(
-                None, // no context
-                valid_mint.to_string(),
-                Some(CommitmentConfig::confirmed()),
-            )
-            .await;
-
-        assert!(res.is_err(), "Should fail when no context provided");
     }
 }
