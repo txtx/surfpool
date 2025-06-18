@@ -3742,7 +3742,6 @@ mod tests {
         assert_eq!(result, expected_local, "Should return local blocks 100-120");
     }
 
-
     #[ignore = "requires-network"]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_minimum_ledger_slot_from_remote() {
@@ -3757,7 +3756,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(result > 0, "Mainnet should return a valid minimum ledger slot > 0");
+        assert!(
+            result > 0,
+            "Mainnet should return a valid minimum ledger slot > 0"
+        );
         println!("Mainnet minimum ledger slot: {}", result);
     }
 
@@ -3768,7 +3770,10 @@ mod tests {
 
         let result = setup.rpc.minimum_ledger_slot(None).await;
 
-        assert!(result.is_err(), "Should fail when called without metadata context");
+        assert!(
+            result.is_err(),
+            "Should fail when called without metadata context"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -3784,6 +3789,9 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result, 50, "Should return minimum slot (50) regardless of insertion order");
+        assert_eq!(
+            result, 50,
+            "Should return minimum slot (50) regardless of insertion order"
+        );
     }
 }
