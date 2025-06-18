@@ -1,10 +1,10 @@
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
-    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
+    rpc_config::{RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig},
     rpc_filter::RpcFilterType,
     rpc_request::TokenAccountsFilter,
-    rpc_response::RpcKeyedAccount,
+    rpc_response::{RpcAccountBalance, RpcKeyedAccount},
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
@@ -191,5 +191,16 @@ impl SurfnetRemoteClient {
                     .collect()
             })
             .map_err(|e| SurfpoolError::get_program_accounts(*program_id, e))
+    }
+
+    pub async fn get_largest_accounts(
+        &self,
+        config: Option<RpcLargestAccountsConfig>,
+    ) -> SurfpoolResult<Vec<RpcAccountBalance>> {
+        self.client
+            .get_largest_accounts_with_config(config.unwrap_or_default())
+            .await
+            .map(|res| res.value)
+            .map_err(|e| SurfpoolError::get_largest_accounts(e))
     }
 }
