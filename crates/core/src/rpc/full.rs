@@ -1631,8 +1631,16 @@ impl Full for SurfpoolFullRpc {
         })
     }
 
-    fn minimum_ledger_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        not_implemented_err("minimum_ledger_slot")
+    fn minimum_ledger_slot(&self, meta: Self::Metadata) -> Result<Slot> {
+        let svm_locker = meta.get_svm_locker()
+            .map_err(|_| Error::internal_error())?;
+
+        // use reader to find the minimum ledger slot
+        let min_slot = svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader.blocks.keys().min().copied().unwrap_or(0)
+        });
+
+        Ok(min_slot)
     }
 
     fn get_block(
@@ -3715,5 +3723,44 @@ mod tests {
 
         let expected_local: Vec<Slot> = (100..=120).collect();
         assert_eq!(result, expected_local, "Should return local blocks 100-120");
+    }
+
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_empty_ledger() {
+        // empty ledger should return 0
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup
+            .rpc
+            .minimum_ledger_slot(Some(setup.context))
+            .unwrap();
+
+        assert_eq!(result, 0, "Empty ledger should return slot 0");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_no_context_fails() {
+        // fail gracefully when called without metadata context
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        
+        let result = setup.rpc.minimum_ledger_slot(None);
+        
+        assert!(result.is_err(), "Should fail when called without metadata context");
+    }
+
+     #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_finds_minimum() {
+        // find correct minimum from sparse, unordered blocks
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        
+        insert_test_blocks(&setup, vec![500, 100, 1000, 50, 750]);
+
+        let result = setup
+            .rpc
+            .minimum_ledger_slot(Some(setup.context))
+            .unwrap();
+
+        assert_eq!(result, 50, "Should return minimum slot (50) regardless of insertion order");
     }
 }
