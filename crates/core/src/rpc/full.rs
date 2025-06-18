@@ -43,7 +43,7 @@ use super::{
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     surfnet::{locker::SvmAccessContext, GetTransactionResult, FINALIZATION_SLOT_THRESHOLD},
-    types::SurfnetTransactionStatus,
+    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 
 const MAX_PRIORITIZATION_FEE_BLOCKS_CACHE: usize = 150;
@@ -1981,11 +1981,61 @@ impl Full for SurfpoolFullRpc {
 
     fn get_signatures_for_address(
         &self,
-        _meta: Self::Metadata,
-        _address: String,
+        meta: Self::Metadata,
+        address: String,
         _config: Option<RpcSignaturesForAddressConfig>,
     ) -> BoxFuture<Result<Vec<RpcConfirmedTransactionStatusWithSignature>>> {
-        not_implemented_err_async("get_signatures_for_address")
+        let address = match verify_pubkey(&address) {
+            Ok(s) => s,
+            Err(e) => return e.into(),
+        };
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(None) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let sigs: Vec<_> = svm_locker.with_svm_reader(|svm_reader| {
+                svm_reader
+                    .transactions
+                    .iter()
+                    .filter(|(_, status)| {
+                        let TransactionWithStatusMeta(_, tx, _, _) = status.expect_processed();
+
+                        tx.message
+                            .static_account_keys()
+                            .iter()
+                            .find_position(|pubkey| pubkey.to_bytes() == address.to_bytes())
+                            .map(|(idx, _)| tx.message.is_signer(idx))
+                            .unwrap_or_default()
+                    })
+                    .map(|(sig, status)| (sig.to_owned(), status.to_owned()))
+                    .collect()
+            });
+
+            let mut responses = Vec::with_capacity(sigs.len());
+
+            for (signature, status) in sigs.into_iter() {
+                let res = svm_locker.get_transaction(&remote_ctx, &signature).await;
+                let TransactionWithStatusMeta(slot, _tx, _metadata, err) =
+                    status.expect_processed();
+
+                let found_tx = res.inner.map_found_transaction()?;
+                responses.push(RpcConfirmedTransactionStatusWithSignature {
+                    signature: signature.to_string(),
+                    slot: *slot,
+                    err: err.to_owned(),
+                    memo: None,
+                    block_time: None,
+                    confirmation_status: found_tx.confirmation_status,
+                });
+            }
+
+            Ok(responses)
+        })
     }
 
     fn get_first_available_block(&self, meta: Self::Metadata) -> Result<Slot> {
