@@ -23,7 +23,7 @@ use solana_transaction_status::UiTransactionEncoding;
 use super::GetTransactionResult;
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    surfnet::GetAccountResult,
+    surfnet::{locker::is_supported_token_program, GetAccountResult},
 };
 
 pub struct SurfnetRemoteClient {
@@ -181,6 +181,39 @@ impl SurfnetRemoteClient {
             )
             .await;
         res.map_err(|e| SurfpoolError::get_token_accounts(owner, &filter, e))
+            .map(|res| res.value)
+    }
+
+    pub async fn get_token_accounts_by_delegate(
+        &self,
+        delegate: Pubkey,
+        filter: &TokenAccountsFilter,
+        config: &RpcAccountInfoConfig,
+    ) -> SurfpoolResult<Vec<RpcKeyedAccount>> {
+        // Validate that the program is supported if using ProgramId filter
+        if let TokenAccountsFilter::ProgramId(program_id) = &filter {
+            if !is_supported_token_program(program_id) {
+                return Err(SurfpoolError::unsupported_token_program(*program_id));
+            }
+        }
+
+        let token_account_filter = match &filter {
+            TokenAccountsFilter::Mint(mint) => RpcTokenAccountsFilter::Mint(mint.to_string()),
+            TokenAccountsFilter::ProgramId(program_id) => {
+                RpcTokenAccountsFilter::ProgramId(program_id.to_string())
+            }
+        };
+
+        // Use the RPC client's send method for consistency with get_token_accounts_by_owner
+        let res: RpcResult<Vec<RpcKeyedAccount>> = self
+            .client
+            .send(
+                RpcRequest::GetTokenAccountsByDelegate,
+                json!([delegate.to_string(), token_account_filter, config]),
+            )
+            .await;
+
+        res.map_err(|e| SurfpoolError::get_token_accounts_by_delegate_error(delegate, &filter, e))
             .map(|res| res.value)
     }
 
