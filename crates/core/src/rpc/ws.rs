@@ -572,14 +572,15 @@ impl Rpc for SurfpoolWsRpc {
                 Err(e) => {
                     log::error!("Failed to get RPC context: {:?}", e);
                     if let Ok(mut guard) = active.write() {
-                        if let Some(_) = guard.remove(&sub_id) {
-                            log::error!("Failed to remove sink after RPC context error.");
+                        if let Some(sink) = guard.remove(&sub_id) {
+                            if let Err(e) = sink.notify(Err(e.into())) {
+                                log::error!("Failed to notify client about RPC context error: {e}");
+                            }
                         }
                     }
                     return;
                 }
             };
-
             // get the signature from the SVM to see if it's already been processed
             let SvmAccessContext {
                 inner: tx_result, ..
@@ -751,15 +752,14 @@ impl Rpc for SurfpoolWsRpc {
 
         let account_active = Arc::clone(&self.account_subscription_map);
         let meta = meta.clone();
-
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
-            Err(_) => {
-                log::error!("Failed to get SVM locker for account subscription.");
-                if let Ok(mut guard) = account_active.write() {
-                    if let Some(_) = guard.remove(&sub_id) {
-                        log::error!("Failed to remove sink after SVM locker error for account subscription.");
-                    }
+            Err(e) => {
+                log::error!("Failed to get SVM locker for account subscription: {e}");
+                if let Err(e) = sink.notify(Err(e.into())) {
+                    log::error!(
+                        "Failed to send error notification to client for SVM locker failure: {e}"
+                    );
                 }
                 return;
             }
@@ -857,14 +857,12 @@ impl Rpc for SurfpoolWsRpc {
 
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
-            Err(_) => {
-                log::error!("Failed to get SVM locker for slot subscription.");
-                if let Ok(mut guard) = slot_active.write() {
-                    if let Some(_) = guard.remove(&sub_id) {
-                        log::error!(
-                            "Failed to remove sink after SVM locker error for slot subscription."
-                        );
-                    }
+            Err(e) => {
+                log::error!("Failed to get SVM locker for slot subscription: {e}");
+                if let Err(e) = sink.notify(Err(e.into())) {
+                    log::error!(
+                        "Failed to send error notification to client for SVM locker failure: {e}"
+                    );
                 }
                 return;
             }
