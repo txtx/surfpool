@@ -2002,39 +2002,40 @@ impl Full for SurfpoolFullRpc {
         let hash = blockhash
             .parse::<solana_hash::Hash>()
             .map_err(|e| Error::invalid_params(format!("Invalid blockhash: {e:?}")))?;
-        
-        
+
         let ctx = meta.get_rpc_context(config)?;
-        
+
         // get current state and determine effective slot based on commitment level
         let (is_valid, current_slot, committed_slot) = ctx.svm_locker.with_svm_reader(|svm| {
             let current_slot = svm.get_latest_absolute_slot();
-            
-    
+
             let committed_slot = if let Some(ref config) = config {
                 if let Some(ref commitment_config) = config.commitment {
                     match commitment_config.commitment {
                         CommitmentLevel::Processed => current_slot,
                         CommitmentLevel::Confirmed => current_slot.saturating_sub(1),
-                        CommitmentLevel::Finalized => current_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD),
+                        CommitmentLevel::Finalized => {
+                            current_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
+                        }
                     }
                 } else {
-                    current_slot 
+                    current_slot
                 }
             } else {
                 current_slot
             };
-            
+
             let is_valid = svm.check_blockhash_is_recent(&hash);
             (is_valid, current_slot, committed_slot)
         });
-        
+
         if let Some(ref config) = config {
             if let Some(min_context_slot) = config.min_context_slot {
                 if committed_slot < min_context_slot {
                     return Err(RpcCustomError::MinContextSlotNotReached {
                         context_slot: min_context_slot,
-                    }.into());
+                    }
+                    .into());
                 }
             }
         }
@@ -3757,15 +3758,15 @@ mod tests {
         assert_eq!(result, expected_local, "Should return local blocks 100-120");
     }
 
-
     #[tokio::test(flavor = "multi_thread")]
     async fn test_is_blockhash_valid_recent_blockhash() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
         //get the current recent blockhash from the SVM
-        let recent_blockhash = setup.context.svm_locker.with_svm_reader(|svm| {
-            svm.latest_blockhash()
-        });
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm| svm.latest_blockhash());
 
         let result = setup
             .rpc
@@ -3797,13 +3798,11 @@ mod tests {
         assert_eq!(result_processed.value, true);
     }
 
-
     #[tokio::test(flavor = "multi_thread")]
     async fn test_is_blockhash_valid_invalid_blockhash() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-
-        let fake_blockhash = Hash::new_from_array([1u8; 32]); 
+        let fake_blockhash = Hash::new_from_array([1u8; 32]);
 
         //non-existent blockhash returns false
         let result = setup
@@ -3838,45 +3837,32 @@ mod tests {
         let another_fake = Hash::new_from_array([255u8; 32]);
         let result2 = setup
             .rpc
-            .is_blockhash_valid(
-                Some(setup.context.clone()),
-                another_fake.to_string(),
-                None,
-            )
+            .is_blockhash_valid(Some(setup.context.clone()), another_fake.to_string(), None)
             .unwrap();
 
         assert_eq!(result2.value, false);
 
-        let invalid_result = setup
-            .rpc
-            .is_blockhash_valid(
-                Some(setup.context.clone()),
-                "invalid-blockhash-format".to_string(),
-                None,
-            );
+        let invalid_result = setup.rpc.is_blockhash_valid(
+            Some(setup.context.clone()),
+            "invalid-blockhash-format".to_string(),
+            None,
+        );
 
         assert!(invalid_result.is_err());
 
-        let short_result = setup
-            .rpc
-            .is_blockhash_valid(
-                Some(setup.context.clone()),
-                "123".to_string(),
-                None,
-            );
+        let short_result =
+            setup
+                .rpc
+                .is_blockhash_valid(Some(setup.context.clone()), "123".to_string(), None);
         assert!(short_result.is_err());
 
         // test with invalid base58 characters
-        let invalid_chars_result = setup
-            .rpc
-            .is_blockhash_valid(
-                Some(setup.context.clone()),
-                "0OIl".to_string(),
-                None,
-            );
+        let invalid_chars_result =
+            setup
+                .rpc
+                .is_blockhash_valid(Some(setup.context.clone()), "0OIl".to_string(), None);
         assert!(invalid_chars_result.is_err());
     }
-
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_is_blockhash_valid_commitment_and_context_slot() {
@@ -3885,7 +3871,7 @@ mod tests {
         // set up some block history to test commitment levels
         {
             let mut svm_writer = setup.context.svm_locker.0.write().await;
-            
+
             // update the absolute slot to something higher to test commitment differences
             svm_writer.latest_epoch_info.absolute_slot = 100;
 
@@ -3905,9 +3891,10 @@ mod tests {
             }
         }
 
-        let recent_blockhash = setup.context.svm_locker.with_svm_reader(|svm| {
-            svm.latest_blockhash()
-        });
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm| svm.latest_blockhash());
 
         // test processed commitment (should use latest slot = 100)
         let processed_result = setup
@@ -3981,18 +3968,16 @@ mod tests {
         assert_eq!(min_context_success.value, true);
 
         // test min_context_slot validation - should fail when slot is too low
-        let min_context_failure = setup
-            .rpc
-            .is_blockhash_valid(
-                Some(setup.context.clone()),
-                recent_blockhash.to_string(),
-                Some(RpcContextConfig {
-                    commitment: Some(CommitmentConfig {
-                        commitment: CommitmentLevel::Finalized,
-                    }),
-                    min_context_slot: Some(80), 
+        let min_context_failure = setup.rpc.is_blockhash_valid(
+            Some(setup.context.clone()),
+            recent_blockhash.to_string(),
+            Some(RpcContextConfig {
+                commitment: Some(CommitmentConfig {
+                    commitment: CommitmentLevel::Finalized,
                 }),
-            );
+                min_context_slot: Some(80),
+            }),
+        );
 
         assert!(min_context_failure.is_err());
     }
