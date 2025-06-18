@@ -1633,7 +1633,7 @@ impl Full for SurfpoolFullRpc {
 
     fn minimum_ledger_slot(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
         let SurfnetRpcContext {
-            svm_locker: _,
+            svm_locker,
             remote_ctx,
         } = match meta.get_rpc_context(()) {
             Ok(res) => res,
@@ -1649,8 +1649,6 @@ impl Full for SurfpoolFullRpc {
                     .await
                     .map_err(|e| SurfpoolError::client_error(e).into())
             } else {
-                let svm_locker = meta.get_svm_locker()?;
-
                 let min_slot = svm_locker.with_svm_reader(|svm_reader| {
                     svm_reader.blocks.keys().min().copied().unwrap_or(0)
                 });
