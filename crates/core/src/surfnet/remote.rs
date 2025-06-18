@@ -170,8 +170,8 @@ impl SurfnetRemoteClient {
         self.client
             .get_token_accounts_by_delegate(&delegate, token_account_filter)
             .await
-            .map_err(|e| SurfpoolError::get_token_accounts(delegate, 
-                spl_token::id(), e)) //place holder, should add a delegate error on surfpoolError
+            .map_err(|e| SurfpoolError::get_token_accounts(delegate, spl_token::id(), e))
+        //place holder, should add a delegate error on surfpoolError
     }
 
     pub async fn get_program_accounts(

@@ -11,7 +11,8 @@ use solana_account_decoder::{
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
-    rpc_config::RpcAccountInfoConfig, rpc_filter::RpcFilterType, rpc_request::TokenAccountsFilter, rpc_response::RpcKeyedAccount
+    rpc_config::RpcAccountInfoConfig, rpc_filter::RpcFilterType, rpc_request::TokenAccountsFilter,
+    rpc_response::RpcKeyedAccount,
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -619,7 +620,7 @@ impl SurfnetSvmLocker {
                             TokenAccountsFilter::Mint(mint) => token_account.mint == *mint,
                             TokenAccountsFilter::ProgramId(_) => true, // all token accounts are under token program
                         };
-                        
+
                         if include {
                             if let Some(account) = svm_reader.accounts_registry.get(&pubkey) {
                                 Some(RpcKeyedAccount {
