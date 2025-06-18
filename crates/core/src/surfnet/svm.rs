@@ -1,4 +1,7 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -18,6 +21,7 @@ use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
+use solana_rpc::max_slots::MaxSlots;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     program_option::COption, program_pack::Pack, system_instruction,
@@ -86,6 +90,7 @@ pub struct SurfnetSvm {
     pub circulating_supply: u64,
     pub non_circulating_supply: u64,
     pub non_circulating_accounts: Vec<String>,
+    pub max_slots: Arc<MaxSlots>,
 }
 
 impl SurfnetSvm {
@@ -148,6 +153,7 @@ impl SurfnetSvm {
                 circulating_supply: 0,
                 non_circulating_supply: 0,
                 non_circulating_accounts: Vec::new(),
+                max_slots: Arc::new(MaxSlots::default()),
             },
             simnet_events_rx,
             geyser_events_rx,
