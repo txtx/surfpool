@@ -141,6 +141,18 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn get_token_largest_accounts<T>(mint: Pubkey, e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to get largest token accounts for mint {mint}: {}",
+            e.to_string()
+        )));
+        Self(error)
+    }
+
     pub fn get_multiple_accounts<T>(e: T) -> Self
     where
         T: ToString,
@@ -152,6 +164,8 @@ impl SurfpoolError {
         )));
         Self(error)
     }
+
+    
 
     pub fn get_signatures_for_address<T>(e: T) -> Self
     where
