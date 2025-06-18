@@ -418,8 +418,32 @@ impl BankData for SurfpoolBankDataRpc {
         not_implemented_err("get_inflation_governor")
     }
 
-    fn get_inflation_rate(&self, _meta: Self::Metadata) -> Result<RpcInflationRate> {
-        not_implemented_err("get_inflation_rate")
+    fn get_inflation_rate(&self, meta: Self::Metadata) -> Result<RpcInflationRate> {
+        meta.with_svm_reader(|svm_reader| {
+            let inflation_activation_slot =
+                svm_reader.blocks.keys().min().copied().unwrap_or_default();
+            let epoch_schedule = svm_reader.inner.get_sysvar::<EpochSchedule>();
+            let inflation_start_slot = epoch_schedule.get_first_slot_in_epoch(
+                epoch_schedule
+                    .get_epoch(inflation_activation_slot)
+                    .saturating_sub(1),
+            );
+            let epoch = svm_reader.latest_epoch_info().epoch;
+            let num_slots = epoch_schedule.get_first_slot_in_epoch(epoch) - inflation_start_slot;
+
+            let inflation = svm_reader.inflation;
+            let slots_per_year = svm_reader.genesis_config.slots_per_year();
+
+            let slot_in_year = num_slots as f64 / slots_per_year;
+
+            RpcInflationRate {
+                total: inflation.total(slot_in_year),
+                validator: inflation.validator(slot_in_year),
+                foundation: inflation.foundation(slot_in_year),
+                epoch,
+            }
+        })
+        .map_err(Into::into)
     }
 
     fn get_epoch_schedule(&self, meta: Self::Metadata) -> Result<EpochSchedule> {
@@ -595,5 +619,12 @@ mod tests {
             jsonrpc_core::ErrorCode::InvalidParams,
             "Should return InvalidParams error for start_slot >= latest_slot"
         );
+    }
+
+    #[test]
+    fn test_get_inflation_rate() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+        let result = setup.rpc.get_inflation_rate(Some(setup.context));
+        assert!(result.is_ok())
     }
 }
