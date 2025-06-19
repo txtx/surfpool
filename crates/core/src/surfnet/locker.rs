@@ -23,6 +23,7 @@ use solana_message::{
     VersionedMessage,
 };
 use solana_pubkey::Pubkey;
+use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
     transaction::VersionedTransaction,
@@ -1067,6 +1068,11 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm_writer| {
             svm_writer.subscribe_for_account_updates(account_pubkey, encoding)
         })
+    }
+
+    /// Subscribes for slot updates and returns a receiver of slot updates.
+    pub fn subscribe_for_slot_updates(&self) -> Receiver<SlotInfo> {
+        self.with_svm_writer(|svm_writer| svm_writer.subscribe_for_slot_updates())
     }
 }
 

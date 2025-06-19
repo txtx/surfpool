@@ -9951,6 +9951,7 @@ dependencies = [
  "solana-epoch-info",
  "solana-message",
  "solana-pubkey",
+ "solana-rpc-client-api",
  "solana-signature",
  "solana-transaction",
  "solana-transaction-context",
