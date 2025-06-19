@@ -742,9 +742,9 @@ impl SurfnetSvm {
             self.latest_epoch_info.epoch += 1;
         }
 
-        let parent_slot = self.latest_epoch_info.absolute_slot - 1;
+        let parent_slot = self.latest_epoch_info.absolute_slot.saturating_sub(1);
         let new_slot = self.latest_epoch_info.absolute_slot;
-        let root = new_slot - FINALIZATION_SLOT_THRESHOLD;
+        let root = new_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD);
         self.notify_slot_subscribers(new_slot, parent_slot, root);
 
         let clock: Clock = Clock {
