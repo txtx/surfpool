@@ -452,8 +452,10 @@ impl BankData for SurfpoolBankDataRpc {
         let svm_locker = meta.get_svm_locker()?;
         let epoch_info = svm_locker.get_epoch_info();
 
-        let first_slot_in_epoch = epoch_info.absolute_slot - epoch_info.slot_index;
-        let last_slot_in_epoch = first_slot_in_epoch + epoch_info.slots_in_epoch - 1;
+        let first_slot_in_epoch = epoch_info
+            .absolute_slot
+            .saturating_sub(epoch_info.slot_index);
+        let last_slot_in_epoch = first_slot_in_epoch + epoch_info.slots_in_epoch.saturating_sub(1);
         if start_slot > last_slot_in_epoch || (start_slot + limit) > last_slot_in_epoch {
             return Err(jsonrpc_core::Error {
                 code: jsonrpc_core::ErrorCode::InvalidParams,
