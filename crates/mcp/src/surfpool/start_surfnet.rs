@@ -95,10 +95,11 @@ pub fn run(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnetResponse
                         return StartSurfnetResponse::error(error);
                     }
                     SimnetEvent::Ready => {
-                        break StartSurfnetResponse::success(StartSurfnetSuccess {
+                        let success_data = StartSurfnetSuccess {
                             surfnet_url: format!("http://{}", rpc_config.get_socket_address()),
                             surfnet_id,
-                        });
+                        };
+                        break StartSurfnetResponse::success(success_data);
                     }
                     SimnetEvent::ErrorLog(_, error) => {
                         return StartSurfnetResponse::error(error);

@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Start Surfnet",
+            "type": "shell",
+            "command": "surfpool",
+            "args": [
+                "start"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "new",
+                "focus": true,
+                "clear": true
+            },
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "detail": "Runs the Surfnet local environment and displays the URL."
+        }
+    ]
+}

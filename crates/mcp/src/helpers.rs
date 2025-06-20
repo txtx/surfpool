@@ -1,4 +1,6 @@
 use std::net::TcpListener;
+use std::process::{Command, ExitStatus};
+use std::io;
 
 pub fn is_port_available(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_ok()
@@ -17,4 +19,14 @@ pub fn find_next_available_surfnet_port() -> Result<(u16, u16), String> {
     Err(format!(
         "No available surfnet ports of format 127.0.0.1:x8899 found."
     ))
+}
+
+pub fn trigger_start_surfnet() -> io::Result<ExitStatus> {
+    Command::new("code")
+        .arg("--folder-uri")
+        .arg(std::env::current_dir()?)
+        .arg("--command")
+        .arg("workbench.action.tasks.runTask")
+        .arg("Start Surfnet")
+        .status()
 }

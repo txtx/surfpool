@@ -14,9 +14,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use set_token_account::{SeededAccount, SetAccountSuccess, SetTokenAccountsResponse};
-use start_surfnet::StartSurfnetResponse;
+use start_surfnet::{StartSurfnetResponse, StartSurfnetSuccess};
 
-use crate::helpers::find_next_available_surfnet_port;
+use crate::helpers::{find_next_available_surfnet_port, trigger_start_surfnet};
 
 mod set_token_account;
 mod start_surfnet;
@@ -187,11 +187,14 @@ impl Surfpool {
             Err(e) => return Json(StartSurfnetResponse::error(e)),
         };
 
-        let res = start_surfnet::run(surfnet_id, port, port.saturating_sub(9));
-        if res.success.is_some() {
+        let res = trigger_start_surfnet();
+        if res.is_ok() {
             self.surfnets.write().unwrap().insert(surfnet_id, port);
         }
-        Json(res)
+        Json(StartSurfnetResponse::success(StartSurfnetSuccess {
+            surfnet_id,
+            surfnet_url: "".to_string(),
+        }))
     }
 
     /// Sets token balances for multiple accounts in your local Solana network (surfnet).
