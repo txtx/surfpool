@@ -450,12 +450,17 @@ impl BankData for SurfpoolBankDataRpc {
         }
 
         let svm_locker = meta.get_svm_locker()?;
-        let latest_slot = svm_locker.get_latest_absolute_slot();
-        if start_slot >= latest_slot {
+        let epoch_info = svm_locker.get_epoch_info();
+
+        let first_slot_in_epoch = epoch_info.absolute_slot - epoch_info.slot_index;
+        let last_slot_in_epoch = first_slot_in_epoch + epoch_info.slots_in_epoch - 1;
+        if start_slot > last_slot_in_epoch || (start_slot + limit) > last_slot_in_epoch {
             return Err(jsonrpc_core::Error {
                 code: jsonrpc_core::ErrorCode::InvalidParams,
-                message: "Invalid slot range: start slot must be less than the latest slot"
-                    .to_string(),
+                message: format!(
+                    "Invalid slot range: leader schedule for epoch {} is unavailable",
+                    epoch_info.epoch
+                ),
                 data: None,
             });
         }
