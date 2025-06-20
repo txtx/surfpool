@@ -159,6 +159,12 @@ impl GraphQLValue<DefaultScalarValue> for DynamicQuery {
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
         <DynamicQuery as GraphQLType<DefaultScalarValue>>::name(info)
     }
+
+    fn concrete_type_name(&self, _context: &Self::Context, info: &Self::TypeInfo) -> String {
+        <Self as GraphQLType>::name(info)
+            .unwrap_or_default()
+            .to_string()
+    }
 }
 
 impl GraphQLValueAsync<DefaultScalarValue> for DynamicQuery {

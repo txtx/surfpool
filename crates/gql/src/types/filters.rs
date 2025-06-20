@@ -54,6 +54,11 @@ impl GraphQLValue<DefaultScalarValue> for SubgraphFilterSpec {
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
         <Self as GraphQLType<DefaultScalarValue>>::name(info)
     }
+    fn concrete_type_name(&self, _context: &Self::Context, info: &Self::TypeInfo) -> String {
+        <Self as GraphQLType>::name(info)
+            .unwrap_or_default()
+            .to_string()
+    }
 }
 
 impl FromInputValue<DefaultScalarValue> for SubgraphFilterSpec {
@@ -129,6 +134,11 @@ impl GraphQLValue<DefaultScalarValue> for NumericFilter {
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
         <Self as GraphQLType>::name(info)
     }
+    fn concrete_type_name(&self, _context: &Self::Context, info: &Self::TypeInfo) -> String {
+        <Self as GraphQLType>::name(info)
+            .unwrap_or_default()
+            .to_string()
+    }
 }
 
 #[derive(Debug)]
@@ -170,6 +180,11 @@ impl GraphQLValue<DefaultScalarValue> for BooleanFilter {
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
         <Self as GraphQLType>::name(info)
+    }
+    fn concrete_type_name(&self, _context: &Self::Context, info: &Self::TypeInfo) -> String {
+        <Self as GraphQLType>::name(info)
+            .unwrap_or_default()
+            .to_string()
     }
 }
 
@@ -219,6 +234,11 @@ impl GraphQLValue<DefaultScalarValue> for StringFilter {
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
         <Self as GraphQLType>::name(info)
+    }
+    fn concrete_type_name(&self, _context: &Self::Context, info: &Self::TypeInfo) -> String {
+        <Self as GraphQLType>::name(info)
+            .unwrap_or_default()
+            .to_string()
     }
 }
 

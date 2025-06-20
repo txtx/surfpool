@@ -117,6 +117,11 @@ impl GraphQLValue<DefaultScalarValue> for DynamicSchemaSpec {
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
         <DynamicSchemaSpec as GraphQLType<DefaultScalarValue>>::name(info)
     }
+    fn concrete_type_name(&self, _context: &Self::Context, info: &Self::TypeInfo) -> String {
+        <Self as GraphQLType>::name(info)
+            .unwrap_or_default()
+            .to_string()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

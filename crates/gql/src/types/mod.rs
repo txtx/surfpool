@@ -49,6 +49,12 @@ impl GraphQLValue<DefaultScalarValue> for SubgraphSpec {
         <SubgraphSpec as GraphQLType>::name(info)
     }
 
+    fn concrete_type_name(&self, _context: &Self::Context, info: &Self::TypeInfo) -> String {
+        <SubgraphSpec as GraphQLType>::name(info)
+            .unwrap_or_default()
+            .to_string()
+    }
+
     fn resolve_field(
         &self,
         _info: &DynamicSchemaSpec,
