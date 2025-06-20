@@ -1356,7 +1356,7 @@ impl Full for SurfpoolFullRpc {
     }
 
     fn get_cluster_nodes(&self, _meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
-        not_implemented_err("get_cluster_nodes")
+        Ok(vec![])
     }
 
     fn get_recent_performance_samples(
@@ -3715,5 +3715,14 @@ mod tests {
 
         let expected_local: Vec<Slot> = (100..=120).collect();
         assert_eq!(result, expected_local, "Should return local blocks 100-120");
+    }
+
+    #[test]
+    fn test_get_cluster_nodes() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let cluster_nodes = setup.rpc.get_cluster_nodes(Some(setup.context)).unwrap();
+
+        assert_eq!(cluster_nodes, vec![]);
     }
 }
