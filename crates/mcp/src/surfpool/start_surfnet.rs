@@ -1,3 +1,5 @@
+use std::process::Command;
+
 use serde::Serialize;
 use surfpool_core::{start_local_surfnet, surfnet::svm::SurfnetSvm};
 use surfpool_types::{SimnetConfig, SimnetEvent, SurfpoolConfig};
@@ -48,6 +50,38 @@ pub fn run(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnetResponse
     config.simnets = vec![simnet_config];
 
     let rpc_config = config.rpc.clone();
+
+    let surfnet_url_for_terminal = format!("http://{}", rpc_port);
+
+    match std::env::consts::OS {
+        "windows" => {
+            let command_str = format!(
+                "surfpool start --url \"{}\" && pause",
+                surfnet_url_for_terminal
+            );
+            let _ = Command::new("cmd.exe").arg("/K").arg(&command_str).spawn();
+        }
+        "macos" => {
+            let script = format!(
+                "tell application \"Terminal\" to do script \"surfpool start --url \\\"{}\\\"; clear; exec bash\"",
+                surfnet_url_for_terminal
+            );
+            let _ = Command::new("osascript").arg("-e").arg(&script).spawn();
+        }
+        "linux" => {
+            let command_str = format!(
+                "surfpool start --url \"{}\"; exec bash",
+                surfnet_url_for_terminal
+            );
+            let _ = Command::new("x-terminal-emulator")
+                .arg("-e")
+                .arg(&command_str)
+                .spawn();
+        }
+        _ => {
+            eprintln!("Unsupported OS for automatic terminal spawning.");
+        }
+    }
 
     let handle = hiro_system_kit::thread_named("surfnet").spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
