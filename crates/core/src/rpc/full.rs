@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::atomic::Ordering};
+use std::str::FromStr;
 
 use itertools::Itertools;
 use jsonrpc_core::{BoxFuture, Error, Result};
@@ -1423,7 +1423,7 @@ impl Full for SurfpoolFullRpc {
     }
 
     fn get_max_retransmit_slot(&self, meta: Self::Metadata) -> Result<Slot> {
-        meta.with_svm_reader(|svm_reader| svm_reader.max_slots.retransmit.load(Ordering::Relaxed))
+        meta.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
             .map_err(Into::into)
     }
 
@@ -2169,7 +2169,6 @@ mod tests {
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
-    use solana_rpc::max_slots::MaxSlots;
     use solana_sdk::{instruction::Instruction, system_instruction};
     use solana_signer::Signer;
     use solana_system_interface::program as system_program;
@@ -3725,12 +3724,15 @@ mod tests {
 
         let result = setup
             .rpc
-            .get_max_retransmit_slot(Some(setup.context))
+            .get_max_retransmit_slot(Some(setup.context.clone()))
             .unwrap();
 
-        assert_eq!(
-            result,
-            MaxSlots::default().retransmit.load(Ordering::Relaxed)
-        )
+        let slot = setup
+            .context
+            .clone()
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
+
+        assert_eq!(result, slot)
     }
 }
