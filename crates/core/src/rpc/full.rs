@@ -2023,10 +2023,31 @@ impl Full for SurfpoolFullRpc {
 
     fn get_stake_minimum_delegation(
         &self,
-        _meta: Self::Metadata,
-        _config: Option<RpcContextConfig>,
+        meta: Self::Metadata,
+        config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<u64>> {
-        not_implemented_err("get_stake_minimum_delegation")
+        let config = config.unwrap_or_default();
+        let commitment_config = config.commitment.unwrap_or(CommitmentConfig {
+            commitment: CommitmentLevel::Processed,
+        });
+
+        meta.with_svm_reader(|svm_reader| {
+            let context_slot = match commitment_config.commitment {
+                CommitmentLevel::Processed => svm_reader.get_latest_absolute_slot(),
+                CommitmentLevel::Confirmed => {
+                    svm_reader.get_latest_absolute_slot().saturating_sub(1)
+                }
+                CommitmentLevel::Finalized => svm_reader
+                    .get_latest_absolute_slot()
+                    .saturating_sub(FINALIZATION_SLOT_THRESHOLD),
+            };
+
+            RpcResponse {
+                context: RpcResponseContext::new(context_slot),
+                value: 0,
+            }
+        })
+        .map_err(Into::into)
     }
 
     fn get_recent_prioritization_fees(
@@ -3715,5 +3736,50 @@ mod tests {
 
         let expected_local: Vec<Slot> = (100..=120).collect();
         assert_eq!(result, expected_local, "Should return local blocks 100-120");
+    }
+
+    #[test]
+    fn test_get_stake_minimum_delegation_default() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup
+            .rpc
+            .get_stake_minimum_delegation(Some(setup.context.clone()), None)
+            .unwrap();
+
+        let expected_slot = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
+
+        assert_eq!(result.context.slot, expected_slot);
+        assert_eq!(result.value, 0); // minimum delegation
+    }
+
+    #[test]
+    fn test_get_stake_minimum_delegation_with_finalized_commitment() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let config = Some(RpcContextConfig {
+            commitment: Some(CommitmentConfig {
+                commitment: CommitmentLevel::Finalized,
+            }),
+            min_context_slot: None,
+        });
+
+        let result = setup
+            .rpc
+            .get_stake_minimum_delegation(Some(setup.context.clone()), config)
+            .unwrap();
+
+        // Sshould return finalized slot
+        let expected_slot = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .get_latest_absolute_slot()
+                .saturating_sub(FINALIZATION_SLOT_THRESHOLD)
+        });
+
+        assert_eq!(result.context.slot, expected_slot);
+        assert_eq!(result.value, 0);
     }
 }
