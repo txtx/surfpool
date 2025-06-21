@@ -603,4 +603,15 @@ mod tests {
             "Should return InvalidParams error for start_slot >= latest_slot"
         );
     }
+
+    #[test]
+    fn test_get_minimum_balance_for_rent_exemption() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+        let rent = setup
+            .rpc
+            .get_minimum_balance_for_rent_exemption(Some(setup.context), 0, None)
+            .unwrap();
+
+        assert_eq!(rent, 890880)
+    }
 }
