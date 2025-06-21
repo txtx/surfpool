@@ -48,7 +48,6 @@ solana-commitment-config = { workspace = true }
 solana-epoch-info = { workspace = true }
 solana-epoch-schedule = { workspace = true }
 solana-feature-set = { workspace = true }
-solana-gossip = {workspace = true}
 solana-hash = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
@@ -63,7 +62,6 @@ solana-sdk = { workspace = true }
 solana-sdk-ids = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-solana-streamer = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true } 

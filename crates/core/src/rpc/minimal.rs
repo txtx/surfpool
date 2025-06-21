@@ -14,6 +14,7 @@ use solana_client::{
 use solana_clock::Slot;
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
 use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
@@ -640,11 +641,11 @@ impl Minimal for SurfpoolMinimalRpc {
         Ok("ok".to_string())
     }
 
-    fn get_identity(&self, meta: Self::Metadata) -> Result<RpcIdentity> {
-        meta.with_svm_reader(|svm_reader| RpcIdentity {
-            identity: svm_reader.cluster_info.id().to_string(),
+    fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
+        Ok(RpcIdentity {
+            identity: Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr")
+                .to_string(),
         })
-        .map_err(Into::into)
     }
 
     fn get_slot(&self, meta: Self::Metadata, config: Option<RpcContextConfig>) -> Result<Slot> {
@@ -1009,7 +1010,10 @@ mod tests {
     #[test]
     fn test_get_identity() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
-        let result = setup.rpc.get_identity(Some(setup.context));
-        assert!(result.is_ok(), "failed to get identity")
+        let result = setup.rpc.get_identity(Some(setup.context)).unwrap();
+        assert_eq!(
+            &result.identity,
+            "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr"
+        )
     }
 }

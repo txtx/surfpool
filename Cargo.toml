@@ -53,7 +53,6 @@ solana-commitment-config = "2.2.1"
 solana-epoch-info = { version = "2.2.1", features = ["serde"] }
 solana-epoch-schedule = "2.2.1"
 solana-feature-set = "2.2.1"
-solana-gossip = "2.2.1"
 solana-hash = "2.2.1"
 solana-keypair = "2.2.1"
 solana-message = { version = "2.2.1", features = ["serde"]}
@@ -69,7 +68,6 @@ solana-sdk = "2.2.1"
 solana-sdk-ids = "2.2.1"
 solana-signature = { version = "2.2.1", features = ["serde"]}
 solana-signer = "2.2.1"
-solana-streamer = "2.2.1"
 solana-system-interface = { version = "1.0.0", features = ["bincode"] }
 solana-transaction = { version = "2.2.1", features = ["serde", "bincode"]}
 solana-transaction-context = { version = "2.2.1", features = ["serde"]}
