@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    net::Ipv4Addr,
-    sync::Arc,
-};
+use std::collections::{HashMap, VecDeque};
 
 use chrono::Utc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
