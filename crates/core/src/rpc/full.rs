@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::atomic::Ordering};
+use std::str::FromStr;
 
 use itertools::Itertools;
 use jsonrpc_core::{BoxFuture, Error, Result};
@@ -1427,10 +1427,8 @@ impl Full for SurfpoolFullRpc {
     }
 
     fn get_max_shred_insert_slot(&self, meta: Self::Metadata) -> Result<Slot> {
-        meta.with_svm_reader(move |svm_reader| {
-            svm_reader.max_slots.shred_insert.load(Ordering::Relaxed)
-        })
-        .map_err(Into::into)
+        meta.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+            .map_err(Into::into)
     }
 
     fn request_airdrop(
@@ -2157,7 +2155,7 @@ impl Full for SurfpoolFullRpc {
 #[cfg(test)]
 mod tests {
 
-    use std::{sync::atomic::Ordering, thread::JoinHandle};
+    use std::thread::JoinHandle;
 
     use base64::{prelude::BASE64_STANDARD, Engine};
     use crossbeam_channel::Receiver;
@@ -2171,7 +2169,6 @@ mod tests {
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
-    use solana_rpc::max_slots::MaxSlots;
     use solana_sdk::{instruction::Instruction, system_instruction};
     use solana_signer::Signer;
     use solana_system_interface::program as system_program;
@@ -3722,17 +3719,19 @@ mod tests {
     }
 
     #[test]
-    fn test_get_shred_max_insert_slot() {
+    fn test_get_max_shred_insert_slot() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
         let result = setup
             .rpc
-            .get_max_shred_insert_slot(Some(setup.context))
+            .get_max_shred_insert_slot(Some(setup.context.clone()))
             .unwrap();
 
-        assert_eq!(
-            result,
-            MaxSlots::default().shred_insert.load(Ordering::Relaxed)
-        )
+        let slot = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
+
+        assert_eq!(result, slot)
     }
 }
