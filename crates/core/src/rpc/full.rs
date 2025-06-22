@@ -4264,4 +4264,57 @@ mod tests {
         assert!(result_sigs.contains(&signatures[2].to_string()));
         assert!(result_sigs.contains(&signatures[3].to_string()));
     }
+
+    #[ignore = "requires-network"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_from_remote() {
+        // forwarding to remote mainnet
+        let remote_client = SurfnetRemoteClient::new("https://api.mainnet-beta.solana.com");
+        let mut setup = TestSetup::new(SurfpoolFullRpc);
+        setup.context.remote_rpc_client = Some(remote_client);
+
+        let result = setup
+            .rpc
+            .minimum_ledger_slot(Some(setup.context))
+            .await
+            .unwrap();
+
+        assert!(
+            result > 0,
+            "Mainnet should return a valid minimum ledger slot > 0"
+        );
+        println!("Mainnet minimum ledger slot: {}", result);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_no_context_fails() {
+        // fail gracefully when called without metadata context
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup.rpc.minimum_ledger_slot(None).await;
+
+        assert!(
+            result.is_err(),
+            "Should fail when called without metadata context"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_finds_minimum() {
+        // find correct minimum from sparse, unordered blocks (local fallback)
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        insert_test_blocks(&setup, vec![500, 100, 1000, 50, 750]);
+
+        let result = setup
+            .rpc
+            .minimum_ledger_slot(Some(setup.context))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result, 50,
+            "Should return minimum slot (50) regardless of insertion order"
+        );
+    }
 }
