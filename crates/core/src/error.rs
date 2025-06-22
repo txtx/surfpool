@@ -154,7 +154,7 @@ impl SurfpoolError {
     {
         let mut error = Error::internal_error();
         error.data = Some(json!(format!(
-            "Failed to fetch accounts from remote: {}",
+            "Failed to fetch largest accounts from remote: {}",
             e.to_string()
         )));
         Self(error)

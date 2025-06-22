@@ -1,6 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc};
 
 use crossbeam_channel::{Receiver, Sender};
+use itertools::Itertools;
 use jsonrpc_core::futures::future::join_all;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
@@ -11,7 +12,9 @@ use solana_account_decoder::{
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
-    rpc_config::RpcAccountInfoConfig, rpc_filter::RpcFilterType, rpc_response::RpcKeyedAccount,
+    rpc_config::{RpcAccountInfoConfig, RpcLargestAccountsConfig},
+    rpc_filter::RpcFilterType,
+    rpc_response::{RpcAccountBalance, RpcKeyedAccount},
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -310,6 +313,57 @@ impl SurfnetSvmLocker {
             }
         }
         Ok(results.with_new_value(combined))
+    }
+
+    /// Retrieves largest accounts from local cache, returning a contextualized result.
+    pub fn get_largest_accounts_local(&self) -> SvmAccessContext<Vec<RpcAccountBalance>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            svm_reader
+                .accounts_registry
+                .iter()
+                .sorted_by(|a, b| b.1.lamports.cmp(&a.1.lamports))
+                .take(20)
+                .map(|(pubkey, account)| RpcAccountBalance {
+                    address: pubkey.to_string(),
+                    lamports: account.lamports,
+                })
+                .collect()
+        })
+    }
+
+    pub async fn get_largest_accounts_local_then_remote(
+        &self,
+        client: &SurfnetRemoteClient,
+        config: Option<RpcLargestAccountsConfig>,
+    ) -> SurfpoolContextualizedResult<Vec<RpcAccountBalance>> {
+        let results = self.get_largest_accounts_local();
+
+        let mut remote_results = client.get_largest_accounts(config).await?;
+
+        let mut combined_results = results.inner.clone();
+        combined_results.append(&mut remote_results);
+
+        let combined = combined_results
+            .into_iter()
+            .sorted_by(|a, b| b.lamports.cmp(&a.lamports))
+            .take(20)
+            .collect();
+
+        Ok(results.with_new_value(combined))
+    }
+
+    pub async fn get_largest_accounts(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, Option<RpcLargestAccountsConfig>)>,
+    ) -> SurfpoolContextualizedResult<Vec<RpcAccountBalance>> {
+        let results = if let Some((remote_client, config)) = remote_ctx {
+            self.get_largest_accounts_local_then_remote(remote_client, config.clone())
+                .await?
+        } else {
+            self.get_largest_accounts_local()
+        };
+
+        Ok(results)
     }
 }
 

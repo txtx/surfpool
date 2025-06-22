@@ -528,43 +528,23 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         meta: Self::Metadata,
         config: Option<RpcLargestAccountsConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcAccountBalance>>>> {
-        let config = config.unwrap_or_default();
-
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context(()) {
+        } = match meta.get_rpc_context(config) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
             let current_slot = svm_locker.get_latest_absolute_slot();
-            if let Some((remote_client, _)) = remote_ctx {
-                let largest_accounts = remote_client.get_largest_accounts(Some(config)).await?;
-                Ok(RpcResponse {
-                    context: RpcResponseContext::new(current_slot),
-                    value: largest_accounts,
-                })
-            } else {
-                svm_locker.with_svm_reader(|svm_reader| {
-                    let mut sorted_accounts: Vec<_> = svm_reader.accounts_registry.iter().collect(); // Vec<(&Pubkey, &Account)>
-                    sorted_accounts.sort_by(|a, b| b.1.lamports.cmp(&a.1.lamports));
-                    let largest_accounts = sorted_accounts
-                        .iter()
-                        .take(20)
-                        .map(|(pubkey, account)| RpcAccountBalance {
-                            address: pubkey.to_string(),
-                            lamports: account.lamports,
-                        })
-                        .collect();
 
-                    Ok(RpcResponse {
-                        context: RpcResponseContext::new(current_slot),
-                        value: largest_accounts,
-                    })
-                })
-            }
+            let largest_accounts = svm_locker.get_largest_accounts(&remote_ctx).await?.inner;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(current_slot),
+                value: largest_accounts,
+            })
         })
     }
 
