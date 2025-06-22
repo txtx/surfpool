@@ -624,7 +624,7 @@ pub trait Full {
     /// # See Also
     /// - `getSlot`
     #[rpc(meta, name = "minimumLedgerSlot")]
-    fn minimum_ledger_slot(&self, meta: Self::Metadata) -> Result<Slot>;
+    fn minimum_ledger_slot(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>>;
 
     /// Retrieves the details of a block in the blockchain.
     ///
@@ -1631,8 +1631,31 @@ impl Full for SurfpoolFullRpc {
         })
     }
 
-    fn minimum_ledger_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        not_implemented_err("minimum_ledger_slot")
+    fn minimum_ledger_slot(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            // forward to remote if available, otherwise use local fallback
+            if let Some((remote_client, _)) = remote_ctx {
+                remote_client
+                    .client
+                    .minimum_ledger_slot()
+                    .await
+                    .map_err(|e| SurfpoolError::client_error(e).into())
+            } else {
+                let min_slot = svm_locker.with_svm_reader(|svm_reader| {
+                    svm_reader.blocks.keys().min().copied().unwrap_or(0)
+                });
+
+                Ok(min_slot)
+            }
+        })
     }
 
     fn get_block(
@@ -2185,7 +2208,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        surfnet::{BlockHeader, BlockIdentifier},
+        surfnet::{remote::SurfnetRemoteClient, BlockHeader, BlockIdentifier},
         tests::helpers::TestSetup,
         types::TransactionWithStatusMeta,
     };
@@ -3715,5 +3738,58 @@ mod tests {
 
         let expected_local: Vec<Slot> = (100..=120).collect();
         assert_eq!(result, expected_local, "Should return local blocks 100-120");
+    }
+
+    #[ignore = "requires-network"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_from_remote() {
+        // forwarding to remote mainnet
+        let remote_client = SurfnetRemoteClient::new("https://api.mainnet-beta.solana.com");
+        let mut setup = TestSetup::new(SurfpoolFullRpc);
+        setup.context.remote_rpc_client = Some(remote_client);
+
+        let result = setup
+            .rpc
+            .minimum_ledger_slot(Some(setup.context))
+            .await
+            .unwrap();
+
+        assert!(
+            result > 0,
+            "Mainnet should return a valid minimum ledger slot > 0"
+        );
+        println!("Mainnet minimum ledger slot: {}", result);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_no_context_fails() {
+        // fail gracefully when called without metadata context
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup.rpc.minimum_ledger_slot(None).await;
+
+        assert!(
+            result.is_err(),
+            "Should fail when called without metadata context"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_finds_minimum() {
+        // find correct minimum from sparse, unordered blocks (local fallback)
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        insert_test_blocks(&setup, vec![500, 100, 1000, 50, 750]);
+
+        let result = setup
+            .rpc
+            .minimum_ledger_slot(Some(setup.context))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result, 50,
+            "Should return minimum slot (50) regardless of insertion order"
+        );
     }
 }
