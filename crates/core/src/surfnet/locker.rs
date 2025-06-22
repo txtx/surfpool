@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use crossbeam_channel::{Receiver, Sender};
+use itertools::Itertools;
 use jsonrpc_core::futures::future::join_all;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
@@ -22,6 +23,7 @@ use solana_message::{
     VersionedMessage,
 };
 use solana_pubkey::Pubkey;
+use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
     transaction::VersionedTransaction,
@@ -977,30 +979,39 @@ impl SurfnetSvmLocker {
         account_config: RpcAccountInfoConfig,
         filters: Option<Vec<RpcFilterType>>,
     ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
-        let local_accounts =
-            self.get_program_accounts_local(program_id, account_config.clone(), filters.clone())?;
+        let SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: local_accounts,
+        } = self.get_program_accounts_local(program_id, account_config.clone(), filters.clone())?;
         let remote_accounts = client
             .get_program_accounts(program_id, account_config, filters)
             .await?;
 
-        let mut combined_accounts = vec![];
+        let mut combined_accounts = remote_accounts;
 
-        for remote_keyed_account in remote_accounts {
-            // if the account exists locally, use that instead of the remote one
-            if let Some(local_data) = local_accounts.inner.iter().find(
+        for local_account in local_accounts {
+            // if the local account is in the remote set, replace it with the local one
+            if let Some((pos, _)) = combined_accounts.iter().find_position(
                 |RpcKeyedAccount {
-                     pubkey: local_pubkey,
+                     pubkey: remote_pubkey,
                      ..
-                 }| local_pubkey.eq(&remote_keyed_account.pubkey),
+                 }| remote_pubkey.eq(&local_account.pubkey),
             ) {
-                combined_accounts.push(local_data.clone());
+                combined_accounts[pos] = local_account;
             } else {
-                // otherwise, use the remote account
-                combined_accounts.push(remote_keyed_account);
-            }
+                // otherwise, add the local account to the combined list
+                combined_accounts.push(local_account);
+            };
         }
 
-        Ok(local_accounts.with_new_value(combined_accounts))
+        Ok(SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: combined_accounts,
+        })
     }
 }
 
@@ -1057,6 +1068,11 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm_writer| {
             svm_writer.subscribe_for_account_updates(account_pubkey, encoding)
         })
+    }
+
+    /// Subscribes for slot updates and returns a receiver of slot updates.
+    pub fn subscribe_for_slot_updates(&self) -> Receiver<SlotInfo> {
+        self.with_svm_writer(|svm_writer| svm_writer.subscribe_for_slot_updates())
     }
 }
 
