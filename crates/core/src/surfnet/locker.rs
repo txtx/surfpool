@@ -361,38 +361,15 @@ impl SurfnetSvmLocker {
     pub fn get_signatures_for_address_local(
         &self,
         pubkey: &Pubkey,
-        config: Option<RpcSignaturesForAddressConfig>,
     ) -> SvmAccessContext<Vec<RpcConfirmedTransactionStatusWithSignature>> {
         self.with_contextualized_svm_reader(|svm_reader| {
             let current_slot = svm_reader.get_latest_absolute_slot();
 
-            let config = config.clone().unwrap_or_default();
-            let limit = config.limit.unwrap_or(1000);
-
-            let mut before_slot = None;
-            let mut until_slot = None;
-
-            let sigs: Vec<_> = svm_reader
+            svm_reader
                 .transactions
                 .iter()
                 .filter_map(|(sig, status)| {
                     let TransactionWithStatusMeta(slot, tx, _, err) = status.expect_processed();
-
-                    if *slot < config.clone().min_context_slot.unwrap_or_default() {
-                        return None;
-                    }
-
-                    if Some(sig.to_string()) == config.clone().before {
-                        before_slot = Some(*slot)
-                    }
-
-                    if Some(sig.to_string()) == config.clone().until {
-                        until_slot = Some(*slot)
-                    }
-
-                    if Some(*slot) >= before_slot || Some(*slot) < until_slot {
-                        return None;
-                    }
 
                     // Check if the pubkey is a signer
                     let is_signer = tx
@@ -425,23 +402,6 @@ impl SurfnetSvmLocker {
                         signature: sig.to_string(),
                     })
                 })
-                .collect();
-
-            sigs.into_iter()
-                .filter(|sig| {
-                    if config.before.is_none() && config.until.is_none() {
-                        return true;
-                    }
-
-                    if (config.before.is_none() || before_slot > Some(sig.slot))
-                        && (config.until.is_none() || until_slot <= Some(sig.slot))
-                    {
-                        return true;
-                    }
-
-                    false
-                })
-                .take(limit)
                 .collect()
         })
     }
@@ -452,30 +412,25 @@ impl SurfnetSvmLocker {
         pubkey: &Pubkey,
         config: Option<RpcSignaturesForAddressConfig>,
     ) -> SurfpoolContextualizedResult<Vec<RpcConfirmedTransactionStatusWithSignature>> {
-        let results = self.get_signatures_for_address_local(pubkey, config.clone());
-        let limit = config.clone().and_then(|c| c.limit).unwrap_or(1000);
+        let results = self.get_signatures_for_address_local(pubkey);
 
+        let mut remote_results = client.get_signatures_for_address(pubkey, config).await?;
         let mut combined_results = results.inner.clone();
-        if combined_results.len() < limit {
-            let mut remote_results = client.get_signatures_for_address(pubkey, config).await?;
-            combined_results.append(&mut remote_results);
-            combined_results.truncate(limit);
-        }
+        combined_results.append(&mut remote_results);
 
         Ok(results.with_new_value(combined_results))
     }
 
     pub async fn get_signatures_for_address(
         &self,
-        remote_ctx: &Option<(SurfnetRemoteClient, ())>,
+        remote_ctx: &Option<(SurfnetRemoteClient, Option<RpcSignaturesForAddressConfig>)>,
         pubkey: &Pubkey,
-        config: Option<RpcSignaturesForAddressConfig>,
     ) -> SurfpoolContextualizedResult<Vec<RpcConfirmedTransactionStatusWithSignature>> {
-        let results = if let Some((remote_client, _)) = remote_ctx {
+        let results = if let Some((remote_client, config)) = remote_ctx {
             self.get_signatures_for_address_local_then_remote(remote_client, pubkey, config.clone())
                 .await?
         } else {
-            self.get_signatures_for_address_local(pubkey, config)
+            self.get_signatures_for_address_local(pubkey)
         };
 
         Ok(results)

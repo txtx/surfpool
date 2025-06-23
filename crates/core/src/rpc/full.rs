@@ -1992,14 +1992,14 @@ impl Full for SurfpoolFullRpc {
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context(()) {
+        } = match meta.get_rpc_context(config) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
             let signatures = svm_locker
-                .get_signatures_for_address(&remote_ctx, &pubkey, config)
+                .get_signatures_for_address(&remote_ctx, &pubkey)
                 .await?
                 .inner;
             Ok(signatures)
@@ -4201,5 +4201,49 @@ mod tests {
             result, 50,
             "Should return minimum slot (50) regardless of insertion order"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let signature = Signature::new_unique();
+        let payer = Keypair::new();
+
+        {
+            setup.context.svm_locker.with_svm_writer(|svm_writer| {
+                let blockhash = svm_writer.latest_blockhash();
+                svm_writer.transactions.insert(
+                    signature,
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                        0,
+                        VersionedTransaction::try_new(
+                            VersionedMessage::V0(
+                                v0::Message::try_compile(&payer.pubkey(), &[], &[], blockhash)
+                                    .unwrap(),
+                            ),
+                            &[payer.insecure_clone()],
+                        )
+                        .unwrap(),
+                        TransactionMetadata {
+                            signature,
+                            logs: [].into(),
+                            inner_instructions: [].into(),
+                            compute_units_consumed: 0,
+                            return_data: TransactionReturnData::default(),
+                        },
+                        None,
+                    ))),
+                )
+            });
+        }
+
+        let result = setup
+            .rpc
+            .get_signatures_for_address(Some(setup.context), payer.pubkey().to_string(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(result[0].signature, signature.to_string())
     }
 }
