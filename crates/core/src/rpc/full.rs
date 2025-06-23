@@ -1348,11 +1348,27 @@ impl Full for SurfpoolFullRpc {
 
     fn get_inflation_reward(
         &self,
-        _meta: Self::Metadata,
-        _address_strs: Vec<String>,
+        meta: Self::Metadata,
+        address_strs: Vec<String>,
         _config: Option<RpcEpochConfig>,
     ) -> BoxFuture<Result<Vec<Option<RpcInflationReward>>>> {
-        not_implemented_err_async("get_inflation_reward")
+        Box::pin(async move {
+            meta.with_svm_reader(|svm_reader| {
+                address_strs
+                    .iter()
+                    .map(|_| {
+                        Some(RpcInflationReward {
+                            amount: 0,
+                            commission: None,
+                            effective_slot: svm_reader.get_latest_absolute_slot(),
+                            epoch: svm_reader.latest_epoch_info().epoch,
+                            post_balance: 0,
+                        })
+                    })
+                    .collect()
+            })
+            .map_err(Into::into)
+        })
     }
 
     fn get_cluster_nodes(&self, _meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
@@ -4201,5 +4217,43 @@ mod tests {
             result, 50,
             "Should return minimum slot (50) regardless of insertion order"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_inflation_reward() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let (epoch, effective_slot) =
+            setup
+                .context
+                .clone()
+                .svm_locker
+                .with_svm_reader(|svm_reader| {
+                    (
+                        svm_reader.latest_epoch_info().epoch,
+                        svm_reader.get_latest_absolute_slot(),
+                    )
+                });
+
+        let result = setup
+            .rpc
+            .get_inflation_reward(
+                Some(setup.context),
+                vec![Pubkey::new_unique().to_string()],
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result[0],
+            Some(RpcInflationReward {
+                epoch,
+                effective_slot,
+                amount: 0,
+                post_balance: 0,
+                commission: None
+            })
+        )
     }
 }
