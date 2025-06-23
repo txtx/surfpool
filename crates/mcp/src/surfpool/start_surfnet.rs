@@ -1,3 +1,5 @@
+use std::process::Command;
+
 use serde::Serialize;
 use surfpool_core::{start_local_surfnet, surfnet::svm::SurfnetSvm};
 use surfpool_types::{SimnetConfig, SimnetEvent, SurfpoolConfig};
@@ -12,8 +14,22 @@ pub struct StartSurfnetResponse {
 pub struct StartSurfnetSuccess {
     pub surfnet_url: String,
     pub surfnet_id: u16,
+    pub command: SerializeCommand,
+}
+#[derive(Serialize)]
+pub struct SerializeCommand {
+    pub program: String,
+    pub args: Vec<String>,
 }
 
+impl From<Command> for SerializeCommand {
+    fn from(command: Command) -> Self {
+        Self {
+            program: command.get_program().to_string_lossy().to_string(),
+            args: command.get_args().map(|arg| arg.to_string_lossy().to_string()).collect(),
+        }
+    }
+}
 impl StartSurfnetResponse {
     pub fn success(data: StartSurfnetSuccess) -> Self {
         Self {
@@ -30,7 +46,30 @@ impl StartSurfnetResponse {
     }
 }
 
-pub fn run(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnetResponse {
+pub fn generate_command(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> Command {
+    let mut cmd = Command::new("surfpool");
+    cmd.arg("start");
+    if surfnet_id != 0 {
+        cmd.arg("--port").arg(format!("{}", rpc_port + surfnet_id));
+    } else {
+        cmd.arg("--port").arg(format!("{}", rpc_port));
+    }
+    cmd.arg("--ws-port").arg(format!("{}", ws_port));
+    cmd
+}
+
+pub fn run_command(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnetResponse {
+    let command = generate_command(surfnet_id, rpc_port, ws_port);
+    let surfnet_url = format!("http://127.0.0.1:{}", rpc_port);
+
+    StartSurfnetResponse::success(StartSurfnetSuccess {
+        surfnet_url,
+        surfnet_id,
+        command: command.into(),
+    })
+}
+
+pub fn run_subprocess(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnetResponse {
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
 
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam_channel::unbounded();
@@ -98,6 +137,7 @@ pub fn run(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnetResponse
                         break StartSurfnetResponse::success(StartSurfnetSuccess {
                             surfnet_url: format!("http://{}", rpc_config.get_socket_address()),
                             surfnet_id,
+                            command: generate_command(surfnet_id, rpc_port, ws_port).into(),
                         });
                     }
                     SimnetEvent::ErrorLog(_, error) => {
