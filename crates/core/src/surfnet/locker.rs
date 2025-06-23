@@ -14,8 +14,10 @@ use solana_account_decoder::{
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
-    rpc_config::RpcAccountInfoConfig, rpc_filter::RpcFilterType, rpc_request::TokenAccountsFilter,
-    rpc_response::RpcKeyedAccount,
+    rpc_config::{RpcAccountInfoConfig, RpcSignaturesForAddressConfig},
+    rpc_filter::RpcFilterType,
+    rpc_request::TokenAccountsFilter,
+    rpc_response::{RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount},
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -33,7 +35,10 @@ use solana_sdk::{
 };
 use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
-use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding};
+use solana_transaction_status::{
+    EncodedConfirmedTransactionWithStatusMeta,
+    TransactionConfirmationStatus as SolanaTransactionConfirmationStatus, UiTransactionEncoding,
+};
 use spl_token_2022::extension::StateWithExtensions;
 use surfpool_types::{
     ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
@@ -49,6 +54,8 @@ use super::{
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
+    surfnet::FINALIZATION_SLOT_THRESHOLD,
+    types::TransactionWithStatusMeta,
 };
 
 pub struct SvmAccessContext<T> {
@@ -346,6 +353,87 @@ impl SurfnetSvmLocker {
             }
         }
         Ok(results.with_new_value(combined))
+    }
+}
+
+/// Get signatures for Addresses
+impl SurfnetSvmLocker {
+    pub fn get_signatures_for_address_local(
+        &self,
+        pubkey: &Pubkey,
+    ) -> SvmAccessContext<Vec<RpcConfirmedTransactionStatusWithSignature>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            let current_slot = svm_reader.get_latest_absolute_slot();
+
+            svm_reader
+                .transactions
+                .iter()
+                .filter_map(|(sig, status)| {
+                    let TransactionWithStatusMeta(slot, tx, _, err) = status.expect_processed();
+
+                    // Check if the pubkey is a signer
+                    let is_signer = tx
+                        .message
+                        .static_account_keys()
+                        .iter()
+                        .position(|pk| pk == pubkey)
+                        .map(|i| tx.message.is_signer(i))
+                        .unwrap_or(false);
+
+                    if !is_signer {
+                        return None;
+                    }
+
+                    // Determine confirmation status
+                    let confirmation_status = match current_slot {
+                        cs if cs == *slot => SolanaTransactionConfirmationStatus::Processed,
+                        cs if cs < slot + FINALIZATION_SLOT_THRESHOLD => {
+                            SolanaTransactionConfirmationStatus::Confirmed
+                        }
+                        _ => SolanaTransactionConfirmationStatus::Finalized,
+                    };
+
+                    Some(RpcConfirmedTransactionStatusWithSignature {
+                        err: err.clone(),
+                        slot: *slot,
+                        memo: None,
+                        block_time: None,
+                        confirmation_status: Some(confirmation_status),
+                        signature: sig.to_string(),
+                    })
+                })
+                .collect()
+        })
+    }
+
+    pub async fn get_signatures_for_address_local_then_remote(
+        &self,
+        client: &SurfnetRemoteClient,
+        pubkey: &Pubkey,
+        config: Option<RpcSignaturesForAddressConfig>,
+    ) -> SurfpoolContextualizedResult<Vec<RpcConfirmedTransactionStatusWithSignature>> {
+        let results = self.get_signatures_for_address_local(pubkey);
+
+        let mut remote_results = client.get_signatures_for_address(pubkey, config).await?;
+        let mut combined_results = results.inner.clone();
+        combined_results.append(&mut remote_results);
+
+        Ok(results.with_new_value(combined_results))
+    }
+
+    pub async fn get_signatures_for_address(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, Option<RpcSignaturesForAddressConfig>)>,
+        pubkey: &Pubkey,
+    ) -> SurfpoolContextualizedResult<Vec<RpcConfirmedTransactionStatusWithSignature>> {
+        let results = if let Some((remote_client, config)) = remote_ctx {
+            self.get_signatures_for_address_local_then_remote(remote_client, pubkey, config.clone())
+                .await?
+        } else {
+            self.get_signatures_for_address_local(pubkey)
+        };
+
+        Ok(results)
     }
 }
 

@@ -1983,58 +1983,26 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         address: String,
-        _config: Option<RpcSignaturesForAddressConfig>,
+        config: Option<RpcSignaturesForAddressConfig>,
     ) -> BoxFuture<Result<Vec<RpcConfirmedTransactionStatusWithSignature>>> {
-        let address = match verify_pubkey(&address) {
+        let pubkey = match verify_pubkey(&address) {
             Ok(s) => s,
             Err(e) => return e.into(),
         };
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context(None) {
+        } = match meta.get_rpc_context(config) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            let sigs: Vec<_> = svm_locker.with_svm_reader(|svm_reader| {
-                svm_reader
-                    .transactions
-                    .iter()
-                    .filter(|(_, status)| {
-                        let TransactionWithStatusMeta(_, tx, _, _) = status.expect_processed();
-
-                        tx.message
-                            .static_account_keys()
-                            .iter()
-                            .find_position(|pubkey| pubkey.to_bytes() == address.to_bytes())
-                            .map(|(idx, _)| tx.message.is_signer(idx))
-                            .unwrap_or_default()
-                    })
-                    .map(|(sig, status)| (sig.to_owned(), status.to_owned()))
-                    .collect()
-            });
-
-            let mut responses = Vec::with_capacity(sigs.len());
-
-            for (signature, status) in sigs.into_iter() {
-                let res = svm_locker.get_transaction(&remote_ctx, &signature).await;
-                let TransactionWithStatusMeta(slot, _tx, _metadata, err) =
-                    status.expect_processed();
-
-                let found_tx = res.inner.map_found_transaction()?;
-                responses.push(RpcConfirmedTransactionStatusWithSignature {
-                    signature: signature.to_string(),
-                    slot: *slot,
-                    err: err.to_owned(),
-                    memo: None,
-                    block_time: None,
-                    confirmation_status: found_tx.confirmation_status,
-                });
-            }
-
-            Ok(responses)
+            let signatures = svm_locker
+                .get_signatures_for_address(&remote_ctx, &pubkey)
+                .await?
+                .inner;
+            Ok(signatures)
         })
     }
 
@@ -2301,11 +2269,15 @@ mod tests {
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::{
-        legacy::Message as LegacyMessage, v0::Message as V0Message, MessageHeader,
+        legacy::Message as LegacyMessage,
+        v0::{self, Message as V0Message},
+        MessageHeader,
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
-    use solana_sdk::{instruction::Instruction, system_instruction};
+    use solana_sdk::{
+        instruction::Instruction, system_instruction, transaction_context::TransactionReturnData,
+    };
     use solana_signer::Signer;
     use solana_system_interface::program as system_program;
     use solana_transaction::{
@@ -4229,5 +4201,49 @@ mod tests {
             result, 50,
             "Should return minimum slot (50) regardless of insertion order"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let signature = Signature::new_unique();
+        let payer = Keypair::new();
+
+        {
+            setup.context.svm_locker.with_svm_writer(|svm_writer| {
+                let blockhash = svm_writer.latest_blockhash();
+                svm_writer.transactions.insert(
+                    signature,
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                        0,
+                        VersionedTransaction::try_new(
+                            VersionedMessage::V0(
+                                v0::Message::try_compile(&payer.pubkey(), &[], &[], blockhash)
+                                    .unwrap(),
+                            ),
+                            &[payer.insecure_clone()],
+                        )
+                        .unwrap(),
+                        TransactionMetadata {
+                            signature,
+                            logs: [].into(),
+                            inner_instructions: [].into(),
+                            compute_units_consumed: 0,
+                            return_data: TransactionReturnData::default(),
+                        },
+                        None,
+                    ))),
+                )
+            });
+        }
+
+        let result = setup
+            .rpc
+            .get_signatures_for_address(Some(setup.context), payer.pubkey().to_string(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(result[0].signature, signature.to_string())
     }
 }
