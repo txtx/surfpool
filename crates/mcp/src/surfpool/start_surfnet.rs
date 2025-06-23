@@ -1,4 +1,4 @@
-use std::process::Command;
+use std::{process::Command, time::Duration};
 
 use serde::Serialize;
 use surfpool_core::{start_local_surfnet, surfnet::svm::SurfnetSvm};
@@ -12,9 +12,10 @@ pub struct StartSurfnetResponse {
 
 #[derive(Serialize)]
 pub struct StartSurfnetSuccess {
-    pub surfnet_url: String,
+    pub kind: String,
+    pub surfnet_url: Option<String>,
     pub surfnet_id: u16,
-    pub command: SerializeCommand,
+    pub command: Option<SerializeCommand>,
 }
 #[derive(Serialize)]
 pub struct SerializeCommand {
@@ -26,7 +27,10 @@ impl From<Command> for SerializeCommand {
     fn from(command: Command) -> Self {
         Self {
             program: command.get_program().to_string_lossy().to_string(),
-            args: command.get_args().map(|arg| arg.to_string_lossy().to_string()).collect(),
+            args: command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().to_string())
+                .collect(),
         }
     }
 }
@@ -46,14 +50,10 @@ impl StartSurfnetResponse {
     }
 }
 
-pub fn generate_command(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> Command {
+pub fn generate_command(_surfnet_id: u16, rpc_port: u16, ws_port: u16) -> Command {
     let mut cmd = Command::new("surfpool");
     cmd.arg("start");
-    if surfnet_id != 0 {
-        cmd.arg("--port").arg(format!("{}", rpc_port + surfnet_id));
-    } else {
-        cmd.arg("--port").arg(format!("{}", rpc_port));
-    }
+    cmd.arg("--port").arg(format!("{}", rpc_port));
     cmd.arg("--ws-port").arg(format!("{}", ws_port));
     cmd
 }
@@ -63,9 +63,10 @@ pub fn run_command(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnet
     let surfnet_url = format!("http://127.0.0.1:{}", rpc_port);
 
     StartSurfnetResponse::success(StartSurfnetSuccess {
-        surfnet_url,
+        kind: "command".to_string(),
+        surfnet_url: Some(surfnet_url),
         surfnet_id,
-        command: command.into(),
+        command: Some(command.into()),
     })
 }
 
@@ -85,8 +86,6 @@ pub fn run_subprocess(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurf
     simnet_config.expiry = Some(15 * 60 * 1000);
 
     config.simnets = vec![simnet_config];
-
-    let rpc_config = config.rpc.clone();
 
     let handle = hiro_system_kit::thread_named("surfnet").spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -128,16 +127,18 @@ pub fn run_subprocess(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurf
 
     let res = match handle {
         Ok(_) => loop {
-            match simnet_events_rx.recv_timeout(std::time::Duration::from_secs(25)) {
+            match simnet_events_rx.recv_timeout(Duration::from_secs(25)) {
                 Ok(received_event) => match received_event {
                     SimnetEvent::Aborted(error) => {
                         return StartSurfnetResponse::error(error);
                     }
                     SimnetEvent::Ready => {
+                        let surfnet_url = format!("http://127.0.0.1:{}", rpc_port);
                         break StartSurfnetResponse::success(StartSurfnetSuccess {
-                            surfnet_url: format!("http://{}", rpc_config.get_socket_address()),
+                            kind: "subprocess".to_string(),
+                            surfnet_url: Some(surfnet_url),
                             surfnet_id,
-                            command: generate_command(surfnet_id, rpc_port, ws_port).into(),
+                            command: None,
                         });
                     }
                     SimnetEvent::ErrorLog(_, error) => {

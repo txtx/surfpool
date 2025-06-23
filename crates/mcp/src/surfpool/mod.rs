@@ -115,7 +115,7 @@ pub struct CreateTokenAccountParams {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct StartSurfnetWithTokenAccountsSuccess {
     #[schemars(description = "The RPC URL of the newly started surfnet instance.")]
-    pub surfnet_url: String,
+    pub surfnet_url: Option<String>,
     #[schemars(description = "The ID of the newly started surfnet instance.")]
     pub surfnet_id: u16,
     #[schemars(description = "A list of accounts that were created or funded.")]
@@ -178,14 +178,16 @@ impl SurfnetRpcCallResponse {
 impl Surfpool {
     /// Returns a command to start a new local Solana network (surfnet).
     /// This method is exposed as a tool and can be invoked remotely.
-    #[tool(
-        description = "Returns a command to start a new local Solana network (surfnet). By default, returns the command to execute in a terminal. Optionally, can run the surfnet as a subprocess. If the user wants the command the LLM has to return an  Shell executable command to execute in a terminal."
-    )]
+    #[tool(description = "Starts a new local Solana network (surfnet).
+        This tool returns a shell command that the AI must execute in a new terminal.
+        This is the default behavior (`run_as_subprocess: false`).
+        If the user explicitly asks to run surfnet as a background process, 
+        set `run_as_subprocess: true` to start it directly. When in doubt, return the command for execution.")]
     pub fn start_surfnet(
         &self,
         #[tool(param)]
         #[schemars(
-            description = "This only will be true, if the user clearly ask to run the surfnet as a subprocess. If false (default), returns the command to execute."
+            description = "If `false` (default), returns a command for the AI to execute. If `true`, starts surfnet directly as a background process."
         )]
         run_as_subprocess: Option<bool>,
     ) -> Json<StartSurfnetResponse> {
@@ -285,7 +287,7 @@ impl Surfpool {
             Some(ref success_data) => {
                 let mut surfnets_writer = self.surfnets.write().unwrap();
                 surfnets_writer.insert(surfnet_id, port);
-                success_data.surfnet_url.clone()
+                success_data.surfnet_url.clone().unwrap()
             }
             None => {
                 return Json(StartSurfnetWithTokenAccountsResponse::error(format!(
@@ -323,7 +325,7 @@ impl Surfpool {
 
         Json(StartSurfnetWithTokenAccountsResponse::success(
             StartSurfnetWithTokenAccountsSuccess {
-                surfnet_url,
+                surfnet_url: Some(surfnet_url),
                 surfnet_id,
                 accounts: results
                     .into_iter()
