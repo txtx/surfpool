@@ -12,11 +12,17 @@ pub struct StartSurfnetResponse {
 
 #[derive(Serialize)]
 pub struct StartSurfnetSuccess {
-    pub kind: String,
+    pub kind: StartSurfnetKind,
     pub surfnet_url: Option<String>,
     pub surfnet_id: u16,
-    pub command: Option<SerializeCommand>,
 }
+
+#[derive(Serialize)]
+pub enum StartSurfnetKind {
+    Command(SerializeCommand),
+    Subprocess,
+}
+
 #[derive(Serialize)]
 pub struct SerializeCommand {
     pub program: String,
@@ -50,7 +56,7 @@ impl StartSurfnetResponse {
     }
 }
 
-pub fn generate_command(_surfnet_id: u16, rpc_port: u16, ws_port: u16) -> Command {
+pub fn generate_command(rpc_port: u16, ws_port: u16) -> Command {
     let mut cmd = Command::new("surfpool");
     cmd.arg("start");
     cmd.arg("--port").arg(format!("{}", rpc_port));
@@ -59,14 +65,13 @@ pub fn generate_command(_surfnet_id: u16, rpc_port: u16, ws_port: u16) -> Comman
 }
 
 pub fn run_command(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnetResponse {
-    let command = generate_command(surfnet_id, rpc_port, ws_port);
+    let command = generate_command(rpc_port, ws_port);
     let surfnet_url = format!("http://127.0.0.1:{}", rpc_port);
 
     StartSurfnetResponse::success(StartSurfnetSuccess {
-        kind: "command".to_string(),
+        kind: StartSurfnetKind::Command(command.into()),
         surfnet_url: Some(surfnet_url),
         surfnet_id,
-        command: Some(command.into()),
     })
 }
 
@@ -135,10 +140,9 @@ pub fn run_subprocess(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurf
                     SimnetEvent::Ready => {
                         let surfnet_url = format!("http://127.0.0.1:{}", rpc_port);
                         break StartSurfnetResponse::success(StartSurfnetSuccess {
-                            kind: "subprocess".to_string(),
+                            kind: StartSurfnetKind::Subprocess,
                             surfnet_url: Some(surfnet_url),
                             surfnet_id,
-                            command: None,
                         });
                     }
                     SimnetEvent::ErrorLog(_, error) => {

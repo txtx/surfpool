@@ -189,7 +189,7 @@ impl Surfpool {
         #[schemars(
             description = "If `false` (default), returns a command for the AI to execute. If `true`, starts surfnet directly as a background process."
         )]
-        run_as_subprocess: Option<bool>,
+        run_as_subprocess: bool,
     ) -> Json<StartSurfnetResponse> {
         let (surfnet_id, port) = match find_next_available_surfnet_port() {
             Ok((id, p)) => (id, p),
@@ -197,17 +197,12 @@ impl Surfpool {
         };
 
         let res = match run_as_subprocess {
-            Some(true) => start_surfnet::run_subprocess(surfnet_id, port, port.saturating_sub(9)),
-            Some(false) => start_surfnet::run_command(surfnet_id, port, port.saturating_sub(9)),
-            _ => {
-                return Json(StartSurfnetResponse::error(
-                    "run_as_subprocess is required".to_string(),
-                ));
-            }
+            true => start_surfnet::run_subprocess(surfnet_id, port, port.saturating_sub(9)),
+            false => start_surfnet::run_command(surfnet_id, port, port.saturating_sub(9)),
         };
 
-        // Only track the surfnet in the registry if we've actually started it as a subprocess
-        if run_as_subprocess.unwrap_or(false) && res.success.is_some() {
+        // Keep track of the surfnet instance in the registry
+        if res.success.is_some() {
             self.surfnets.write().unwrap().insert(surfnet_id, port);
         }
 
