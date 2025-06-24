@@ -767,12 +767,12 @@ impl Minimal for SurfpoolMinimalRpc {
         let epoch_info = svm_locker.get_epoch_info();
 
         let slot = slot.unwrap_or_else(|| epoch_info.absolute_slot);
-        
+
         let first_slot_in_epoch = epoch_info
             .absolute_slot
             .saturating_sub(epoch_info.slot_index);
         let last_slot_in_epoch = first_slot_in_epoch + epoch_info.slots_in_epoch.saturating_sub(1);
-        
+
         if slot < first_slot_in_epoch || slot > last_slot_in_epoch {
             return Ok(None);
         }
@@ -1003,8 +1003,7 @@ mod tests {
 
     #[test]
     fn test_get_leader_schedule_valid_cases() {
-        let setup = TestSetup::new(SurfpoolMinimalRpc); 
-        
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
 
         setup.context.svm_locker.with_svm_writer(|svm_writer| {
             svm_writer.latest_epoch_info = EpochInfo {
@@ -1026,20 +1025,16 @@ mod tests {
                 None,
             )
             .unwrap();
-        
+
         assert!(result.is_some());
         assert!(result.unwrap().is_empty()); // Should return empty HashMap
 
         // test 2: No slot provided (should use current slot), no identity
         let result = setup
             .rpc
-            .get_leader_schedule(
-                Some(setup.context.clone()),
-                None,
-                None,
-            )
+            .get_leader_schedule(Some(setup.context.clone()), None, None)
             .unwrap();
-        
+
         assert!(result.is_some());
         assert!(result.unwrap().is_empty());
 
@@ -1056,7 +1051,7 @@ mod tests {
                 }),
             )
             .unwrap();
-        
+
         assert!(result.is_some());
         assert!(result.unwrap().is_empty());
 
@@ -1066,11 +1061,13 @@ mod tests {
             .rpc
             .get_leader_schedule(
                 Some(setup.context.clone()),
-                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(first_slot_in_epoch))),
+                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(
+                    first_slot_in_epoch,
+                ))),
                 None,
             )
             .unwrap();
-        
+
         assert!(result.is_some());
         assert!(result.unwrap().is_empty());
 
@@ -1080,11 +1077,13 @@ mod tests {
             .rpc
             .get_leader_schedule(
                 Some(setup.context.clone()),
-                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(last_slot_in_epoch))),
+                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(
+                    last_slot_in_epoch,
+                ))),
                 None,
             )
             .unwrap();
-        
+
         assert!(result.is_some());
         assert!(result.unwrap().is_empty());
     }
@@ -1092,7 +1091,7 @@ mod tests {
     #[test]
     fn test_get_leader_schedule_invalid_cases() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
-        
+
         setup.context.svm_locker.with_svm_writer(|svm_writer| {
             svm_writer.latest_epoch_info = EpochInfo {
                 epoch: 100,
@@ -1105,18 +1104,20 @@ mod tests {
         });
 
         let first_slot_in_epoch = 43200050 - 50;
-        let last_slot_in_epoch = first_slot_in_epoch + 432000 - 1; 
+        let last_slot_in_epoch = first_slot_in_epoch + 432000 - 1;
 
         // test 1: Slot before current epoch (should return None)
         let result = setup
             .rpc
             .get_leader_schedule(
                 Some(setup.context.clone()),
-                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(first_slot_in_epoch - 1))),
+                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(
+                    first_slot_in_epoch - 1,
+                ))),
                 None,
             )
             .unwrap();
-        
+
         assert!(result.is_none());
 
         // test 2: Slot after current epoch (should return None)
@@ -1124,11 +1125,13 @@ mod tests {
             .rpc
             .get_leader_schedule(
                 Some(setup.context.clone()),
-                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(last_slot_in_epoch + 1))),
+                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(
+                    last_slot_in_epoch + 1,
+                ))),
                 None,
             )
             .unwrap();
-        
+
         assert!(result.is_none());
 
         // test 3: Way outside epoch range (should return None)
@@ -1140,50 +1143,40 @@ mod tests {
                 None,
             )
             .unwrap();
-        
+
         assert!(result.is_none());
 
         // test 4: Invalid identity pubkey (should return Error)
-        let result = setup
-            .rpc
-            .get_leader_schedule(
-                Some(setup.context.clone()),
-                None,
-                Some(RpcLeaderScheduleConfig {
-                    identity: Some("invalid_pubkey_string".to_string()),
-                    commitment: None,
-                }),
-            );
-        
+        let result = setup.rpc.get_leader_schedule(
+            Some(setup.context.clone()),
+            None,
+            Some(RpcLeaderScheduleConfig {
+                identity: Some("invalid_pubkey_string".to_string()),
+                commitment: None,
+            }),
+        );
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert_eq!(error.code, ErrorCode::InvalidParams);
 
         // test 5: Empty identity string (should return Error)
-        let result = setup
-            .rpc
-            .get_leader_schedule(
-                Some(setup.context.clone()),
-                None,
-                Some(RpcLeaderScheduleConfig {
-                    identity: Some("".to_string()),
-                    commitment: None,
-                }),
-            );
-        
+        let result = setup.rpc.get_leader_schedule(
+            Some(setup.context.clone()),
+            None,
+            Some(RpcLeaderScheduleConfig {
+                identity: Some("".to_string()),
+                commitment: None,
+            }),
+        );
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert_eq!(error.code, ErrorCode::InvalidParams);
 
         // test 6: No metadata (should return Error from get_svm_locker)
-        let result = setup
-            .rpc
-            .get_leader_schedule(
-                None,
-                None,
-                None,
-            );
-        
+        let result = setup.rpc.get_leader_schedule(None, None, None);
+
         assert!(result.is_err());
     }
 }
