@@ -115,7 +115,7 @@ pub struct CreateTokenAccountParams {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct StartSurfnetWithTokenAccountsSuccess {
     #[schemars(description = "The RPC URL of the newly started surfnet instance.")]
-    pub surfnet_url: Option<String>,
+    pub surfnet_url: String,
     #[schemars(description = "The ID of the newly started surfnet instance.")]
     pub surfnet_id: u16,
     #[schemars(description = "A list of accounts that were created or funded.")]
@@ -282,7 +282,7 @@ impl Surfpool {
             Some(ref success_data) => {
                 let mut surfnets_writer = self.surfnets.write().unwrap();
                 surfnets_writer.insert(surfnet_id, port);
-                success_data.surfnet_url.clone().unwrap()
+                success_data.surfnet_url.clone()
             }
             None => {
                 return Json(StartSurfnetWithTokenAccountsResponse::error(format!(
@@ -320,7 +320,7 @@ impl Surfpool {
 
         Json(StartSurfnetWithTokenAccountsResponse::success(
             StartSurfnetWithTokenAccountsSuccess {
-                surfnet_url: Some(surfnet_url),
+                surfnet_url,
                 surfnet_id,
                 accounts: results
                     .into_iter()

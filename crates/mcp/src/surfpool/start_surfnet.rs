@@ -13,7 +13,7 @@ pub struct StartSurfnetResponse {
 #[derive(Serialize)]
 pub struct StartSurfnetSuccess {
     pub kind: StartSurfnetKind,
-    pub surfnet_url: Option<String>,
+    pub surfnet_url: String,
     pub surfnet_id: u16,
 }
 
@@ -70,7 +70,7 @@ pub fn run_command(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnet
 
     StartSurfnetResponse::success(StartSurfnetSuccess {
         kind: StartSurfnetKind::Command(command.into()),
-        surfnet_url: Some(surfnet_url),
+        surfnet_url,
         surfnet_id,
     })
 }
@@ -141,7 +141,7 @@ pub fn run_subprocess(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurf
                         let surfnet_url = format!("http://127.0.0.1:{}", rpc_port);
                         break StartSurfnetResponse::success(StartSurfnetSuccess {
                             kind: StartSurfnetKind::Subprocess,
-                            surfnet_url: Some(surfnet_url),
+                            surfnet_url,
                             surfnet_id,
                         });
                     }
