@@ -197,7 +197,7 @@ impl Surfpool {
         };
 
         let res = match run_as_subprocess {
-            true => start_surfnet::run_subprocess(surfnet_id, port, port.saturating_sub(9)),
+            true => start_surfnet::run_headless(surfnet_id, port, port.saturating_sub(9)),
             false => start_surfnet::run_command(surfnet_id, port, port.saturating_sub(9)),
         };
 
@@ -275,8 +275,7 @@ impl Surfpool {
             Err(e) => return Json(StartSurfnetWithTokenAccountsResponse::error(e)),
         };
 
-        let start_response =
-            start_surfnet::run_subprocess(surfnet_id, port, port.saturating_sub(9));
+        let start_response = start_surfnet::run_headless(surfnet_id, port, port.saturating_sub(9));
 
         let surfnet_url = match start_response.success {
             Some(ref success_data) => {

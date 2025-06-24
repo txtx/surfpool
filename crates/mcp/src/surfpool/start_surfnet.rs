@@ -20,7 +20,7 @@ pub struct StartSurfnetSuccess {
 #[derive(Serialize)]
 pub enum StartSurfnetKind {
     Command(SerializeCommand),
-    Subprocess,
+    Headless,
 }
 
 #[derive(Serialize)]
@@ -61,6 +61,7 @@ pub fn generate_command(rpc_port: u16, ws_port: u16) -> Command {
     cmd.arg("start");
     cmd.arg("--port").arg(format!("{}", rpc_port));
     cmd.arg("--ws-port").arg(format!("{}", ws_port));
+    cmd.arg("--no-deploy");
     cmd
 }
 
@@ -75,7 +76,7 @@ pub fn run_command(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnet
     })
 }
 
-pub fn run_subprocess(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnetResponse {
+pub fn run_headless(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnetResponse {
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
 
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam_channel::unbounded();
@@ -140,7 +141,7 @@ pub fn run_subprocess(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurf
                     SimnetEvent::Ready => {
                         let surfnet_url = format!("http://127.0.0.1:{}", rpc_port);
                         break StartSurfnetResponse::success(StartSurfnetSuccess {
-                            kind: StartSurfnetKind::Subprocess,
+                            kind: StartSurfnetKind::Headless,
                             surfnet_url,
                             surfnet_id,
                         });
