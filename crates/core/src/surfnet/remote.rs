@@ -1,10 +1,10 @@
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
-    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
+    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig, RpcTokenAccountsFilter},
     rpc_filter::RpcFilterType,
-    rpc_request::TokenAccountsFilter,
-    rpc_response::RpcKeyedAccount,
+    rpc_request::{RpcRequest, TokenAccountsFilter},
+    rpc_response::{RpcKeyedAccount, RpcResult},
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
@@ -18,6 +18,8 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     surfnet::GetAccountResult,
 };
+
+use serde_json::json;
 
 pub struct SurfnetRemoteClient {
     pub client: RpcClient,
@@ -154,12 +156,27 @@ impl SurfnetRemoteClient {
     pub async fn get_token_accounts_by_owner(
         &self,
         owner: Pubkey,
-        token_program: Pubkey,
+        filter: &TokenAccountsFilter,
+        config: &RpcAccountInfoConfig,
     ) -> SurfpoolResult<Vec<RpcKeyedAccount>> {
-        self.client
-            .get_token_accounts_by_owner(&owner, TokenAccountsFilter::ProgramId(token_program))
-            .await
-            .map_err(|e| SurfpoolError::get_token_accounts(owner, token_program, e))
+        let token_account_filter = match filter {
+            TokenAccountsFilter::Mint(mint) => RpcTokenAccountsFilter::Mint(mint.to_string()),
+            TokenAccountsFilter::ProgramId(program_id) => {
+                RpcTokenAccountsFilter::ProgramId(program_id.to_string())
+            }
+        };
+
+        // the RPC client's default implementation of get_token_accounts_by_owner doesn't allow providing the config,
+        // so we need to use the send method directly
+        let res: RpcResult<Vec<RpcKeyedAccount>> = self
+            .client
+            .send(
+                RpcRequest::GetTokenAccountsByOwner,
+                json!([owner.to_string(), token_account_filter, config]),
+            )
+            .await;
+        res.map_err(|e| SurfpoolError::get_token_accounts(owner, &filter, e))
+            .map(|res| res.value)
     }
 
     pub async fn get_program_accounts(
