@@ -9,7 +9,13 @@ use litesvm::{
     LiteSVM,
 };
 use solana_account::Account;
-use solana_account_decoder::{encode_ui_account, parse_account_data::{AccountAdditionalData, AccountAdditionalDataV3, SplTokenAdditionalDataV2}, UiAccount, UiAccountEncoding};
+use solana_account_decoder::{
+    encode_ui_account,
+    parse_account_data::{
+        AccountAdditionalData, AccountAdditionalDataV3, SplTokenAdditionalDataV2,
+    },
+    UiAccount, UiAccountEncoding,
+};
 use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_epoch_info::EpochInfo;
@@ -31,7 +37,9 @@ use solana_transaction_status::{
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
 use spl_token::state::Account as TokenAccount;
-use spl_token_2022::instruction::TokenInstruction;
+use spl_token_2022::extension::{
+    interest_bearing_mint::InterestBearingConfig, BaseStateWithExtensions, StateWithExtensions
+};
 use surfpool_types::{
     types::{ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
@@ -440,7 +448,6 @@ impl SurfnetSvm {
         }
     }
 
-
     /// Sends a transaction to the system for execution.
     ///
     /// This function attempts to send a transaction to the blockchain. It first increments the `transactions_processed` counter.
@@ -497,31 +504,87 @@ impl SurfnetSvm {
         }
         self.inner.set_blockhash_check(false);
 
-        match self.inner.send_transaction(tx.clone()) {
-            Ok(res) => {
-                for instruction in tx.message.instructions().iter() {
-                    let accounts = tx.message.static_account_keys();
-                    let program_id = instruction.program_id(accounts).to_string();
-                    if program_id.starts_with("Token") {
-                        let Ok(TokenInstruction::InitializeMint2 { decimals, mint_authority, .. }) = TokenInstruction::unpack(&instruction.data) else {
-                            continue;
-                        };
-                        println!("Assosicating data to {}", mint_authority);
-                        self.account_associated_data.insert(mint_authority, AccountAdditionalDataV3 {
-                            spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
-                                decimals,
-                                interest_bearing_config: None,
-                                scaled_ui_amount_config: None
-                            })
-                        });
+        let handle_account_updates = |svm: &mut SurfnetSvm, transaction: &VersionedTransaction| {
+            // Update accounts_registry with the final state of all accounts involved.
+            for pubkey in transaction.message.static_account_keys().iter() {
+                if let Some(account) = svm.inner.get_account(pubkey) { 
+                    svm.update_account_registries(pubkey, &account);
+                }
+            }
 
+            // Populate associated data for token accounts.
+            for (pubkey, account) in svm.accounts_registry.iter() {
+                let mut mint_pubkey: Option<solana_pubkey::Pubkey> = None;
+                if account.owner == spl_token::id() {
+                    if let Ok(token_account) = spl_token::state::Account::unpack(&account.data) {
+                        mint_pubkey = Some(token_account.mint);
+                    }
+                } else if account.owner == spl_token_2022::id() {
+                    if let Ok(token_account) = spl_token_2022::state::Account::unpack(&account.data)
+                    {
+                        mint_pubkey = Some(token_account.mint);
                     }
                 }
 
+                if let Some(mint_pk) = mint_pubkey {
+                    if let Some(mint_account) = svm.accounts_registry.get(&mint_pk) {
+                        let mut decimals: Option<u8> = None;
+                        let mut interest_bearing_config: Option<InterestBearingConfig> =
+                            None;
+
+                        if mint_account.owner == spl_token::id() {
+                            if let Ok(mint_data) =
+                                spl_token::state::Mint::unpack(&mint_account.data)
+                            {
+                                decimals = Some(mint_data.decimals);
+                            }
+                        } else if mint_account.owner == spl_token_2022::id() {
+                            if let Ok(mint_with_extensions) =
+                                StateWithExtensions::<spl_token_2022::state::Mint>::unpack(
+                                    &mint_account.data,
+                                )
+                            {
+                                let mint_data = &mint_with_extensions.base;
+                                decimals = Some(mint_data.decimals);
+
+                                if let Ok(config) =
+                                    mint_with_extensions.get_extension::<InterestBearingConfig>()
+                                {
+                                    interest_bearing_config = Some(InterestBearingConfig {
+                                        rate_authority: config.rate_authority,
+                                        initialization_timestamp: config.initialization_timestamp,
+                                        pre_update_average_rate: config.pre_update_average_rate,
+                                        last_update_timestamp: config.last_update_timestamp,
+                                        current_rate: config.current_rate,
+                                    });
+                                }
+                            }
+                        }
+
+                        if let Some(d) = decimals {
+                            svm.account_associated_data.insert(
+                                *pubkey,
+                                AccountAdditionalDataV3 {
+                                    spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                                        decimals: d,
+                                        interest_bearing_config: interest_bearing_config.map(|config| (config, Utc::now().timestamp() as i64)),
+                                        scaled_ui_amount_config: None,
+                                    }),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        };
+
+        match self.inner.send_transaction(tx.clone()) {
+            Ok(res) => {
+                handle_account_updates(self, &tx);
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res);
 
                 self.transactions.insert(
-                    transaction_meta.signature,
+                    tx.signatures[0],
                     SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
                         self.get_latest_absolute_slot(),
                         tx,
@@ -536,6 +599,7 @@ impl SurfnetSvm {
                 Ok(res)
             }
             Err(tx_failure) => {
+                handle_account_updates(self, &tx);
                 let transaction_meta =
                     convert_transaction_metadata_from_canonical(&tx_failure.meta);
 
