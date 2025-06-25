@@ -4150,6 +4150,5 @@ mod tests {
             result, 50,
             "Should return minimum slot (50) regardless of insertion order"
         );
-     }
     }
-
+}
