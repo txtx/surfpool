@@ -9,6 +9,7 @@ use litesvm::{
     LiteSVM,
 };
 use solana_account::Account;
+use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
 use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_epoch_info::EpochInfo;
@@ -17,6 +18,7 @@ use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
+use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     program_option::COption, program_pack::Pack, system_instruction,
     transaction::VersionedTransaction,
@@ -35,9 +37,9 @@ use surfpool_types::{
 };
 
 use super::{
-    remote::SurfnetRemoteClient, BlockHeader, BlockIdentifier, GetAccountResult, GeyserEvent,
-    SignatureSubscriptionData, SignatureSubscriptionType, FINALIZATION_SLOT_THRESHOLD,
-    SLOTS_PER_EPOCH,
+    remote::SurfnetRemoteClient, AccountSubscriptionData, BlockHeader, BlockIdentifier,
+    GetAccountResult, GeyserEvent, SignatureSubscriptionData, SignatureSubscriptionType,
+    FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -70,6 +72,8 @@ pub struct SurfnetSvm {
     pub simnet_events_tx: Sender<SimnetEvent>,
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
+    pub account_subscriptions: AccountSubscriptionData,
+    pub slot_subscriptions: Vec<Sender<SlotInfo>>,
     pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
@@ -130,6 +134,8 @@ impl SurfnetSvm {
                 transactions_queued_for_confirmation: VecDeque::new(),
                 transactions_queued_for_finalization: VecDeque::new(),
                 signature_subscriptions: HashMap::new(),
+                account_subscriptions: HashMap::new(),
+                slot_subscriptions: Vec::new(),
                 tagged_profiling_results: HashMap::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 accounts_registry: HashMap::new(),
@@ -322,15 +328,25 @@ impl SurfnetSvm {
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
         self.updated_at = Utc::now().timestamp_millis() as u64;
 
-        // store old account for cleanup, but don't remove yet
-        let old_account = self.accounts_registry.get(pubkey).cloned();
-
         self.inner
             .set_account(*pubkey, account.clone())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
 
+        // Update the account registries and indexes
+        self.update_account_registries(pubkey, &account);
+
+        // Notify account subscribers
+        self.notify_account_subscribers(pubkey, &account);
+
+        let _ = self
+            .simnet_events_tx
+            .send(SimnetEvent::account_update(*pubkey));
+        Ok(())
+    }
+
+    pub fn update_account_registries(&mut self, pubkey: &Pubkey, account: &Account) {
         // only if successful, update our indexes
-        if let Some(old_account) = old_account {
+        if let Some(old_account) = self.accounts_registry.get(pubkey).cloned() {
             self.remove_from_indexes(pubkey, &old_account);
         }
 
@@ -377,11 +393,6 @@ impl SurfnetSvm {
                 }
             }
         }
-
-        let _ = self
-            .simnet_events_tx
-            .send(SimnetEvent::account_update(*pubkey));
-        Ok(())
     }
 
     fn remove_from_indexes(&mut self, pubkey: &Pubkey, old_account: &Account) {
@@ -497,6 +508,7 @@ impl SurfnetSvm {
                 let _ = self
                     .simnet_events_tx
                     .try_send(SimnetEvent::transaction_processed(transaction_meta, None));
+
                 Ok(res)
             }
             Err(tx_failure) => {
@@ -729,6 +741,12 @@ impl SurfnetSvm {
             self.latest_epoch_info.slot_index = 0;
             self.latest_epoch_info.epoch += 1;
         }
+
+        let parent_slot = self.latest_epoch_info.absolute_slot.saturating_sub(1);
+        let new_slot = self.latest_epoch_info.absolute_slot;
+        let root = new_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD);
+        self.notify_slot_subscribers(new_slot, parent_slot, root);
+
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
@@ -769,6 +787,20 @@ impl SurfnetSvm {
         rx
     }
 
+    pub fn subscribe_for_account_updates(
+        &mut self,
+        account_pubkey: &Pubkey,
+        encoding: Option<UiAccountEncoding>,
+    ) -> Receiver<UiAccount> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        let (tx, rx) = unbounded();
+        self.account_subscriptions
+            .entry(*account_pubkey)
+            .or_default()
+            .push((encoding, tx));
+        rx
+    }
+
     /// Notifies signature subscribers of a status update, sending slot and error info.
     ///
     /// # Arguments
@@ -798,6 +830,35 @@ impl SurfnetSvm {
             }
             if !remaining.is_empty() {
                 self.signature_subscriptions.insert(*signature, remaining);
+            }
+        }
+    }
+
+    pub fn notify_account_subscribers(
+        &mut self,
+        account_updated_pubkey: &Pubkey,
+        account: &Account,
+    ) {
+        let mut remaining = vec![];
+        if let Some(subscriptions) = self.account_subscriptions.remove(account_updated_pubkey) {
+            for (encoding, tx) in subscriptions {
+                let account = encode_ui_account(
+                    account_updated_pubkey,
+                    account,
+                    encoding.unwrap_or(UiAccountEncoding::Base64),
+                    None,
+                    None,
+                );
+                if tx.send(account).is_err() {
+                    // The receiver has been dropped, so we can skip notifying
+                    continue;
+                } else {
+                    remaining.push((encoding, tx));
+                }
+            }
+            if !remaining.is_empty() {
+                self.account_subscriptions
+                    .insert(*account_updated_pubkey, remaining);
             }
         }
     }
@@ -974,13 +1035,26 @@ impl SurfnetSvm {
             Vec::new()
         }
     }
+
+    pub fn subscribe_for_slot_updates(&mut self) -> Receiver<SlotInfo> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        let (tx, rx) = unbounded();
+        self.slot_subscriptions.push(tx);
+        rx
+    }
+
+    pub fn notify_slot_subscribers(&mut self, slot: Slot, parent: Slot, root: Slot) {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        self.slot_subscriptions
+            .retain(|tx| tx.send(SlotInfo { slot, parent, root }).is_ok());
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use solana_account::Account;
     use solana_sdk::program_pack::Pack;
-    use spl_token::state::{Account as TokenAccount, AccountState, Mint};
+    use spl_token::state::{Account as TokenAccount, AccountState};
 
     use super::*;
 
