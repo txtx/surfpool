@@ -3805,19 +3805,13 @@ mod tests {
     }
 
     #[test]
-<<<<<<< rpc/get-max-shred-insert-slot
     fn test_get_max_shred_insert_slot() {
-=======
-    fn test_get_max_retransmit_slot() {
->>>>>>> main
         let setup = TestSetup::new(SurfpoolFullRpc);
 
         let result = setup
             .rpc
-<<<<<<< rpc/get-max-shred-insert-slot
             .get_max_shred_insert_slot(Some(setup.context.clone()))
             .unwrap();
-
         let stake_min_delegation = setup
             .rpc
             .get_stake_minimum_delegation(Some(setup.context.clone()), None)
@@ -3831,10 +3825,16 @@ mod tests {
         assert_eq!(result, expected_slot);
         assert_eq!(stake_min_delegation.context.slot, expected_slot);
         assert_eq!(stake_min_delegation.value, 0); // minimum delegation
-=======
+    }
+
+    #[test]
+    fn test_get_max_retransmit_slot() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup
+            .rpc
             .get_max_retransmit_slot(Some(setup.context.clone()))
             .unwrap();
-
         let slot = setup
             .context
             .clone()
@@ -3842,7 +3842,6 @@ mod tests {
             .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
 
         assert_eq!(result, slot)
->>>>>>> main
     }
 
     #[test]
