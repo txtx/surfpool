@@ -19,7 +19,8 @@ use spl_token::state::{Account as TokenAccount, Mint};
 use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    rpc::{utils::verify_pubkey, State},
+    rpc::utils::verify_pubkey,
+    rpc::State,
     surfnet::{locker::SvmAccessContext, GetAccountResult},
 };
 
@@ -670,11 +671,18 @@ mod tests {
         get_associated_token_address_with_program_id, instruction::create_associated_token_account,
     };
     use spl_token::state::{Account as TokenAccount, AccountState, Mint};
-    use spl_token_2022::instruction::{initialize_mint2, mint_to, transfer_checked};
+    use spl_token_2022::{
+        extension::StateWithExtensions,
+        instruction::{initialize_mint2, mint_to, transfer_checked},
+        state::Account as Token2022Account,
+    };
 
     use super::*;
     use crate::{
-        surfnet::{remote::SurfnetRemoteClient, GetAccountResult},
+        surfnet::{
+            remote::{SomeRemoteCtx, SurfnetRemoteClient},
+            GetAccountResult,
+        },
         tests::helpers::TestSetup,
     };
 
@@ -1043,11 +1051,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_transfer_token() {
         // Create connection to local validator
-        let client = RpcClient::new_with_commitment(
-            String::from("http://127.0.0.1:8899"),
-            CommitmentConfig::confirmed(),
-        );
-        let recent_blockhash = client.get_latest_blockhash().unwrap();
+        let client = TestSetup::new(SurfpoolAccountsDataRpc);
+        let recent_blockhash = client
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
 
         // Generate a new keypair for the fee payer
         let fee_payer = Keypair::new();
@@ -1056,43 +1064,29 @@ mod tests {
         let recipient = Keypair::new();
 
         // Airdrop 1 SOL to fee payer
-        let airdrop_signature = client
-            .request_airdrop(&fee_payer.pubkey(), 1_000_000_000)
+        client
+            .context
+            .svm_locker
+            .airdrop(&fee_payer.pubkey(), 1_000_000_000)
             .unwrap();
-        client.confirm_transaction(&airdrop_signature).unwrap();
-
-        loop {
-            let confirmed = client.confirm_transaction(&airdrop_signature).unwrap();
-            if confirmed {
-                break;
-            }
-        }
 
         // Airdrop 1 SOL to recipient for rent exemption
-        let recipient_airdrop_signature = client
-            .request_airdrop(&recipient.pubkey(), 1_000_000_000)
-            .unwrap();
         client
-            .confirm_transaction(&recipient_airdrop_signature)
+            .context
+            .svm_locker
+            .airdrop(&recipient.pubkey(), 1_000_000_000)
             .unwrap();
-
-        loop {
-            let confirmed = client
-                .confirm_transaction(&recipient_airdrop_signature)
-                .unwrap();
-            if confirmed {
-                break;
-            }
-        }
 
         // Generate keypair to use as address of mint
         let mint = Keypair::new();
 
         // Get default mint account size (in bytes), no extensions enabled
         let mint_space = Mint::LEN;
-        let mint_rent = client
-            .get_minimum_balance_for_rent_exemption(mint_space)
-            .unwrap();
+        let mint_rent = client.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .inner
+                .minimum_balance_for_rent_exemption(mint_space)
+        });
 
         // Instruction to create new account for mint (token 2022 program)
         let create_account_instruction = create_account(
@@ -1172,7 +1166,11 @@ mod tests {
         );
 
         // Send and confirm transaction
-        let transaction_signature = client.send_and_confirm_transaction(&transaction).unwrap();
+        client.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer
+                .send_transaction(transaction.clone().into(), false)
+                .unwrap();
+        });
 
         println!("Mint Address: {}", mint.pubkey());
         println!("Recipient Address: {}", recipient.pubkey());
@@ -1181,11 +1179,13 @@ mod tests {
             "Destination Token Account Address: {}",
             destination_token_address
         );
-        println!("Setup Transaction Signature: {}", transaction_signature);
         println!("Minted {} tokens to the source token account", amount);
 
         // Get the latest blockhash for the transfer transaction
-        let recent_blockhash = client.get_latest_blockhash().unwrap();
+        let recent_blockhash = client
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
 
         // Amount of tokens to transfer (0.50 tokens with 2 decimals)
         let transfer_amount = 50;
@@ -1212,29 +1212,45 @@ mod tests {
         );
 
         // Send and confirm transaction
-        let transaction_signature = client.send_and_confirm_transaction(&transaction).unwrap();
+        client.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer
+                .send_transaction(transaction.clone().into(), false)
+                .unwrap();
+        });
 
         println!("Successfully transferred 0.50 tokens from sender to recipient");
-        println!("Transaction Signature: {}", transaction_signature);
 
         // Get token account balances to verify the transfer
-        let source_token_account = client.get_token_account(&source_token_address).unwrap();
+        let source_token_account = client
+            .context
+            .svm_locker
+            .get_account_local(&source_token_address)
+            .inner;
         let destination_token_account = client
-            .get_token_account(&destination_token_address)
-            .unwrap();
+            .context
+            .svm_locker
+            .get_account_local(&destination_token_address)
+            .inner;
 
-        if let Some(source_account) = source_token_account {
+        if let GetAccountResult::FoundAccount(_, source_account, _) = source_token_account {
+            let unpacked =
+                StateWithExtensions::<Token2022Account>::unpack(&source_account.data).unwrap();
             println!(
                 "Source Token Account Balance: {} tokens",
-                source_account.token_amount.amount
+                unpacked.base.amount
             );
+            assert_eq!(unpacked.base.amount, 9950);
         }
 
-        if let Some(destination_account) = destination_token_account {
+        if let GetAccountResult::FoundAccount(_, destination_account, _) = destination_token_account
+        {
+            let unpacked =
+                StateWithExtensions::<Token2022Account>::unpack(&destination_account.data).unwrap();
             println!(
                 "Destination Token Account Balance: {} tokens",
-                destination_account.token_amount.amount
+                unpacked.base.amount
             );
+            assert_eq!(unpacked.base.amount, 50);
         }
     }
 }
