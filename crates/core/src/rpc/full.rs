@@ -3805,7 +3805,29 @@ mod tests {
 
     #[test]
     fn test_get_max_shred_insert_slot() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
 
+        let result = setup
+            .rpc
+            .get_max_shred_insert_slot(Some(setup.context.clone()))
+            .unwrap();
+
+        let stake_min_delegation = setup
+            .rpc
+            .get_stake_minimum_delegation(Some(setup.context.clone()), None)
+            .unwrap();
+
+        let expected_slot = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
+
+        assert_eq!(result, expected_slot);
+        assert_eq!(stake_min_delegation.context.slot, expected_slot);
+        assert_eq!(stake_min_delegation.value, 0); // minimum delegation
+    }
+
+    #[test]
     fn test_get_cluster_nodes() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
@@ -3816,31 +3838,26 @@ mod tests {
 
     #[test]
     fn test_get_stake_minimum_delegation_default() {
-
         let setup = TestSetup::new(SurfpoolFullRpc);
 
         let result = setup
             .rpc
-
             .get_max_shred_insert_slot(Some(setup.context.clone()))
             .unwrap();
 
-        let slot = setup
-
+        let stake_min_delegation = setup
+            .rpc
             .get_stake_minimum_delegation(Some(setup.context.clone()), None)
             .unwrap();
 
         let expected_slot = setup
-
             .context
             .svm_locker
             .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
 
-
-        assert_eq!(result, slot)
-
-        assert_eq!(result.context.slot, expected_slot);
-        assert_eq!(result.value, 0); // minimum delegation
+        assert_eq!(result, expected_slot);
+        assert_eq!(stake_min_delegation.context.slot, expected_slot);
+        assert_eq!(stake_min_delegation.value, 0); // minimum delegation
     }
 
     #[test]
