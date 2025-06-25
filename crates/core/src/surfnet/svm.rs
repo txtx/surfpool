@@ -517,7 +517,6 @@ impl SurfnetSvm {
                             TokenInstruction::InitializeMint2 { decimals, .. } => {
                                 let authority_index = instruction.accounts[0] as usize;
                                 let authority = accounts[authority_index];
-                                println!("Writing Associated data to {}", authority);
 
                                 self.account_associated_data.insert(
                                     authority,
