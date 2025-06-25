@@ -1189,6 +1189,5 @@ mod tests {
         let result = setup.rpc.get_leader_schedule(None, None, None);
 
         assert!(result.is_err());
->>>>>>> main
     }
 }
