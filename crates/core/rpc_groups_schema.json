@@ -1,0 +1,1921 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RpcGroups",
+  "oneOf": [
+    {
+      "description": "The accounts scan group, which includes operations related to scanning accounts.",
+      "type": "object",
+      "properties": {
+        "accountsScan": {
+          "$ref": "#/$defs/endpoints"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "accountsScan"
+      ]
+    },
+    {
+      "description": "The accounts data group, which includes operations related to fetching account data.",
+      "type": "object",
+      "properties": {
+        "accountsData": {
+          "$ref": "#/$defs/endpoints2"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "accountsData"
+      ]
+    },
+    {
+      "description": "The admin group, which includes administrative operations.",
+      "type": "object",
+      "properties": {
+        "admin": {
+          "$ref": "#/$defs/endpoints3"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "admin"
+      ]
+    },
+    {
+      "description": "The bank data group, which includes operations related to fetching bank data.",
+      "type": "object",
+      "properties": {
+        "bankData": {
+          "$ref": "#/$defs/endpoints4"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "bankData"
+      ]
+    },
+    {
+      "description": "The full group, which includes all other operations.",
+      "type": "object",
+      "properties": {
+        "full": {
+          "$ref": "#/$defs/endpoints5"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "full"
+      ]
+    },
+    {
+      "description": "The minimal group, which includes a minimal set of operations.",
+      "type": "object",
+      "properties": {
+        "minimal": {
+          "$ref": "#/$defs/endpoints6"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "minimal"
+      ]
+    },
+    {
+      "description": "The surfnet cheatcodes group, which includes operations for testing and simulation.",
+      "type": "object",
+      "properties": {
+        "surfnetCheatcodes": {
+          "$ref": "#/$defs/endpoints7"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "surfnetCheatcodes"
+      ]
+    }
+  ],
+  "$defs": {
+    "AccountUpdate": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "executable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "lamports": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "owner": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rentEpoch": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "CloneProgramAccount": {
+      "type": "object",
+      "properties": {
+        "destinationProgramId": {
+          "type": "string"
+        },
+        "sourceProgramId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sourceProgramId",
+        "destinationProgramId"
+      ]
+    },
+    "CommitmentConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "$ref": "#/$defs/CommitmentLevel"
+        }
+      },
+      "required": [
+        "commitment"
+      ]
+    },
+    "CommitmentLevel": {
+      "description": "An attribute of a slot. It describes how finalized a block is at some point in time. For example, a slot\n is said to be at the max level immediately after the cluster recognizes the block at that slot as\n finalized. When querying the ledger state, use lower levels of commitment to report progress and higher\n levels to ensure state changes will not be rolled back.",
+      "oneOf": [
+        {
+          "description": "The highest slot of the heaviest fork processed by the node. Ledger state at this slot is\n not derived from a confirmed or finalized block, but if multiple forks are present, is from\n the fork the validator believes is most likely to finalize.",
+          "type": "string",
+          "const": "Processed"
+        },
+        {
+          "description": "The highest slot that has been voted on by supermajority of the cluster, ie. is confirmed.\n Confirmation incorporates votes from gossip and replay. It does not count votes on\n descendants of a block, only direct votes on that block, and upholds \"optimistic\n confirmation\" guarantees in release 1.3 and onwards.",
+          "type": "string",
+          "const": "Confirmed"
+        },
+        {
+          "description": "The highest slot having reached max vote lockout, as recognized by a supermajority of the\n cluster.",
+          "type": "string",
+          "const": "Finalized"
+        }
+      ]
+    },
+    "GetAccountInfo": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcAccountInfoConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pubkey": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pubkey"
+      ]
+    },
+    "GetBalance": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pubkey": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pubkey"
+      ]
+    },
+    "GetBlock": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "slot"
+      ]
+    },
+    "GetBlockCommitment": {
+      "type": "object",
+      "properties": {
+        "block": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "block"
+      ]
+    },
+    "GetBlockTime": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "slot"
+      ]
+    },
+    "GetBlocks": {
+      "type": "object",
+      "properties": {
+        "endSlot": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "startSlot": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "startSlot"
+      ]
+    },
+    "GetBlocksWithLimit": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "startSlot": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "startSlot",
+        "limit"
+      ]
+    },
+    "GetFeeForMessage": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ]
+    },
+    "GetInflationGovernor": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "GetInflationReward": {
+      "type": "object",
+      "properties": {
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcAccountInfoConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "addresses"
+      ]
+    },
+    "GetLargestAccounts": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcLargestAccountsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "GetMinimumBalanceForRentExemption": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dataLen": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dataLen"
+      ]
+    },
+    "GetMultipleAccounts": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcAccountInfoConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pubkeys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "pubkeys"
+      ]
+    },
+    "GetProfileResults": {
+      "type": "object",
+      "properties": {
+        "tag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag"
+      ]
+    },
+    "GetProgramAccounts": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcProgramAccountsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "programId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "programId"
+      ]
+    },
+    "GetRecentPerformanceSamples": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        }
+      }
+    },
+    "GetRecentPrioritizationFees": {
+      "type": "object",
+      "properties": {
+        "pubkeys": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "GetSignatureStatuses": {
+      "type": "object",
+      "properties": {
+        "signatures": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "signatures"
+      ]
+    },
+    "GetSignaturesForAddress": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string"
+        },
+        "before": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        },
+        "until": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "address"
+      ]
+    },
+    "GetSlotLeaders": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "startSlot": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "startSlot",
+        "limit"
+      ]
+    },
+    "GetSupply": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcSupplyConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "GetTokenAccountBalance": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pubkey": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pubkey"
+      ]
+    },
+    "GetTokenAccountsByDelegate": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcAccountInfoConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delegate": {
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "description": "Filter by mint address.",
+          "type": "object",
+          "properties": {
+            "mint": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "mint"
+          ]
+        },
+        {
+          "description": "Filter by program ID.",
+          "type": "object",
+          "properties": {
+            "programId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "programId"
+          ]
+        }
+      ],
+      "required": [
+        "delegate"
+      ]
+    },
+    "GetTokenAccountsByOwner": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcAccountInfoConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner": {
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "description": "Filter by mint address.",
+          "type": "object",
+          "properties": {
+            "mint": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "mint"
+          ]
+        },
+        {
+          "description": "Filter by program ID.",
+          "type": "object",
+          "properties": {
+            "programId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "programId"
+          ]
+        }
+      ],
+      "required": [
+        "owner"
+      ]
+    },
+    "GetTokenLargestAccounts": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mint"
+      ]
+    },
+    "GetTokenSupply": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mint"
+      ]
+    },
+    "GetTransaction": {
+      "type": "object",
+      "properties": {
+        "signature": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "signature"
+      ]
+    },
+    "IsBlockhashValid": {
+      "type": "object",
+      "properties": {
+        "blockhash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blockhash"
+      ]
+    },
+    "LoadPlugin": {
+      "type": "object",
+      "properties": {
+        "configFile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "configFile"
+      ]
+    },
+    "Memcmp": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "description": "Data offset to begin match",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "bytes": {
+              "type": "string"
+            },
+            "encoding": {
+              "type": "string",
+              "const": "base58"
+            }
+          },
+          "required": [
+            "encoding",
+            "bytes"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "bytes": {
+              "type": "string"
+            },
+            "encoding": {
+              "type": "string",
+              "const": "base64"
+            }
+          },
+          "required": [
+            "encoding",
+            "bytes"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "bytes": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0
+              }
+            },
+            "encoding": {
+              "type": "string",
+              "const": "bytes"
+            }
+          },
+          "required": [
+            "encoding",
+            "bytes"
+          ]
+        }
+      ],
+      "required": [
+        "offset"
+      ]
+    },
+    "ProfileTransaction": {
+      "type": "object",
+      "properties": {
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "transactionData": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "transactionData"
+      ]
+    },
+    "ReloadPlugin": {
+      "type": "object",
+      "properties": {
+        "configFile": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "configFile"
+      ]
+    },
+    "RequestAirdrop": {
+      "type": "object",
+      "properties": {
+        "lamports": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "pubkey": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pubkey",
+        "lamports"
+      ]
+    },
+    "RpcAccountInfoConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "$ref": "#/$defs/CommitmentLevel"
+        },
+        "dataSlice": {
+          "description": "The data slice configuration.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiDataSliceConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "encoding": {
+          "description": "The encoding for the account data.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiAccountEncoding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "minContextSlot": {
+          "description": "The minimum context slot for the account info.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "RpcContextConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "$ref": "#/$defs/CommitmentLevel"
+        },
+        "minContextSlot": {
+          "description": "The minimum context slot for the context.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "RpcFilterType": {
+      "oneOf": [
+        {
+          "description": "Filter by program ID",
+          "type": "object",
+          "properties": {
+            "programId": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "programId"
+          ]
+        },
+        {
+          "description": "Filter by data size",
+          "type": "object",
+          "properties": {
+            "dataSize": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "dataSize"
+          ]
+        },
+        {
+          "description": "Filter by memory comparison",
+          "type": "object",
+          "properties": {
+            "memcmp": {
+              "$ref": "#/$defs/Memcmp"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "memcmp"
+          ]
+        },
+        {
+          "description": "Filter by token account state",
+          "type": "string",
+          "const": "tokenAccountState"
+        }
+      ]
+    },
+    "RpcLargestAccountsConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "$ref": "#/$defs/CommitmentLevel"
+        },
+        "filter": {
+          "description": "The filter to apply to the largest accounts.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcLargestAccountsFilter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "RpcLargestAccountsFilter": {
+      "type": "string",
+      "enum": [
+        "circulating",
+        "nonCirculating"
+      ]
+    },
+    "RpcProgramAccountsConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "$ref": "#/$defs/CommitmentLevel"
+        },
+        "dataSlice": {
+          "description": "The data slice configuration.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiDataSliceConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "encoding": {
+          "description": "The encoding for the account data.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiAccountEncoding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "filters": {
+          "description": "Filters to apply to the program accounts. Each filter is a base58-encoded string representing an address or a specific filter type.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/RpcFilterType"
+          }
+        },
+        "minContextSlot": {
+          "description": "The minimum context slot for the account info.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sortResults": {
+          "description": "Whether to sort the results.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "withContext": {
+          "description": "Whether to include the context in the response.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "RpcSupplyConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "$ref": "#/$defs/CommitmentLevel"
+        },
+        "excludeNonCirculatingAccountsList": {
+          "description": "Whether to exclude non-circulating accounts.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "excludeNonCirculatingAccountsList"
+      ]
+    },
+    "SendTransaction": {
+      "type": "object",
+      "properties": {
+        "transaction": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "transaction"
+      ]
+    },
+    "SetAccount": {
+      "type": "object",
+      "properties": {
+        "pubkey": {
+          "type": "string"
+        },
+        "update": {
+          "$ref": "#/$defs/AccountUpdate"
+        }
+      },
+      "required": [
+        "pubkey",
+        "update"
+      ]
+    },
+    "SetLogFilter": {
+      "type": "object",
+      "properties": {
+        "filter": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "filter"
+      ]
+    },
+    "SetSomeAccount": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "noAccount"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "account": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "account"
+          ]
+        }
+      ]
+    },
+    "SetTokenAccount": {
+      "type": "object",
+      "properties": {
+        "mint": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "tokenProgram": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "update": {
+          "$ref": "#/$defs/TokenAccountUpdate"
+        }
+      },
+      "required": [
+        "owner",
+        "mint",
+        "update"
+      ]
+    },
+    "SimulateTransaction": {
+      "type": "object",
+      "properties": {
+        "transaction": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "transaction"
+      ]
+    },
+    "TokenAccountUpdate": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "closeAuthority": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetSomeAccount"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delegate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetSomeAccount"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delegatedAmount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "state": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "UiAccountEncoding": {
+      "type": "string",
+      "enum": [
+        "binary",
+        "base58",
+        "base64",
+        "jsonParsed",
+        "base64+zstd"
+      ]
+    },
+    "UiDataSliceConfig": {
+      "type": "object",
+      "properties": {
+        "length": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "offset",
+        "length"
+      ]
+    },
+    "UnloadPlugin": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "endpoints": {
+      "oneOf": [
+        {
+          "description": "Get program accounts owned by a specific program ID.",
+          "type": "object",
+          "properties": {
+            "getProgramAccounts": {
+              "$ref": "#/$defs/GetProgramAccounts"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getProgramAccounts"
+          ]
+        },
+        {
+          "description": "Returns the 20 largest accounts by lamport balance.",
+          "type": "object",
+          "properties": {
+            "getLargestAccounts": {
+              "$ref": "#/$defs/GetLargestAccounts"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getLargestAccounts"
+          ]
+        },
+        {
+          "description": "Returns information about the current token supply.",
+          "type": "object",
+          "properties": {
+            "getSupply": {
+              "$ref": "#/$defs/GetSupply"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getSupply"
+          ]
+        },
+        {
+          "description": "Returns the largest accounts for a given token mint.",
+          "type": "object",
+          "properties": {
+            "getTokenLargestAccounts": {
+              "$ref": "#/$defs/GetTokenLargestAccounts"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getTokenLargestAccounts"
+          ]
+        },
+        {
+          "description": "Returns all SPL Token accounts by owner.",
+          "type": "object",
+          "properties": {
+            "getTokenAccountsByOwner": {
+              "$ref": "#/$defs/GetTokenAccountsByOwner"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getTokenAccountsByOwner"
+          ]
+        },
+        {
+          "description": "Returns all SPL Token accounts by delegate.",
+          "type": "object",
+          "properties": {
+            "getTokenAccountsByDelegate": {
+              "$ref": "#/$defs/GetTokenAccountsByDelegate"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getTokenAccountsByDelegate"
+          ]
+        }
+      ]
+    },
+    "endpoints2": {
+      "oneOf": [
+        {
+          "description": "Returns detailed information about an account given its public key.",
+          "type": "object",
+          "properties": {
+            "getAccountInfo": {
+              "$ref": "#/$defs/GetAccountInfo"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getAccountInfo"
+          ]
+        },
+        {
+          "description": "Returns commitment levels for a given block (slot).",
+          "type": "object",
+          "properties": {
+            "getBlockCommitment": {
+              "$ref": "#/$defs/GetBlockCommitment"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getBlockCommitment"
+          ]
+        },
+        {
+          "description": "Returns account information for multiple public keys in a single call.",
+          "type": "object",
+          "properties": {
+            "getMultipleAccounts": {
+              "$ref": "#/$defs/GetMultipleAccounts"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getMultipleAccounts"
+          ]
+        },
+        {
+          "description": "Returns the balance of a token account, given its public key.",
+          "type": "object",
+          "properties": {
+            "getTokenAccountBalance": {
+              "$ref": "#/$defs/GetTokenAccountBalance"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getTokenAccountBalance"
+          ]
+        },
+        {
+          "description": "Returns the total supply of a token, given its mint address.",
+          "type": "object",
+          "properties": {
+            "getTokenSupply": {
+              "$ref": "#/$defs/GetTokenSupply"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getTokenSupply"
+          ]
+        }
+      ]
+    },
+    "endpoints3": {
+      "oneOf": [
+        {
+          "description": "Immediately shuts down the RPC server.",
+          "type": "string",
+          "const": "exit"
+        },
+        {
+          "description": "Reloads a runtime plugin with new configuration.",
+          "type": "object",
+          "properties": {
+            "reloadPlugin": {
+              "$ref": "#/$defs/ReloadPlugin"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "reloadPlugin"
+          ]
+        },
+        {
+          "description": "Unloads a runtime plugin.",
+          "type": "object",
+          "properties": {
+            "unloadPlugin": {
+              "$ref": "#/$defs/UnloadPlugin"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "unloadPlugin"
+          ]
+        },
+        {
+          "description": "Dynamically loads a new plugin into the runtime from a configuration file.",
+          "type": "object",
+          "properties": {
+            "loadPlugin": {
+              "$ref": "#/$defs/LoadPlugin"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "loadPlugin"
+          ]
+        },
+        {
+          "description": "Returns a list of all currently loaded plugin names.",
+          "type": "string",
+          "const": "listPlugins"
+        },
+        {
+          "description": "Returns the address of the RPC server.",
+          "type": "string",
+          "const": "rpcAddress"
+        },
+        {
+          "description": "Sets a filter for log messages in the system.",
+          "type": "object",
+          "properties": {
+            "setLogFilter": {
+              "$ref": "#/$defs/SetLogFilter"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "setLogFilter"
+          ]
+        },
+        {
+          "description": "Returns the system start time.",
+          "type": "string",
+          "const": "startTime"
+        }
+      ]
+    },
+    "endpoints4": {
+      "oneOf": [
+        {
+          "description": "Returns the minimum balance required for rent exemption.",
+          "type": "object",
+          "properties": {
+            "getMinimumBalanceForRentExemption": {
+              "$ref": "#/$defs/GetMinimumBalanceForRentExemption"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getMinimumBalanceForRentExemption"
+          ]
+        },
+        {
+          "description": "Retrieves the inflation governor settings.",
+          "type": "object",
+          "properties": {
+            "getInflationGovernor": {
+              "$ref": "#/$defs/GetInflationGovernor"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getInflationGovernor"
+          ]
+        },
+        {
+          "description": "Retrieves the current inflation rate.",
+          "type": "string",
+          "const": "getInflationRate"
+        },
+        {
+          "description": "Retrieves the epoch schedule.",
+          "type": "string",
+          "const": "getEpochSchedule"
+        },
+        {
+          "description": "Retrieves the leader of the current slot.",
+          "type": "string",
+          "const": "getSlotLeader"
+        },
+        {
+          "description": "Retrieves the leaders for a specified range of slots.",
+          "type": "object",
+          "properties": {
+            "getSlotLeaders": {
+              "$ref": "#/$defs/GetSlotLeaders"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getSlotLeaders"
+          ]
+        },
+        {
+          "description": "Retrieves block production information.",
+          "type": "string",
+          "const": "getBlockProduction"
+        }
+      ]
+    },
+    "endpoints5": {
+      "oneOf": [
+        {
+          "description": "Returns the inflation reward for a given address.",
+          "type": "object",
+          "properties": {
+            "getInflationReward": {
+              "$ref": "#/$defs/GetInflationReward"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getInflationReward"
+          ]
+        },
+        {
+          "description": "Returns the cluster nodes.",
+          "type": "string",
+          "const": "getClusterNodes"
+        },
+        {
+          "description": "Returns the recent performance samples.",
+          "type": "object",
+          "properties": {
+            "getRecentPerformanceSamples": {
+              "$ref": "#/$defs/GetRecentPerformanceSamples"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getRecentPerformanceSamples"
+          ]
+        },
+        {
+          "description": "Returns the signature statuses for a given signature.",
+          "type": "object",
+          "properties": {
+            "getSignatureStatuses": {
+              "$ref": "#/$defs/GetSignatureStatuses"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getSignatureStatuses"
+          ]
+        },
+        {
+          "description": "Returns the maximum retransmit slot.",
+          "type": "string",
+          "const": "getMaxRetransmitSlot"
+        },
+        {
+          "description": "Returns the maximum shred insert slot.",
+          "type": "string",
+          "const": "getMaxShredInsertSlot"
+        },
+        {
+          "description": "Requests an airdrop to a given address.",
+          "type": "object",
+          "properties": {
+            "requestAirdrop": {
+              "$ref": "#/$defs/RequestAirdrop"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "requestAirdrop"
+          ]
+        },
+        {
+          "description": "Sends a transaction to the cluster.",
+          "type": "object",
+          "properties": {
+            "sendTransaction": {
+              "$ref": "#/$defs/SendTransaction"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "sendTransaction"
+          ]
+        },
+        {
+          "description": "Simulates a transaction.",
+          "type": "object",
+          "properties": {
+            "simulateTransaction": {
+              "$ref": "#/$defs/SimulateTransaction"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "simulateTransaction"
+          ]
+        },
+        {
+          "description": "Returns the minimum ledger slot.",
+          "type": "string",
+          "const": "minimumLedgerSlot"
+        },
+        {
+          "description": "Returns the block for a given slot.",
+          "type": "object",
+          "properties": {
+            "getBlock": {
+              "$ref": "#/$defs/GetBlock"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getBlock"
+          ]
+        },
+        {
+          "description": "Returns the block time for a given slot.",
+          "type": "object",
+          "properties": {
+            "getBlockTime": {
+              "$ref": "#/$defs/GetBlockTime"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getBlockTime"
+          ]
+        },
+        {
+          "description": "Returns the blocks for a given range of slots.",
+          "type": "object",
+          "properties": {
+            "getBlocks": {
+              "$ref": "#/$defs/GetBlocks"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getBlocks"
+          ]
+        },
+        {
+          "description": "Returns the blocks for a given range of slots with a limit.",
+          "type": "object",
+          "properties": {
+            "getBlocksWithLimit": {
+              "$ref": "#/$defs/GetBlocksWithLimit"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getBlocksWithLimit"
+          ]
+        },
+        {
+          "description": "Returns the transaction for a given signature.",
+          "type": "object",
+          "properties": {
+            "getTransaction": {
+              "$ref": "#/$defs/GetTransaction"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getTransaction"
+          ]
+        },
+        {
+          "description": "Returns the signatures for a given address.",
+          "type": "object",
+          "properties": {
+            "getSignaturesForAddress": {
+              "$ref": "#/$defs/GetSignaturesForAddress"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getSignaturesForAddress"
+          ]
+        },
+        {
+          "description": "Returns the first available block.",
+          "type": "string",
+          "const": "getFirstAvailableBlock"
+        },
+        {
+          "description": "Returns the latest blockhash.",
+          "type": "string",
+          "const": "getLatestBlockhash"
+        },
+        {
+          "description": "Returns the blockhash validity.",
+          "type": "object",
+          "properties": {
+            "isBlockhashValid": {
+              "$ref": "#/$defs/IsBlockhashValid"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "isBlockhashValid"
+          ]
+        },
+        {
+          "description": "Returns the fee for a given message.",
+          "type": "object",
+          "properties": {
+            "getFeeForMessage": {
+              "$ref": "#/$defs/GetFeeForMessage"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getFeeForMessage"
+          ]
+        },
+        {
+          "description": "Returns the stake minimum delegation.",
+          "type": "string",
+          "const": "getStakeMinimumDelegation"
+        },
+        {
+          "description": "Returns the recent prioritization fees.",
+          "type": "object",
+          "properties": {
+            "getRecentPrioritizationFees": {
+              "$ref": "#/$defs/GetRecentPrioritizationFees"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getRecentPrioritizationFees"
+          ]
+        }
+      ]
+    },
+    "endpoints6": {
+      "oneOf": [
+        {
+          "description": "Returns the balance for a given address.",
+          "type": "object",
+          "properties": {
+            "getBalance": {
+              "$ref": "#/$defs/GetBalance"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getBalance"
+          ]
+        },
+        {
+          "description": "Returns the epoch info.",
+          "type": "string",
+          "const": "getEpochInfo"
+        },
+        {
+          "description": "Returns the genesis hash.",
+          "type": "string",
+          "const": "getGenesisHash"
+        },
+        {
+          "description": "Returns the health of the cluster.",
+          "type": "string",
+          "const": "getHealth"
+        },
+        {
+          "description": "Returns the identity of the cluster.",
+          "type": "string",
+          "const": "getIdentity"
+        },
+        {
+          "description": "Returns the current slot.",
+          "type": "string",
+          "const": "getSlot"
+        },
+        {
+          "description": "Returns the block height.",
+          "type": "string",
+          "const": "getBlockHeight"
+        },
+        {
+          "description": "Returns the highest snapshot slot.",
+          "type": "string",
+          "const": "getHighestSnapshotSlot"
+        },
+        {
+          "description": "Returns the transaction count.",
+          "type": "string",
+          "const": "getTransactionCount"
+        },
+        {
+          "description": "Returns the version of the cluster.",
+          "type": "string",
+          "const": "getVersion"
+        },
+        {
+          "description": "Returns the vote accounts.",
+          "type": "string",
+          "const": "getVoteAccounts"
+        },
+        {
+          "description": "Returns the leader schedule.",
+          "type": "string",
+          "const": "getLeaderSchedule"
+        }
+      ]
+    },
+    "endpoints7": {
+      "oneOf": [
+        {
+          "description": "Sets the account for a given pubkey.",
+          "type": "object",
+          "properties": {
+            "setAccount": {
+              "$ref": "#/$defs/SetAccount"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "setAccount"
+          ]
+        },
+        {
+          "description": "Sets the token account for a given pubkey.",
+          "type": "object",
+          "properties": {
+            "setTokenAccount": {
+              "$ref": "#/$defs/SetTokenAccount"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "setTokenAccount"
+          ]
+        },
+        {
+          "description": "Clones a program account for a given pubkey.",
+          "type": "object",
+          "properties": {
+            "cloneProgramAccount": {
+              "$ref": "#/$defs/CloneProgramAccount"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "cloneProgramAccount"
+          ]
+        },
+        {
+          "description": "Profiles a transaction for a given tag.",
+          "type": "object",
+          "properties": {
+            "profileTransaction": {
+              "$ref": "#/$defs/ProfileTransaction"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "profileTransaction"
+          ]
+        },
+        {
+          "description": "Gets the profile results for a given tag.",
+          "type": "object",
+          "properties": {
+            "getProfileResults": {
+              "$ref": "#/$defs/GetProfileResults"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getProfileResults"
+          ]
+        }
+      ]
+    }
+  }
+}

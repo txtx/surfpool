@@ -9,7 +9,9 @@ pub struct RpcProgramAccountsConfig {
     pub filters: Option<Vec<RpcFilterType>>,
     #[serde(flatten)]
     pub account_config: RpcAccountInfoConfig,
+    #[schemars(description = "Whether to include the context in the response.")]
     pub with_context: Option<bool>,
+    #[schemars(description = "Whether to sort the results.")]
     pub sort_results: Option<bool>,
 }
 
@@ -47,10 +49,14 @@ pub enum MemcmpEncodedBytes {
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcAccountInfoConfig {
+    #[schemars(description = "The encoding for the account data.")]
     pub encoding: Option<UiAccountEncoding>,
+    #[schemars(description = "The data slice configuration.")]
     pub data_slice: Option<UiDataSliceConfig>,
+    #[schemars(description = "The commitment level for the account info.")]
     #[serde(flatten)]
     pub commitment: Option<CommitmentConfig>,
+    #[schemars(description = "The minimum context slot for the account info.")]
     pub min_context_slot: Option<Slot>,
 }
 #[derive(JsonSchema)]
@@ -99,3 +105,87 @@ pub enum CommitmentLevel {
 }
 
 pub type Slot = u64;
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcLargestAccountsConfig {
+    #[schemars(description = "The commitment level for the largest accounts.")]
+    #[serde(flatten)]
+    pub commitment: Option<CommitmentConfig>,
+    #[schemars(description = "The filter to apply to the largest accounts.")]
+    pub filter: Option<RpcLargestAccountsFilter>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum RpcLargestAccountsFilter {
+    Circulating,
+    NonCirculating,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcSupplyConfig {
+    #[schemars(description = "The commitment level for the supply.")]
+    #[serde(flatten)]
+    pub commitment: Option<CommitmentConfig>,
+    #[schemars(description = "Whether to exclude non-circulating accounts.")]
+    pub exclude_non_circulating_accounts_list: bool,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum RpcTokenAccountsFilter {
+    #[schemars(description = "Filter by mint address.")]
+    Mint(String),
+    #[schemars(description = "Filter by program ID.")]
+    ProgramId(String),
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcContextConfig {
+    #[schemars(description = "The commitment level for the context.")]
+    #[serde(flatten)]
+    pub commitment: Option<CommitmentConfig>,
+    #[schemars(description = "The minimum context slot for the context.")]
+    pub min_context_slot: Option<Slot>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcEpochConfig {
+    #[schemars(description = "The epoch number to query.")]
+    pub epoch: Option<u64>,
+    #[serde(flatten)]
+    pub commitment: Option<CommitmentConfig>,
+    #[schemars(description = "The minimum context slot for the epoch.")]
+    pub min_context_slot: Option<Slot>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcSendTransactionConfig {
+    #[schemars(description = "Whether to skip the preflight check.")]
+    pub skip_preflight: bool,
+    #[schemars(description = "The commitment level for the preflight check.")]
+    pub preflight_commitment: Option<CommitmentLevel>,
+    #[schemars(description = "The encoding for the transaction.")]
+    pub encoding: Option<UiTransactionEncoding>,
+    #[schemars(description = "The maximum number of retries for the transaction.")]
+    pub max_retries: Option<usize>,
+    #[schemars(description = "The minimum context slot for the transaction.")]
+    pub min_context_slot: Option<Slot>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum UiTransactionEncoding {
+    Binary, // Legacy. Retained for RPC backwards compatibility
+    Base58,
+    Base64,
+    Json,
+    JsonParsed,
+    #[serde(rename = "base64+zstd")]
+    Base64Zstd,
+}
