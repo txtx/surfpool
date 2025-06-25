@@ -631,8 +631,9 @@ impl Minimal for SurfpoolMinimalRpc {
             .map_err(Into::into)
     }
 
-    fn get_genesis_hash(&self, _meta: Self::Metadata) -> Result<String> {
-        not_implemented_err("get_genesis_hash")
+    fn get_genesis_hash(&self, meta: Self::Metadata) -> Result<String> {
+        meta.with_svm_reader(|svm_reader| svm_reader.genesis_config.hash().to_string())
+            .map_err(Into::into)
     }
 
     fn get_health(&self, _meta: Self::Metadata) -> Result<String> {
@@ -791,6 +792,7 @@ mod tests {
     use solana_client::rpc_config::RpcContextConfig;
     use solana_commitment_config::CommitmentConfig;
     use solana_epoch_info::EpochInfo;
+    use solana_sdk::genesis_config::GenesisConfig;
 
     use super::*;
     use crate::{rpc::full::SurfpoolFullRpc, tests::helpers::TestSetup};
@@ -1001,5 +1003,14 @@ mod tests {
                 error.message
             );
         }
+    }
+
+    #[test]
+    fn test_get_genesis_hash() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        let genesis_hash = setup.rpc.get_genesis_hash(Some(setup.context)).unwrap();
+
+        assert_eq!(genesis_hash, GenesisConfig::default().hash().to_string())
     }
 }
