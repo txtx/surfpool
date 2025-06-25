@@ -1427,8 +1427,9 @@ impl Full for SurfpoolFullRpc {
             .map_err(Into::into)
     }
 
-    fn get_max_shred_insert_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        not_implemented_err("get_max_shred_insert_slot")
+    fn get_max_shred_insert_slot(&self, meta: Self::Metadata) -> Result<Slot> {
+        meta.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+            .map_err(Into::into)
     }
 
     fn request_airdrop(
@@ -3804,6 +3805,29 @@ mod tests {
     }
 
     #[test]
+    fn test_get_max_shred_insert_slot() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup
+            .rpc
+            .get_max_shred_insert_slot(Some(setup.context.clone()))
+            .unwrap();
+        let stake_min_delegation = setup
+            .rpc
+            .get_stake_minimum_delegation(Some(setup.context.clone()), None)
+            .unwrap();
+
+        let expected_slot = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
+
+        assert_eq!(result, expected_slot);
+        assert_eq!(stake_min_delegation.context.slot, expected_slot);
+        assert_eq!(stake_min_delegation.value, 0); // minimum delegation
+    }
+
+    #[test]
     fn test_get_max_retransmit_slot() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
@@ -3811,7 +3835,6 @@ mod tests {
             .rpc
             .get_max_retransmit_slot(Some(setup.context.clone()))
             .unwrap();
-
         let slot = setup
             .context
             .clone()
@@ -3836,6 +3859,11 @@ mod tests {
 
         let result = setup
             .rpc
+            .get_max_shred_insert_slot(Some(setup.context.clone()))
+            .unwrap();
+
+        let stake_min_delegation = setup
+            .rpc
             .get_stake_minimum_delegation(Some(setup.context.clone()), None)
             .unwrap();
 
@@ -3844,8 +3872,9 @@ mod tests {
             .svm_locker
             .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
 
-        assert_eq!(result.context.slot, expected_slot);
-        assert_eq!(result.value, 0); // minimum delegation
+        assert_eq!(result, expected_slot);
+        assert_eq!(stake_min_delegation.context.slot, expected_slot);
+        assert_eq!(stake_min_delegation.value, 0); // minimum delegation
     }
 
     #[test]
