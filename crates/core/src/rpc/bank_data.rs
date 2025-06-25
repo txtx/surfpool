@@ -615,7 +615,10 @@ mod tests {
             .get_inflation_governor(Some(setup.context), None)
             .unwrap();
 
-        assert_eq!(result, Inflation::default().into())
+        assert_eq!(result, Inflation::default().into());
+    }
+
+    #[test]
     fn test_get_minimum_balance_for_rent_exemption() {
         let setup = TestSetup::new(SurfpoolBankDataRpc);
         let rent = setup
