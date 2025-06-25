@@ -1992,14 +1992,14 @@ impl Full for SurfpoolFullRpc {
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context(config) {
+        } = match meta.get_rpc_context(()) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
             let signatures = svm_locker
-                .get_signatures_for_address(&remote_ctx, &pubkey)
+                .get_signatures_for_address(&remote_ctx, &pubkey, config)
                 .await?
                 .inner;
             Ok(signatures)
