@@ -19,8 +19,7 @@ use spl_token::state::{Account as TokenAccount, Mint};
 use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    rpc::utils::verify_pubkey,
-    rpc::State,
+    rpc::{utils::verify_pubkey, State},
     surfnet::{locker::SvmAccessContext, GetAccountResult},
 };
 
