@@ -31,6 +31,7 @@ use solana_transaction_status::{
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
 use spl_token::state::Account as TokenAccount;
+use spl_token_2022::instruction::TokenInstruction;
 use surfpool_types::{
     types::{ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
@@ -502,18 +503,18 @@ impl SurfnetSvm {
                     let accounts = tx.message.static_account_keys();
                     let program_id = instruction.program_id(accounts).to_string();
                     if program_id.starts_with("Token") {
-                        if instruction.data[0] == 20 {
-                            let decimals = instruction.data[1];
-                            let account_index = instruction.accounts[0] as usize;
-                            let account = accounts[account_index];
-                            self.account_associated_data.insert(account, AccountAdditionalDataV3 {
-                                spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
-                                    decimals,
-                                    interest_bearing_config: None,
-                                    scaled_ui_amount_config: None
-                                })
-                            });
-                        }
+                        let Ok(TokenInstruction::InitializeMint2 { decimals, mint_authority, .. }) = TokenInstruction::unpack(&instruction.data) else {
+                            continue;
+                        };
+                        println!("Assosicating data to {}", mint_authority);
+                        self.account_associated_data.insert(mint_authority, AccountAdditionalDataV3 {
+                            spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                                decimals,
+                                interest_bearing_config: None,
+                                scaled_ui_amount_config: None
+                            })
+                        });
+
                     }
                 }
 
