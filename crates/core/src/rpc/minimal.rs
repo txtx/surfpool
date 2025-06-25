@@ -14,6 +14,7 @@ use solana_client::{
 use solana_clock::Slot;
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
 use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
@@ -641,7 +642,10 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
-        not_implemented_err("get_identity")
+        Ok(RpcIdentity {
+            identity: Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr")
+                .to_string(),
+        })
     }
 
     fn get_slot(&self, meta: Self::Metadata, config: Option<RpcContextConfig>) -> Result<Slot> {
@@ -999,6 +1003,16 @@ mod tests {
                 error.message
             );
         }
+    }
+
+    #[test]
+    fn test_get_identity() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+        let result = setup.rpc.get_identity(Some(setup.context)).unwrap();
+        assert_eq!(
+            &result.identity,
+            "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr"
+        );
     }
 
     #[test]
