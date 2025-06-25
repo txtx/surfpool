@@ -1006,7 +1006,6 @@ mod tests {
     }
 
     #[test]
-<<<<<<< rpc/get-identity
     fn test_get_identity() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup.rpc.get_identity(Some(setup.context)).unwrap();
@@ -1014,7 +1013,6 @@ mod tests {
             &result.identity,
             "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr"
         )
-=======
     fn test_get_leader_schedule_valid_cases() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
 
