@@ -1422,8 +1422,9 @@ impl Full for SurfpoolFullRpc {
         })
     }
 
-    fn get_max_retransmit_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        not_implemented_err("get_max_retransmit_slot")
+    fn get_max_retransmit_slot(&self, meta: Self::Metadata) -> Result<Slot> {
+        meta.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+            .map_err(Into::into)
     }
 
     fn get_max_shred_insert_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
@@ -3803,6 +3804,24 @@ mod tests {
     }
 
     #[test]
+    fn test_get_max_retransmit_slot() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup
+            .rpc
+            .get_max_retransmit_slot(Some(setup.context.clone()))
+            .unwrap();
+
+        let slot = setup
+            .context
+            .clone()
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
+
+        assert_eq!(result, slot)
+    }
+
+    #[test]
     fn test_get_cluster_nodes() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
@@ -3845,7 +3864,7 @@ mod tests {
             .get_stake_minimum_delegation(Some(setup.context.clone()), config)
             .unwrap();
 
-        // Sshould return finalized slot
+        // Should return finalized slot
         let expected_slot = setup.context.svm_locker.with_svm_reader(|svm_reader| {
             svm_reader
                 .get_latest_absolute_slot()
@@ -3860,7 +3879,7 @@ mod tests {
     async fn test_is_blockhash_valid_recent_blockhash() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        //get the current recent blockhash from the SVM
+        // Get the current recent blockhash from the SVM
         let recent_blockhash = setup
             .context
             .svm_locker
@@ -3878,7 +3897,7 @@ mod tests {
         assert_eq!(result.value, true);
         assert!(result.context.slot > 0);
 
-        // tst with explicit processed commitment
+        // Test with explicit processed commitment
         let result_processed = setup
             .rpc
             .is_blockhash_valid(
@@ -3902,7 +3921,7 @@ mod tests {
 
         let fake_blockhash = Hash::new_from_array([1u8; 32]);
 
-        //non-existent blockhash returns false
+        // Non-existent blockhash returns false
         let result = setup
             .rpc
             .is_blockhash_valid(
@@ -3914,7 +3933,7 @@ mod tests {
 
         assert_eq!(result.value, false);
 
-        // test with different commitment levels - should still be false
+        // Test with different commitment levels - should still be false
         let result_confirmed = setup
             .rpc
             .is_blockhash_valid(
@@ -3931,7 +3950,7 @@ mod tests {
 
         assert_eq!(result_confirmed.value, false);
 
-        // test another fake blockhash to be thorough
+        // Test another fake blockhash to be thorough
         let another_fake = Hash::new_from_array([255u8; 32]);
         let result2 = setup
             .rpc
@@ -3954,7 +3973,7 @@ mod tests {
                 .is_blockhash_valid(Some(setup.context.clone()), "123".to_string(), None);
         assert!(short_result.is_err());
 
-        // test with invalid base58 characters
+        // Test with invalid base58 characters
         let invalid_chars_result =
             setup
                 .rpc
@@ -3966,14 +3985,14 @@ mod tests {
     async fn test_is_blockhash_valid_commitment_and_context_slot() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        // set up some block history to test commitment levels
+        // Set up some block history to test commitment levels
         {
             let mut svm_writer = setup.context.svm_locker.0.write().await;
 
-            // update the absolute slot to something higher to test commitment differences
+            // Update the absolute slot to something higher to test commitment differences
             svm_writer.latest_epoch_info.absolute_slot = 100;
 
-            // add some block headers for different slots
+            // Add some block headers for different slots
             for slot in 70..=100 {
                 svm_writer.blocks.insert(
                     slot,
@@ -3994,7 +4013,7 @@ mod tests {
             .svm_locker
             .with_svm_reader(|svm| svm.latest_blockhash());
 
-        // test processed commitment (should use latest slot = 100)
+        // Test processed commitment (should use latest slot = 100)
         let processed_result = setup
             .rpc
             .is_blockhash_valid(
@@ -4012,7 +4031,7 @@ mod tests {
         assert_eq!(processed_result.value, true);
         assert_eq!(processed_result.context.slot, 100);
 
-        // test confirmed commitment (should use slot = 99)
+        // Test confirmed commitment (should use slot = 99)
         let confirmed_result = setup
             .rpc
             .is_blockhash_valid(
@@ -4030,7 +4049,7 @@ mod tests {
         assert_eq!(confirmed_result.value, true);
         assert_eq!(confirmed_result.context.slot, 99);
 
-        // test finalized commitment (should use slot = 100 - 31 = 69)
+        // Test finalized commitment (should use slot = 100 - 31 = 69)
         let finalized_result = setup
             .rpc
             .is_blockhash_valid(
@@ -4048,7 +4067,7 @@ mod tests {
         assert_eq!(finalized_result.value, true);
         assert_eq!(finalized_result.context.slot, 69);
 
-        // test min_context_slot validation - should succeed when slot is high enough
+        // Test min_context_slot validation - should succeed when slot is high enough
         let min_context_success = setup
             .rpc
             .is_blockhash_valid(
@@ -4065,7 +4084,7 @@ mod tests {
 
         assert_eq!(min_context_success.value, true);
 
-        // test min_context_slot validation - should fail when slot is too low
+        // Test min_context_slot validation - should fail when slot is too low
         let min_context_failure = setup.rpc.is_blockhash_valid(
             Some(setup.context.clone()),
             recent_blockhash.to_string(),
@@ -4083,7 +4102,7 @@ mod tests {
     #[ignore = "requires-network"]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_minimum_ledger_slot_from_remote() {
-        // forwarding to remote mainnet
+        // Forwarding to remote mainnet
         let remote_client = SurfnetRemoteClient::new("https://api.mainnet-beta.solana.com");
         let mut setup = TestSetup::new(SurfpoolFullRpc);
         setup.context.remote_rpc_client = Some(remote_client);
