@@ -36,10 +36,9 @@ use solana_transaction_status::{
     EncodedTransaction, EncodedTransactionWithStatusMeta, UiAddressTableLookup,
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
+use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::Account as TokenAccount;
-use spl_token_2022::extension::{
-    interest_bearing_mint::InterestBearingConfig, BaseStateWithExtensions, StateWithExtensions
-};
+use spl_token_2022::instruction::TokenInstruction;
 use surfpool_types::{
     types::{ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
@@ -504,87 +503,42 @@ impl SurfnetSvm {
         }
         self.inner.set_blockhash_check(false);
 
-        let handle_account_updates = |svm: &mut SurfnetSvm, transaction: &VersionedTransaction| {
-            // Update accounts_registry with the final state of all accounts involved.
-            for pubkey in transaction.message.static_account_keys().iter() {
-                if let Some(account) = svm.inner.get_account(pubkey) { 
-                    svm.update_account_registries(pubkey, &account);
-                }
-            }
-
-            // Populate associated data for token accounts.
-            for (pubkey, account) in svm.accounts_registry.iter() {
-                let mut mint_pubkey: Option<solana_pubkey::Pubkey> = None;
-                if account.owner == spl_token::id() {
-                    if let Ok(token_account) = spl_token::state::Account::unpack(&account.data) {
-                        mint_pubkey = Some(token_account.mint);
-                    }
-                } else if account.owner == spl_token_2022::id() {
-                    if let Ok(token_account) = spl_token_2022::state::Account::unpack(&account.data)
-                    {
-                        mint_pubkey = Some(token_account.mint);
-                    }
-                }
-
-                if let Some(mint_pk) = mint_pubkey {
-                    if let Some(mint_account) = svm.accounts_registry.get(&mint_pk) {
-                        let mut decimals: Option<u8> = None;
-                        let mut interest_bearing_config: Option<InterestBearingConfig> =
-                            None;
-
-                        if mint_account.owner == spl_token::id() {
-                            if let Ok(mint_data) =
-                                spl_token::state::Mint::unpack(&mint_account.data)
-                            {
-                                decimals = Some(mint_data.decimals);
-                            }
-                        } else if mint_account.owner == spl_token_2022::id() {
-                            if let Ok(mint_with_extensions) =
-                                StateWithExtensions::<spl_token_2022::state::Mint>::unpack(
-                                    &mint_account.data,
-                                )
-                            {
-                                let mint_data = &mint_with_extensions.base;
-                                decimals = Some(mint_data.decimals);
-
-                                if let Ok(config) =
-                                    mint_with_extensions.get_extension::<InterestBearingConfig>()
-                                {
-                                    interest_bearing_config = Some(InterestBearingConfig {
-                                        rate_authority: config.rate_authority,
-                                        initialization_timestamp: config.initialization_timestamp,
-                                        pre_update_average_rate: config.pre_update_average_rate,
-                                        last_update_timestamp: config.last_update_timestamp,
-                                        current_rate: config.current_rate,
-                                    });
-                                }
-                            }
-                        }
-
-                        if let Some(d) = decimals {
-                            svm.account_associated_data.insert(
-                                *pubkey,
-                                AccountAdditionalDataV3 {
-                                    spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
-                                        decimals: d,
-                                        interest_bearing_config: interest_bearing_config.map(|config| (config, Utc::now().timestamp() as i64)),
-                                        scaled_ui_amount_config: None,
-                                    }),
-                                },
-                            );
-                        }
-                    }
-                }
-            }
-        };
-
         match self.inner.send_transaction(tx.clone()) {
             Ok(res) => {
-                handle_account_updates(self, &tx);
+                for instruction in tx.message.instructions().iter() {
+                    let accounts = tx.message.static_account_keys();
+                    let program_id = instruction.program_id(accounts);
+                    if program_id.eq(&spl_token_2022::id()) {
+                        let Ok(token_instruction) = TokenInstruction::unpack(&instruction.data)
+                        else {
+                            continue;
+                        };
+                        match token_instruction {
+                            TokenInstruction::InitializeMint2 { decimals, .. } => {
+                                let authority_index = instruction.accounts[0] as usize;
+                                let authority = accounts[authority_index];
+                                println!("Writing Associated data to {}", authority);
+
+                                self.account_associated_data.insert(
+                                    authority,
+                                    AccountAdditionalDataV3 {
+                                        spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                                            decimals,
+                                            interest_bearing_config: None,
+                                            scaled_ui_amount_config: None,
+                                        }),
+                                    },
+                                );
+                            }
+                            _ => continue,
+                        }
+                    }
+                }
+
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res);
 
                 self.transactions.insert(
-                    tx.signatures[0],
+                    transaction_meta.signature,
                     SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
                         self.get_latest_absolute_slot(),
                         tx,
@@ -599,7 +553,6 @@ impl SurfnetSvm {
                 Ok(res)
             }
             Err(tx_failure) => {
-                handle_account_updates(self, &tx);
                 let transaction_meta =
                     convert_transaction_metadata_from_canonical(&tx_failure.meta);
 

@@ -6,7 +6,21 @@ use crossbeam_channel::Sender;
 use jsonrpc_core::Result as RpcError;
 use locker::SurfnetSvmLocker;
 use solana_account::{Account, ReadableAccount};
-use solana_account_decoder::{encode_ui_account, parse_account_data::{AccountAdditionalDataV3, ParsableAccount, ParseAccountError, ParsedAccount, SplTokenAdditionalDataV2, PARSABLE_PROGRAM_IDS}, parse_address_lookup_table::parse_address_lookup_table, parse_bpf_loader::parse_bpf_upgradeable_loader, parse_token::{convert_account_state, token_amount_to_ui_amount_v3, TokenAccountType, UiMint, UiMultisig, UiTokenAccount}, parse_token_extension::parse_extension, UiAccount, UiAccountData, UiAccountEncoding, UiDataSliceConfig};
+use solana_account_decoder::{
+    encode_ui_account,
+    parse_account_data::{
+        AccountAdditionalDataV3, ParsableAccount, ParseAccountError, ParsedAccount,
+        SplTokenAdditionalDataV2, PARSABLE_PROGRAM_IDS,
+    },
+    parse_address_lookup_table::parse_address_lookup_table,
+    parse_bpf_loader::parse_bpf_upgradeable_loader,
+    parse_token::{
+        convert_account_state, token_amount_to_ui_amount_v3, TokenAccountType, UiMint, UiMultisig,
+        UiTokenAccount,
+    },
+    parse_token_extension::parse_extension,
+    UiAccount, UiAccountData, UiAccountEncoding, UiDataSliceConfig,
+};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
@@ -15,7 +29,10 @@ use solana_sdk::{program_option::COption, program_pack::Pack, transaction::Versi
 use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, TransactionStatus};
-use spl_token_2022::{extension::{BaseStateWithExtensions, StateWithExtensions}, state::{Account as Account2022, Mint, Multisig}};
+use spl_token_2022::{
+    extension::{BaseStateWithExtensions, StateWithExtensions},
+    state::{Account as Account2022, Mint, Multisig},
+};
 use surfpool_types::TransactionMetadata;
 use svm::SurfnetSvm;
 
@@ -110,7 +127,7 @@ impl GetAccountResult {
         &self,
         encoding: Option<UiAccountEncoding>,
         data_slice: Option<UiDataSliceConfig>,
-        associated_data: Option<AccountAdditionalDataV3>
+        associated_data: Option<AccountAdditionalDataV3>,
     ) -> Option<UiAccount> {
         match &self {
             Self::None(_) => None,

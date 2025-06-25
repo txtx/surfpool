@@ -20,7 +20,7 @@ use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::{utils::verify_pubkey, State},
-    surfnet::locker::SvmAccessContext,
+    surfnet::{locker::SvmAccessContext, GetAccountResult},
 };
 
 #[rpc]
@@ -377,17 +377,20 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                 inner: account_update,
                 ..
             } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
+            svm_locker.write_account_update(account_update.clone());
 
             let SvmAccessContext {
                 inner: associated_data,
                 ..
-             } = svm_locker.get_local_account_associated_data(&pubkey);
-
-            svm_locker.write_account_update(account_update.clone());
+            } = svm_locker.get_local_account_associated_data(&account_update);
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
-                value: account_update.try_into_ui_account(config.encoding, config.data_slice, associated_data),
+                value: account_update.try_into_ui_account(
+                    config.encoding,
+                    config.data_slice,
+                    associated_data,
+                ),
             })
         })
     }
@@ -430,9 +433,11 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             let mut ui_accounts = vec![];
             {
                 for account_update in account_updates.into_iter() {
-                    ui_accounts.push(
-                        account_update.try_into_ui_account(config.encoding, config.data_slice, None),
-                    );
+                    ui_accounts.push(account_update.try_into_ui_account(
+                        config.encoding,
+                        config.data_slice,
+                        None,
+                    ));
                 }
             }
 
@@ -656,10 +661,14 @@ mod tests {
     use solana_client::rpc_client::RpcClient;
     use solana_keypair::Keypair;
     use solana_pubkey::Pubkey;
-    use solana_sdk::{program_option::COption, program_pack::Pack, system_instruction::create_account};
+    use solana_sdk::{
+        program_option::COption, program_pack::Pack, system_instruction::create_account,
+    };
     use solana_signer::Signer;
     use solana_transaction::Transaction;
-    use spl_associated_token_account::{get_associated_token_address_with_program_id, instruction::create_associated_token_account};
+    use spl_associated_token_account::{
+        get_associated_token_address_with_program_id, instruction::create_associated_token_account,
+    };
     use spl_token::state::{Account as TokenAccount, AccountState, Mint};
     use spl_token_2022::instruction::{initialize_mint2, mint_to, transfer_checked};
 
@@ -1087,10 +1096,10 @@ mod tests {
 
         // Instruction to create new account for mint (token 2022 program)
         let create_account_instruction = create_account(
-            &fee_payer.pubkey(),      // payer
-            &mint.pubkey(),           // new account (mint)
-            mint_rent,                // lamports
-            mint_space as u64,        // space
+            &fee_payer.pubkey(),   // payer
+            &mint.pubkey(),        // new account (mint)
+            mint_rent,             // lamports
+            mint_space as u64,     // space
             &spl_token_2022::id(), // program id
         );
 
@@ -1101,35 +1110,36 @@ mod tests {
             &fee_payer.pubkey(),       // mint authority
             Some(&fee_payer.pubkey()), // freeze authority
             2,                         // decimals
-        ).unwrap();
+        )
+        .unwrap();
 
         // Calculate the associated token account address for fee_payer
         let source_token_address = get_associated_token_address_with_program_id(
-            &fee_payer.pubkey(),      // owner
-            &mint.pubkey(),           // mint
+            &fee_payer.pubkey(),   // owner
+            &mint.pubkey(),        // mint
             &spl_token_2022::id(), // program_id
         );
 
         // Instruction to create associated token account for fee_payer
         let create_source_ata_instruction = create_associated_token_account(
-            &fee_payer.pubkey(),      // funding address
-            &fee_payer.pubkey(),      // wallet address
-            &mint.pubkey(),           // mint address
+            &fee_payer.pubkey(),   // funding address
+            &fee_payer.pubkey(),   // wallet address
+            &mint.pubkey(),        // mint address
             &spl_token_2022::id(), // program id
         );
 
         // Calculate the associated token account address for recipient
         let destination_token_address = get_associated_token_address_with_program_id(
-            &recipient.pubkey(),      // owner
-            &mint.pubkey(),           // mint
+            &recipient.pubkey(),   // owner
+            &mint.pubkey(),        // mint
             &spl_token_2022::id(), // program_id
         );
 
         // Instruction to create associated token account for recipient
         let create_destination_ata_instruction = create_associated_token_account(
-            &fee_payer.pubkey(),      // funding address
-            &recipient.pubkey(),      // wallet address
-            &mint.pubkey(),           // mint address
+            &fee_payer.pubkey(),   // funding address
+            &recipient.pubkey(),   // wallet address
+            &mint.pubkey(),        // mint address
             &spl_token_2022::id(), // program id
         );
 
@@ -1144,7 +1154,8 @@ mod tests {
             &fee_payer.pubkey(),    // authority
             &[&fee_payer.pubkey()], // signer
             amount,                 // amount
-        ).unwrap();
+        )
+        .unwrap();
 
         // Create transaction and add instructions
         let transaction = Transaction::new_signed_with_payer(
@@ -1164,6 +1175,7 @@ mod tests {
         let transaction_signature = client.send_and_confirm_transaction(&transaction).unwrap();
 
         println!("Mint Address: {}", mint.pubkey());
+        println!("Recipient Address: {}", recipient.pubkey());
         println!("Source Token Account Address: {}", source_token_address);
         println!(
             "Destination Token Account Address: {}",
@@ -1180,15 +1192,16 @@ mod tests {
 
         // Create transfer_checked instruction to send tokens from source to destination
         let transfer_instruction = transfer_checked(
-            &spl_token_2022::id(), // program id
-            &source_token_address,    // source
-            &mint.pubkey(),           // mint
-            &destination_token_address,// destination
-            &fee_payer.pubkey(),      // owner of source
-            &[&fee_payer.pubkey()],   // signers
-            transfer_amount,          // amount
-            2,                        // decimals
-        ).unwrap();
+            &spl_token_2022::id(),      // program id
+            &source_token_address,      // source
+            &mint.pubkey(),             // mint
+            &destination_token_address, // destination
+            &fee_payer.pubkey(),        // owner of source
+            &[&fee_payer.pubkey()],     // signers
+            transfer_amount,            // amount
+            2,                          // decimals
+        )
+        .unwrap();
 
         // Create transaction for transferring tokens
         let transaction = Transaction::new_signed_with_payer(
@@ -1201,14 +1214,14 @@ mod tests {
         // Send and confirm transaction
         let transaction_signature = client.send_and_confirm_transaction(&transaction).unwrap();
 
-        println!(
-            "Successfully transferred 0.50 tokens from sender to recipient"
-        );
+        println!("Successfully transferred 0.50 tokens from sender to recipient");
         println!("Transaction Signature: {}", transaction_signature);
 
         // Get token account balances to verify the transfer
         let source_token_account = client.get_token_account(&source_token_address).unwrap();
-        let destination_token_account = client.get_token_account(&destination_token_address).unwrap();
+        let destination_token_account = client
+            .get_token_account(&destination_token_address)
+            .unwrap();
 
         if let Some(source_account) = source_token_account {
             println!(
@@ -1223,7 +1236,5 @@ mod tests {
                 destination_account.token_amount.amount
             );
         }
-
-
     }
 }
