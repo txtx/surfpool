@@ -1350,11 +1350,36 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         address_strs: Vec<String>,
-        _config: Option<RpcEpochConfig>,
+        config: Option<RpcEpochConfig>,
     ) -> BoxFuture<Result<Vec<Option<RpcInflationReward>>>> {
         Box::pin(async move {
+            let svm_locker = meta.get_svm_locker()?;
+
+            let current_epoch = svm_locker.get_epoch_info().epoch;
+            if let Some(epoch) = config.as_ref().and_then(|config| config.epoch) {
+                if epoch > current_epoch {
+                    return Err(Error::invalid_params(
+                        "Invalid epoch. Epoch is larger that current epoch",
+                    ));
+                }
+            };
+
+            let current_slot = svm_locker.get_epoch_info().absolute_slot;
+            if let Some(slot) = config.as_ref().and_then(|config| config.min_context_slot) {
+                if slot > current_slot {
+                    return Err(Error::invalid_params(
+                        "Invalid epoch. min_context_slot is larger that current slot",
+                    ));
+                }
+            };
+
+            let pubkeys = address_strs
+                .iter()
+                .map(|addr| verify_pubkey(addr))
+                .collect::<std::result::Result<Vec<Pubkey>, SurfpoolError>>()?;
+
             meta.with_svm_reader(|svm_reader| {
-                address_strs
+                pubkeys
                     .iter()
                     .map(|_| {
                         Some(RpcInflationReward {
