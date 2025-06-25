@@ -19,7 +19,7 @@ use solana_client::{
 };
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_pubkey::Pubkey;
-use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_rpc_client_api::response::{Response as RpcResponse, SlotInfo};
 use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
 
@@ -337,6 +337,119 @@ pub trait Rpc {
         meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool>;
+
+    /// Subscribe to slot notifications.
+    ///
+    /// This method allows clients to subscribe to updates for a specific slot.
+    /// The subscriber will receive notifications whenever the slot changes.
+    ///
+    /// ## Parameters
+    /// - `meta`: WebSocket metadata containing RPC context and connection information.
+    /// - `subscriber`: The subscription sink for sending slot update notifications to the client.
+    ///
+    /// ## Returns
+    /// This method does not return a value directly. Instead, it establishes a continuous WebSocket
+    /// subscription that will send `SlotInfo` notifications to the subscriber whenever
+    /// the slot changes.
+    ///
+    /// ## Example WebSocket Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "slotSubscribe",
+    ///   "params": [
+    ///     {
+    ///       "commitment": "finalized"
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Response (Subscription Confirmation)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": 5207624,
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Notification
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "method": "slotNotification",
+    ///   "params": {
+    ///     "result": {
+    ///       "slot": 5207624
+    ///     },
+    ///     "subscription": 5207624
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// ## Notes
+    /// - The subscription remains active until explicitly unsubscribed or the connection is closed.
+    /// - Slot notifications are sent whenever the slot changes.
+    /// - The subscription automatically terminates when the slot changes.
+    /// - Each subscription runs in its own async task for optimal performance.
+    ///
+    /// ## See Also
+    /// - `slotUnsubscribe`: Remove an active slot subscription
+    #[pubsub(subscription = "slotNotification", subscribe, name = "slotSubscribe")]
+    fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<SlotInfo>);
+
+    /// Unsubscribe from slot notifications.
+    ///
+    /// This method removes an active slot subscription, stopping further notifications
+    /// for the specified subscription ID.
+    ///
+    /// ## Parameters
+    /// - `meta`: Optional WebSocket metadata containing connection information.
+    /// - `subscription`: The subscription ID to remove, as returned by `slotSubscribe`.
+    ///
+    /// ## Returns
+    /// A `Result<bool>` indicating whether the unsubscription was successful:
+    /// - `Ok(true)` if the subscription was successfully removed
+    /// - `Err(Error)` with `InvalidParams` if the subscription ID doesn't exist
+    ///
+    /// ## Example WebSocket Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "slotUnsubscribe",
+    ///   "params": [0]
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": true,
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// ## Notes
+    /// - Attempting to unsubscribe from a non-existent subscription will return an error.
+    /// - Successfully unsubscribed connections will no longer receive notifications.
+    /// - This method is thread-safe and can be called concurrently.
+    ///
+    /// ## See Also
+    /// - `slotSubscribe`: Create a slot subscription
+    #[pubsub(
+        subscription = "slotNotification",
+        unsubscribe,
+        name = "slotUnsubscribe"
+    )]
+    fn slot_unsubscribe(
+        &self,
+        meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool>;
 }
 
 /// WebSocket RPC server implementation for Surfpool.
@@ -348,8 +461,9 @@ pub trait Rpc {
 ///
 /// ## Fields
 /// - `uid`: Atomic counter for generating unique subscription IDs across all subscription types.
-/// - `active`: Thread-safe HashMap containing active signature subscriptions, mapping subscription IDs to their notification sinks.
-/// - `account_active`: Thread-safe HashMap containing active account subscriptions, mapping subscription IDs to their notification sinks.
+/// - `signature_subscription_map`: Thread-safe HashMap containing active signature subscriptions, mapping subscription IDs to their notification sinks.
+/// - `account_subscription_map`: Thread-safe HashMap containing active account subscriptions, mapping subscription IDs to their notification sinks.
+/// - `slot_subscription_map`: Thread-safe HashMap containing active slot subscriptions, mapping subscription IDs to their notification sinks.
 /// - `tokio_handle`: Runtime handle for spawning asynchronous subscription monitoring tasks.
 ///
 /// ## Features
@@ -373,8 +487,11 @@ pub trait Rpc {
 /// - `RpcAccountSubscribeConfig`: Configuration options for account subscriptions
 pub struct SurfpoolWsRpc {
     pub uid: atomic::AtomicUsize,
-    pub active: Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcSignatureResult>>>>>,
-    pub account_active: Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<UiAccount>>>>>,
+    pub signature_subscription_map:
+        Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcSignatureResult>>>>>,
+    pub account_subscription_map:
+        Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<UiAccount>>>>>,
+    pub slot_subscription_map: Arc<RwLock<HashMap<SubscriptionId, Sink<SlotInfo>>>>,
     pub tokio_handle: tokio::runtime::Handle,
 }
 
@@ -414,7 +531,9 @@ impl Rpc for SurfpoolWsRpc {
                     message: "Invalid signature format.".into(),
                     data: None,
                 };
-                subscriber.reject(error.clone()).unwrap();
+                if let Err(e) = subscriber.reject(error.clone()) {
+                    log::error!("Failed to reject subscriber: {:?}", e);
+                }
                 return;
             }
         };
@@ -427,24 +546,41 @@ impl Rpc for SurfpoolWsRpc {
 
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
-        let sink = subscriber
-            .assign_id(sub_id.clone())
-            .expect("Failed to assign subscription ID");
-
-        let active = Arc::clone(&self.active);
+        let sink = match subscriber.assign_id(sub_id.clone()) {
+            Ok(sink) => sink,
+            Err(e) => {
+                log::error!("Failed to assign subscription ID: {:?}", e);
+                return;
+            }
+        };
+        let active = Arc::clone(&self.signature_subscription_map);
         let meta = meta.clone();
 
         self.tokio_handle.spawn(async move {
-            active.write().unwrap().insert(sub_id.clone(), sink);
+            if let Ok(mut guard) = active.write() {
+                guard.insert(sub_id.clone(), sink);
+            } else {
+                log::error!("Failed to acquire write lock on signature_subscription_map");
+                return;
+            }
 
             let SurfnetRpcContext {
                 svm_locker,
                 remote_ctx,
             } = match meta.get_rpc_context(None) {
                 Ok(res) => res,
-                Err(_) => panic!(),
+                Err(e) => {
+                    log::error!("Failed to get RPC context: {:?}", e);
+                    if let Ok(mut guard) = active.write() {
+                        if let Some(sink) = guard.remove(&sub_id) {
+                            if let Err(e) = sink.notify(Err(e.into())) {
+                                log::error!("Failed to notify client about RPC context error: {e}");
+                            }
+                        }
+                    }
+                    return;
+                }
             };
-
             // get the signature from the SVM to see if it's already been processed
             let SvmAccessContext {
                 inner: tx_result, ..
@@ -468,13 +604,15 @@ impl Rpc for SurfpoolWsRpc {
                         &SignatureSubscriptionType::Commitment(CommitmentLevel::Finalized),
                         Some(TransactionConfirmationStatus::Finalized),
                     ) => {
-                        if let Some(sink) = active.write().unwrap().remove(&sub_id) {
-                            let _ = sink.notify(Ok(RpcResponse {
-                                context: RpcResponseContext::new(tx.slot),
-                                value: RpcSignatureResult::ProcessedSignature(
-                                    ProcessedSignatureResult { err: None },
-                                ),
-                            }));
+                        if let Ok(mut guard) = active.write() {
+                            if let Some(sink) = guard.remove(&sub_id) {
+                                let _ = sink.notify(Ok(RpcResponse {
+                                    context: RpcResponseContext::new(tx.slot),
+                                    value: RpcSignatureResult::ProcessedSignature(
+                                        ProcessedSignatureResult { err: None },
+                                    ),
+                                }));
+                            }
                         }
                         return;
                     }
@@ -488,23 +626,25 @@ impl Rpc for SurfpoolWsRpc {
 
             loop {
                 if let Ok((slot, some_err)) = rx.try_recv() {
-                    if let Some(sink) = active.write().unwrap().remove(&sub_id) {
-                        match subscription_type {
-                            SignatureSubscriptionType::Received => {
-                                let _ = sink.notify(Ok(RpcResponse {
-                                    context: RpcResponseContext::new(slot),
-                                    value: RpcSignatureResult::ReceivedSignature(
-                                        ReceivedSignatureResult::ReceivedSignature,
-                                    ),
-                                }));
-                            }
-                            SignatureSubscriptionType::Commitment(_) => {
-                                let _ = sink.notify(Ok(RpcResponse {
-                                    context: RpcResponseContext::new(slot),
-                                    value: RpcSignatureResult::ProcessedSignature(
-                                        ProcessedSignatureResult { err: some_err },
-                                    ),
-                                }));
+                    if let Ok(mut guard) = active.write() {
+                        if let Some(sink) = guard.remove(&sub_id) {
+                            match subscription_type {
+                                SignatureSubscriptionType::Received => {
+                                    let _ = sink.notify(Ok(RpcResponse {
+                                        context: RpcResponseContext::new(slot),
+                                        value: RpcSignatureResult::ReceivedSignature(
+                                            ReceivedSignatureResult::ReceivedSignature,
+                                        ),
+                                    }));
+                                }
+                                SignatureSubscriptionType::Commitment(_) => {
+                                    let _ = sink.notify(Ok(RpcResponse {
+                                        context: RpcResponseContext::new(slot),
+                                        value: RpcSignatureResult::ProcessedSignature(
+                                            ProcessedSignatureResult { err: some_err },
+                                        ),
+                                    }));
+                                }
                             }
                         }
                     }
@@ -532,7 +672,12 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = self.active.write().unwrap().remove(&subscription);
+        let removed = if let Ok(mut guard) = self.signature_subscription_map.write() {
+            guard.remove(&subscription)
+        } else {
+            log::error!("Failed to acquire write lock on signature_subscription_map");
+            None
+        };
         if removed.is_some() {
             Ok(true)
         } else {
@@ -583,7 +728,9 @@ impl Rpc for SurfpoolWsRpc {
                     message: "Invalid pubkey format.".into(),
                     data: None,
                 };
-                subscriber.reject(error.clone()).unwrap();
+                if subscriber.reject(error.clone()).is_err() {
+                    log::error!("Failed to reject subscriber for invalid pubkey format.");
+                }
                 return;
             }
         };
@@ -595,34 +742,60 @@ impl Rpc for SurfpoolWsRpc {
 
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
-        let sink = subscriber
-            .assign_id(sub_id.clone())
-            .expect("Failed to assign subscription ID");
+        let sink = match subscriber.assign_id(sub_id.clone()) {
+            Ok(sink) => sink,
+            Err(e) => {
+                log::error!("Failed to assign subscription ID: {:?}", e);
+                return;
+            }
+        };
 
-        let account_active = Arc::clone(&self.account_active);
+        let account_active = Arc::clone(&self.account_subscription_map);
         let meta = meta.clone();
-
-        let svm_locker = meta.get_svm_locker().unwrap();
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => {
+                log::error!("Failed to get SVM locker for account subscription: {e}");
+                if let Err(e) = sink.notify(Err(e.into())) {
+                    log::error!(
+                        "Failed to send error notification to client for SVM locker failure: {e}"
+                    );
+                }
+                return;
+            }
+        };
         let slot = svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot());
 
         self.tokio_handle.spawn(async move {
-            account_active.write().unwrap().insert(sub_id.clone(), sink);
+            if let Ok(mut guard) = account_active.write() {
+                guard.insert(sub_id.clone(), sink);
+            } else {
+                log::error!("Failed to acquire write lock on account_subscription_map");
+                return;
+            }
 
             // subscribe to account updates
             let rx = svm_locker.subscribe_for_account_updates(&pubkey, config.encoding);
 
             loop {
                 // if the subscription has been removed, break the loop
-                if account_active.read().unwrap().get(&sub_id).is_none() {
+                if let Ok(guard) = account_active.read() {
+                    if guard.get(&sub_id).is_none() {
+                        break;
+                    }
+                } else {
+                    log::error!("Failed to acquire read lock on account_subscription_map");
                     break;
                 }
 
                 if let Ok(ui_account) = rx.try_recv() {
-                    if let Some(sink) = account_active.read().unwrap().get(&sub_id) {
-                        let _ = sink.notify(Ok(RpcResponse {
-                            context: RpcResponseContext::new(slot),
-                            value: ui_account,
-                        }));
+                    if let Ok(guard) = account_active.read() {
+                        if let Some(sink) = guard.get(&sub_id) {
+                            let _ = sink.notify(Ok(RpcResponse {
+                                context: RpcResponseContext::new(slot),
+                                value: ui_account,
+                            }));
+                        }
                     }
                 }
             }
@@ -651,7 +824,93 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = self.account_active.write().unwrap().remove(&subscription);
+        let removed = if let Ok(mut guard) = self.account_subscription_map.write() {
+            guard.remove(&subscription)
+        } else {
+            log::error!("Failed to acquire write lock on account_subscription_map");
+            None
+        };
+        if removed.is_some() {
+            Ok(true)
+        } else {
+            Err(Error {
+                code: ErrorCode::InvalidParams,
+                message: "Invalid subscription.".into(),
+                data: None,
+            })
+        }
+    }
+
+    fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<SlotInfo>) {
+        let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
+        let sub_id = SubscriptionId::Number(id as u64);
+        let sink = match subscriber.assign_id(sub_id.clone()) {
+            Ok(sink) => sink,
+            Err(e) => {
+                log::error!("Failed to assign subscription ID: {:?}", e);
+                return;
+            }
+        };
+
+        let slot_active = Arc::clone(&self.slot_subscription_map);
+        let meta = meta.clone();
+
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => {
+                log::error!("Failed to get SVM locker for slot subscription: {e}");
+                if let Err(e) = sink.notify(Err(e.into())) {
+                    log::error!(
+                        "Failed to send error notification to client for SVM locker failure: {e}"
+                    );
+                }
+                return;
+            }
+        };
+
+        self.tokio_handle.spawn(async move {
+            if let Ok(mut guard) = slot_active.write() {
+                guard.insert(sub_id.clone(), sink);
+            } else {
+                log::error!("Failed to acquire write lock on slot_subscription_map");
+                return;
+            }
+
+            let rx = svm_locker.subscribe_for_slot_updates();
+
+            loop {
+                // if the subscription has been removed, break the loop
+                if let Ok(guard) = slot_active.read() {
+                    if guard.get(&sub_id).is_none() {
+                        break;
+                    }
+                } else {
+                    log::error!("Failed to acquire read lock on slot_subscription_map");
+                    break;
+                }
+
+                if let Ok(slot_info) = rx.try_recv() {
+                    if let Ok(guard) = slot_active.read() {
+                        if let Some(sink) = guard.get(&sub_id) {
+                            let _ = sink.notify(Ok(slot_info));
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    fn slot_unsubscribe(
+        &self,
+        _meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool> {
+        let removed = if let Ok(mut guard) = self.slot_subscription_map.write() {
+            guard.remove(&subscription)
+        } else {
+            log::error!("Failed to acquire write lock on slot_subscription_map");
+            None
+        };
         if removed.is_some() {
             Ok(true)
         } else {

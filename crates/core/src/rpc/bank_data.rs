@@ -452,12 +452,19 @@ impl BankData for SurfpoolBankDataRpc {
         }
 
         let svm_locker = meta.get_svm_locker()?;
-        let latest_slot = svm_locker.get_latest_absolute_slot();
-        if start_slot >= latest_slot {
+        let epoch_info = svm_locker.get_epoch_info();
+
+        let first_slot_in_epoch = epoch_info
+            .absolute_slot
+            .saturating_sub(epoch_info.slot_index);
+        let last_slot_in_epoch = first_slot_in_epoch + epoch_info.slots_in_epoch.saturating_sub(1);
+        if start_slot > last_slot_in_epoch || (start_slot + limit) > last_slot_in_epoch {
             return Err(jsonrpc_core::Error {
                 code: jsonrpc_core::ErrorCode::InvalidParams,
-                message: "Invalid slot range: start slot must be less than the latest slot"
-                    .to_string(),
+                message: format!(
+                    "Invalid slot range: leader schedule for epoch {} is unavailable",
+                    epoch_info.epoch
+                ),
                 data: None,
             });
         }
@@ -609,5 +616,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, Inflation::default().into())
+    fn test_get_minimum_balance_for_rent_exemption() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+        let rent = setup
+            .rpc
+            .get_minimum_balance_for_rent_exemption(Some(setup.context), 0, None)
+            .unwrap();
+
+        assert_eq!(rent, 890880)
     }
 }
