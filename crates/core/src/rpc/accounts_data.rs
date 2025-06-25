@@ -378,11 +378,16 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                 ..
             } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
 
+            let SvmAccessContext {
+                inner: associated_data,
+                ..
+             } = svm_locker.get_local_account_associated_data(&pubkey);
+
             svm_locker.write_account_update(account_update.clone());
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
-                value: account_update.try_into_ui_account(config.encoding, config.data_slice),
+                value: account_update.try_into_ui_account(config.encoding, config.data_slice, associated_data),
             })
         })
     }
@@ -426,7 +431,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             {
                 for account_update in account_updates.into_iter() {
                     ui_accounts.push(
-                        account_update.try_into_ui_account(config.encoding, config.data_slice),
+                        account_update.try_into_ui_account(config.encoding, config.data_slice, None),
                     );
                 }
             }

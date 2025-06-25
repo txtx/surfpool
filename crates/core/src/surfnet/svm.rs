@@ -9,7 +9,7 @@ use litesvm::{
     LiteSVM,
 };
 use solana_account::Account;
-use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
+use solana_account_decoder::{encode_ui_account, parse_account_data::{AccountAdditionalData, AccountAdditionalDataV3, SplTokenAdditionalDataV2}, UiAccount, UiAccountEncoding};
 use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_epoch_info::EpochInfo;
@@ -78,6 +78,7 @@ pub struct SurfnetSvm {
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
+    pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: HashMap<Pubkey, spl_token::state::Account>,
     pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
@@ -140,6 +141,7 @@ impl SurfnetSvm {
                 updated_at: Utc::now().timestamp_millis() as u64,
                 accounts_registry: HashMap::new(),
                 accounts_by_owner: HashMap::new(),
+                account_associated_data: HashMap::new(),
                 token_accounts: HashMap::new(),
                 token_accounts_by_owner: HashMap::new(),
                 token_accounts_by_delegate: HashMap::new(),
@@ -437,6 +439,7 @@ impl SurfnetSvm {
         }
     }
 
+
     /// Sends a transaction to the system for execution.
     ///
     /// This function attempts to send a transaction to the blockchain. It first increments the `transactions_processed` counter.
@@ -492,8 +495,28 @@ impl SurfnetSvm {
             return Err(FailedTransactionMetadata { err, meta });
         }
         self.inner.set_blockhash_check(false);
+
         match self.inner.send_transaction(tx.clone()) {
             Ok(res) => {
+                for instruction in tx.message.instructions().iter() {
+                    let accounts = tx.message.static_account_keys();
+                    let program_id = instruction.program_id(accounts).to_string();
+                    if program_id.starts_with("Token") {
+                        if instruction.data[0] == 20 {
+                            let decimals = instruction.data[1];
+                            let account_index = instruction.accounts[0] as usize;
+                            let account = accounts[account_index];
+                            self.account_associated_data.insert(account, AccountAdditionalDataV3 {
+                                spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                                    decimals,
+                                    interest_bearing_config: None,
+                                    scaled_ui_amount_config: None
+                                })
+                            });
+                        }
+                    }
+                }
+
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res);
 
                 self.transactions.insert(

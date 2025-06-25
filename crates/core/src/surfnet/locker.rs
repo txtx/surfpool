@@ -6,9 +6,7 @@ use jsonrpc_core::futures::future::join_all;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
 use solana_account_decoder::{
-    encode_ui_account,
-    parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram},
-    UiAccount, UiAccountEncoding,
+    encode_ui_account, parse_account_data::AccountAdditionalDataV3, parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram}, UiAccount, UiAccountEncoding
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
@@ -233,6 +231,16 @@ impl SurfnetSvmLocker {
             }
             _ => Ok(result),
         }
+    }
+
+    /// Retrieves an account, using local or remote based on context, applying a default factory if provided.
+    pub fn get_local_account_associated_data(
+        &self,
+        pubkey: &Pubkey,
+    ) -> SvmAccessContext<Option<AccountAdditionalDataV3>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            svm_reader.account_associated_data.get(pubkey).map(|e| e.clone())
+        })
     }
 
     /// Retrieves multiple accounts from local cache, returning a contextualized result.
