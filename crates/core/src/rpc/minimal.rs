@@ -1012,7 +1012,10 @@ mod tests {
         assert_eq!(
             &result.identity,
             "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr"
-        )
+        );
+    }
+
+    #[test]
     fn test_get_leader_schedule_valid_cases() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
 
