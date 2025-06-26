@@ -525,10 +525,27 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
 
     fn get_largest_accounts(
         &self,
-        _meta: Self::Metadata,
-        _config: Option<RpcLargestAccountsConfig>,
+        meta: Self::Metadata,
+        config: Option<RpcLargestAccountsConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcAccountBalance>>>> {
-        not_implemented_err_async("get_largest_accounts")
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let current_slot = svm_locker.get_latest_absolute_slot();
+
+            let largest_accounts = svm_locker.get_largest_accounts(&remote_ctx).await?.inner;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(current_slot),
+                value: largest_accounts,
+            })
+        })
     }
 
     fn get_supply(
@@ -1116,5 +1133,36 @@ mod tests {
         assert_eq!(supply.value.total, 0);
         assert_eq!(supply.value.circulating, 0);
         assert_eq!(supply.value.non_circulating, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_largest_accounts() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        let large_account_pubkey = Pubkey::new_unique();
+        let large_amount = 1_000_000_000_000_000u64;
+
+        setup
+            .context
+            .svm_locker
+            .with_svm_writer(|svm_writer| {
+                svm_writer.set_account(
+                    &large_account_pubkey,
+                    Account {
+                        lamports: large_amount,
+                        ..Default::default()
+                    },
+                )
+            })
+            .unwrap();
+
+        let result = setup
+            .rpc
+            .get_largest_accounts(Some(setup.context), None)
+            .await
+            .unwrap();
+
+        assert_eq!(large_account_pubkey.to_string(), result.value[0].address);
+        assert_eq!(large_amount, result.value[0].lamports);
     }
 }
