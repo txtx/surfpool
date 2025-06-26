@@ -28,6 +28,19 @@ pub enum SetSomeAccount {
     NoAccount,
 }
 
+#[derive(JsonSchema, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupplyUpdate {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub circulating: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub non_circulating: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub non_circulating_accounts: Option<Vec<String>>,
+}
+
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase", rename = "endpoints")]
 pub enum SurfnetCheatcodes {
@@ -41,6 +54,8 @@ pub enum SurfnetCheatcodes {
     ProfileTransaction(ProfileTransaction),
     #[schemars(description = "Gets the profile results for a given tag.")]
     GetProfileResults(GetProfileResults),
+    #[schemars(description = "Sets the supply for the cluster.")]
+    SetSupply(SetSupply),
 }
 
 #[derive(JsonSchema)]
@@ -77,4 +92,10 @@ pub struct ProfileTransaction {
 #[serde(rename_all = "camelCase")]
 pub struct GetProfileResults {
     pub tag: String,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSupply {
+    pub update: SupplyUpdate,
 }

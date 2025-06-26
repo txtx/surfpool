@@ -189,3 +189,124 @@ pub enum UiTransactionEncoding {
     #[serde(rename = "base64+zstd")]
     Base64Zstd,
 }
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcBlockProductionConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<RpcBlockProductionConfigRange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commitment: Option<CommitmentConfig>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcBlockProductionConfigRange {
+    pub first_slot: Slot,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_slot: Option<Slot>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcSignatureStatusConfig {
+    pub search_transaction_history: bool,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcRequestAirdropConfig {
+    #[serde(flatten)]
+    pub commitment: Option<CommitmentConfig>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcSimulateTransactionConfig {
+    pub sig_verify: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub replace_recent_blockhash: bool,
+    #[serde(flatten)]
+    pub commitment: Option<CommitmentConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<UiTransactionEncoding>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accounts: Option<RpcSimulateTransactionAccountsConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_context_slot: Option<Slot>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub inner_instructions: bool,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcSimulateTransactionAccountsConfig {
+    pub encoding: Option<UiAccountEncoding>,
+    pub addresses: Vec<String>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum TransactionDetails {
+    Full,
+    Accounts,
+    Signatures,
+    None,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcBlockConfig {
+    pub encoding: Option<UiTransactionEncoding>,
+    pub transaction_details: Option<TransactionDetails>,
+    pub rewards: Option<bool>,
+    pub commitment: Option<CommitmentConfig>,
+    pub max_supported_transaction_version: Option<u8>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcTransactionConfig {
+    pub commitment: Option<CommitmentConfig>,
+    pub max_supported_transaction_version: Option<u8>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[serde(untagged)]
+pub enum RpcBlocksConfigWrapper {
+    EndSlotOnly(Option<Slot>),
+    ConfigOnly(RpcContextConfig),
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcGetVoteAccountsConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vote_pubkey: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commitment: Option<CommitmentConfig>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_unstaked_delinquents: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delinquent_slot_distance: Option<u64>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[serde(untagged)]
+pub enum RpcLeaderScheduleConfigWrapper {
+    SlotOnly(Option<Slot>),
+    ConfigOnly(RpcLeaderScheduleConfig),
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcLeaderScheduleConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commitment: Option<CommitmentConfig>,
+}

@@ -1,6 +1,10 @@
 use schemars::JsonSchema;
 
-use crate::rpc::schema::solana_types::{RpcAccountInfoConfig, Slot};
+use crate::rpc::schema::solana_types::{
+    RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig, RpcEpochConfig,
+    RpcRequestAirdropConfig, RpcSendTransactionConfig, RpcSignatureStatusConfig,
+    RpcSimulateTransactionConfig, RpcTransactionConfig, Slot,
+};
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase", rename = "endpoints")]
@@ -40,13 +44,13 @@ pub enum Full {
     #[schemars(description = "Returns the first available block.")]
     GetFirstAvailableBlock,
     #[schemars(description = "Returns the latest blockhash.")]
-    GetLatestBlockhash,
+    GetLatestBlockhash(GetLatestBlockhash),
     #[schemars(description = "Returns the blockhash validity.")]
     IsBlockhashValid(IsBlockhashValid),
     #[schemars(description = "Returns the fee for a given message.")]
     GetFeeForMessage(GetFeeForMessage),
     #[schemars(description = "Returns the stake minimum delegation.")]
-    GetStakeMinimumDelegation,
+    GetStakeMinimumDelegation(GetStakeMinimumDelegation),
     #[schemars(description = "Returns the recent prioritization fees.")]
     GetRecentPrioritizationFees(GetRecentPrioritizationFees),
 }
@@ -55,7 +59,7 @@ pub enum Full {
 #[serde(rename_all = "camelCase")]
 pub struct GetInflationReward {
     pub addresses: Vec<String>,
-    pub config: Option<RpcAccountInfoConfig>,
+    pub config: Option<RpcEpochConfig>,
 }
 
 #[derive(JsonSchema)]
@@ -68,6 +72,7 @@ pub struct GetRecentPerformanceSamples {
 #[serde(rename_all = "camelCase")]
 pub struct GetSignatureStatuses {
     pub signatures: Vec<String>,
+    pub config: Option<RpcSignatureStatusConfig>,
 }
 
 #[derive(JsonSchema)]
@@ -75,24 +80,28 @@ pub struct GetSignatureStatuses {
 pub struct RequestAirdrop {
     pub pubkey: String,
     pub lamports: u64,
+    pub config: Option<RpcRequestAirdropConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SendTransaction {
     pub transaction: String,
+    pub config: Option<RpcSendTransactionConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SimulateTransaction {
     pub transaction: String,
+    pub config: Option<RpcSimulateTransactionConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetBlock {
     pub slot: Slot,
+    pub config: Option<RpcBlockConfig>,
 }
 
 #[derive(JsonSchema)]
@@ -105,7 +114,8 @@ pub struct GetBlockTime {
 #[serde(rename_all = "camelCase")]
 pub struct GetBlocks {
     pub start_slot: Slot,
-    pub end_slot: Option<Slot>,
+    pub wrapper: Option<RpcBlocksConfigWrapper>,
+    pub config: Option<RpcContextConfig>,
 }
 
 #[derive(JsonSchema)]
@@ -113,12 +123,14 @@ pub struct GetBlocks {
 pub struct GetBlocksWithLimit {
     pub start_slot: Slot,
     pub limit: usize,
+    pub config: Option<RpcContextConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetTransaction {
     pub signature: String,
+    pub config: Option<RpcTransactionConfig>,
 }
 
 #[derive(JsonSchema)]
@@ -132,14 +144,28 @@ pub struct GetSignaturesForAddress {
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct GetLatestBlockhash {
+    pub config: Option<RpcContextConfig>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct IsBlockhashValid {
     pub blockhash: String,
+    pub config: Option<RpcContextConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetFeeForMessage {
     pub message: String,
+    pub config: Option<RpcContextConfig>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GetStakeMinimumDelegation {
+    pub config: Option<RpcContextConfig>,
 }
 
 #[derive(JsonSchema)]

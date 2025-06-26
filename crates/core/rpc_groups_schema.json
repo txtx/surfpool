@@ -134,6 +134,34 @@
         }
       }
     },
+    "AddAuthorizedVoter": {
+      "type": "object",
+      "properties": {
+        "keypairFile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "keypairFile"
+      ]
+    },
+    "AddAuthorizedVoterFromBytes": {
+      "type": "object",
+      "properties": {
+        "keypair": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0
+          }
+        }
+      },
+      "required": [
+        "keypair"
+      ]
+    },
     "CloneProgramAccount": {
       "type": "object",
       "properties": {
@@ -225,6 +253,16 @@
     "GetBlock": {
       "type": "object",
       "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcBlockConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "slot": {
           "type": "integer",
           "format": "uint64",
@@ -248,6 +286,36 @@
         "block"
       ]
     },
+    "GetBlockHeight": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "GetBlockProduction": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcBlockProductionConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "GetBlockTime": {
       "type": "object",
       "properties": {
@@ -264,18 +332,30 @@
     "GetBlocks": {
       "type": "object",
       "properties": {
-        "endSlot": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint64",
-          "minimum": 0
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "startSlot": {
           "type": "integer",
           "format": "uint64",
           "minimum": 0
+        },
+        "wrapper": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcBlocksConfigWrapper"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -285,6 +365,16 @@
     "GetBlocksWithLimit": {
       "type": "object",
       "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "limit": {
           "type": "integer",
           "format": "uint",
@@ -301,9 +391,34 @@
         "limit"
       ]
     },
+    "GetEpochInfo": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "GetFeeForMessage": {
       "type": "object",
       "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "message": {
           "type": "string"
         }
@@ -339,7 +454,7 @@
         "config": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RpcAccountInfoConfig"
+              "$ref": "#/$defs/RpcEpochConfig"
             },
             {
               "type": "null"
@@ -358,6 +473,46 @@
           "anyOf": [
             {
               "$ref": "#/$defs/RpcLargestAccountsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "GetLatestBlockhash": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "GetLeaderSchedule": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcLeaderScheduleConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "options": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcLeaderScheduleConfigWrapper"
             },
             {
               "type": "null"
@@ -472,9 +627,30 @@
         }
       }
     },
+    "GetSecondaryIndexKeySize": {
+      "type": "object",
+      "properties": {
+        "pubkeyStr": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pubkeyStr"
+      ]
+    },
     "GetSignatureStatuses": {
       "type": "object",
       "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcSignatureStatusConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "signatures": {
           "type": "array",
           "items": {
@@ -517,6 +693,36 @@
         "address"
       ]
     },
+    "GetSlot": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "GetSlotLeader": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "GetSlotLeaders": {
       "type": "object",
       "properties": {
@@ -535,6 +741,21 @@
         "startSlot",
         "limit"
       ]
+    },
+    "GetStakeMinimumDelegation": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     },
     "GetSupply": {
       "type": "object",
@@ -711,6 +932,16 @@
     "GetTransaction": {
       "type": "object",
       "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcTransactionConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "signature": {
           "type": "string"
         }
@@ -719,11 +950,51 @@
         "signature"
       ]
     },
+    "GetTransactionCount": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "GetVoteAccounts": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcGetVoteAccountsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "IsBlockhashValid": {
       "type": "object",
       "properties": {
         "blockhash": {
           "type": "string"
+        },
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -843,9 +1114,44 @@
         "configFile"
       ]
     },
+    "RepairShredFromPeer": {
+      "type": "object",
+      "properties": {
+        "pubkey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "shredIndex": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "slot": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "slot",
+        "shredIndex"
+      ]
+    },
     "RequestAirdrop": {
       "type": "object",
       "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcRequestAirdropConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "lamports": {
           "type": "integer",
           "format": "uint64",
@@ -899,6 +1205,123 @@
         }
       }
     },
+    "RpcBlockConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "encoding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiTransactionEncoding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxSupportedTransactionVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "rewards": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "transactionDetails": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransactionDetails"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "RpcBlockProductionConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "identity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcBlockProductionConfigRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "RpcBlockProductionConfigRange": {
+      "type": "object",
+      "properties": {
+        "firstSlot": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "lastSlot": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "firstSlot"
+      ]
+    },
+    "RpcBlocksConfigWrapper": {
+      "anyOf": [
+        {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        {
+          "$ref": "#/$defs/RpcContextConfig"
+        }
+      ]
+    },
     "RpcContextConfig": {
       "type": "object",
       "properties": {
@@ -907,6 +1330,32 @@
         },
         "minContextSlot": {
           "description": "The minimum context slot for the context.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "RpcEpochConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "$ref": "#/$defs/CommitmentLevel"
+        },
+        "epoch": {
+          "description": "The epoch number to query.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "minContextSlot": {
+          "description": "The minimum context slot for the epoch.",
           "type": [
             "integer",
             "null"
@@ -966,6 +1415,38 @@
         }
       ]
     },
+    "RpcGetVoteAccountsConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delinquentSlotDistance": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "keepUnstakedDelinquents": {
+          "type": "boolean"
+        },
+        "votePubkey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
     "RpcLargestAccountsConfig": {
       "type": "object",
       "properties": {
@@ -990,6 +1471,42 @@
       "enum": [
         "circulating",
         "nonCirculating"
+      ]
+    },
+    "RpcLeaderScheduleConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "identity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "RpcLeaderScheduleConfigWrapper": {
+      "anyOf": [
+        {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        {
+          "$ref": "#/$defs/RpcLeaderScheduleConfig"
+        }
       ]
     },
     "RpcProgramAccountsConfig": {
@@ -1055,6 +1572,149 @@
         }
       }
     },
+    "RpcRequestAirdropConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "$ref": "#/$defs/CommitmentLevel"
+        }
+      }
+    },
+    "RpcSendTransactionConfig": {
+      "type": "object",
+      "properties": {
+        "encoding": {
+          "description": "The encoding for the transaction.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiTransactionEncoding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxRetries": {
+          "description": "The maximum number of retries for the transaction.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        },
+        "minContextSlot": {
+          "description": "The minimum context slot for the transaction.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "preflightCommitment": {
+          "description": "The commitment level for the preflight check.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "skipPreflight": {
+          "description": "Whether to skip the preflight check.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "skipPreflight"
+      ]
+    },
+    "RpcSignatureStatusConfig": {
+      "type": "object",
+      "properties": {
+        "searchTransactionHistory": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "searchTransactionHistory"
+      ]
+    },
+    "RpcSimulateTransactionAccountsConfig": {
+      "type": "object",
+      "properties": {
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "encoding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiAccountEncoding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "addresses"
+      ]
+    },
+    "RpcSimulateTransactionConfig": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcSimulateTransactionAccountsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "commitment": {
+          "$ref": "#/$defs/CommitmentLevel"
+        },
+        "encoding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiTransactionEncoding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "innerInstructions": {
+          "type": "boolean"
+        },
+        "minContextSlot": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "replaceRecentBlockhash": {
+          "type": "boolean"
+        },
+        "sigVerify": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sigVerify"
+      ]
+    },
     "RpcSupplyConfig": {
       "type": "object",
       "properties": {
@@ -1070,9 +1730,43 @@
         "excludeNonCirculatingAccountsList"
       ]
     },
+    "RpcTransactionConfig": {
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxSupportedTransactionVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      }
+    },
     "SendTransaction": {
       "type": "object",
       "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcSendTransactionConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "transaction": {
           "type": "string"
         }
@@ -1096,6 +1790,42 @@
         "update"
       ]
     },
+    "SetIdentity": {
+      "type": "object",
+      "properties": {
+        "keypairFile": {
+          "type": "string"
+        },
+        "requireTower": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "keypairFile",
+        "requireTower"
+      ]
+    },
+    "SetIdentityFromBytes": {
+      "type": "object",
+      "properties": {
+        "identityKeypair": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0
+          }
+        },
+        "requireTower": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "identityKeypair",
+        "requireTower"
+      ]
+    },
     "SetLogFilter": {
       "type": "object",
       "properties": {
@@ -1105,6 +1835,42 @@
       },
       "required": [
         "filter"
+      ]
+    },
+    "SetPublicTpuAddress": {
+      "type": "object",
+      "properties": {
+        "publicTpuAddr": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "publicTpuAddr"
+      ]
+    },
+    "SetPublicTpuForwardsAddress": {
+      "type": "object",
+      "properties": {
+        "publicTpuForwardsAddr": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "publicTpuForwardsAddr"
+      ]
+    },
+    "SetRepairWhitelist": {
+      "type": "object",
+      "properties": {
+        "whitelist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "whitelist"
       ]
     },
     "SetSomeAccount": {
@@ -1127,6 +1893,28 @@
             "account"
           ]
         }
+      ]
+    },
+    "SetStakedNodesOverrides": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "SetSupply": {
+      "type": "object",
+      "properties": {
+        "update": {
+          "$ref": "#/$defs/SupplyUpdate"
+        }
+      },
+      "required": [
+        "update"
       ]
     },
     "SetTokenAccount": {
@@ -1157,6 +1945,16 @@
     "SimulateTransaction": {
       "type": "object",
       "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcSimulateTransactionConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "transaction": {
           "type": "string"
         }
@@ -1164,6 +1962,44 @@
       "required": [
         "transaction"
       ]
+    },
+    "SupplyUpdate": {
+      "type": "object",
+      "properties": {
+        "circulating": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "nonCirculating": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "nonCirculatingAccounts": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
     },
     "TokenAccountUpdate": {
       "type": "object",
@@ -1212,6 +2048,15 @@
         }
       }
     },
+    "TransactionDetails": {
+      "type": "string",
+      "enum": [
+        "full",
+        "accounts",
+        "signatures",
+        "none"
+      ]
+    },
     "UiAccountEncoding": {
       "type": "string",
       "enum": [
@@ -1239,6 +2084,17 @@
       "required": [
         "offset",
         "length"
+      ]
+    },
+    "UiTransactionEncoding": {
+      "type": "string",
+      "enum": [
+        "binary",
+        "base58",
+        "base64",
+        "json",
+        "jsonParsed",
+        "base64+zstd"
       ]
     },
     "UnloadPlugin": {
@@ -1476,6 +2332,141 @@
           "description": "Returns the system start time.",
           "type": "string",
           "const": "startTime"
+        },
+        {
+          "description": "Adds an authorized voter to the system.",
+          "type": "object",
+          "properties": {
+            "addAuthorizedVoter": {
+              "$ref": "#/$defs/AddAuthorizedVoter"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "addAuthorizedVoter"
+          ]
+        },
+        {
+          "description": "Adds an authorized voter to the system using a byte-encoded keypair.",
+          "type": "object",
+          "properties": {
+            "addAuthorizedVoterFromBytes": {
+              "$ref": "#/$defs/AddAuthorizedVoterFromBytes"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "addAuthorizedVoterFromBytes"
+          ]
+        },
+        {
+          "description": "Removes all authorized voters from the system.",
+          "type": "string",
+          "const": "removeAllAuthorizedVoters"
+        },
+        {
+          "description": "Sets the identity for the system using the provided keypair.",
+          "type": "object",
+          "properties": {
+            "setIdentity": {
+              "$ref": "#/$defs/SetIdentity"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "setIdentity"
+          ]
+        },
+        {
+          "description": "Sets the identity for the system using a keypair provided as a byte array.",
+          "type": "object",
+          "properties": {
+            "setIdentityFromBytes": {
+              "$ref": "#/$defs/SetIdentityFromBytes"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "setIdentityFromBytes"
+          ]
+        },
+        {
+          "description": "Sets the overrides for staked nodes using a specified path.",
+          "type": "object",
+          "properties": {
+            "setStakedNodesOverrides": {
+              "$ref": "#/$defs/SetStakedNodesOverrides"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "setStakedNodesOverrides"
+          ]
+        },
+        {
+          "description": "Repairs a shred from a peer node in the network.",
+          "type": "object",
+          "properties": {
+            "repairShredFromPeer": {
+              "$ref": "#/$defs/RepairShredFromPeer"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "repairShredFromPeer"
+          ]
+        },
+        {
+          "description": "Sets the whitelist of nodes allowed to repair shreds.",
+          "type": "object",
+          "properties": {
+            "setRepairWhitelist": {
+              "$ref": "#/$defs/SetRepairWhitelist"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "setRepairWhitelist"
+          ]
+        },
+        {
+          "description": "Retrieves the size of the secondary index key for a given account.",
+          "type": "object",
+          "properties": {
+            "getSecondaryIndexKeySize": {
+              "$ref": "#/$defs/GetSecondaryIndexKeySize"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getSecondaryIndexKeySize"
+          ]
+        },
+        {
+          "description": "Sets the public TPU (Transaction Processing Unit) address.",
+          "type": "object",
+          "properties": {
+            "setPublicTpuAddress": {
+              "$ref": "#/$defs/SetPublicTpuAddress"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "setPublicTpuAddress"
+          ]
+        },
+        {
+          "description": "Sets the public TPU forwards address.",
+          "type": "object",
+          "properties": {
+            "setPublicTpuForwardsAddress": {
+              "$ref": "#/$defs/SetPublicTpuForwardsAddress"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "setPublicTpuForwardsAddress"
+          ]
         }
       ]
     },
@@ -1519,8 +2510,16 @@
         },
         {
           "description": "Retrieves the leader of the current slot.",
-          "type": "string",
-          "const": "getSlotLeader"
+          "type": "object",
+          "properties": {
+            "getSlotLeader": {
+              "$ref": "#/$defs/GetSlotLeader"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getSlotLeader"
+          ]
         },
         {
           "description": "Retrieves the leaders for a specified range of slots.",
@@ -1537,8 +2536,16 @@
         },
         {
           "description": "Retrieves block production information.",
-          "type": "string",
-          "const": "getBlockProduction"
+          "type": "object",
+          "properties": {
+            "getBlockProduction": {
+              "$ref": "#/$defs/GetBlockProduction"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getBlockProduction"
+          ]
         }
       ]
     },
@@ -1727,8 +2734,16 @@
         },
         {
           "description": "Returns the latest blockhash.",
-          "type": "string",
-          "const": "getLatestBlockhash"
+          "type": "object",
+          "properties": {
+            "getLatestBlockhash": {
+              "$ref": "#/$defs/GetLatestBlockhash"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getLatestBlockhash"
+          ]
         },
         {
           "description": "Returns the blockhash validity.",
@@ -1758,8 +2773,16 @@
         },
         {
           "description": "Returns the stake minimum delegation.",
-          "type": "string",
-          "const": "getStakeMinimumDelegation"
+          "type": "object",
+          "properties": {
+            "getStakeMinimumDelegation": {
+              "$ref": "#/$defs/GetStakeMinimumDelegation"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getStakeMinimumDelegation"
+          ]
         },
         {
           "description": "Returns the recent prioritization fees.",
@@ -1793,8 +2816,16 @@
         },
         {
           "description": "Returns the epoch info.",
-          "type": "string",
-          "const": "getEpochInfo"
+          "type": "object",
+          "properties": {
+            "getEpochInfo": {
+              "$ref": "#/$defs/GetEpochInfo"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getEpochInfo"
+          ]
         },
         {
           "description": "Returns the genesis hash.",
@@ -1813,13 +2844,29 @@
         },
         {
           "description": "Returns the current slot.",
-          "type": "string",
-          "const": "getSlot"
+          "type": "object",
+          "properties": {
+            "getSlot": {
+              "$ref": "#/$defs/GetSlot"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getSlot"
+          ]
         },
         {
           "description": "Returns the block height.",
-          "type": "string",
-          "const": "getBlockHeight"
+          "type": "object",
+          "properties": {
+            "getBlockHeight": {
+              "$ref": "#/$defs/GetBlockHeight"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getBlockHeight"
+          ]
         },
         {
           "description": "Returns the highest snapshot slot.",
@@ -1828,8 +2875,16 @@
         },
         {
           "description": "Returns the transaction count.",
-          "type": "string",
-          "const": "getTransactionCount"
+          "type": "object",
+          "properties": {
+            "getTransactionCount": {
+              "$ref": "#/$defs/GetTransactionCount"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getTransactionCount"
+          ]
         },
         {
           "description": "Returns the version of the cluster.",
@@ -1838,13 +2893,29 @@
         },
         {
           "description": "Returns the vote accounts.",
-          "type": "string",
-          "const": "getVoteAccounts"
+          "type": "object",
+          "properties": {
+            "getVoteAccounts": {
+              "$ref": "#/$defs/GetVoteAccounts"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getVoteAccounts"
+          ]
         },
         {
           "description": "Returns the leader schedule.",
-          "type": "string",
-          "const": "getLeaderSchedule"
+          "type": "object",
+          "properties": {
+            "getLeaderSchedule": {
+              "$ref": "#/$defs/GetLeaderSchedule"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getLeaderSchedule"
+          ]
         }
       ]
     },
@@ -1913,6 +2984,19 @@
           "additionalProperties": false,
           "required": [
             "getProfileResults"
+          ]
+        },
+        {
+          "description": "Sets the supply for the cluster.",
+          "type": "object",
+          "properties": {
+            "setSupply": {
+              "$ref": "#/$defs/SetSupply"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "setSupply"
           ]
         }
       ]
