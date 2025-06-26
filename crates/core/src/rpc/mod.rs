@@ -26,6 +26,7 @@ pub mod admin;
 pub mod bank_data;
 pub mod full;
 pub mod minimal;
+pub mod schema;
 pub mod surfnet_cheatcodes;
 pub mod utils;
 pub mod ws;
