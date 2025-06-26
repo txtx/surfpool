@@ -43,7 +43,7 @@ use super::{
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     surfnet::{locker::SvmAccessContext, GetTransactionResult, FINALIZATION_SLOT_THRESHOLD},
-    types::SurfnetTransactionStatus,
+    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 
 const MAX_PRIORITIZATION_FEE_BLOCKS_CACHE: usize = 150;
@@ -1981,11 +1981,29 @@ impl Full for SurfpoolFullRpc {
 
     fn get_signatures_for_address(
         &self,
-        _meta: Self::Metadata,
-        _address: String,
-        _config: Option<RpcSignaturesForAddressConfig>,
+        meta: Self::Metadata,
+        address: String,
+        config: Option<RpcSignaturesForAddressConfig>,
     ) -> BoxFuture<Result<Vec<RpcConfirmedTransactionStatusWithSignature>>> {
-        not_implemented_err_async("get_signatures_for_address")
+        let pubkey = match verify_pubkey(&address) {
+            Ok(s) => s,
+            Err(e) => return e.into(),
+        };
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let signatures = svm_locker
+                .get_signatures_for_address(&remote_ctx, &pubkey, config)
+                .await?
+                .inner;
+            Ok(signatures)
+        })
     }
 
     fn get_first_available_block(&self, meta: Self::Metadata) -> Result<Slot> {
@@ -2251,11 +2269,15 @@ mod tests {
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::{
-        legacy::Message as LegacyMessage, v0::Message as V0Message, MessageHeader,
+        legacy::Message as LegacyMessage,
+        v0::{self, Message as V0Message},
+        MessageHeader,
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
-    use solana_sdk::{instruction::Instruction, system_instruction};
+    use solana_sdk::{
+        instruction::Instruction, system_instruction, transaction_context::TransactionReturnData,
+    };
     use solana_signer::Signer;
     use solana_system_interface::program as system_program;
     use solana_transaction::{

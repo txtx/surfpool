@@ -1,11 +1,17 @@
+use std::str::FromStr;
+
 use serde_json::json;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
-    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig, RpcTokenAccountsFilter},
+    rpc_client::GetConfirmedSignaturesForAddress2Config,
+    rpc_config::{
+        RpcAccountInfoConfig, RpcProgramAccountsConfig, RpcSignaturesForAddressConfig,
+        RpcTokenAccountsFilter,
+    },
     rpc_filter::RpcFilterType,
     rpc_request::{RpcRequest, TokenAccountsFilter},
-    rpc_response::{RpcKeyedAccount, RpcResult},
+    rpc_response::{RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount, RpcResult},
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
@@ -207,5 +213,25 @@ impl SurfnetRemoteClient {
                     .collect()
             })
             .map_err(|e| SurfpoolError::get_program_accounts(*program_id, e))
+    }
+
+    pub async fn get_signatures_for_address(
+        &self,
+        pubkey: &Pubkey,
+        config: Option<RpcSignaturesForAddressConfig>,
+    ) -> SurfpoolResult<Vec<RpcConfirmedTransactionStatusWithSignature>> {
+        let c = match config {
+            Some(c) => GetConfirmedSignaturesForAddress2Config {
+                before: c.before.map(|s| Signature::from_str(&s).ok()).flatten(),
+                commitment: c.commitment,
+                limit: c.limit,
+                until: c.until.map(|s| Signature::from_str(&s).ok()).flatten(),
+            },
+            _ => GetConfirmedSignaturesForAddress2Config::default(),
+        };
+        self.client
+            .get_signatures_for_address_with_config(&pubkey, c)
+            .await
+            .map_err(|e| SurfpoolError::get_signatures_for_address(e))
     }
 }
