@@ -11,7 +11,9 @@ use solana_client::{
     },
     rpc_filter::RpcFilterType,
     rpc_request::{RpcRequest, TokenAccountsFilter},
-    rpc_response::{RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount, RpcResult},
+    rpc_response::{
+        RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount, RpcResult,
+    },
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
