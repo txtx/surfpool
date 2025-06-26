@@ -342,6 +342,47 @@ pub trait SvmTricksRpc {
         meta: Self::Metadata,
         update: SupplyUpdate,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
+
+    /// A cheat code to set the upgrade authority of a program's ProgramData account.
+    ///
+    /// This method allows developers to directly patch the upgrade authority of a program's ProgramData account.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `program_id`: The base-58 encoded public key of the program.
+    /// - `new_authority`: The base-58 encoded public key of the new authority (or empty string for None).
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the authority update was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_setProgramAuthority",
+    ///   "params": [
+    ///     "PROGRAM_ID_BASE58",
+    ///     "NEW_AUTHORITY_BASE58"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_setProgramAuthority")]
+    fn set_program_authority(
+        &self,
+        meta: Self::Metadata,
+        program_id_str: String,
+        new_authority_str: String,
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
 }
 
 #[derive(Clone)]
@@ -407,6 +448,20 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             };
 
             svm_locker.write_account_update(account_to_set);
+
+            let refreshed = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
+            if let GetAccountResult::FoundAccount(_, ref account, _) = refreshed.inner {
+                if account.data.len() >= 45 {
+                    let authority_bytes = &account.data[13..45];
+                    let authority_b58 = bs58::encode(authority_bytes).into_string();
+                    let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
+                        format!(
+                            "After write: Account {}: authority bytes at offset 13 (base58): {}",
+                            pubkey, authority_b58
+                        )
+                    ));
+                }
+            }
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(latest_absolute_slot),
@@ -505,6 +560,20 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 Ok(())
             })?;
             svm_locker.write_account_update(token_account);
+
+            let refreshed = svm_locker.get_account(&remote_ctx, &associated_token_account, None).await?;
+            if let GetAccountResult::FoundAccount(_, ref account, _) = refreshed.inner {
+                if account.data.len() >= 45 {
+                    let authority_bytes = &account.data[13..45];
+                    let authority_b58 = bs58::encode(authority_bytes).into_string();
+                    let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
+                        format!(
+                            "After write: Account {}: authority bytes at offset 13 (base58): {}",
+                            associated_token_account, authority_b58
+                        )
+                    ));
+                }
+            }
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
@@ -682,4 +751,133 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             })
         })
     }
+
+    fn set_program_authority(
+        &self,
+        meta: Self::Metadata,
+        program_id_str: String,
+        new_authority_str: String,
+    ) -> BoxFuture<Result<RpcResponse<()>>> {
+        use solana_sdk::bpf_loader_upgradeable::get_program_data_address;
+        use solana_sdk::bpf_loader_upgradeable::UpgradeableLoaderState;
+        let program_id = match verify_pubkey(&program_id_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+        let new_authority = if new_authority_str.is_empty() {
+            None
+        } else {
+            match verify_pubkey(&new_authority_str) {
+                Ok(res) => Some(res),
+                Err(e) => return e.into(),
+            }
+        };
+        let programdata_address = get_program_data_address(&program_id);
+        let SurfnetRpcContext { svm_locker, remote_ctx } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+        Box::pin(async move {
+            let SvmAccessContext { 
+                slot, 
+                inner: account_result, .. 
+            } =
+                svm_locker.get_account(&remote_ctx, &programdata_address, None).await?;
+            // Patch the authority
+            let (old_authority_base58, new_authority_base58) = {
+                // Extract the old authority before patching
+                let old = match &account_result {
+                    GetAccountResult::FoundAccount(_, ref account, _) |
+                    GetAccountResult::FoundProgramAccount((_, ref account), _) => {
+                        if let Ok(UpgradeableLoaderState::ProgramData { upgrade_authority_address, .. }) =
+                            bincode::deserialize::<UpgradeableLoaderState>(&account.data)
+                        {
+                            upgrade_authority_address.map(|pk| pk.to_string())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                let new = new_authority.map(|pk| pk.to_string());
+                (old, new)
+            };
+            let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
+                format!(
+                    "ProgramData {}: Old authority: {}, New authority: {}",
+                    programdata_address,
+                    old_authority_base58.as_deref().unwrap_or("none"),
+                    new_authority_base58.as_deref().unwrap_or("none")
+                )
+            ));
+
+            let mut patched = patch_programdata_authority(account_result, new_authority)?;
+            // Log the 32 bytes at offset 13 as base58 for TUI visibility
+            if let GetAccountResult::FoundAccount(_, ref account, _) = patched {
+                if account.data.len() >= 45 {
+                    let authority_bytes = &account.data[13..45];
+                    let authority_b58 = bs58::encode(authority_bytes).into_string();
+                    let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
+                        format!(
+                            "ProgramData {}: authority bytes at offset 13 (base58): {}",
+                            programdata_address, authority_b58
+                        )
+                    ));
+                }
+            }
+            match &mut patched {
+                GetAccountResult::FoundAccount(_, _, ref mut should_update) => *should_update = true,
+                _ => {}
+            }
+            svm_locker.write_account_update(patched);
+            let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
+                format!("ProgramData {}: Account update written to SVM", programdata_address)
+            ));
+
+            let refreshed = svm_locker.get_account(&remote_ctx, &programdata_address, None).await?;
+            if let GetAccountResult::FoundAccount(_, ref account, _) = refreshed.inner {
+                if account.data.len() >= 45 {
+                    let authority_bytes = &account.data[13..45];
+                    let authority_b58 = bs58::encode(authority_bytes).into_string();
+                    let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
+                        format!(
+                            "After write: ProgramData {}: authority bytes at offset 13 (base58): {}",
+                            programdata_address, authority_b58
+                        )
+                    ));
+                }
+            }
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
+                value: (),
+            })
+        })
+    }
+}
+
+/// Helper to patch the authority in a ProgramData account
+fn patch_programdata_authority(
+    mut account_result: GetAccountResult,
+    new_authority: Option<solana_sdk::pubkey::Pubkey>,
+) -> std::result::Result<GetAccountResult, SurfpoolError> {
+    use solana_sdk::bpf_loader_upgradeable::UpgradeableLoaderState;
+    let account = match &mut account_result {
+        GetAccountResult::FoundAccount(_, ref mut account, _) => account,
+        GetAccountResult::FoundProgramAccount(_, (_, ref mut maybe_account)) => {
+            maybe_account.as_mut().ok_or_else(|| SurfpoolError::account_not_found("ProgramData"))?
+        }
+        _ => return Err(SurfpoolError::account_not_found("ProgramData")),
+    };
+    let mut state: UpgradeableLoaderState = bincode::deserialize(&account.data)
+        .map_err(|e| SurfpoolError::deserialize_error("ProgramData", e))?;
+    match &mut state {
+        UpgradeableLoaderState::ProgramData { upgrade_authority_address, .. } => {
+            *upgrade_authority_address = new_authority;
+        }
+        _ => return Err(SurfpoolError::invalid_account_data("ProgramData", "", None::<String>)),
+    }
+    account.data = bincode::serialize(&state)
+        .map_err(|e| SurfpoolError::internal(format!("Failed to serialize ProgramData: {e}")))?;
+    Ok(account_result)
 }
