@@ -1,11 +1,11 @@
 use jsonrpc_core::{BoxFuture, Error as JsonRpcCoreError, ErrorCode, Result};
 use jsonrpc_derive::rpc;
-use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::{
     rpc_config::{
         RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig, RpcSupplyConfig,
         RpcTokenAccountsFilter,
     },
+    rpc_request::TokenAccountsFilter,
     rpc_response::{
         OptionalContext, RpcAccountBalance, RpcKeyedAccount, RpcResponseContext, RpcSupply,
         RpcTokenAccountBalance,
@@ -13,9 +13,6 @@ use solana_client::{
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::program_pack::Pack;
-use spl_associated_token_account::get_associated_token_address_with_program_id;
-use spl_token::state::Account as TokenAccount;
 
 use super::{
     not_implemented_err_async, utils::verify_pubkey, RunloopContext, State, SurfnetRpcContext,
@@ -590,75 +587,49 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
             Err(e) => return e.into(),
         };
 
+        let filter = match token_account_filter {
+            RpcTokenAccountsFilter::Mint(mint_str) => {
+                let mint = match verify_pubkey(&mint_str) {
+                    Ok(res) => res,
+                    Err(e) => return e.into(),
+                };
+                TokenAccountsFilter::Mint(mint)
+            }
+            RpcTokenAccountsFilter::ProgramId(program_id_str) => {
+                let program_id = match verify_pubkey(&program_id_str) {
+                    Ok(res) => res,
+                    Err(e) => return e.into(),
+                };
+                TokenAccountsFilter::ProgramId(program_id)
+            }
+        };
+
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
+        } = match meta.get_rpc_context(()) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            match token_account_filter {
-                RpcTokenAccountsFilter::Mint(mint) => {
-                    let mint = verify_pubkey(&mint)?;
+            let SvmAccessContext {
+                slot,
+                inner: token_accounts,
+                ..
+            } = svm_locker
+                .get_token_accounts_by_owner(
+                    &remote_ctx.map(|(client, _)| client),
+                    owner,
+                    &filter,
+                    &config,
+                )
+                .await?;
 
-                    let associated_token_address = get_associated_token_address_with_program_id(
-                        &owner,
-                        &mint,
-                        &spl_token::id(),
-                    );
-                    let SvmAccessContext {
-                        slot,
-                        inner: account_update,
-                        ..
-                    } = svm_locker
-                        .get_account(&remote_ctx, &associated_token_address, None)
-                        .await?;
-
-                    svm_locker.write_account_update(account_update.clone());
-
-                    let token_account = account_update.map_account()?;
-
-                    let _ = TokenAccount::unpack(&token_account.data).map_err(|e| {
-                        JsonRpcCoreError::invalid_params(format!(
-                            "Failed to unpack token account data: {}",
-                            e
-                        ))
-                    })?;
-
-                    Ok(RpcResponse {
-                        context: RpcResponseContext::new(slot),
-                        value: vec![RpcKeyedAccount {
-                            pubkey: associated_token_address.to_string(),
-                            account: encode_ui_account(
-                                &associated_token_address,
-                                &token_account,
-                                config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                                None,
-                                config.data_slice,
-                            ),
-                        }],
-                    })
-                }
-                RpcTokenAccountsFilter::ProgramId(program_id) => {
-                    let program_id = verify_pubkey(&program_id)?;
-
-                    let remote_ctx = remote_ctx.map(|(r, _)| r);
-                    let SvmAccessContext {
-                        slot,
-                        inner: (keyed_accounts, _missing_pubkeys),
-                        ..
-                    } = svm_locker
-                        .get_all_token_accounts(&remote_ctx, owner, program_id)
-                        .await?;
-
-                    Ok(RpcResponse {
-                        context: RpcResponseContext::new(slot),
-                        value: keyed_accounts,
-                    })
-                }
-            }
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
+                value: token_accounts,
+            })
         })
     }
 
