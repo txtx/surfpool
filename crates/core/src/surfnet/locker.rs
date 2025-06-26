@@ -390,6 +390,10 @@ impl SurfnetSvmLocker {
                         until_slot = Some(*slot)
                     }
 
+                    if Some(*slot) >= before_slot || Some(*slot) < until_slot {
+                        return None;
+                    }
+
                     // Check if the pubkey is a signer
                     let is_signer = tx
                         .message
