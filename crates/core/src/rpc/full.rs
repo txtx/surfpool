@@ -1348,11 +1348,52 @@ impl Full for SurfpoolFullRpc {
 
     fn get_inflation_reward(
         &self,
-        _meta: Self::Metadata,
-        _address_strs: Vec<String>,
-        _config: Option<RpcEpochConfig>,
+        meta: Self::Metadata,
+        address_strs: Vec<String>,
+        config: Option<RpcEpochConfig>,
     ) -> BoxFuture<Result<Vec<Option<RpcInflationReward>>>> {
-        not_implemented_err_async("get_inflation_reward")
+        Box::pin(async move {
+            let svm_locker = meta.get_svm_locker()?;
+
+            let current_epoch = svm_locker.get_epoch_info().epoch;
+            if let Some(epoch) = config.as_ref().and_then(|config| config.epoch) {
+                if epoch > current_epoch {
+                    return Err(Error::invalid_params(
+                        "Invalid epoch. Epoch is larger that current epoch",
+                    ));
+                }
+            };
+
+            let current_slot = svm_locker.get_epoch_info().absolute_slot;
+            if let Some(slot) = config.as_ref().and_then(|config| config.min_context_slot) {
+                if slot > current_slot {
+                    return Err(Error::invalid_params(
+                        "Minimum context slot has not been reached",
+                    ));
+                }
+            };
+
+            let pubkeys = address_strs
+                .iter()
+                .map(|addr| verify_pubkey(addr))
+                .collect::<std::result::Result<Vec<Pubkey>, SurfpoolError>>()?;
+
+            meta.with_svm_reader(|svm_reader| {
+                pubkeys
+                    .iter()
+                    .map(|_| {
+                        Some(RpcInflationReward {
+                            amount: 0,
+                            commission: None,
+                            effective_slot: svm_reader.get_latest_absolute_slot(),
+                            epoch: svm_reader.latest_epoch_info().epoch,
+                            post_balance: 0,
+                        })
+                    })
+                    .collect()
+            })
+            .map_err(Into::into)
+        })
     }
 
     fn get_cluster_nodes(&self, _meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
@@ -4201,5 +4242,43 @@ mod tests {
             result, 50,
             "Should return minimum slot (50) regardless of insertion order"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_inflation_reward() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let (epoch, effective_slot) =
+            setup
+                .context
+                .clone()
+                .svm_locker
+                .with_svm_reader(|svm_reader| {
+                    (
+                        svm_reader.latest_epoch_info().epoch,
+                        svm_reader.get_latest_absolute_slot(),
+                    )
+                });
+
+        let result = setup
+            .rpc
+            .get_inflation_reward(
+                Some(setup.context),
+                vec![Pubkey::new_unique().to_string()],
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result[0],
+            Some(RpcInflationReward {
+                epoch,
+                effective_slot,
+                amount: 0,
+                post_balance: 0,
+                commission: None
+            })
+        )
     }
 }
