@@ -429,11 +429,9 @@ impl SurfnetSvmLocker {
                         return true;
                     }
 
-                    if config.before.is_some() && before_slot >= Some(sig.slot) {
-                        return true;
-                    }
-
-                    if config.until.is_some() && until_slot <= Some(sig.slot) {
+                    if (config.before.is_none() || before_slot > Some(sig.slot))
+                        && (config.until.is_none() || until_slot <= Some(sig.slot))
+                    {
                         return true;
                     }
 
@@ -457,6 +455,7 @@ impl SurfnetSvmLocker {
         if combined_results.len() < limit {
             let mut remote_results = client.get_signatures_for_address(pubkey, config).await?;
             combined_results.append(&mut remote_results);
+            combined_results.truncate(limit);
         }
 
         Ok(results.with_new_value(combined_results))

@@ -4207,43 +4207,61 @@ mod tests {
     async fn test_get_signatures_for_address() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        let signature = Signature::new_unique();
+        let signatures: Vec<Signature> = (0..5).map(|_| Signature::new_unique()).collect();
+
         let payer = Keypair::new();
 
         {
-            setup.context.svm_locker.with_svm_writer(|svm_writer| {
-                let blockhash = svm_writer.latest_blockhash();
-                svm_writer.transactions.insert(
-                    signature,
-                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
-                        0,
-                        VersionedTransaction::try_new(
-                            VersionedMessage::V0(
-                                v0::Message::try_compile(&payer.pubkey(), &[], &[], blockhash)
-                                    .unwrap(),
-                            ),
-                            &[payer.insecure_clone()],
-                        )
-                        .unwrap(),
-                        TransactionMetadata {
-                            signature,
-                            logs: [].into(),
-                            inner_instructions: [].into(),
-                            compute_units_consumed: 0,
-                            return_data: TransactionReturnData::default(),
-                        },
-                        None,
-                    ))),
-                )
+            signatures.iter().enumerate().for_each(|(slot, sig)| {
+                setup.context.svm_locker.with_svm_writer(|svm_writer| {
+                    let blockhash = svm_writer.latest_blockhash();
+                    svm_writer.transactions.insert(
+                        *sig,
+                        SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                            slot as u64,
+                            VersionedTransaction::try_new(
+                                VersionedMessage::V0(
+                                    v0::Message::try_compile(&payer.pubkey(), &[], &[], blockhash)
+                                        .unwrap(),
+                                ),
+                                &[payer.insecure_clone()],
+                            )
+                            .unwrap(),
+                            TransactionMetadata {
+                                signature: *sig,
+                                logs: [].into(),
+                                inner_instructions: [].into(),
+                                compute_units_consumed: 0,
+                                return_data: TransactionReturnData::default(),
+                            },
+                            None,
+                        ))),
+                    )
+                });
             });
         }
 
         let result = setup
             .rpc
-            .get_signatures_for_address(Some(setup.context), payer.pubkey().to_string(), None)
+            .get_signatures_for_address(
+                Some(setup.context),
+                payer.pubkey().to_string(),
+                Some(RpcSignaturesForAddressConfig {
+                    before: Some(signatures[4].to_string()),
+                    until: Some(signatures[1].to_string()),
+                    limit: Some(5),
+                    commitment: None,
+                    min_context_slot: None,
+                }),
+            )
             .await
             .unwrap();
 
-        assert_eq!(result[0].signature, signature.to_string())
+        let result_sigs: Vec<_> = result.iter().map(|s| s.signature.to_owned()).collect();
+
+        assert_eq!(result.len(), 3);
+        assert!(result_sigs.contains(&signatures[1].to_string()));
+        assert!(result_sigs.contains(&signatures[2].to_string()));
+        assert!(result_sigs.contains(&signatures[3].to_string()));
     }
 }
