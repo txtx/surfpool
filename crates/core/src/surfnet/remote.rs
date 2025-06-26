@@ -1,3 +1,4 @@
+use serde_json::json;
 use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
@@ -18,8 +19,6 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     surfnet::GetAccountResult,
 };
-
-use serde_json::json;
 
 pub struct SurfnetRemoteClient {
     pub client: RpcClient,
