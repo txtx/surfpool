@@ -306,6 +306,17 @@ impl SurfnetSvm {
         self.inner.set_sysvar(
             &solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes::from_iter(entries),
         );
+
+        let mut slot_hashes = self
+            .inner
+            .get_sysvar::<solana_sdk::sysvar::slot_hashes::SlotHashes>();
+        slot_hashes.add(self.get_latest_absolute_slot() + 1, latest_entry.blockhash);
+
+        self.inner
+            .set_sysvar(&solana_sdk::sysvar::slot_hashes::SlotHashes::new(
+                &slot_hashes,
+            ));
+
         BlockIdentifier::new(
             self.chain_tip.index + 1,
             latest_entry.blockhash.to_string().as_str(),
