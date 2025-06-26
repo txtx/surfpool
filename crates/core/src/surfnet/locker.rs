@@ -17,9 +17,7 @@ use solana_client::{
     rpc_config::{RpcAccountInfoConfig, RpcSignaturesForAddressConfig},
     rpc_filter::RpcFilterType,
     rpc_request::TokenAccountsFilter,
-    rpc_response::{
-        RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount,
-    },
+    rpc_response::{RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount},
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
