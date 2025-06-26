@@ -10,6 +10,7 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_schedule::EpochSchedule;
 use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_sdk::inflation::Inflation;
 
 use super::{not_implemented_err, RunloopContext, State};
 
@@ -412,10 +413,11 @@ impl BankData for SurfpoolBankDataRpc {
 
     fn get_inflation_governor(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         _commitment: Option<CommitmentConfig>,
     ) -> Result<RpcInflationGovernor> {
-        not_implemented_err("get_inflation_governor")
+        meta.with_svm_reader(|svm_reader| svm_reader.inflation.into())
+            .map_err(Into::into)
     }
 
     fn get_inflation_rate(&self, _meta: Self::Metadata) -> Result<RpcInflationRate> {
@@ -602,6 +604,18 @@ mod tests {
             jsonrpc_core::ErrorCode::InvalidParams,
             "Should return InvalidParams error for start_slot >= latest_slot"
         );
+    }
+
+    #[test]
+    fn test_get_inflation_governor() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+
+        let result = setup
+            .rpc
+            .get_inflation_governor(Some(setup.context), None)
+            .unwrap();
+
+        assert_eq!(result, Inflation::default().into());
     }
 
     #[test]
