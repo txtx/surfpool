@@ -14,7 +14,8 @@ use solana_account_decoder::{
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
-    rpc_config::RpcAccountInfoConfig, rpc_filter::RpcFilterType, rpc_response::RpcKeyedAccount,
+    rpc_config::RpcAccountInfoConfig, rpc_filter::RpcFilterType, rpc_request::TokenAccountsFilter,
+    rpc_response::RpcKeyedAccount,
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -596,40 +597,93 @@ impl SurfnetSvmLocker {
 /// Token account related functions
 impl SurfnetSvmLocker {
     /// Fetches all token accounts for an owner, returning remote results and missing pubkeys contexts.
-    pub async fn get_all_token_accounts(
+    pub async fn get_token_accounts_by_owner(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
         owner: Pubkey,
-        token_program: Pubkey,
-    ) -> SurfpoolContextualizedResult<(Vec<RpcKeyedAccount>, Vec<Pubkey>)> {
-        let keyed_accounts = if let Some(remote_client) = remote_ctx {
-            remote_client
-                .get_token_accounts_by_owner(owner, token_program)
-                .await?
+        filter: &TokenAccountsFilter,
+        config: &RpcAccountInfoConfig,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        if let Some(remote_client) = remote_ctx {
+            self.get_token_accounts_by_owner_local_then_remote(owner, filter, remote_client, config)
+                .await
         } else {
-            vec![]
-        };
+            Ok(self.get_token_accounts_by_owner_local(owner, filter, config))
+        }
+    }
 
-        let token_account_pubkeys = keyed_accounts
-            .iter()
-            .map(|a| Pubkey::from_str_const(&a.pubkey))
-            .collect::<Vec<_>>();
+    pub fn get_token_accounts_by_owner_local(
+        &self,
+        owner: Pubkey,
+        filter: &TokenAccountsFilter,
+        config: &RpcAccountInfoConfig,
+    ) -> SvmAccessContext<Vec<RpcKeyedAccount>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            svm_reader
+                .get_parsed_token_accounts_by_owner(&owner)
+                .iter()
+                .filter_map(|(pubkey, token_account)| {
+                    let account = svm_reader.accounts_registry.get(pubkey)?;
+                    if match filter {
+                        TokenAccountsFilter::Mint(mint) => token_account.mint.eq(mint),
+                        TokenAccountsFilter::ProgramId(program_id) => account.owner.eq(program_id),
+                    } {
+                        let account_data = encode_ui_account(
+                            pubkey,
+                            account,
+                            config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                            None,
+                            config.data_slice,
+                        );
+                        Some(RpcKeyedAccount {
+                            pubkey: pubkey.to_string(),
+                            account: account_data,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+    }
 
-        // Fetch all of the returned accounts to see which ones aren't available in the local cache
-        let local_accounts = self.get_multiple_accounts_local(&token_account_pubkeys);
+    pub async fn get_token_accounts_by_owner_local_then_remote(
+        &self,
+        owner: Pubkey,
+        filter: &TokenAccountsFilter,
+        remote_client: &SurfnetRemoteClient,
+        config: &RpcAccountInfoConfig,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        let SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: local_accounts,
+        } = self.get_token_accounts_by_owner_local(owner, filter, &config);
 
-        let missing_pubkeys = local_accounts
-            .inner
-            .iter()
-            .filter_map(|some_account_result| match &some_account_result {
-                GetAccountResult::None(pubkey) => Some(*pubkey),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let remote_accounts = remote_client
+            .get_token_accounts_by_owner(owner, filter, config)
+            .await?;
 
-        // TODO: we still need to check local accounts, but I know of no way to iterate over the liteSVM accounts db
+        let mut combined_accounts = remote_accounts;
 
-        Ok(local_accounts.with_new_value((keyed_accounts, missing_pubkeys)))
+        for local_account in local_accounts {
+            if let Some((pos, _)) = combined_accounts
+                .iter()
+                .find_position(|RpcKeyedAccount { pubkey, .. }| pubkey.eq(&local_account.pubkey))
+            {
+                combined_accounts[pos] = local_account;
+            } else {
+                combined_accounts.push(local_account);
+            }
+        }
+
+        Ok(SvmAccessContext::new(
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            combined_accounts,
+        ))
     }
 }
 

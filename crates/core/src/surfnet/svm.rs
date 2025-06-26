@@ -1042,7 +1042,10 @@ impl SurfnetSvm {
     /// # Returns
     ///
     /// * A vector of (account_pubkey, token_account) tuples for all token accounts owned by the specified owner.
-    pub fn get_token_accounts_by_owner(&self, owner: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
+    pub fn get_parsed_token_accounts_by_owner(
+        &self,
+        owner: &Pubkey,
+    ) -> Vec<(Pubkey, TokenAccount)> {
         if let Some(account_pubkeys) = self.token_accounts_by_owner.get(owner) {
             account_pubkeys
                 .iter()
@@ -1051,6 +1054,22 @@ impl SurfnetSvm {
         } else {
             Vec::new()
         }
+    }
+
+    pub fn get_token_accounts_by_owner(&self, owner: &Pubkey) -> Vec<(Pubkey, Account)> {
+        self.token_accounts_by_owner
+            .get(owner)
+            .map(|account_pubkeys| {
+                account_pubkeys
+                    .into_iter()
+                    .filter_map(|pk| {
+                        self.accounts_registry
+                            .get(pk)
+                            .map(|account| (*pk, account.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Gets all token accounts for a specific mint (token type).
@@ -1133,7 +1152,7 @@ mod tests {
         assert_eq!(svm.token_accounts.len(), 1);
 
         // test owner index
-        let owner_accounts = svm.get_token_accounts_by_owner(&owner);
+        let owner_accounts = svm.get_parsed_token_accounts_by_owner(&owner);
         assert_eq!(owner_accounts.len(), 1);
         assert_eq!(owner_accounts[0].0, token_account_pubkey);
 
@@ -1215,7 +1234,7 @@ mod tests {
         // verify indexes were updated correctly
         assert_eq!(svm.get_token_accounts_by_delegate(&old_delegate).len(), 0);
         assert_eq!(svm.get_token_accounts_by_delegate(&new_delegate).len(), 1);
-        assert_eq!(svm.get_token_accounts_by_owner(&owner).len(), 1);
+        assert_eq!(svm.get_parsed_token_accounts_by_owner(&owner).len(), 1);
     }
 
     #[test]

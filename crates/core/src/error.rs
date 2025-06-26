@@ -4,6 +4,7 @@ use crossbeam_channel::TrySendError;
 use jsonrpc_core::{Error, Result};
 use serde::Serialize;
 use serde_json::json;
+use solana_client::rpc_request::TokenAccountsFilter;
 use solana_pubkey::Pubkey;
 
 pub type SurfpoolResult<T> = std::result::Result<T, SurfpoolError>;
@@ -112,13 +113,17 @@ impl SurfpoolError {
         Self(error)
     }
 
-    pub fn get_token_accounts<T>(owner: Pubkey, token_program: Pubkey, e: T) -> Self
+    pub fn get_token_accounts<T>(owner: Pubkey, filter: &TokenAccountsFilter, e: T) -> Self
     where
         T: ToString,
     {
         let mut error = Error::internal_error();
         error.data = Some(json!(format!(
-            "Failed to get token accounts by owner {owner} for program {token_program}: {}",
+            "Failed to get token accounts by owner {owner} for {}: {}",
+            match filter {
+                TokenAccountsFilter::ProgramId(token_program) => format!("program {token_program}"),
+                TokenAccountsFilter::Mint(mint) => format!("mint {mint}"),
+            },
             e.to_string()
         )));
         Self(error)
