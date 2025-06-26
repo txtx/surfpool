@@ -11,9 +11,7 @@ use litesvm::{
 use solana_account::Account;
 use solana_account_decoder::{
     encode_ui_account,
-    parse_account_data::{
-        AccountAdditionalData, AccountAdditionalDataV3, SplTokenAdditionalDataV2,
-    },
+    parse_account_data::{AccountAdditionalDataV3, SplTokenAdditionalDataV2},
     UiAccount, UiAccountEncoding,
 };
 use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
@@ -36,9 +34,11 @@ use solana_transaction_status::{
     EncodedTransaction, EncodedTransactionWithStatusMeta, UiAddressTableLookup,
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
-use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::Account as TokenAccount;
-use spl_token_2022::instruction::TokenInstruction;
+use spl_token_2022::extension::{
+    interest_bearing_mint::InterestBearingConfig, scaled_ui_amount::ScaledUiAmountConfig,
+    BaseStateWithExtensions, StateWithExtensions,
+};
 use surfpool_types::{
     types::{ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
@@ -370,7 +370,7 @@ impl SurfnetSvm {
         }
 
         // if it's a token account, update token-specific indexes
-        if account.owner == spl_token::id() {
+        if account.owner == spl_token::id() || account.owner == spl_token_2022::id() {
             if let Ok(token_account) = TokenAccount::unpack(&account.data) {
                 self.token_accounts.insert(*pubkey, token_account);
 
@@ -402,6 +402,32 @@ impl SurfnetSvm {
                     }
                 }
             }
+        }
+
+        if account.owner == spl_token_2022::id() {
+            if let Ok(mint) =
+                StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&account.data)
+            {
+                let unix_timestamp = self.inner.get_sysvar::<Clock>().unix_timestamp;
+                let interest_bearing_config = mint
+                    .get_extension::<InterestBearingConfig>()
+                    .map(|x| (*x, unix_timestamp))
+                    .ok();
+                let scaled_ui_amount_config = mint
+                    .get_extension::<ScaledUiAmountConfig>()
+                    .map(|x| (*x, unix_timestamp))
+                    .ok();
+                self.account_associated_data.insert(
+                    *pubkey,
+                    AccountAdditionalDataV3 {
+                        spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                            decimals: mint.base.decimals,
+                            interest_bearing_config,
+                            scaled_ui_amount_config,
+                        }),
+                    },
+                );
+            };
         }
     }
 
@@ -505,35 +531,6 @@ impl SurfnetSvm {
 
         match self.inner.send_transaction(tx.clone()) {
             Ok(res) => {
-                for instruction in tx.message.instructions().iter() {
-                    let accounts = tx.message.static_account_keys();
-                    let program_id = instruction.program_id(accounts);
-                    if program_id.eq(&spl_token_2022::id()) {
-                        let Ok(token_instruction) = TokenInstruction::unpack(&instruction.data)
-                        else {
-                            continue;
-                        };
-                        match token_instruction {
-                            TokenInstruction::InitializeMint2 { decimals, .. } => {
-                                let authority_index = instruction.accounts[0] as usize;
-                                let authority = accounts[authority_index];
-
-                                self.account_associated_data.insert(
-                                    authority,
-                                    AccountAdditionalDataV3 {
-                                        spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
-                                            decimals,
-                                            interest_bearing_config: None,
-                                            scaled_ui_amount_config: None,
-                                        }),
-                                    },
-                                );
-                            }
-                            _ => continue,
-                        }
-                    }
-                }
-
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res);
 
                 self.transactions.insert(
