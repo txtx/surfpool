@@ -1368,7 +1368,7 @@ impl Full for SurfpoolFullRpc {
             if let Some(slot) = config.as_ref().and_then(|config| config.min_context_slot) {
                 if slot > current_slot {
                     return Err(Error::invalid_params(
-                        "Invalid epoch. min_context_slot is larger that current slot",
+                        "Minimum context slot has not been reached",
                     ));
                 }
             };
