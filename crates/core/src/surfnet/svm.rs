@@ -9,7 +9,13 @@ use litesvm::{
     LiteSVM,
 };
 use solana_account::Account;
-use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
+use solana_account_decoder::{
+    encode_ui_account,
+    parse_account_data::{
+        AccountAdditionalData, AccountAdditionalDataV3, SplTokenAdditionalDataV2,
+    },
+    UiAccount, UiAccountEncoding,
+};
 use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_epoch_info::EpochInfo;
@@ -30,7 +36,9 @@ use solana_transaction_status::{
     EncodedTransaction, EncodedTransactionWithStatusMeta, UiAddressTableLookup,
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
+use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::Account as TokenAccount;
+use spl_token_2022::instruction::TokenInstruction;
 use surfpool_types::{
     types::{ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
@@ -78,6 +86,7 @@ pub struct SurfnetSvm {
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
+    pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: HashMap<Pubkey, spl_token::state::Account>,
     pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
@@ -140,6 +149,7 @@ impl SurfnetSvm {
                 updated_at: Utc::now().timestamp_millis() as u64,
                 accounts_registry: HashMap::new(),
                 accounts_by_owner: HashMap::new(),
+                account_associated_data: HashMap::new(),
                 token_accounts: HashMap::new(),
                 token_accounts_by_owner: HashMap::new(),
                 token_accounts_by_delegate: HashMap::new(),
@@ -492,8 +502,38 @@ impl SurfnetSvm {
             return Err(FailedTransactionMetadata { err, meta });
         }
         self.inner.set_blockhash_check(false);
+
         match self.inner.send_transaction(tx.clone()) {
             Ok(res) => {
+                for instruction in tx.message.instructions().iter() {
+                    let accounts = tx.message.static_account_keys();
+                    let program_id = instruction.program_id(accounts);
+                    if program_id.eq(&spl_token_2022::id()) {
+                        let Ok(token_instruction) = TokenInstruction::unpack(&instruction.data)
+                        else {
+                            continue;
+                        };
+                        match token_instruction {
+                            TokenInstruction::InitializeMint2 { decimals, .. } => {
+                                let authority_index = instruction.accounts[0] as usize;
+                                let authority = accounts[authority_index];
+
+                                self.account_associated_data.insert(
+                                    authority,
+                                    AccountAdditionalDataV3 {
+                                        spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                                            decimals,
+                                            interest_bearing_config: None,
+                                            scaled_ui_amount_config: None,
+                                        }),
+                                    },
+                                );
+                            }
+                            _ => continue,
+                        }
+                    }
+                }
+
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res);
 
                 self.transactions.insert(

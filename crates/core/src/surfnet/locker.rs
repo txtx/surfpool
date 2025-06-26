@@ -7,7 +7,9 @@ use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, Transa
 use solana_account::Account;
 use solana_account_decoder::{
     encode_ui_account,
+    parse_account_data::AccountAdditionalDataV3,
     parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram},
+    parse_token::parse_token_v3,
     UiAccount, UiAccountEncoding,
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
@@ -31,6 +33,7 @@ use solana_sdk::{
 use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding};
+use spl_token_2022::extension::StateWithExtensions;
 use surfpool_types::{
     ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
     TransactionConfirmationStatus, TransactionStatusEvent,
@@ -233,6 +236,36 @@ impl SurfnetSvmLocker {
             }
             _ => Ok(result),
         }
+    }
+
+    /// Retrieves an account, using local or remote based on context, applying a default factory if provided.
+    pub fn get_local_account_associated_data(
+        &self,
+        account: &GetAccountResult,
+    ) -> SvmAccessContext<Option<AccountAdditionalDataV3>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            let associated_data = match account {
+                GetAccountResult::FoundAccount(_, account, _) => {
+                    if !account.owner.eq(&spl_token_2022::id()) {
+                        return None;
+                    }
+
+                    let Ok(token_data) =
+                        StateWithExtensions::<spl_token_2022::state::Account>::unpack(
+                            &account.data,
+                        )
+                    else {
+                        return None;
+                    };
+                    svm_reader
+                        .account_associated_data
+                        .get(&token_data.base.mint)
+                        .map(|e| e.clone())
+                }
+                _ => None,
+            };
+            associated_data
+        })
     }
 
     /// Retrieves multiple accounts from local cache, returning a contextualized result.
