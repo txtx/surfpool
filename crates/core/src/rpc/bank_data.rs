@@ -10,6 +10,7 @@ use solana_client::{
 use solana_clock::Slot;
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_schedule::EpochSchedule;
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
 use super::{not_implemented_err, RunloopContext, State};
@@ -471,8 +472,7 @@ impl BankData for SurfpoolBankDataRpc {
             }
         }
 
-        // return empty string similar to getSlotLeaders returning empty vec
-        Ok(String::new())
+        Ok(Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr").to_string())
     }
 
     fn get_slot_leaders(
@@ -663,7 +663,7 @@ mod tests {
 
         match result {
             Ok(identity) => {
-                assert_eq!(identity, "");
+                assert_eq!(identity, "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr");
                 println!("✅ Basic test passed");
             }
             Err(e) => {
@@ -689,7 +689,7 @@ mod tests {
 
         match result {
             Ok(identity) => {
-                assert_eq!(identity, "");
+                assert_eq!(identity, "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr");
                 println!("✅ Config test passed");
             }
             Err(e) => {
