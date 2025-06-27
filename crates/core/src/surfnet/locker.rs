@@ -815,6 +815,123 @@ impl SurfnetSvmLocker {
             combined_accounts,
         ))
     }
+
+    pub async fn get_token_accounts_by_delegate(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+        delegate: Pubkey,
+        filter: &TokenAccountsFilter,
+        config: &RpcAccountInfoConfig,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        // Validate that the program is supported if using ProgramId filter
+        if let TokenAccountsFilter::ProgramId(program_id) = filter {
+            if !is_supported_token_program(program_id) {
+                return Err(SurfpoolError::unsupported_token_program(*program_id));
+            }
+        }
+
+        if let Some(remote_client) = remote_ctx {
+            self.get_token_accounts_by_delegate_local_then_remote(
+                delegate,
+                filter,
+                remote_client,
+                config,
+            )
+            .await
+        } else {
+            Ok(self.get_token_accounts_by_delegate_local(delegate, filter, config))
+        }
+    }
+}
+
+/// Token account by delegate related functions
+impl SurfnetSvmLocker {
+    pub fn get_token_accounts_by_delegate_local(
+        &self,
+        delegate: Pubkey,
+        filter: &TokenAccountsFilter,
+        config: &RpcAccountInfoConfig,
+    ) -> SvmAccessContext<Vec<RpcKeyedAccount>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            svm_reader
+                .get_token_accounts_by_delegate(&delegate)
+                .iter()
+                .filter_map(|(pubkey, token_account)| {
+                    let include = match filter {
+                        TokenAccountsFilter::Mint(mint) => token_account.mint == *mint,
+                        TokenAccountsFilter::ProgramId(program_id) => {
+                            if let Some(account) = svm_reader.accounts_registry.get(pubkey) {
+                                account.owner == *program_id
+                                    && is_supported_token_program(program_id)
+                            } else {
+                                false
+                            }
+                        }
+                    };
+
+                    if include {
+                        if let Some(account) = svm_reader.accounts_registry.get(pubkey) {
+                            Some(RpcKeyedAccount {
+                                pubkey: pubkey.to_string(),
+                                account: encode_ui_account(
+                                    pubkey,
+                                    account,
+                                    config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                                    None,
+                                    config.data_slice,
+                                ),
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+    }
+
+    pub async fn get_token_accounts_by_delegate_local_then_remote(
+        &self,
+        delegate: Pubkey,
+        filter: &TokenAccountsFilter,
+        remote_client: &SurfnetRemoteClient,
+        config: &RpcAccountInfoConfig,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        let SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: local_accounts,
+        } = self.get_token_accounts_by_delegate_local(delegate, filter, config);
+
+        let remote_accounts = remote_client
+            .get_token_accounts_by_delegate(delegate, filter, config)
+            .await?;
+
+        let mut combined_accounts = remote_accounts;
+
+        for local_account in local_accounts {
+            if let Some((pos, _)) = combined_accounts
+                .iter()
+                .find_position(|RpcKeyedAccount { pubkey, .. }| pubkey.eq(&local_account.pubkey))
+            {
+                // Replace remote account with local one (local takes precedence)
+                combined_accounts[pos] = local_account;
+            } else {
+                // Add local account that wasn't found in remote results
+                combined_accounts.push(local_account);
+            }
+        }
+
+        Ok(SvmAccessContext::new(
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            combined_accounts,
+        ))
+    }
 }
 
 /// Address lookup table related functions
@@ -1352,4 +1469,9 @@ fn apply_rpc_filters(account_data: &[u8], filters: &[RpcFilterType]) -> Surfpool
         }
     }
     Ok(true)
+}
+
+// used in the remote.rs
+pub fn is_supported_token_program(program_id: &Pubkey) -> bool {
+    *program_id == spl_token::ID || *program_id == spl_token_2022::ID
 }
