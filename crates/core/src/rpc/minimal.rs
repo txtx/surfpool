@@ -1259,7 +1259,7 @@ mod tests {
 
         let error = result.unwrap_err();
 
-        // should be invalid params error 
+        // should be invalid params error
         assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
     }
 }
