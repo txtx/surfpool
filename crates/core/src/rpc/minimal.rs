@@ -750,9 +750,7 @@ impl Minimal for SurfpoolMinimalRpc {
         if let Some(config) = config {
             // validate vote_pubkey if provided
             if let Some(vote_pubkey_str) = config.vote_pubkey {
-                verify_pubkey(&vote_pubkey_str).map_err(|e| {
-                    jsonrpc_core::Error::invalid_params(format!("Invalid vote pubkey: {}", e))
-                })?;
+                verify_pubkey(&vote_pubkey_str).map_err(jsonrpc_core::Error::from)?;
             }
 
             // validate delinquent_slot_distance if provided
@@ -1261,8 +1259,7 @@ mod tests {
 
         let error = result.unwrap_err();
 
-        // should be invalid params error containing pubkey validation message
+        // should be invalid params error 
         assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
-        assert!(error.message.contains("Invalid vote pubkey"));
     }
 }
