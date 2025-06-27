@@ -190,7 +190,7 @@ impl SurfnetRemoteClient {
         filter: &TokenAccountsFilter,
         config: &RpcAccountInfoConfig,
     ) -> SurfpoolResult<Vec<RpcKeyedAccount>> {
-        // Validate that the program is supported if using ProgramId filter
+        // validate that the program is supported if using ProgramId filter
         if let TokenAccountsFilter::ProgramId(program_id) = &filter {
             if !is_supported_token_program(program_id) {
                 return Err(SurfpoolError::unsupported_token_program(*program_id));
@@ -204,7 +204,6 @@ impl SurfnetRemoteClient {
             }
         };
 
-        // Use the RPC client's send method for consistency with get_token_accounts_by_owner
         let res: RpcResult<Vec<RpcKeyedAccount>> = self
             .client
             .send(
