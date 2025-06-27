@@ -980,6 +980,33 @@ impl SurfnetSvmLocker {
     }
 }
 
+impl SurfnetSvmLocker {
+    pub fn get_genesis_hash_local(&self) -> SvmAccessContext<Hash> {
+        self.with_contextualized_svm_reader(|svm_reader| svm_reader.genesis_config.hash())
+    }
+
+    pub async fn get_genesis_hash_local_then_remote(
+        &self,
+        client: &SurfnetRemoteClient,
+    ) -> SurfpoolContextualizedResult<Hash> {
+        let local_hash = self.get_genesis_hash_local();
+        let remote_hash = client.get_genesis_hash().await?;
+
+        Ok(local_hash.with_new_value(remote_hash))
+    }
+
+    pub async fn get_genesis_hash(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+    ) -> SurfpoolContextualizedResult<Hash> {
+        if let Some(client) = remote_ctx {
+            self.get_genesis_hash_local_then_remote(client).await
+        } else {
+            Ok(self.get_genesis_hash_local())
+        }
+    }
+}
+
 /// Pass through functions for accessing the underlying SurfnetSvm instance
 impl SurfnetSvmLocker {
     /// Returns a sender for simulation events from the underlying SVM.

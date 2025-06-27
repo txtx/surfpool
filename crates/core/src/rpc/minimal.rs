@@ -176,7 +176,7 @@ pub trait Minimal {
     /// # See Also
     /// - `getEpochInfo`, `getBlock`, `getClusterNodes`
     #[rpc(meta, name = "getGenesisHash")]
-    fn get_genesis_hash(&self, meta: Self::Metadata) -> Result<String>;
+    fn get_genesis_hash(&self, meta: Self::Metadata) -> BoxFuture<Result<String>>;
 
     /// Returns the health status of the blockchain node.
     ///
@@ -631,9 +631,22 @@ impl Minimal for SurfpoolMinimalRpc {
             .map_err(Into::into)
     }
 
-    fn get_genesis_hash(&self, meta: Self::Metadata) -> Result<String> {
-        meta.with_svm_reader(|svm_reader| svm_reader.genesis_config.hash().to_string())
-            .map_err(Into::into)
+    fn get_genesis_hash(&self, meta: Self::Metadata) -> BoxFuture<Result<String>> {
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            Ok(svm_locker
+                .get_genesis_hash(&remote_ctx.map(|(client, _)| client))
+                .await?
+                .inner
+                .to_string())
+        })
     }
 
     fn get_health(&self, _meta: Self::Metadata) -> Result<String> {
@@ -1005,11 +1018,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_get_genesis_hash() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_genesis_hash() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
 
-        let genesis_hash = setup.rpc.get_genesis_hash(Some(setup.context)).unwrap();
+        let genesis_hash = setup
+            .rpc
+            .get_genesis_hash(Some(setup.context))
+            .await
+            .unwrap();
 
         assert_eq!(genesis_hash, GenesisConfig::default().hash().to_string())
     }
