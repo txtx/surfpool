@@ -675,7 +675,6 @@ mod tests {
 
     use core::panic;
 
-    use std::str::FromStr;
     use solana_account::Account;
     use solana_client::{
         rpc_config::{RpcProgramAccountsConfig, RpcSupplyConfig},
@@ -685,6 +684,7 @@ mod tests {
     use solana_pubkey::Pubkey;
     use solana_sdk::program_pack::Pack;
     use spl_token::state::Account as TokenAccount;
+    use std::str::FromStr;
     use surfpool_types::SupplyUpdate;
 
     use super::{AccountsScan, SurfpoolAccountsScanRpc};
@@ -1121,11 +1121,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_token_largest_accounts_local_svm() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
-        
+
         // create a mint
         let mint_pk = Pubkey::new_unique();
         let minimum_rent = setup.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.minimum_balance_for_rent_exemption(spl_token::state::Mint::LEN)
+            svm_reader
+                .inner
+                .minimum_balance_for_rent_exemption(spl_token::state::Mint::LEN)
         });
 
         // create mint account
@@ -1157,7 +1159,9 @@ mod tests {
 
         setup.context.svm_locker.with_svm_writer(|svm_writer| {
             // set the mint account
-            svm_writer.set_account(&mint_pk, mint_account.clone()).unwrap();
+            svm_writer
+                .set_account(&mint_pk, mint_account.clone())
+                .unwrap();
 
             // set token accounts
             for (token_account_pk, amount) in &token_accounts {
@@ -1193,178 +1197,192 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.value.len(), 5);
-        
+
         // should be sorted by balance descending
         assert_eq!(result.value[0].amount.amount, "5000000000"); // 5 SOL
         assert_eq!(result.value[1].amount.amount, "2000000000"); // 2 SOL
         assert_eq!(result.value[2].amount.amount, "1000000000"); // 1 SOL
-        assert_eq!(result.value[3].amount.amount, "500000000");  // 0.5 SOL
-        assert_eq!(result.value[4].amount.amount, "100000000");  // 0.1 SOL
-        
+        assert_eq!(result.value[3].amount.amount, "500000000"); // 0.5 SOL
+        assert_eq!(result.value[4].amount.amount, "100000000"); // 0.1 SOL
+
         // verify decimals and UI amounts
         for balance in &result.value {
-            assert_eq!(balance.amount.decimals, 9); 
-            assert!(balance.amount.ui_amount.is_some()); 
+            assert_eq!(balance.amount.decimals, 9);
+            assert!(balance.amount.ui_amount.is_some());
             assert!(!balance.amount.ui_amount_string.is_empty());
         }
 
         // Verify addresses are valid pubkeys
         for balance in &result.value {
-            assert!(Pubkey::from_str(&balance.address).is_ok()); 
+            assert!(Pubkey::from_str(&balance.address).is_ok());
         }
     }
 
     #[tokio::test(flavor = "multi_thread")]
-async fn test_get_token_largest_accounts_limit_to_20() {
-    let setup = TestSetup::new(SurfpoolAccountsScanRpc);
-    
-    // Create a mint
-    let mint_pk = Pubkey::new_unique();
-    let minimum_rent = setup.context.svm_locker.with_svm_reader(|svm_reader| {
-        svm_reader.inner.minimum_balance_for_rent_exemption(spl_token::state::Mint::LEN)
-    });
+    async fn test_get_token_largest_accounts_limit_to_20() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
 
-    // Create mint account
-    let mut mint_data = [0; spl_token::state::Mint::LEN];
-    let mint = spl_token::state::Mint {
-        decimals: 6,
-        supply: 1000000000000000,
-        is_initialized: true,
-        ..Default::default()
-    };
-    mint.pack_into_slice(&mut mint_data);
+        // Create a mint
+        let mint_pk = Pubkey::new_unique();
+        let minimum_rent = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .inner
+                .minimum_balance_for_rent_exemption(spl_token::state::Mint::LEN)
+        });
 
-    let mint_account = Account {
-        lamports: minimum_rent,
-        owner: spl_token::ID,
-        executable: false,
-        rent_epoch: 0,
-        data: mint_data.to_vec(),
-    };
+        // Create mint account
+        let mut mint_data = [0; spl_token::state::Mint::LEN];
+        let mint = spl_token::state::Mint {
+            decimals: 6,
+            supply: 1000000000000000,
+            is_initialized: true,
+            ..Default::default()
+        };
+        mint.pack_into_slice(&mut mint_data);
 
-    // Create 25 token accounts (more than the 20 limit)
-    let mut token_accounts = Vec::new();
-    for i in 0..25 {
-        token_accounts.push((Pubkey::new_unique(), (i + 1) * 1000000)); // Varying amounts
-    }
+        let mint_account = Account {
+            lamports: minimum_rent,
+            owner: spl_token::ID,
+            executable: false,
+            rent_epoch: 0,
+            data: mint_data.to_vec(),
+        };
 
-    setup.context.svm_locker.with_svm_writer(|svm_writer| {
-        // Set the mint account
-        svm_writer.set_account(&mint_pk, mint_account.clone()).unwrap();
-
-        // Set token accounts
-        for (token_account_pk, amount) in &token_accounts {
-            let mut token_account_data = [0; TokenAccount::LEN];
-            let token_account = TokenAccount {
-                mint: mint_pk,
-                owner: Pubkey::new_unique(),
-                amount: *amount,
-                delegate: solana_sdk::program_option::COption::None,
-                state: spl_token::state::AccountState::Initialized,
-                is_native: solana_sdk::program_option::COption::None,
-                delegated_amount: 0,
-                close_authority: solana_sdk::program_option::COption::None,
-            };
-            token_account.pack_into_slice(&mut token_account_data);
-
-            let account = Account {
-                lamports: minimum_rent,
-                owner: spl_token::ID,
-                executable: false,
-                rent_epoch: 0,
-                data: token_account_data.to_vec(),
-            };
-
-            svm_writer.set_account(token_account_pk, account).unwrap();
+        // Create 25 token accounts (more than the 20 limit)
+        let mut token_accounts = Vec::new();
+        for i in 0..25 {
+            token_accounts.push((Pubkey::new_unique(), (i + 1) * 1000000)); // Varying amounts
         }
-    });
 
-    // Call get_token_largest_accounts
-    let result = setup
-        .rpc
-        .get_token_largest_accounts(Some(setup.context), mint_pk.to_string(), None)
-        .await
-        .unwrap();
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            // Set the mint account
+            svm_writer
+                .set_account(&mint_pk, mint_account.clone())
+                .unwrap();
 
-    // Should be limited to 20 accounts
-    assert_eq!(result.value.len(), 20);
-    
-    // Should be sorted by balance descending (highest amounts first)
-    assert_eq!(result.value[0].amount.amount, "25000000"); // Highest amount
-    assert_eq!(result.value[1].amount.amount, "24000000"); // Second highest
-    assert_eq!(result.value[19].amount.amount, "6000000"); // 20th highest
-    
-    // Verify all are properly formatted
-    for balance in &result.value {
-        assert_eq!(balance.amount.decimals, 6);
-        assert!(balance.amount.ui_amount.is_some());
-        assert!(!balance.amount.ui_amount_string.is_empty());
-        assert!(Pubkey::from_str(&balance.address).is_ok());
+            // Set token accounts
+            for (token_account_pk, amount) in &token_accounts {
+                let mut token_account_data = [0; TokenAccount::LEN];
+                let token_account = TokenAccount {
+                    mint: mint_pk,
+                    owner: Pubkey::new_unique(),
+                    amount: *amount,
+                    delegate: solana_sdk::program_option::COption::None,
+                    state: spl_token::state::AccountState::Initialized,
+                    is_native: solana_sdk::program_option::COption::None,
+                    delegated_amount: 0,
+                    close_authority: solana_sdk::program_option::COption::None,
+                };
+                token_account.pack_into_slice(&mut token_account_data);
+
+                let account = Account {
+                    lamports: minimum_rent,
+                    owner: spl_token::ID,
+                    executable: false,
+                    rent_epoch: 0,
+                    data: token_account_data.to_vec(),
+                };
+
+                svm_writer.set_account(token_account_pk, account).unwrap();
+            }
+        });
+
+        // Call get_token_largest_accounts
+        let result = setup
+            .rpc
+            .get_token_largest_accounts(Some(setup.context), mint_pk.to_string(), None)
+            .await
+            .unwrap();
+
+        // Should be limited to 20 accounts
+        assert_eq!(result.value.len(), 20);
+
+        // Should be sorted by balance descending (highest amounts first)
+        assert_eq!(result.value[0].amount.amount, "25000000"); // Highest amount
+        assert_eq!(result.value[1].amount.amount, "24000000"); // Second highest
+        assert_eq!(result.value[19].amount.amount, "6000000"); // 20th highest
+
+        // Verify all are properly formatted
+        for balance in &result.value {
+            assert_eq!(balance.amount.decimals, 6);
+            assert!(balance.amount.ui_amount.is_some());
+            assert!(!balance.amount.ui_amount_string.is_empty());
+            assert!(Pubkey::from_str(&balance.address).is_ok());
+        }
     }
-}
-
 
     #[tokio::test(flavor = "multi_thread")]
-async fn test_get_token_largest_accounts_edge_cases() {
-    let setup = TestSetup::new(SurfpoolAccountsScanRpc);
-    
-    // Test 1: Invalid mint pubkey
-    let invalid_result = setup
-        .rpc
-        .get_token_largest_accounts(Some(setup.context.clone()), "invalid_pubkey".to_string(), None)
-        .await;
-    
-    assert!(invalid_result.is_err());
-    let error = invalid_result.unwrap_err();
-    assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
+    async fn test_get_token_largest_accounts_edge_cases() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
 
-    // Test 2: Valid mint but no token accounts
-    let empty_mint_pk = Pubkey::new_unique();
-    let minimum_rent = setup.context.svm_locker.with_svm_reader(|svm_reader| {
-        svm_reader.inner.minimum_balance_for_rent_exemption(spl_token::state::Mint::LEN)
-    });
+        // Test 1: Invalid mint pubkey
+        let invalid_result = setup
+            .rpc
+            .get_token_largest_accounts(
+                Some(setup.context.clone()),
+                "invalid_pubkey".to_string(),
+                None,
+            )
+            .await;
 
-    // Create mint account with no associated token accounts
-    let mut mint_data = [0; spl_token::state::Mint::LEN];
-    let mint = spl_token::state::Mint {
-        decimals: 9,
-        supply: 0,
-        is_initialized: true,
-        ..Default::default()
-    };
-    mint.pack_into_slice(&mut mint_data);
+        assert!(invalid_result.is_err());
+        let error = invalid_result.unwrap_err();
+        assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
 
-    let mint_account = Account {
-        lamports: minimum_rent,
-        owner: spl_token::ID,
-        executable: false,
-        rent_epoch: 0,
-        data: mint_data.to_vec(),
-    };
+        // Test 2: Valid mint but no token accounts
+        let empty_mint_pk = Pubkey::new_unique();
+        let minimum_rent = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .inner
+                .minimum_balance_for_rent_exemption(spl_token::state::Mint::LEN)
+        });
 
-    setup.context.svm_locker.with_svm_writer(|svm_writer| {
-        svm_writer.set_account(&empty_mint_pk, mint_account.clone()).unwrap();
-    });
+        // Create mint account with no associated token accounts
+        let mut mint_data = [0; spl_token::state::Mint::LEN];
+        let mint = spl_token::state::Mint {
+            decimals: 9,
+            supply: 0,
+            is_initialized: true,
+            ..Default::default()
+        };
+        mint.pack_into_slice(&mut mint_data);
 
-    let empty_result = setup
-        .rpc
-        .get_token_largest_accounts(Some(setup.context.clone()), empty_mint_pk.to_string(), None)
-        .await
-        .unwrap();
+        let mint_account = Account {
+            lamports: minimum_rent,
+            owner: spl_token::ID,
+            executable: false,
+            rent_epoch: 0,
+            data: mint_data.to_vec(),
+        };
 
-    // Should return empty array
-    assert_eq!(empty_result.value.len(), 0);
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(&empty_mint_pk, mint_account.clone())
+                .unwrap();
+        });
 
-    // Test 3: Mint that doesn't exist at all
-    let nonexistent_mint_pk = Pubkey::new_unique();
-    let nonexistent_result = setup
-        .rpc
-        .get_token_largest_accounts(Some(setup.context), nonexistent_mint_pk.to_string(), None)
-        .await
-        .unwrap();
+        let empty_result = setup
+            .rpc
+            .get_token_largest_accounts(
+                Some(setup.context.clone()),
+                empty_mint_pk.to_string(),
+                None,
+            )
+            .await
+            .unwrap();
 
-    // Should return empty array (no token accounts for nonexistent mint)
-    assert_eq!(nonexistent_result.value.len(), 0);
-}
+        // Should return empty array
+        assert_eq!(empty_result.value.len(), 0);
 
+        // Test 3: Mint that doesn't exist at all
+        let nonexistent_mint_pk = Pubkey::new_unique();
+        let nonexistent_result = setup
+            .rpc
+            .get_token_largest_accounts(Some(setup.context), nonexistent_mint_pk.to_string(), None)
+            .await
+            .unwrap();
+
+        // Should return empty array (no token accounts for nonexistent mint)
+        assert_eq!(nonexistent_result.value.len(), 0);
+    }
 }

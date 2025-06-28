@@ -165,8 +165,6 @@ impl SurfpoolError {
         Self(error)
     }
 
-    
-
     pub fn get_signatures_for_address<T>(e: T) -> Self
     where
         T: ToString,

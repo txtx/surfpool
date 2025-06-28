@@ -6,11 +6,20 @@ use jsonrpc_core::futures::future::join_all;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
 use solana_account_decoder::{
-    encode_ui_account, parse_account_data::AccountAdditionalDataV3, parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram}, parse_token::UiTokenAmount, UiAccount, UiAccountEncoding
+    encode_ui_account,
+    parse_account_data::AccountAdditionalDataV3,
+    parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram},
+    parse_token::UiTokenAmount,
+    UiAccount, UiAccountEncoding,
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
-    rpc_config::{RpcAccountInfoConfig, RpcSignaturesForAddressConfig}, rpc_filter::RpcFilterType, rpc_request::TokenAccountsFilter, rpc_response::{RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount, RpcTokenAccountBalance}
+    rpc_config::{RpcAccountInfoConfig, RpcSignaturesForAddressConfig},
+    rpc_filter::RpcFilterType,
+    rpc_request::TokenAccountsFilter,
+    rpc_response::{
+        RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount, RpcTokenAccountBalance,
+    },
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -23,7 +32,9 @@ use solana_message::{
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState}, program_pack::Pack, transaction::VersionedTransaction
+    bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
+    program_pack::Pack,
+    transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
@@ -818,7 +829,7 @@ impl SurfnetSvmLocker {
     ) -> SvmAccessContext<Vec<RpcTokenAccountBalance>> {
         self.with_contextualized_svm_reader(|svm_reader| {
             let token_accounts = svm_reader.get_token_accounts_by_mint(mint);
-            
+
             // get mint information to determine decimals
             let mint_decimals = if let Some(mint_account) = svm_reader.accounts_registry.get(mint) {
                 if let Ok(mint_data) = Mint::unpack(&mint_account.data) {
@@ -829,19 +840,22 @@ impl SurfnetSvmLocker {
             } else {
                 0
             };
-            
+
             // convert to RpcTokenAccountBalance and sort by balance
             let mut balances: Vec<RpcTokenAccountBalance> = token_accounts
                 .into_iter()
                 .map(|(pubkey, token_account)| {
                     let ui_amount = if mint_decimals > 0 {
-                        Some(token_account.amount as f64 / (10_u64.pow(mint_decimals as u32) as f64))
+                        Some(
+                            token_account.amount as f64 / (10_u64.pow(mint_decimals as u32) as f64),
+                        )
                     } else {
                         Some(token_account.amount as f64)
                     };
-                    
+
                     let ui_amount_string = if mint_decimals > 0 {
-                        format!("{:.precision$}",
+                        format!(
+                            "{:.precision$}",
                             token_account.amount as f64 / (10_u64.pow(mint_decimals as u32) as f64),
                             precision = mint_decimals as usize
                         )
@@ -856,21 +870,21 @@ impl SurfnetSvmLocker {
                             decimals: mint_decimals,
                             ui_amount,
                             ui_amount_string,
-                        }
+                        },
                     }
                 })
                 .collect();
-            
+
             // sort by amount in descending order
             balances.sort_by(|a, b| {
                 let amount_a: u64 = a.amount.amount.parse().unwrap_or(0);
                 let amount_b: u64 = b.amount.amount.parse().unwrap_or(0);
                 amount_b.cmp(&amount_a)
             });
-            
+
             // limit to top 20 accounts
             balances.truncate(20);
-            
+
             balances
         })
     }
@@ -922,8 +936,6 @@ impl SurfnetSvmLocker {
         ))
     }
 
-
-
     /// Fetches the largest token accounts for a specific mint, returning contextualized results.
     pub async fn get_token_largest_accounts(
         &self,
@@ -931,13 +943,16 @@ impl SurfnetSvmLocker {
         mint: &Pubkey,
     ) -> SurfpoolContextualizedResult<Vec<RpcTokenAccountBalance>> {
         if let Some((remote_client, commitment_config)) = remote_ctx {
-            self.get_token_largest_accounts_local_then_remote(remote_client, mint, *commitment_config)
-                .await
+            self.get_token_largest_accounts_local_then_remote(
+                remote_client,
+                mint,
+                *commitment_config,
+            )
+            .await
         } else {
             Ok(self.get_token_largest_accounts_local(mint))
         }
     }
-
 }
 
 /// Address lookup table related functions
