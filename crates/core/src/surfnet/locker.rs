@@ -1,5 +1,4 @@
 use std::{collections::BTreeMap, sync::Arc};
-
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
 use jsonrpc_core::futures::future::join_all;
@@ -9,7 +8,7 @@ use solana_account_decoder::{
     encode_ui_account,
     parse_account_data::AccountAdditionalDataV3,
     parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram},
-    parse_token::parse_token_v3,
+    parse_token::{parse_token_v3, UiTokenAmount},
     UiAccount, UiAccountEncoding,
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
@@ -17,7 +16,7 @@ use solana_client::{
     rpc_config::{RpcAccountInfoConfig, RpcSignaturesForAddressConfig},
     rpc_filter::RpcFilterType,
     rpc_request::TokenAccountsFilter,
-    rpc_response::{RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount},
+    rpc_response::{RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount, RpcTokenAccountBalance},
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -30,15 +29,18 @@ use solana_message::{
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
-    transaction::VersionedTransaction,
+    bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState}, 
+    program_pack::Pack, 
+    transaction::VersionedTransaction
 };
 use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta,
-    TransactionConfirmationStatus as SolanaTransactionConfirmationStatus, UiTransactionEncoding,
+    TransactionConfirmationStatus as SolanaTransactionConfirmationStatus, 
+    UiTransactionEncoding,
 };
+use spl_token::state::Mint;
 use spl_token_2022::extension::StateWithExtensions;
 use surfpool_types::{
     ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
@@ -815,6 +817,73 @@ impl SurfnetSvmLocker {
             combined_accounts,
         ))
     }
+
+    /// Fetches the largest token accounts for a specific mint, returning contextualized results.
+    pub fn get_token_largest_accounts(
+        &self,
+        mint: &Pubkey,
+    ) -> SurfpoolContextualizedResult<Vec<RpcTokenAccountBalance>> {
+        let result = self.with_contextualized_svm_reader(|svm_reader| {
+            let token_accounts = svm_reader.get_token_accounts_by_mint(mint);
+            
+            // get mint information to determine decimals
+            let mint_decimals = if let Some(mint_account) = svm_reader.accounts_registry.get(mint) {
+                if let Ok(mint_data) = Mint::unpack(&mint_account.data) {
+                    mint_data.decimals
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+            
+            // convert to RpcTokenAccountBalance and sort by balance
+            let mut balances: Vec<RpcTokenAccountBalance> = token_accounts
+                .into_iter()
+                .map(|(pubkey, token_account)| {
+                    let ui_amount = if mint_decimals > 0 {
+                        Some(token_account.amount as f64 / (10_u64.pow(mint_decimals as u32) as f64))
+                    } else {
+                        Some(token_account.amount as f64)
+                    };
+                    
+                    let ui_amount_string = if mint_decimals > 0 {
+                        format!("{:.precision$}", 
+                            token_account.amount as f64 / (10_u64.pow(mint_decimals as u32) as f64),
+                            precision = mint_decimals as usize
+                        )
+                    } else {
+                        token_account.amount.to_string()
+                    };
+
+                    RpcTokenAccountBalance {
+                        address: pubkey.to_string(),
+                        amount: UiTokenAmount {
+                            amount: token_account.amount.to_string(),
+                            decimals: mint_decimals,
+                            ui_amount,
+                            ui_amount_string,
+                        }
+                    }
+                })
+                .collect();
+            
+            // sort by amount in descending order
+            balances.sort_by(|a, b| {
+                let amount_a: u64 = a.amount.amount.parse().unwrap_or(0);
+                let amount_b: u64 = b.amount.amount.parse().unwrap_or(0);
+                amount_b.cmp(&amount_a)
+            });
+            
+            // limit to top 20 accounts
+            balances.truncate(20);
+            
+            balances
+        });
+        
+        Ok(result)
+    }
+
 }
 
 /// Address lookup table related functions
