@@ -36,14 +36,13 @@ use solana_transaction_status::{
 use surfpool_types::{SimnetCommand, TransactionStatusEvent};
 
 use super::{
-    not_implemented_err, not_implemented_err_async,
     utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
     RunloopContext, State, SurfnetRpcContext,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     surfnet::{locker::SvmAccessContext, GetTransactionResult, FINALIZATION_SLOT_THRESHOLD},
-    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
+    types::SurfnetTransactionStatus,
 };
 
 const MAX_PRIORITIZATION_FEE_BLOCKS_CACHE: usize = 150;
@@ -1720,7 +1719,7 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         slot: Slot,
-        config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
+        _config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
@@ -2325,15 +2324,11 @@ mod tests {
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::{
-        legacy::Message as LegacyMessage,
-        v0::{self, Message as V0Message},
-        MessageHeader,
+        legacy::Message as LegacyMessage, v0::Message as V0Message, MessageHeader,
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
-    use solana_sdk::{
-        instruction::Instruction, system_instruction, transaction_context::TransactionReturnData,
-    };
+    use solana_sdk::{instruction::Instruction, system_instruction};
     use solana_signer::Signer;
     use solana_system_interface::program as system_program;
     use solana_transaction::{
@@ -3762,26 +3757,6 @@ mod tests {
         });
     }
 
-    // helper to set up SVM state with proper latest_slot
-    fn setup_svm_state(setup: &TestSetup<SurfpoolFullRpc>, latest_slot: Slot, blocks: Vec<Slot>) {
-        // set latest_slot first
-        setup.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer.latest_epoch_info.absolute_slot = latest_slot;
-            println!("🔧 Set latest_slot to {}", latest_slot);
-        });
-
-        // then insert blocks
-        insert_test_blocks(setup, blocks);
-
-        let (local_min, local_max, current_latest) =
-            setup.context.svm_locker.with_svm_reader(|svm_reader| {
-                let min = svm_reader.blocks.keys().min().copied();
-                let max = svm_reader.blocks.keys().max().copied();
-                let latest = svm_reader.get_latest_absolute_slot();
-                (min, max, latest)
-            });
-    }
-
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_blocks_local_only() {
         let setup = TestSetup::new(SurfpoolFullRpc);
@@ -3838,7 +3813,6 @@ mod tests {
 
         let local_min = setup.context.svm_locker.with_svm_reader(|svm_reader| {
             let min = svm_reader.blocks.keys().min().copied();
-            let all_blocks: Vec<_> = svm_reader.blocks.keys().copied().collect();
             min
         });
         assert_eq!(local_min, Some(50), "Local minimum should be slot 50");
