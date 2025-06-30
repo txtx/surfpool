@@ -1574,6 +1574,11 @@ impl Full for SurfpoolFullRpc {
         config: Option<RpcSimulateTransactionConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSimulateTransactionResult>>> {
         let config = config.unwrap_or_default();
+
+        if config.sig_verify && config.replace_recent_blockhash {
+            return SurfpoolError::sig_verify_replace_recent_blockhash_collision().into();
+        }
+
         let tx_encoding = config.encoding.unwrap_or(UiTransactionEncoding::Base58);
         let binary_encoding = tx_encoding
             .into_binary_encoding()
@@ -1583,7 +1588,7 @@ impl Full for SurfpoolFullRpc {
                 ))
             })
             .unwrap();
-        let (_, unsanitized_tx) =
+        let (_, mut unsanitized_tx) =
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding).unwrap();
 
         let SurfnetRpcContext {
@@ -1610,10 +1615,20 @@ impl Full for SurfpoolFullRpc {
 
             svm_locker.write_multiple_account_updates(&account_updates);
 
-            let replacement_blockhash = Some(RpcBlockhash {
-                blockhash: latest_blockhash.to_string(),
-                last_valid_block_height: latest_epoch_info.block_height,
-            });
+            let replacement_blockhash = if config.replace_recent_blockhash {
+                match &mut unsanitized_tx.message {
+                    VersionedMessage::Legacy(message) => {
+                        message.recent_blockhash = latest_blockhash
+                    }
+                    VersionedMessage::V0(message) => message.recent_blockhash = latest_blockhash,
+                }
+                Some(RpcBlockhash {
+                    blockhash: latest_blockhash.to_string(),
+                    last_valid_block_height: latest_epoch_info.block_height,
+                })
+            } else {
+                None
+            };
 
             let value = match svm_locker.simulate_transaction(unsanitized_tx, config.sig_verify) {
                 Ok(tx_info) => {
