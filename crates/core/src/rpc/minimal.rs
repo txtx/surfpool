@@ -752,15 +752,6 @@ impl Minimal for SurfpoolMinimalRpc {
             if let Some(vote_pubkey_str) = config.vote_pubkey {
                 verify_pubkey(&vote_pubkey_str).map_err(jsonrpc_core::Error::from)?;
             }
-
-            // validate delinquent_slot_distance if provided
-            if let Some(distance) = config.delinquent_slot_distance {
-                if distance > 1000 {
-                    return Err(jsonrpc_core::Error::invalid_params(
-                        "delinquent_slot_distance too large".to_string(),
-                    ));
-                }
-            }
         }
 
         // Return empty vote accounts
