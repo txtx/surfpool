@@ -12,7 +12,7 @@ use solana_account_decoder::{
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
-    rpc_config::{RpcAccountInfoConfig, RpcLargestAccountsConfig},
+    rpc_config::{RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcLargestAccountsFilter},
     rpc_filter::RpcFilterType,
     rpc_response::{RpcAccountBalance, RpcKeyedAccount},
 };
@@ -25,6 +25,7 @@ use solana_message::{
     VersionedMessage,
 };
 use solana_pubkey::Pubkey;
+use solana_runtime::non_circulating_supply;
 use solana_sdk::{
     bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
     transaction::VersionedTransaction,
@@ -45,7 +46,7 @@ use super::{
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    rpc::utils::convert_transaction_metadata_from_canonical,
+    rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
 };
 
 pub struct SvmAccessContext<T> {
@@ -316,18 +317,33 @@ impl SurfnetSvmLocker {
     }
 
     /// Retrieves largest accounts from local cache, returning a contextualized result.
-    pub fn get_largest_accounts_local(&self) -> SvmAccessContext<Vec<RpcAccountBalance>> {
+    pub fn get_largest_accounts_local(
+        &self,
+        config: Option<RpcLargestAccountsConfig>,
+    ) -> SvmAccessContext<Vec<RpcAccountBalance>> {
         self.with_contextualized_svm_reader(|svm_reader| {
-            svm_reader
-                .accounts_registry
+            let non_circulating_accounts: Vec<_> = svm_reader
+                .non_circulating_accounts
                 .iter()
-                .sorted_by(|a, b| b.1.lamports.cmp(&a.1.lamports))
-                .take(20)
-                .map(|(pubkey, account)| RpcAccountBalance {
-                    address: pubkey.to_string(),
-                    lamports: account.lamports,
-                })
-                .collect()
+                .flat_map(|acct| verify_pubkey(acct))
+                .collect();
+
+            if Some(RpcLargestAccountsFilter::Circulating) == config.clone().and_then(|c| c.filter)
+            {
+                svm_reader
+                    .accounts_registry
+                    .iter()
+                    .sorted_by(|a, b| b.1.lamports.cmp(&a.1.lamports))
+                    .filter(|(pk, _)| !non_circulating_accounts.contains(pk))
+                    .take(20)
+                    .map(|(pubkey, account)| RpcAccountBalance {
+                        address: pubkey.to_string(),
+                        lamports: account.lamports,
+                    })
+                    .collect()
+            } else {
+                vec![]
+            }
         })
     }
 
@@ -336,7 +352,53 @@ impl SurfnetSvmLocker {
         client: &SurfnetRemoteClient,
         config: Option<RpcLargestAccountsConfig>,
     ) -> SurfpoolContextualizedResult<Vec<RpcAccountBalance>> {
-        let results = self.get_largest_accounts_local();
+        let remote_non_circulating = client
+            .get_largest_accounts(Some(RpcLargestAccountsConfig {
+                filter: Some(RpcLargestAccountsFilter::NonCirculating),
+                ..config.clone().unwrap_or_default()
+            }))
+            .await?;
+
+        for acct in remote_non_circulating.iter() {
+            let pubkey = verify_pubkey(&acct.address)?;
+            if self.get_account_local(&pubkey).inner.is_none() {
+                self.with_svm_writer(|svm_writer| {
+                    svm_writer.non_circulating_accounts.push(pubkey.to_string());
+                    svm_writer.set_account(
+                        &pubkey,
+                        Account {
+                            lamports: acct.lamports,
+                            ..Default::default()
+                        },
+                    )
+                })?
+            }
+        }
+
+        let remote_circulating = client
+            .get_largest_accounts(Some(RpcLargestAccountsConfig {
+                filter: Some(RpcLargestAccountsFilter::Circulating),
+                ..config.clone().unwrap_or_default()
+            }))
+            .await?;
+
+        for acct in remote_circulating.iter() {
+            let pubkey = verify_pubkey(&acct.address)?;
+            if self.get_account_local(&pubkey).inner.is_none() {
+                self.with_svm_writer(|svm_writer| {
+                    svm_writer.non_circulating_accounts.push(pubkey.to_string());
+                    svm_writer.set_account(
+                        &pubkey,
+                        Account {
+                            lamports: acct.lamports,
+                            ..Default::default()
+                        },
+                    )
+                })?
+            }
+        }
+
+        let results = self.get_largest_accounts_local(config.clone());
 
         let mut remote_results = client.get_largest_accounts(config).await?;
 
@@ -354,13 +416,14 @@ impl SurfnetSvmLocker {
 
     pub async fn get_largest_accounts(
         &self,
-        remote_ctx: &Option<(SurfnetRemoteClient, Option<RpcLargestAccountsConfig>)>,
+        remote_ctx: &Option<(SurfnetRemoteClient, ())>,
+        config: Option<RpcLargestAccountsConfig>,
     ) -> SurfpoolContextualizedResult<Vec<RpcAccountBalance>> {
-        let results = if let Some((remote_client, config)) = remote_ctx {
+        let results = if let Some((remote_client, _)) = remote_ctx {
             self.get_largest_accounts_local_then_remote(remote_client, config.clone())
                 .await?
         } else {
-            self.get_largest_accounts_local()
+            self.get_largest_accounts_local(config)
         };
 
         Ok(results)

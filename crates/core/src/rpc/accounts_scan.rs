@@ -531,7 +531,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context(config) {
+        } = match meta.get_rpc_context(()) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
@@ -539,7 +539,10 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         Box::pin(async move {
             let current_slot = svm_locker.get_latest_absolute_slot();
 
-            let largest_accounts = svm_locker.get_largest_accounts(&remote_ctx).await?.inner;
+            let largest_accounts = svm_locker
+                .get_largest_accounts(&remote_ctx, config)
+                .await?
+                .inner;
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(current_slot),
