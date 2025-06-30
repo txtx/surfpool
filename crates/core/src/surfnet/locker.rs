@@ -333,8 +333,8 @@ impl SurfnetSvmLocker {
                 svm_reader
                     .accounts_registry
                     .iter()
-                    .sorted_by(|a, b| b.1.lamports.cmp(&a.1.lamports))
                     .filter(|(pk, _)| !non_circulating_accounts.contains(pk))
+                    .sorted_by(|a, b| b.1.lamports.cmp(&a.1.lamports))
                     .take(20)
                     .map(|(pubkey, account)| RpcAccountBalance {
                         address: pubkey.to_string(),
@@ -342,7 +342,20 @@ impl SurfnetSvmLocker {
                     })
                     .collect()
             } else {
-                vec![]
+                non_circulating_accounts
+                    .iter()
+                    .flat_map(|pubkey| {
+                        svm_reader
+                            .accounts_registry
+                            .get(pubkey)
+                            .map(|acct| RpcAccountBalance {
+                                address: pubkey.to_string(),
+                                lamports: acct.lamports,
+                            })
+                    })
+                    .sorted_by(|a, b| b.lamports.cmp(&a.lamports))
+                    .take(20)
+                    .collect()
             }
         })
     }
