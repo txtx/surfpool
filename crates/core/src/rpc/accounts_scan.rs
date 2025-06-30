@@ -674,6 +674,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
 mod tests {
 
     use core::panic;
+    use std::str::FromStr;
 
     use solana_account::Account;
     use solana_client::{
@@ -684,7 +685,6 @@ mod tests {
     use solana_pubkey::Pubkey;
     use solana_sdk::program_pack::Pack;
     use spl_token::state::Account as TokenAccount;
-    use std::str::FromStr;
     use surfpool_types::SupplyUpdate;
 
     use super::{AccountsScan, SurfpoolAccountsScanRpc};
