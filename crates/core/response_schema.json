@@ -48,6 +48,10 @@
           "description": "getAccountInfo - Returns account information",
           "$ref": "#/$defs/RpcResponse_for_Nullable_UiAccountSchema"
         },
+        "getBlockCommitment": {
+          "description": "getBlockCommitment - Returns commitment levels for a given block",
+          "$ref": "#/$defs/RpcBlockCommitment_for_Array_size_32_of_uint64"
+        },
         "getLargestAccounts": {
           "description": "getLargestAccounts - Returns largest accounts by balance",
           "$ref": "#/$defs/RpcResponse_for_Array_of_RpcAccountBalance"
@@ -90,6 +94,7 @@
       },
       "required": [
         "getAccountInfo",
+        "getBlockCommitment",
         "getMultipleAccounts",
         "getProgramAccounts",
         "getLargestAccounts",
@@ -272,6 +277,10 @@
       "description": "Bank data endpoints for blockchain state information",
       "type": "object",
       "properties": {
+        "getBlockProduction": {
+          "description": "getBlockProduction - Returns block production information",
+          "$ref": "#/$defs/RpcResponse_for_RpcBlockProduction"
+        },
         "getEpochSchedule": {
           "description": "getEpochSchedule - Returns epoch schedule",
           "$ref": "#/$defs/EpochScheduleSchema"
@@ -292,9 +301,26 @@
           "description": "getInflationRate - Returns inflation rate",
           "$ref": "#/$defs/RpcInflationRate"
         },
+        "getMinimumBalanceForRentExemption": {
+          "description": "getMinimumBalanceForRentExemption - Returns minimum balance for rent exemption",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
         "getRent": {
           "description": "getRent - Returns rent information",
           "$ref": "#/$defs/RentSchema"
+        },
+        "getSlotLeader": {
+          "description": "getSlotLeader - Returns the leader of the current slot",
+          "type": "string"
+        },
+        "getSlotLeaders": {
+          "description": "getSlotLeaders - Returns leaders for a specified range of slots",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -303,7 +329,11 @@
         "getEpochSchedule",
         "getFees",
         "getFeeRateGovernor",
-        "getRent"
+        "getRent",
+        "getMinimumBalanceForRentExemption",
+        "getSlotLeader",
+        "getSlotLeaders",
+        "getBlockProduction"
       ]
     },
     "ClockSchema": {
@@ -916,6 +946,86 @@
         "lamports"
       ]
     },
+    "RpcBlockCommitment_for_Array_size_32_of_uint64": {
+      "description": "Block commitment information with optional commitment and total stake",
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "maxItems": 32,
+          "minItems": 32
+        },
+        "totalStake": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "totalStake"
+      ]
+    },
+    "RpcBlockProduction": {
+      "description": "Block production statistics by validator identity",
+      "type": "object",
+      "properties": {
+        "byIdentity": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer",
+                "format": "uint",
+                "minimum": 0
+              },
+              {
+                "type": "integer",
+                "format": "uint",
+                "minimum": 0
+              }
+            ]
+          }
+        },
+        "range": {
+          "$ref": "#/$defs/RpcBlockProductionRange"
+        }
+      },
+      "required": [
+        "byIdentity",
+        "range"
+      ]
+    },
+    "RpcBlockProductionRange": {
+      "description": "Block production range information",
+      "type": "object",
+      "properties": {
+        "firstSlot": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "lastSlot": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "firstSlot",
+        "lastSlot"
+      ]
+    },
     "RpcBlockUpdate": {
       "description": "Block update notification",
       "type": "object",
@@ -1044,7 +1154,6 @@
       "type": "object",
       "properties": {
         "featureSet": {
-          "description": "First 4 bytes of the FeatureSet identifier",
           "type": [
             "integer",
             "null"
@@ -1053,39 +1162,33 @@
           "minimum": 0
         },
         "gossip": {
-          "description": "Gossip port",
           "type": [
             "string",
             "null"
           ]
         },
         "pubkey": {
-          "description": "Pubkey of the node as a base-58 string",
           "type": "string"
         },
         "pubsub": {
-          "description": "WebSocket PubSub port",
           "type": [
             "string",
             "null"
           ]
         },
         "rpc": {
-          "description": "JSON RPC port",
           "type": [
             "string",
             "null"
           ]
         },
         "serveRepair": {
-          "description": "Server repair UDP port",
           "type": [
             "string",
             "null"
           ]
         },
         "shredVersion": {
-          "description": "Shred version",
           "type": [
             "integer",
             "null"
@@ -1095,49 +1198,42 @@
           "minimum": 0
         },
         "tpu": {
-          "description": "Tpu UDP port",
           "type": [
             "string",
             "null"
           ]
         },
         "tpuForwards": {
-          "description": "Tpu UDP forwards port",
           "type": [
             "string",
             "null"
           ]
         },
         "tpuForwardsQuic": {
-          "description": "Tpu QUIC forwards port",
           "type": [
             "string",
             "null"
           ]
         },
         "tpuQuic": {
-          "description": "Tpu QUIC port",
           "type": [
             "string",
             "null"
           ]
         },
         "tpuVote": {
-          "description": "Tpu UDP vote port",
           "type": [
             "string",
             "null"
           ]
         },
         "tvu": {
-          "description": "Tvu UDP port",
           "type": [
             "string",
             "null"
           ]
         },
         "version": {
-          "description": "Software version",
           "type": [
             "string",
             "null"
@@ -1178,7 +1274,6 @@
       "type": "object",
       "properties": {
         "identity": {
-          "description": "The current node identity pubkey",
           "type": "string"
         }
       },
@@ -1584,6 +1679,22 @@
         "context"
       ]
     },
+    "RpcResponse_for_RpcBlockProduction": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "$ref": "#/$defs/RpcBlockProduction"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
     "RpcResponse_for_RpcBlockhash": {
       "description": "RPC response wrapper with context",
       "type": "object",
@@ -1868,7 +1979,6 @@
       "type": "object",
       "properties": {
         "feature-set": {
-          "description": "first 4 bytes of the FeatureSet identifier",
           "type": [
             "integer",
             "null"
@@ -1877,7 +1987,6 @@
           "minimum": 0
         },
         "solana-core": {
-          "description": "The current version of solana-core",
           "type": "string"
         }
       },
@@ -1911,7 +2020,6 @@
           "format": "int64"
         },
         "votePubkey": {
-          "description": "Vote account address, as base-58 encoded string",
           "type": "string"
         }
       },
@@ -1927,20 +2035,17 @@
       "type": "object",
       "properties": {
         "activatedStake": {
-          "description": "The current stake, in lamports, delegated to this vote account",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
         },
         "commission": {
-          "description": "An 8-bit integer used as a fraction (commission/MAX_U8) for rewards payout",
           "type": "integer",
           "format": "uint8",
           "maximum": 255,
           "minimum": 0
         },
         "epochCredits": {
-          "description": "Latest history of earned credits for up to `MAX_RPC_VOTE_ACCOUNT_INFO_EPOCH_CREDITS_HISTORY` epochs\n   each tuple is (Epoch, credits, prev_credits)",
           "type": "array",
           "items": {
             "type": "array",
@@ -1966,27 +2071,22 @@
           }
         },
         "epochVoteAccount": {
-          "description": "Whether this account is staked for the current epoch",
           "type": "boolean"
         },
         "lastVote": {
-          "description": "Most recent slot voted on by this vote account (0 if no votes exist)",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
         },
         "nodePubkey": {
-          "description": "The validator identity, as base-58 encoded string",
           "type": "string"
         },
         "rootSlot": {
-          "description": "Current root slot for this vote account (0 if no root slot exists)",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
         },
         "votePubkey": {
-          "description": "Vote account address, as base-58 encoded string",
           "type": "string"
         }
       },
@@ -2283,6 +2383,10 @@
           "description": "advanceClock - Advances clock",
           "type": "string"
         },
+        "cloneProgramAccount": {
+          "description": "cloneProgramAccount - Clones a program account",
+          "type": "string"
+        },
         "getAccount": {
           "description": "getAccount - Gets account data",
           "anyOf": [
@@ -2298,12 +2402,20 @@
           "description": "getClock - Gets clock information",
           "$ref": "#/$defs/ClockSchema"
         },
+        "getProfileResults": {
+          "description": "getProfileResults - Gets profiling results for a tag",
+          "type": "string"
+        },
         "getSurfpoolVersion": {
           "description": "getSurfpoolVersion - Returns surfpool version",
           "$ref": "#/$defs/SurfpoolRpcVersionInfo"
         },
         "processTransaction": {
           "description": "processTransaction - Processes transaction",
+          "type": "string"
+        },
+        "profileTransaction": {
+          "description": "profileTransaction - Profiles a transaction for compute unit estimation",
           "type": "string"
         },
         "resetSurfnet": {
@@ -2316,6 +2428,10 @@
         },
         "setClock": {
           "description": "setClock - Sets clock",
+          "type": "string"
+        },
+        "setSupply": {
+          "description": "setSupply - Sets supply information for testing",
           "type": "string"
         },
         "setTokenAccount": {
@@ -2337,6 +2453,10 @@
         "resetSurfnet",
         "setAccount",
         "setTokenAccount",
+        "cloneProgramAccount",
+        "profileTransaction",
+        "getProfileResults",
+        "setSupply",
         "advanceClock",
         "setClock",
         "getClock",
@@ -2349,7 +2469,6 @@
       "type": "object",
       "properties": {
         "featureSet": {
-          "description": "first 4 bytes of the FeatureSet identifier",
           "type": [
             "integer",
             "null"
@@ -2358,11 +2477,9 @@
           "minimum": 0
         },
         "solanaCore": {
-          "description": "The current version of solana-core",
           "type": "string"
         },
         "surfnetVersion": {
-          "description": "The current version of surfpool",
           "type": "string"
         }
       },

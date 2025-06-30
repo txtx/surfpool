@@ -769,6 +769,9 @@ pub struct AccountsDataEndpoints {
     #[schemars(description = "getAccountInfo - Returns account information")]
     pub get_account_info: RpcResponse<Option<UiAccountSchema>>,
 
+    #[schemars(description = "getBlockCommitment - Returns commitment levels for a given block")]
+    pub get_block_commitment: RpcBlockCommitment<BlockCommitmentArray>,
+
     #[schemars(description = "getMultipleAccounts - Returns multiple accounts information")]
     pub get_multiple_accounts: RpcResponse<Vec<Option<UiAccountSchema>>>,
 
@@ -829,6 +832,20 @@ pub struct BankDataEndpoints {
 
     #[schemars(description = "getRent - Returns rent information")]
     pub get_rent: RentSchema,
+
+    #[schemars(
+        description = "getMinimumBalanceForRentExemption - Returns minimum balance for rent exemption"
+    )]
+    pub get_minimum_balance_for_rent_exemption: u64,
+
+    #[schemars(description = "getSlotLeader - Returns the leader of the current slot")]
+    pub get_slot_leader: String,
+
+    #[schemars(description = "getSlotLeaders - Returns leaders for a specified range of slots")]
+    pub get_slot_leaders: Vec<String>,
+
+    #[schemars(description = "getBlockProduction - Returns block production information")]
+    pub get_block_production: RpcResponse<RpcBlockProduction>,
 }
 
 #[derive(JsonSchema)]
@@ -849,6 +866,20 @@ pub struct SurfnetCheatcodesEndpoints {
 
     #[schemars(description = "setTokenAccount - Sets token account data")]
     pub set_token_account: String,
+
+    #[schemars(description = "cloneProgramAccount - Clones a program account")]
+    pub clone_program_account: String,
+
+    #[schemars(
+        description = "profileTransaction - Profiles a transaction for compute unit estimation"
+    )]
+    pub profile_transaction: String,
+
+    #[schemars(description = "getProfileResults - Gets profiling results for a tag")]
+    pub get_profile_results: String,
+
+    #[schemars(description = "setSupply - Sets supply information for testing")]
+    pub set_supply: String,
 
     #[schemars(description = "getAccount - Gets account data")]
     pub get_account: Option<UiAccountSchema>,
