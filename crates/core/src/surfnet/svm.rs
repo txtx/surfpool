@@ -738,18 +738,35 @@ impl SurfnetSvm {
         match account_update {
             GetAccountResult::FoundAccount(pubkey, account, do_update_account) => {
                 if do_update_account {
-                    let _ = self.set_account(&pubkey, account.clone());
+                    if let Err(e) = self.set_account(&pubkey, account.clone()) {
+                        let _ = self
+                            .simnet_events_tx
+                            .send(SimnetEvent::error(e.to_string()));
+                    }
                 }
             }
             GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
-                let _ = self.set_account(&pubkey, account.clone());
+                if let Err(e) = self.set_account(&pubkey, account.clone()) {
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                }
             }
             GetAccountResult::FoundProgramAccount(
                 (pubkey, account),
                 (data_pubkey, Some(data_account)),
             ) => {
-                let _ = self.set_account(&pubkey, account.clone());
-                let _ = self.set_account(&data_pubkey, data_account.clone());
+                // The data account _must_ be set first, as the program account depends on it.
+                if let Err(e) = self.set_account(&data_pubkey, data_account.clone()) {
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                };
+                if let Err(e) = self.set_account(&pubkey, account.clone()) {
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                };
             }
             GetAccountResult::None(_) => {}
         }
