@@ -2825,6 +2825,111 @@ mod tests {
         );
     }
 
+    #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
+    #[test_case(TransactionVersion::Number(0) ; "V0 transactions")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_simulate_transaction_replace_recent_blockhash(version: TransactionVersion) {
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let lamports = LAMPORTS_PER_SOL;
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+        let block_height = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.block_height);
+        let bad_blockhash = Hash::new_unique();
+
+        let _ = setup
+            .rpc
+            .request_airdrop(
+                Some(setup.context.clone()),
+                payer.pubkey().to_string(),
+                2 * lamports,
+                None,
+            )
+            .unwrap();
+
+        let mut tx = match version {
+            TransactionVersion::Legacy(_) => build_legacy_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
+            ),
+            TransactionVersion::Number(0) => build_v0_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
+            ),
+            _ => unimplemented!(),
+        };
+        match &mut tx.message {
+            VersionedMessage::Legacy(msg) => {
+                msg.recent_blockhash = bad_blockhash;
+            }
+            VersionedMessage::V0(msg) => {
+                msg.recent_blockhash = bad_blockhash;
+            }
+        }
+
+        let invalid_config = RpcSimulateTransactionConfig {
+            sig_verify: true,
+            replace_recent_blockhash: true,
+            commitment: Some(CommitmentConfig::finalized()),
+            encoding: None,
+            accounts: Some(RpcSimulateTransactionAccountsConfig {
+                encoding: None,
+                addresses: vec![pk.to_string()],
+            }),
+            min_context_slot: None,
+            inner_instructions: false,
+        };
+        let err = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context.clone()),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(invalid_config.clone()),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            err.message, "sigVerify may not be used with replaceRecentBlockhash",
+            "sigVerify should not be allowed to be used with replaceRecentBlockhash"
+        );
+
+        let mut valid_config = invalid_config;
+        valid_config.sig_verify = false;
+        let simulation_res = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(valid_config),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            simulation_res.value.err, None,
+            "Unexpected simulation error"
+        );
+        assert_eq!(
+            simulation_res.value.replacement_blockhash,
+            Some(RpcBlockhash {
+                blockhash: recent_blockhash.to_string(),
+                last_valid_block_height: block_height
+            }),
+            "Replacement blockhash should be the latest blockhash"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_block() {
         let setup = TestSetup::new(SurfpoolFullRpc);
