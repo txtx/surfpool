@@ -11,8 +11,13 @@ mod admin;
 mod bank_data;
 mod full;
 mod minimal;
+pub mod response;
 mod solana_types;
 mod surfnet_cheatcodes;
+mod ws;
+
+pub use response::{RpcErrorResponse, RpcResponseContext, SurfpoolRpcEndpoints};
+pub use ws::{SurfpoolWebSocketApiDocumentation, SurfpoolWebSocketEndpoints};
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +46,15 @@ pub enum RpcGroups {
     SurfnetCheatcodes(SurfnetCheatcodes),
 }
 
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum RpcResponse {
+    #[schemars(description = "Response types for the rpc methods")]
+    #[serde(untagged)]
+    Response(SurfpoolRpcEndpoints),
+}
+
+#[cfg(test)]
 mod test {
     use super::*;
 
@@ -49,5 +63,26 @@ mod test {
         let schema = schemars::schema_for!(RpcGroups);
         let json = serde_json::to_string_pretty(&schema).unwrap();
         std::fs::write("rpc_groups_schema.json", json).unwrap();
+    }
+
+    #[test]
+    fn test_response_types_schema() {
+        let schema = schemars::schema_for!(SurfpoolRpcEndpoints);
+        let json = serde_json::to_string_pretty(&schema).unwrap();
+        std::fs::write("response_schema.json", json).unwrap();
+    }
+
+    #[test]
+    fn test_websocket_endpoints_schema() {
+        let schema = schemars::schema_for!(SurfpoolWebSocketEndpoints);
+        let json = serde_json::to_string_pretty(&schema).unwrap();
+        std::fs::write("websocket_schema.json", json).unwrap();
+    }
+
+    #[test]
+    fn test_websocket_api_documentation_schema() {
+        let schema = schemars::schema_for!(SurfpoolWebSocketApiDocumentation);
+        let json = serde_json::to_string_pretty(&schema).unwrap();
+        std::fs::write("websocket_api_documentation_schema.json", json).unwrap();
     }
 }
