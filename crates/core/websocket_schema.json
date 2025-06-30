@@ -1,0 +1,640 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SurfpoolWebSocketEndpoints",
+  "description": "Complete mapping of all Surfpool WebSocket RPC endpoints",
+  "type": "object",
+  "properties": {
+    "accountSubscriptions": {
+      "$ref": "#/$defs/AccountSubscriptionEndpoints"
+    },
+    "signatureSubscriptions": {
+      "$ref": "#/$defs/SignatureSubscriptionEndpoints"
+    },
+    "slotSubscriptions": {
+      "$ref": "#/$defs/SlotSubscriptionEndpoints"
+    }
+  },
+  "required": [
+    "signatureSubscriptions",
+    "accountSubscriptions",
+    "slotSubscriptions"
+  ],
+  "$defs": {
+    "AccountNotification": {
+      "description": "Account change notification",
+      "type": "object",
+      "properties": {
+        "result": {
+          "description": "Notification result",
+          "$ref": "#/$defs/RpcResponse_for_UiAccountSchema"
+        },
+        "subscription": {
+          "description": "Subscription ID",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "result",
+        "subscription"
+      ]
+    },
+    "AccountSubscribeEndpoint": {
+      "description": "Account subscribe endpoint specification",
+      "type": "object",
+      "properties": {
+        "notification": {
+          "description": "Notification type sent to subscribers",
+          "$ref": "#/$defs/AccountNotification"
+        },
+        "request": {
+          "description": "Request parameters for account subscription",
+          "$ref": "#/$defs/AccountSubscribeRequest"
+        },
+        "response": {
+          "description": "Response type for subscription confirmation",
+          "$ref": "#/$defs/SubscriptionResponse"
+        }
+      },
+      "required": [
+        "request",
+        "response",
+        "notification"
+      ]
+    },
+    "AccountSubscribeRequest": {
+      "description": "Request parameters for account subscription",
+      "type": "object",
+      "properties": {
+        "config": {
+          "description": "Optional subscription configuration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcAccountSubscribeConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pubkey": {
+          "description": "Account public key to monitor (base-58 encoded)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pubkey"
+      ]
+    },
+    "AccountSubscriptionEndpoints": {
+      "description": "Account subscription WebSocket endpoints",
+      "type": "object",
+      "properties": {
+        "accountSubscribe": {
+          "description": "accountSubscribe - Subscribe to account change notifications",
+          "$ref": "#/$defs/AccountSubscribeEndpoint"
+        },
+        "accountUnsubscribe": {
+          "description": "accountUnsubscribe - Unsubscribe from account notifications",
+          "$ref": "#/$defs/AccountUnsubscribeEndpoint"
+        }
+      },
+      "required": [
+        "accountSubscribe",
+        "accountUnsubscribe"
+      ]
+    },
+    "AccountUnsubscribeEndpoint": {
+      "description": "Account unsubscribe endpoint specification",
+      "type": "object",
+      "properties": {
+        "request": {
+          "description": "Request parameters for account unsubscription",
+          "$ref": "#/$defs/UnsubscribeRequest"
+        },
+        "response": {
+          "description": "Response indicating unsubscription success",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "request",
+        "response"
+      ]
+    },
+    "CommitmentConfig": {
+      "description": "Commitment configuration",
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "description": "Commitment level",
+          "$ref": "#/$defs/CommitmentLevel"
+        }
+      },
+      "required": [
+        "commitment"
+      ]
+    },
+    "CommitmentLevel": {
+      "description": "Commitment levels for transaction confirmation",
+      "oneOf": [
+        {
+          "description": "Transaction is processed but not yet confirmed",
+          "type": "string",
+          "const": "Processed"
+        },
+        {
+          "description": "Transaction is confirmed",
+          "type": "string",
+          "const": "Confirmed"
+        },
+        {
+          "description": "Transaction is finalized",
+          "type": "string",
+          "const": "Finalized"
+        }
+      ]
+    },
+    "ProcessedSignatureResult": {
+      "description": "Processed signature result with optional error",
+      "type": "object",
+      "properties": {
+        "err": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransactionErrorSchema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ReceivedSignatureResult": {
+      "description": "Received signature confirmation",
+      "type": "string",
+      "enum": [
+        "receivedSignature"
+      ]
+    },
+    "RpcAccountSubscribeConfig": {
+      "description": "Configuration for account subscription",
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "description": "Commitment level for notifications",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "encoding": {
+          "description": "Encoding format for account data",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiAccountEncoding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "RpcResponseContext": {
+      "description": "Response context containing slot and API version information",
+      "type": "object",
+      "properties": {
+        "apiVersion": {
+          "description": "The API version",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "slot": {
+          "description": "The current slot",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "slot"
+      ]
+    },
+    "RpcResponse_for_RpcSignatureResult": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "$ref": "#/$defs/RpcSignatureResult"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse_for_UiAccountSchema": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "$ref": "#/$defs/UiAccountSchema"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcSignatureResult": {
+      "description": "Signature confirmation result",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProcessedSignatureResult"
+        },
+        {
+          "$ref": "#/$defs/ReceivedSignatureResult"
+        }
+      ]
+    },
+    "RpcSignatureSubscribeConfig": {
+      "description": "Configuration for signature subscription",
+      "type": "object",
+      "properties": {
+        "commitment": {
+          "description": "Commitment level for notifications",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enableReceivedNotification": {
+          "description": "Whether to enable received notification",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "SignatureNotification": {
+      "description": "Signature status notification",
+      "type": "object",
+      "properties": {
+        "result": {
+          "description": "Notification result",
+          "$ref": "#/$defs/RpcResponse_for_RpcSignatureResult"
+        },
+        "subscription": {
+          "description": "Subscription ID",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "result",
+        "subscription"
+      ]
+    },
+    "SignatureSubscribeEndpoint": {
+      "description": "Signature subscribe endpoint specification",
+      "type": "object",
+      "properties": {
+        "notification": {
+          "description": "Notification type sent to subscribers",
+          "$ref": "#/$defs/SignatureNotification"
+        },
+        "request": {
+          "description": "Request parameters for signature subscription",
+          "$ref": "#/$defs/SignatureSubscribeRequest"
+        },
+        "response": {
+          "description": "Response type for subscription confirmation",
+          "$ref": "#/$defs/SubscriptionResponse"
+        }
+      },
+      "required": [
+        "request",
+        "response",
+        "notification"
+      ]
+    },
+    "SignatureSubscribeRequest": {
+      "description": "Request parameters for signature subscription",
+      "type": "object",
+      "properties": {
+        "config": {
+          "description": "Optional subscription configuration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcSignatureSubscribeConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signature": {
+          "description": "Transaction signature to monitor (base-58 encoded)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "signature"
+      ]
+    },
+    "SignatureSubscriptionEndpoints": {
+      "description": "Signature subscription WebSocket endpoints",
+      "type": "object",
+      "properties": {
+        "signatureSubscribe": {
+          "description": "signatureSubscribe - Subscribe to signature status notifications",
+          "$ref": "#/$defs/SignatureSubscribeEndpoint"
+        },
+        "signatureUnsubscribe": {
+          "description": "signatureUnsubscribe - Unsubscribe from signature notifications",
+          "$ref": "#/$defs/SignatureUnsubscribeEndpoint"
+        }
+      },
+      "required": [
+        "signatureSubscribe",
+        "signatureUnsubscribe"
+      ]
+    },
+    "SignatureUnsubscribeEndpoint": {
+      "description": "Signature unsubscribe endpoint specification",
+      "type": "object",
+      "properties": {
+        "request": {
+          "description": "Request parameters for signature unsubscription",
+          "$ref": "#/$defs/UnsubscribeRequest"
+        },
+        "response": {
+          "description": "Response indicating unsubscription success",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "request",
+        "response"
+      ]
+    },
+    "SlotInfo": {
+      "description": "Slot information including current slot, parent slot, and root slot",
+      "type": "object",
+      "properties": {
+        "parent": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "root": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "slot": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "slot",
+        "parent",
+        "root"
+      ]
+    },
+    "SlotNotification": {
+      "description": "Slot change notification",
+      "type": "object",
+      "properties": {
+        "result": {
+          "description": "Notification result",
+          "$ref": "#/$defs/SlotInfo"
+        },
+        "subscription": {
+          "description": "Subscription ID",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "result",
+        "subscription"
+      ]
+    },
+    "SlotSubscribeEndpoint": {
+      "description": "Slot subscribe endpoint specification",
+      "type": "object",
+      "properties": {
+        "notification": {
+          "description": "Notification type sent to subscribers",
+          "$ref": "#/$defs/SlotNotification"
+        },
+        "request": {
+          "description": "Request parameters for slot subscription",
+          "$ref": "#/$defs/SlotSubscribeRequest"
+        },
+        "response": {
+          "description": "Response type for subscription confirmation",
+          "$ref": "#/$defs/SubscriptionResponse"
+        }
+      },
+      "required": [
+        "request",
+        "response",
+        "notification"
+      ]
+    },
+    "SlotSubscribeRequest": {
+      "description": "Request parameters for slot subscription",
+      "type": "object",
+      "properties": {
+        "config": {
+          "description": "Optional subscription configuration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitmentConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "SlotSubscriptionEndpoints": {
+      "description": "Slot subscription WebSocket endpoints",
+      "type": "object",
+      "properties": {
+        "slotSubscribe": {
+          "description": "slotSubscribe - Subscribe to slot change notifications",
+          "$ref": "#/$defs/SlotSubscribeEndpoint"
+        },
+        "slotUnsubscribe": {
+          "description": "slotUnsubscribe - Unsubscribe from slot notifications",
+          "$ref": "#/$defs/SlotUnsubscribeEndpoint"
+        }
+      },
+      "required": [
+        "slotSubscribe",
+        "slotUnsubscribe"
+      ]
+    },
+    "SlotUnsubscribeEndpoint": {
+      "description": "Slot unsubscribe endpoint specification",
+      "type": "object",
+      "properties": {
+        "request": {
+          "description": "Request parameters for slot unsubscription",
+          "$ref": "#/$defs/UnsubscribeRequest"
+        },
+        "response": {
+          "description": "Response indicating unsubscription success",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "request",
+        "response"
+      ]
+    },
+    "SubscriptionResponse": {
+      "description": "Subscription response containing subscription ID",
+      "type": "object",
+      "properties": {
+        "subscriptionId": {
+          "description": "Unique subscription identifier",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "subscriptionId"
+      ]
+    },
+    "TransactionErrorSchema": {
+      "description": "Transaction error information",
+      "type": "object",
+      "properties": {
+        "errorType": {
+          "description": "Error type",
+          "type": "string"
+        },
+        "message": {
+          "description": "Error message",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "errorType"
+      ]
+    },
+    "UiAccountEncoding": {
+      "description": "Account data encoding formats",
+      "oneOf": [
+        {
+          "description": "Base58 encoding",
+          "type": "string",
+          "const": "Base58"
+        },
+        {
+          "description": "Base64 encoding",
+          "type": "string",
+          "const": "Base64"
+        },
+        {
+          "description": "Base64+zstd encoding",
+          "type": "string",
+          "const": "base64+zstd"
+        },
+        {
+          "description": "JSON parsed data",
+          "type": "string",
+          "const": "JsonParsed"
+        }
+      ]
+    },
+    "UiAccountSchema": {
+      "description": "UI representation of an account",
+      "type": "object",
+      "properties": {
+        "data": {
+          "description": "Account data",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "executable": {
+          "description": "Whether this account contains executable code",
+          "type": "boolean"
+        },
+        "lamports": {
+          "description": "Account balance in lamports",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "owner": {
+          "description": "Program that owns this account",
+          "type": "string"
+        },
+        "rentEpoch": {
+          "description": "Epoch at which this account will next owe rent",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "lamports",
+        "data",
+        "owner",
+        "executable",
+        "rentEpoch"
+      ]
+    },
+    "UnsubscribeRequest": {
+      "description": "Unsubscribe request parameters",
+      "type": "object",
+      "properties": {
+        "subscriptionId": {
+          "description": "Subscription ID to remove",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "subscriptionId"
+      ]
+    }
+  }
+}
