@@ -17,7 +17,7 @@ pub enum Minimal {
     #[schemars(description = "Returns the health of the cluster.")]
     GetHealth,
     #[schemars(description = "Returns the identity of the cluster.")]
-    GetIdentity,
+    GetIdentity(GetIdentity),
     #[schemars(description = "Returns the current slot.")]
     GetSlot(GetSlot),
     #[schemars(description = "Returns the block height.")]
@@ -76,4 +76,10 @@ pub struct GetVoteAccounts {
 pub struct GetLeaderSchedule {
     pub options: Option<RpcLeaderScheduleConfigWrapper>,
     pub config: Option<RpcLeaderScheduleConfig>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GetIdentity {
+    pub identity: String,
 }

@@ -427,6 +427,17 @@
         "message"
       ]
     },
+    "GetIdentity": {
+      "type": "object",
+      "properties": {
+        "identity": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity"
+      ]
+    },
     "GetInflationGovernor": {
       "type": "object",
       "properties": {
@@ -2839,8 +2850,16 @@
         },
         {
           "description": "Returns the identity of the cluster.",
-          "type": "string",
-          "const": "getIdentity"
+          "type": "object",
+          "properties": {
+            "getIdentity": {
+              "$ref": "#/$defs/GetIdentity"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "getIdentity"
+          ]
         },
         {
           "description": "Returns the current slot.",
