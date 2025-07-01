@@ -165,7 +165,7 @@ pub async fn start_block_production_runloop(
                         continue
                     }
                     SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
-                        svm_locker.process_transaction(&remote_rpc_client, transaction, status_tx, skip_preflight).await?;
+                        svm_locker.process_transaction(remote_rpc_client, transaction, status_tx, skip_preflight).await?;
                     }
                     SimnetCommand::Terminate(_) => {
                         let _ = svm_locker.simnet_events_tx().send(SimnetEvent::Aborted("Terminated due to inactivity.".to_string()));

@@ -15,6 +15,6 @@ pub struct TokenInfo {
 
 pub static VERIFIED_TOKENS_BY_SYMBOL: Lazy<HashMap<String, TokenInfo>> = Lazy::new(|| {
     let json = include_str!("verified_tokens.json");
-    let tokens: Vec<TokenInfo> = serde_json::from_str(&json).expect("invalid verified_tokens.json");
+    let tokens: Vec<TokenInfo> = serde_json::from_str(json).expect("invalid verified_tokens.json");
     tokens.into_iter().map(|t| (t.symbol.clone(), t)).collect()
 });

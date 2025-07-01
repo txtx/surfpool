@@ -1797,10 +1797,9 @@ impl Full for SurfpoolFullRpc {
                             .blocks
                             .keys()
                             .filter(|&&slot| {
-                                let in_range = slot >= start_slot
+                                slot >= start_slot
                                     && slot <= effective_end_slot
-                                    && slot <= committed_latest_slot;
-                                in_range
+                                    && slot <= committed_latest_slot
                             })
                             .copied()
                             .collect();
@@ -2181,7 +2180,6 @@ impl Full for SurfpoolFullRpc {
                 .into_iter()
                 .sorted_by_key(|(slot, _)| std::cmp::Reverse(*slot))
                 .take(MAX_PRIORITIZATION_FEE_BLOCKS_CACHE)
-                .map(|(slot, header)| (slot, header))
                 .collect::<Vec<_>>();
 
             // Flatten the transactions map to get all transactions in the recent blocks
@@ -2200,19 +2198,16 @@ impl Full for SurfpoolFullRpc {
                 .collect::<Vec<_>>();
 
             // Helper function to extract compute unit price from a CompiledInstruction
-            fn get_compute_unit_price(
-                ix: CompiledInstruction,
-                accounts: &Vec<Pubkey>,
-            ) -> Option<u64> {
+            fn get_compute_unit_price(ix: CompiledInstruction, accounts: &[Pubkey]) -> Option<u64> {
                 let program_account = accounts.get(ix.program_id_index as usize)?;
                 if *program_account != compute_budget::id() {
                     return None;
                 }
 
-                if let Ok(parsed_instr) = borsh::from_slice::<ComputeBudgetInstruction>(&ix.data) {
-                    if let ComputeBudgetInstruction::SetComputeUnitPrice(price) = parsed_instr {
-                        return Some(price);
-                    }
+                if let Ok(ComputeBudgetInstruction::SetComputeUnitPrice(price)) =
+                    borsh::from_slice::<ComputeBudgetInstruction>(&ix.data)
+                {
+                    return Some(price);
                 }
 
                 None

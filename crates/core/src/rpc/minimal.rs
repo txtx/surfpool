@@ -789,7 +789,7 @@ impl Minimal for SurfpoolMinimalRpc {
         let svm_locker = meta.get_svm_locker()?;
         let epoch_info = svm_locker.get_epoch_info();
 
-        let slot = slot.unwrap_or_else(|| epoch_info.absolute_slot);
+        let slot = slot.unwrap_or(epoch_info.absolute_slot);
 
         let first_slot_in_epoch = epoch_info
             .absolute_slot

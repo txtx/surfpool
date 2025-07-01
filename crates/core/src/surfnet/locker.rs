@@ -276,7 +276,7 @@ impl SurfnetSvmLocker {
                     svm_reader
                         .account_associated_data
                         .get(&token_data.base.mint)
-                        .map(|e| e.clone())
+                        .copied()
                 }
                 _ => None,
             };
@@ -919,7 +919,7 @@ impl SurfnetSvmLocker {
             latest_epoch_info,
             latest_blockhash,
             inner: local_accounts,
-        } = self.get_token_accounts_by_owner_local(owner, filter, &config);
+        } = self.get_token_accounts_by_owner_local(owner, filter, config);
 
         let remote_accounts = remote_client
             .get_token_accounts_by_owner(owner, filter, config)
@@ -1000,8 +1000,10 @@ impl SurfnetSvmLocker {
                     };
 
                     if include {
-                        if let Some(account) = svm_reader.accounts_registry.get(pubkey) {
-                            Some(RpcKeyedAccount {
+                        svm_reader
+                            .accounts_registry
+                            .get(pubkey)
+                            .map(|account| RpcKeyedAccount {
                                 pubkey: pubkey.to_string(),
                                 account: encode_ui_account(
                                     pubkey,
@@ -1011,9 +1013,6 @@ impl SurfnetSvmLocker {
                                     config.data_slice,
                                 ),
                             })
-                        } else {
-                            None
-                        }
                     } else {
                         None
                     }
@@ -1558,7 +1557,7 @@ impl SurfnetSvmLocker {
             filtered.push(RpcKeyedAccount {
                 pubkey: pubkey.to_string(),
                 account: encode_ui_account(
-                    &pubkey,
+                    pubkey,
                     account,
                     account_config.encoding.unwrap_or(UiAccountEncoding::Base64),
                     None, // No additional data for now
