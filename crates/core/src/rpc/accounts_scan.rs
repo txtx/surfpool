@@ -522,10 +522,31 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
 
     fn get_largest_accounts(
         &self,
-        _meta: Self::Metadata,
-        _config: Option<RpcLargestAccountsConfig>,
+        meta: Self::Metadata,
+        config: Option<RpcLargestAccountsConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcAccountBalance>>>> {
-        not_implemented_err_async("get_largest_accounts")
+        let config = config.unwrap_or_default();
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let current_slot = svm_locker.get_latest_absolute_slot();
+
+            let largest_accounts = svm_locker
+                .get_largest_accounts(&remote_ctx, config)
+                .await?
+                .inner;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(current_slot),
+                value: largest_accounts,
+            })
+        })
     }
 
     fn get_supply(
@@ -661,12 +682,73 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
 
     fn get_token_accounts_by_delegate(
         &self,
-        _meta: Self::Metadata,
-        _delegate_str: String,
-        _token_account_filter: RpcTokenAccountsFilter,
-        _config: Option<RpcAccountInfoConfig>,
+        meta: Self::Metadata,
+        delegate_str: String,
+        token_account_filter: RpcTokenAccountsFilter,
+        config: Option<RpcAccountInfoConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcKeyedAccount>>>> {
-        not_implemented_err_async("get_token_accounts_by_delegate")
+        let config = config.unwrap_or_default();
+        let delegate = match verify_pubkey(&delegate_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            match token_account_filter {
+                RpcTokenAccountsFilter::Mint(mint_str) => {
+                    let mint = verify_pubkey(&mint_str)?;
+
+                    let remote_ctx = remote_ctx.map(|(r, _)| r);
+                    let SvmAccessContext {
+                        slot,
+                        inner: keyed_accounts,
+                        ..
+                    } = svm_locker
+                        .get_token_accounts_by_delegate(
+                            &remote_ctx,
+                            delegate,
+                            &TokenAccountsFilter::Mint(mint),
+                            &config,
+                        )
+                        .await?;
+
+                    Ok(RpcResponse {
+                        context: RpcResponseContext::new(slot),
+                        value: keyed_accounts,
+                    })
+                }
+                RpcTokenAccountsFilter::ProgramId(program_id_str) => {
+                    let program_id = verify_pubkey(&program_id_str)?;
+
+                    let remote_ctx = remote_ctx.map(|(r, _)| r);
+                    let SvmAccessContext {
+                        slot,
+                        inner: keyed_accounts,
+                        ..
+                    } = svm_locker
+                        .get_token_accounts_by_delegate(
+                            &remote_ctx,
+                            delegate,
+                            &TokenAccountsFilter::ProgramId(program_id),
+                            &config,
+                        )
+                        .await?;
+
+                    Ok(RpcResponse {
+                        context: RpcResponseContext::new(slot),
+                        value: keyed_accounts,
+                    })
+                }
+            }
+        })
     }
 }
 
@@ -678,7 +760,10 @@ mod tests {
 
     use solana_account::Account;
     use solana_client::{
-        rpc_config::{RpcProgramAccountsConfig, RpcSupplyConfig},
+        rpc_config::{
+            RpcLargestAccountsConfig, RpcLargestAccountsFilter, RpcProgramAccountsConfig,
+            RpcSupplyConfig, RpcTokenAccountsFilter,
+        },
         rpc_filter::{Memcmp, RpcFilterType},
         rpc_response::OptionalContext,
     };
@@ -1096,6 +1181,113 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_largest_accounts() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        let large_circulating_pubkey = Pubkey::new_unique();
+        let large_circulating_amount = 1_000_000_000_000_000u64;
+
+        setup
+            .context
+            .svm_locker
+            .with_svm_writer(|svm_writer| {
+                svm_writer.set_account(
+                    &large_circulating_pubkey,
+                    Account {
+                        lamports: large_circulating_amount,
+                        ..Default::default()
+                    },
+                )
+            })
+            .unwrap();
+
+        let large_non_circulating_pubkey = Pubkey::new_unique();
+        let large_non_circulating_amount = 2_000_000_000_000_000u64;
+
+        setup
+            .context
+            .svm_locker
+            .with_svm_writer(|svm_writer| {
+                svm_writer
+                    .non_circulating_accounts
+                    .push(large_non_circulating_pubkey.to_string());
+                svm_writer.set_account(
+                    &large_non_circulating_pubkey,
+                    Account {
+                        lamports: large_non_circulating_amount,
+                        ..Default::default()
+                    },
+                )
+            })
+            .unwrap();
+
+        // Test with filter for circulating accounts
+        {
+            let result = setup
+                .rpc
+                .get_largest_accounts(
+                    Some(setup.context.clone()),
+                    Some(RpcLargestAccountsConfig {
+                        filter: Some(RpcLargestAccountsFilter::Circulating),
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(result.value.len(), 1);
+            assert_eq!(
+                large_circulating_pubkey.to_string(),
+                result.value[0].address
+            );
+            assert_eq!(large_circulating_amount, result.value[0].lamports);
+        }
+
+        // Test with filter for non-circulating accounts
+        {
+            let result = setup
+                .rpc
+                .get_largest_accounts(
+                    Some(setup.context.clone()),
+                    Some(RpcLargestAccountsConfig {
+                        filter: Some(RpcLargestAccountsFilter::NonCirculating),
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(result.value.len(), 1);
+            assert_eq!(
+                large_non_circulating_pubkey.to_string(),
+                result.value[0].address
+            );
+            assert_eq!(large_non_circulating_amount, result.value[0].lamports);
+        }
+
+        // Test without filter - should return both accounts
+        {
+            let result = setup
+                .rpc
+                .get_largest_accounts(Some(setup.context), None)
+                .await
+                .unwrap();
+
+            assert_eq!(result.value.len(), 2);
+            assert_eq!(
+                large_non_circulating_pubkey.to_string(),
+                result.value[0].address
+            );
+            assert_eq!(large_non_circulating_amount, result.value[0].lamports);
+            assert_eq!(
+                large_circulating_pubkey.to_string(),
+                result.value[1].address
+            );
+            assert_eq!(large_circulating_amount, result.value[1].lamports);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_supply_with_invalid_config() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
 
@@ -1324,7 +1516,6 @@ mod tests {
                 None,
             )
             .await;
-
         assert!(invalid_result.is_err());
         let error = invalid_result.unwrap_err();
         assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
@@ -1384,5 +1575,238 @@ mod tests {
 
         // Should return empty array (no token accounts for nonexistent mint)
         assert_eq!(nonexistent_result.value.len(), 0);
+    }
+
+    async fn test_get_token_accounts_by_delegate() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        let delegate = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let token_account_pubkey = Pubkey::new_unique();
+        let token_program = spl_token::id();
+
+        // create a token account with delegate
+        let mut token_account_data = [0u8; spl_token::state::Account::LEN];
+        let token_account = spl_token::state::Account {
+            mint,
+            owner,
+            amount: 1000,
+            delegate: solana_sdk::program_option::COption::Some(delegate),
+            state: spl_token::state::AccountState::Initialized,
+            is_native: solana_sdk::program_option::COption::None,
+            delegated_amount: 500,
+            close_authority: solana_sdk::program_option::COption::None,
+        };
+        solana_sdk::program_pack::Pack::pack_into_slice(&token_account, &mut token_account_data);
+
+        let account = Account {
+            lamports: 1000000,
+            data: token_account_data.to_vec(),
+            owner: token_program,
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(&token_account_pubkey, account.clone())
+                .unwrap();
+        });
+
+        // programId filter - should find the account
+        let result = setup
+            .rpc
+            .get_token_accounts_by_delegate(
+                Some(setup.context.clone()),
+                delegate.to_string(),
+                RpcTokenAccountsFilter::ProgramId(token_program.to_string()),
+                None,
+            )
+            .await;
+
+        assert!(result.is_ok(), "ProgramId filter should succeed");
+        let response = result.unwrap();
+        assert_eq!(response.value.len(), 1, "Should find 1 token account");
+        assert_eq!(response.value[0].pubkey, token_account_pubkey.to_string());
+
+        // mint filter - should find the account
+        let result = setup
+            .rpc
+            .get_token_accounts_by_delegate(
+                Some(setup.context.clone()),
+                delegate.to_string(),
+                RpcTokenAccountsFilter::Mint(mint.to_string()),
+                None,
+            )
+            .await;
+
+        assert!(result.is_ok(), "Mint filter should succeed");
+        let response = result.unwrap();
+        assert_eq!(response.value.len(), 1, "Should find 1 token account");
+        assert_eq!(response.value[0].pubkey, token_account_pubkey.to_string());
+
+        // non-existent delegate - should return empty
+        let non_existent_delegate = Pubkey::new_unique();
+        let result = setup
+            .rpc
+            .get_token_accounts_by_delegate(
+                Some(setup.context.clone()),
+                non_existent_delegate.to_string(),
+                RpcTokenAccountsFilter::ProgramId(token_program.to_string()),
+                None,
+            )
+            .await;
+
+        assert!(result.is_ok(), "Non-existent delegate should succeed");
+        let response = result.unwrap();
+        assert_eq!(response.value.len(), 0, "Should find 0 token accounts");
+
+        // wrong mint - should return empty
+        let wrong_mint = Pubkey::new_unique();
+        let result = setup
+            .rpc
+            .get_token_accounts_by_delegate(
+                Some(setup.context.clone()),
+                delegate.to_string(),
+                RpcTokenAccountsFilter::Mint(wrong_mint.to_string()),
+                None,
+            )
+            .await;
+
+        assert!(result.is_ok(), "Wrong mint should succeed");
+        let response = result.unwrap();
+        assert_eq!(response.value.len(), 0, "Should find 0 token accounts");
+
+        // invalid delegate pubkey - should fail
+        let result = setup
+            .rpc
+            .get_token_accounts_by_delegate(
+                Some(setup.context.clone()),
+                "invalid_pubkey".to_string(),
+                RpcTokenAccountsFilter::ProgramId(token_program.to_string()),
+                None,
+            )
+            .await;
+
+        assert!(result.is_err(), "Invalid pubkey should fail");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_token_accounts_by_delegate_multiple_accounts() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        let delegate = Pubkey::new_unique();
+        let owner1 = Pubkey::new_unique();
+        let owner2 = Pubkey::new_unique();
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+        let token_account1 = Pubkey::new_unique();
+        let token_account2 = Pubkey::new_unique();
+        let token_program = spl_token::id();
+
+        // create first token account with delegate
+        let mut token_account_data1 = [0u8; spl_token::state::Account::LEN];
+        let token_account_struct1 = spl_token::state::Account {
+            mint: mint1,
+            owner: owner1,
+            amount: 1000,
+            delegate: solana_sdk::program_option::COption::Some(delegate),
+            state: spl_token::state::AccountState::Initialized,
+            is_native: solana_sdk::program_option::COption::None,
+            delegated_amount: 500,
+            close_authority: solana_sdk::program_option::COption::None,
+        };
+        solana_sdk::program_pack::Pack::pack_into_slice(
+            &token_account_struct1,
+            &mut token_account_data1,
+        );
+
+        // create second token account with same delegate
+        let mut token_account_data2 = [0u8; spl_token::state::Account::LEN];
+        let token_account_struct2 = spl_token::state::Account {
+            mint: mint2,
+            owner: owner2,
+            amount: 2000,
+            delegate: solana_sdk::program_option::COption::Some(delegate),
+            state: spl_token::state::AccountState::Initialized,
+            is_native: solana_sdk::program_option::COption::None,
+            delegated_amount: 1000,
+            close_authority: solana_sdk::program_option::COption::None,
+        };
+        solana_sdk::program_pack::Pack::pack_into_slice(
+            &token_account_struct2,
+            &mut token_account_data2,
+        );
+
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &token_account1,
+                    Account {
+                        lamports: 1000000,
+                        data: token_account_data1.to_vec(),
+                        owner: token_program,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+
+            svm_writer
+                .set_account(
+                    &token_account2,
+                    Account {
+                        lamports: 1000000,
+                        data: token_account_data2.to_vec(),
+                        owner: token_program,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+        });
+
+        let result = setup
+            .rpc
+            .get_token_accounts_by_delegate(
+                Some(setup.context.clone()),
+                delegate.to_string(),
+                RpcTokenAccountsFilter::ProgramId(token_program.to_string()),
+                None,
+            )
+            .await;
+
+        assert!(result.is_ok(), "ProgramId filter should succeed");
+        let response = result.unwrap();
+        assert_eq!(response.value.len(), 2, "Should find 2 token accounts");
+
+        let returned_pubkeys: std::collections::HashSet<String> = response
+            .value
+            .iter()
+            .map(|acc| acc.pubkey.clone())
+            .collect();
+        assert!(returned_pubkeys.contains(&token_account1.to_string()));
+        assert!(returned_pubkeys.contains(&token_account2.to_string()));
+
+        // Test: Mint filter for mint1 - should find only first account
+        let result = setup
+            .rpc
+            .get_token_accounts_by_delegate(
+                Some(setup.context.clone()),
+                delegate.to_string(),
+                RpcTokenAccountsFilter::Mint(mint1.to_string()),
+                None,
+            )
+            .await;
+
+        assert!(result.is_ok(), "Mint filter should succeed");
+        let response = result.unwrap();
+        assert_eq!(
+            response.value.len(),
+            1,
+            "Should find 1 token account for mint1"
+        );
+        assert_eq!(response.value[0].pubkey, token_account1.to_string());
     }
 }
