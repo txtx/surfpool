@@ -728,47 +728,47 @@ impl SurfnetSvm {
     }
 
     /// Writes account updates to the SVM state based on the provided account update result.
-///
-/// # Arguments
-/// * `account_update` - The account update result to process.
-pub fn write_account_update(&mut self, account_update: GetAccountResult) {
-    self.updated_at = Utc::now().timestamp_millis() as u64;
-    match account_update {
-        GetAccountResult::FoundAccount(pubkey, account, do_update_account) => {
-            if do_update_account {
+    ///
+    /// # Arguments
+    /// * `account_update` - The account update result to process.
+    pub fn write_account_update(&mut self, account_update: GetAccountResult) {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        match account_update {
+            GetAccountResult::FoundAccount(pubkey, account, do_update_account) => {
+                if do_update_account {
+                    if let Err(e) = self.set_account(&pubkey, account.clone()) {
+                        let _ = self
+                            .simnet_events_tx
+                            .send(SimnetEvent::error(e.to_string()));
+                    }
+                }
+            }
+            GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
                 if let Err(e) = self.set_account(&pubkey, account.clone()) {
                     let _ = self
                         .simnet_events_tx
                         .send(SimnetEvent::error(e.to_string()));
                 }
             }
-        }
-        GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
-            if let Err(e) = self.set_account(&pubkey, account.clone()) {
-                let _ = self
-                    .simnet_events_tx
-                    .send(SimnetEvent::error(e.to_string()));
+            GetAccountResult::FoundProgramAccount(
+                (pubkey, account),
+                (data_pubkey, Some(data_account)),
+            ) => {
+                // The data account _must_ be set first, as the program account depends on it.
+                if let Err(e) = self.set_account(&data_pubkey, data_account.clone()) {
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                }
+                if let Err(e) = self.set_account(&pubkey, account.clone()) {
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                }
             }
+            GetAccountResult::None(_) => {}
         }
-        GetAccountResult::FoundProgramAccount(
-            (pubkey, account),
-            (data_pubkey, Some(data_account)),
-        ) => {
-            // The data account _must_ be set first, as the program account depends on it.
-            if let Err(e) = self.set_account(&data_pubkey, data_account.clone()) {
-                let _ = self
-                    .simnet_events_tx
-                    .send(SimnetEvent::error(e.to_string()));
-            }
-            if let Err(e) = self.set_account(&pubkey, account.clone()) {
-                let _ = self
-                    .simnet_events_tx
-                    .send(SimnetEvent::error(e.to_string()));
-            }
-        }
-        GetAccountResult::None(_) => {}
     }
-}
 
     pub fn confirm_current_block(&mut self) -> Result<(), SurfpoolError> {
         self.updated_at = Utc::now().timestamp_millis() as u64;
@@ -1316,7 +1316,7 @@ mod tests {
             Err(_) => false,
         }
     }
-  
+
     fn expect_error_event(events_rx: &Receiver<SimnetEvent>, expected_error: &str) -> bool {
         match events_rx.recv() {
             Ok(event) => match event {
