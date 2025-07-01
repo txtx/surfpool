@@ -4,6 +4,7 @@ use crossbeam_channel::TrySendError;
 use jsonrpc_core::{Error, Result};
 use serde::Serialize;
 use serde_json::json;
+use solana_client::rpc_request::TokenAccountsFilter;
 use solana_pubkey::Pubkey;
 
 pub type SurfpoolResult<T> = std::result::Result<T, SurfpoolError>;
@@ -112,14 +113,63 @@ impl SurfpoolError {
         Self(error)
     }
 
-    pub fn get_token_accounts<T>(owner: Pubkey, token_program: Pubkey, e: T) -> Self
+    pub fn get_token_accounts<T>(owner: Pubkey, filter: &TokenAccountsFilter, e: T) -> Self
     where
         T: ToString,
     {
         let mut error = Error::internal_error();
         error.data = Some(json!(format!(
-            "Failed to get token accounts by owner {owner} for program {token_program}: {}",
+            "Failed to get token accounts by owner {owner} for {}: {}",
+            match filter {
+                TokenAccountsFilter::ProgramId(token_program) => format!("program {token_program}"),
+                TokenAccountsFilter::Mint(mint) => format!("mint {mint}"),
+            },
             e.to_string()
+        )));
+        Self(error)
+    }
+
+    pub fn get_token_accounts_by_delegate_error<T>(
+        delegate: Pubkey,
+        filter: &TokenAccountsFilter,
+        e: T,
+    ) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+
+        let filter_description = match filter {
+            TokenAccountsFilter::ProgramId(program_id) => {
+                let program_name = if *program_id == spl_token::ID {
+                    "SPL Token program"
+                } else if *program_id == spl_token_2022::ID {
+                    "Token 2022 program"
+                } else {
+                    "custom token program"
+                };
+                format!("{} ({})", program_id, program_name)
+            }
+            TokenAccountsFilter::Mint(mint) => format!("mint {}", mint),
+        };
+
+        error.data = Some(json!(format!(
+            "Failed to get token accounts by delegate {} for {}: {}",
+            delegate,
+            filter_description,
+            e.to_string()
+        )));
+
+        Self(error)
+    }
+
+    pub fn unsupported_token_program(program_id: Pubkey) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Unsupported token program: {}. Only SPL Token ({}) and Token 2022 ({}) are currently supported.",
+            program_id,
+            spl_token::ID,
+            spl_token_2022::ID
         )));
         Self(error)
     }
@@ -143,6 +193,18 @@ impl SurfpoolError {
         let mut error = Error::internal_error();
         error.data = Some(json!(format!(
             "Failed to fetch accounts from remote: {}",
+            e.to_string()
+        )));
+        Self(error)
+    }
+
+    pub fn get_signatures_for_address<T>(e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to fetch signatures for address from remote: {}",
             e.to_string()
         )));
         Self(error)
@@ -265,5 +327,11 @@ impl SurfpoolError {
         let mut error = Error::internal_error();
         error.data = Some(json!(data));
         Self(error)
+    }
+
+    pub fn sig_verify_replace_recent_blockhash_collision() -> Self {
+        Self(Error::invalid_params(
+            "sigVerify may not be used with replaceRecentBlockhash",
+        ))
     }
 }

@@ -14,6 +14,7 @@ use solana_client::{
 use solana_clock::Slot;
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
 use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
@@ -655,7 +656,10 @@ impl Minimal for SurfpoolMinimalRpc {
     }
 
     fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
-        not_implemented_err("get_identity")
+        Ok(RpcIdentity {
+            identity: Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr")
+                .to_string(),
+        })
     }
 
     fn get_slot(&self, meta: Self::Metadata, config: Option<RpcContextConfig>) -> Result<Slot> {
@@ -753,9 +757,18 @@ impl Minimal for SurfpoolMinimalRpc {
     //       it can be removed from rpc_minimal
     fn get_vote_accounts(
         &self,
-        _meta: Self::Metadata,
-        _config: Option<RpcGetVoteAccountsConfig>,
+        meta: Self::Metadata,
+        config: Option<RpcGetVoteAccountsConfig>,
     ) -> Result<RpcVoteAccountStatus> {
+        // validate inputs if provided
+        if let Some(config) = config {
+            // validate vote_pubkey if provided
+            if let Some(vote_pubkey_str) = config.vote_pubkey {
+                verify_pubkey(&vote_pubkey_str).map_err(jsonrpc_core::Error::from)?;
+            }
+        }
+
+        // Return empty vote accounts
         Ok(RpcVoteAccountStatus {
             current: vec![],
             delinquent: vec![],
@@ -766,45 +779,43 @@ impl Minimal for SurfpoolMinimalRpc {
     //       it can be removed from rpc_minimal
     fn get_leader_schedule(
         &self,
-        _meta: Self::Metadata,
-        _options: Option<RpcLeaderScheduleConfigWrapper>,
-        _config: Option<RpcLeaderScheduleConfig>,
+        meta: Self::Metadata,
+        options: Option<RpcLeaderScheduleConfigWrapper>,
+        config: Option<RpcLeaderScheduleConfig>,
     ) -> Result<Option<RpcLeaderSchedule>> {
-        // let (slot, maybe_config) = options.map(|options| options.unzip()).unwrap_or_default();
-        // let config = maybe_config.or(config).unwrap_or_default();
+        let (slot, maybe_config) = options.map(|options| options.unzip()).unwrap_or_default();
+        let config = maybe_config.or(config).unwrap_or_default();
 
-        // if let Some(ref identity) = config.identity {
-        //     let _ = verify_pubkey(identity)?;
-        // }
+        if let Some(ref identity) = config.identity {
+            let _ = verify_pubkey(identity)?;
+        }
 
-        // let bank = meta.bank(config.commitment);
-        // let slot = slot.unwrap_or_else(|| bank.slot());
-        // let epoch = bank.epoch_schedule().get_epoch(slot);
+        let svm_locker = meta.get_svm_locker()?;
+        let epoch_info = svm_locker.get_epoch_info();
 
-        // println!("get_leader_schedule rpc request received: {:?}", slot);
+        let slot = slot.unwrap_or_else(|| epoch_info.absolute_slot);
 
-        // Ok(meta
-        //     .leader_schedule_cache
-        //     .get_epoch_leader_schedule(epoch)
-        //     .map(|leader_schedule| {
-        //         let mut schedule_by_identity =
-        //             solana_ledger::leader_schedule_utils::leader_schedule_by_identity(
-        //                 leader_schedule.get_slot_leaders().iter().enumerate(),
-        //             );
-        //         if let Some(identity) = config.identity {
-        //             schedule_by_identity.retain(|k, _| *k == identity);
-        //         }
-        //         schedule_by_identity
-        //     }))
-        not_implemented_err("get_leader_schedule")
+        let first_slot_in_epoch = epoch_info
+            .absolute_slot
+            .saturating_sub(epoch_info.slot_index);
+        let last_slot_in_epoch = first_slot_in_epoch + epoch_info.slots_in_epoch.saturating_sub(1);
+
+        if slot < first_slot_in_epoch || slot > last_slot_in_epoch {
+            return Ok(None);
+        }
+
+        // return empty leader schedule if epoch found and everything is valid
+        Ok(Some(std::collections::HashMap::new()))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use jsonrpc_core::ErrorCode;
     use solana_client::rpc_config::RpcContextConfig;
     use solana_commitment_config::CommitmentConfig;
     use solana_epoch_info::EpochInfo;
+    use solana_pubkey::Pubkey;
     use solana_sdk::genesis_config::GenesisConfig;
 
     use super::*;
@@ -1029,5 +1040,245 @@ mod tests {
             .unwrap();
 
         assert_eq!(genesis_hash, GenesisConfig::default().hash().to_string())
+    }
+
+    #[test]
+    fn test_get_identity() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+        let result = setup.rpc.get_identity(Some(setup.context)).unwrap();
+        assert_eq!(
+            &result.identity,
+            "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr"
+        );
+    }
+
+    #[test]
+    fn test_get_leader_schedule_valid_cases() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer.latest_epoch_info = EpochInfo {
+                epoch: 100,
+                slot_index: 50,
+                slots_in_epoch: 432000,
+                absolute_slot: 43200050,
+                block_height: 43200050,
+                transaction_count: None,
+            };
+        });
+
+        // test 1: Valid slot within current epoch, no identity
+        let result = setup
+            .rpc
+            .get_leader_schedule(
+                Some(setup.context.clone()),
+                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(43200025))), // Within epoch
+                None,
+            )
+            .unwrap();
+
+        assert!(result.is_some());
+        assert!(result.unwrap().is_empty()); // Should return empty HashMap
+
+        // test 2: No slot provided (should use current slot), no identity
+        let result = setup
+            .rpc
+            .get_leader_schedule(Some(setup.context.clone()), None, None)
+            .unwrap();
+
+        assert!(result.is_some());
+        assert!(result.unwrap().is_empty());
+
+        // test 3: Valid slot with valid identity
+        let valid_pubkey = Pubkey::new_unique();
+        let result = setup
+            .rpc
+            .get_leader_schedule(
+                Some(setup.context.clone()),
+                None,
+                Some(RpcLeaderScheduleConfig {
+                    identity: Some(valid_pubkey.to_string()),
+                    commitment: None,
+                }),
+            )
+            .unwrap();
+
+        assert!(result.is_some());
+        assert!(result.unwrap().is_empty());
+
+        // test 4: Boundary cases - first slot in epoch
+        let first_slot_in_epoch = 43200050 - 50;
+        let result = setup
+            .rpc
+            .get_leader_schedule(
+                Some(setup.context.clone()),
+                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(
+                    first_slot_in_epoch,
+                ))),
+                None,
+            )
+            .unwrap();
+
+        assert!(result.is_some());
+        assert!(result.unwrap().is_empty());
+
+        // test 5: Boundary cases - last slot in epoch
+        let last_slot_in_epoch = first_slot_in_epoch + 432000 - 1;
+        let result = setup
+            .rpc
+            .get_leader_schedule(
+                Some(setup.context.clone()),
+                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(
+                    last_slot_in_epoch,
+                ))),
+                None,
+            )
+            .unwrap();
+
+        assert!(result.is_some());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_get_leader_schedule_invalid_cases() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer.latest_epoch_info = EpochInfo {
+                epoch: 100,
+                slot_index: 50,
+                slots_in_epoch: 432000,
+                absolute_slot: 43200050,
+                block_height: 43200050,
+                transaction_count: None,
+            };
+        });
+
+        let first_slot_in_epoch = 43200050 - 50;
+        let last_slot_in_epoch = first_slot_in_epoch + 432000 - 1;
+
+        // test 1: Slot before current epoch (should return None)
+        let result = setup
+            .rpc
+            .get_leader_schedule(
+                Some(setup.context.clone()),
+                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(
+                    first_slot_in_epoch - 1,
+                ))),
+                None,
+            )
+            .unwrap();
+
+        assert!(result.is_none());
+
+        // test 2: Slot after current epoch (should return None)
+        let result = setup
+            .rpc
+            .get_leader_schedule(
+                Some(setup.context.clone()),
+                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(
+                    last_slot_in_epoch + 1,
+                ))),
+                None,
+            )
+            .unwrap();
+
+        assert!(result.is_none());
+
+        // test 3: Way outside epoch range (should return None)
+        let result = setup
+            .rpc
+            .get_leader_schedule(
+                Some(setup.context.clone()),
+                Some(RpcLeaderScheduleConfigWrapper::SlotOnly(Some(1000000))), // Very old slot
+                None,
+            )
+            .unwrap();
+
+        assert!(result.is_none());
+
+        // test 4: Invalid identity pubkey (should return Error)
+        let result = setup.rpc.get_leader_schedule(
+            Some(setup.context.clone()),
+            None,
+            Some(RpcLeaderScheduleConfig {
+                identity: Some("invalid_pubkey_string".to_string()),
+                commitment: None,
+            }),
+        );
+
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidParams);
+
+        // test 5: Empty identity string (should return Error)
+        let result = setup.rpc.get_leader_schedule(
+            Some(setup.context.clone()),
+            None,
+            Some(RpcLeaderScheduleConfig {
+                identity: Some("".to_string()),
+                commitment: None,
+            }),
+        );
+
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidParams);
+
+        // test 6: No metadata (should return Error from get_svm_locker)
+        let result = setup.rpc.get_leader_schedule(None, None, None);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_vote_accounts_valid_config_returns_empty() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        // test with valid configuration including all optional parameters
+        let config = RpcGetVoteAccountsConfig {
+            vote_pubkey: Some("11111111111111111111111111111112".to_string()),
+            commitment: Some(CommitmentConfig::processed()),
+            keep_unstaked_delinquents: Some(true),
+            delinquent_slot_distance: Some(100),
+        };
+
+        let result = setup
+            .rpc
+            .get_vote_accounts(Some(setup.context.clone()), Some(config));
+
+        // should succeed with valid inputs
+        assert!(result.is_ok());
+
+        let vote_accounts = result.unwrap();
+
+        // should return empty current and delinquent arrays
+        assert_eq!(vote_accounts.current.len(), 0);
+        assert_eq!(vote_accounts.delinquent.len(), 0);
+    }
+
+    #[test]
+    fn test_get_vote_accounts_invalid_pubkey_returns_error() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        // test with invalid vote pubkey that's not valid base58
+        let config = RpcGetVoteAccountsConfig {
+            vote_pubkey: Some("invalid_pubkey_not_base58".to_string()),
+            commitment: Some(CommitmentConfig::finalized()),
+            keep_unstaked_delinquents: Some(false),
+            delinquent_slot_distance: Some(50),
+        };
+
+        let result = setup
+            .rpc
+            .get_vote_accounts(Some(setup.context.clone()), Some(config));
+
+        // should fail due to invalid vote pubkey
+        assert!(result.is_err());
+
+        let error = result.unwrap_err();
+
+        // should be invalid params error
+        assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
     }
 }

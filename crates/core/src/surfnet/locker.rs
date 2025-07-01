@@ -1,17 +1,23 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use crossbeam_channel::{Receiver, Sender};
+use itertools::Itertools;
 use jsonrpc_core::futures::future::join_all;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
 use solana_account_decoder::{
     encode_ui_account,
+    parse_account_data::AccountAdditionalDataV3,
     parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram},
+    parse_token::parse_token_v3,
     UiAccount, UiAccountEncoding,
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
-    rpc_config::RpcAccountInfoConfig, rpc_filter::RpcFilterType, rpc_response::RpcKeyedAccount,
+    rpc_config::{RpcAccountInfoConfig, RpcSignaturesForAddressConfig},
+    rpc_filter::RpcFilterType,
+    rpc_request::TokenAccountsFilter,
+    rpc_response::{RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount},
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -22,13 +28,18 @@ use solana_message::{
     VersionedMessage,
 };
 use solana_pubkey::Pubkey;
+use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
     transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
-use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding};
+use solana_transaction_status::{
+    EncodedConfirmedTransactionWithStatusMeta,
+    TransactionConfirmationStatus as SolanaTransactionConfirmationStatus, UiTransactionEncoding,
+};
+use spl_token_2022::extension::StateWithExtensions;
 use surfpool_types::{
     ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
     TransactionConfirmationStatus, TransactionStatusEvent,
@@ -43,6 +54,8 @@ use super::{
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
+    surfnet::FINALIZATION_SLOT_THRESHOLD,
+    types::TransactionWithStatusMeta,
 };
 
 pub struct SvmAccessContext<T> {
@@ -233,6 +246,36 @@ impl SurfnetSvmLocker {
         }
     }
 
+    /// Retrieves an account, using local or remote based on context, applying a default factory if provided.
+    pub fn get_local_account_associated_data(
+        &self,
+        account: &GetAccountResult,
+    ) -> SvmAccessContext<Option<AccountAdditionalDataV3>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            let associated_data = match account {
+                GetAccountResult::FoundAccount(_, account, _) => {
+                    if !account.owner.eq(&spl_token_2022::id()) {
+                        return None;
+                    }
+
+                    let Ok(token_data) =
+                        StateWithExtensions::<spl_token_2022::state::Account>::unpack(
+                            &account.data,
+                        )
+                    else {
+                        return None;
+                    };
+                    svm_reader
+                        .account_associated_data
+                        .get(&token_data.base.mint)
+                        .map(|e| e.clone())
+                }
+                _ => None,
+            };
+            associated_data
+        })
+    }
+
     /// Retrieves multiple accounts from local cache, returning a contextualized result.
     pub fn get_multiple_accounts_local(
         &self,
@@ -310,6 +353,129 @@ impl SurfnetSvmLocker {
             }
         }
         Ok(results.with_new_value(combined))
+    }
+}
+
+/// Get signatures for Addresses
+impl SurfnetSvmLocker {
+    pub fn get_signatures_for_address_local(
+        &self,
+        pubkey: &Pubkey,
+        config: Option<RpcSignaturesForAddressConfig>,
+    ) -> SvmAccessContext<Vec<RpcConfirmedTransactionStatusWithSignature>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            let current_slot = svm_reader.get_latest_absolute_slot();
+
+            let config = config.clone().unwrap_or_default();
+            let limit = config.limit.unwrap_or(1000);
+
+            let mut before_slot = None;
+            let mut until_slot = None;
+
+            let sigs: Vec<_> = svm_reader
+                .transactions
+                .iter()
+                .filter_map(|(sig, status)| {
+                    let TransactionWithStatusMeta(slot, tx, _, err) = status.expect_processed();
+
+                    if *slot < config.clone().min_context_slot.unwrap_or_default() {
+                        return None;
+                    }
+
+                    if Some(sig.to_string()) == config.clone().before {
+                        before_slot = Some(*slot)
+                    }
+
+                    if Some(sig.to_string()) == config.clone().until {
+                        until_slot = Some(*slot)
+                    }
+
+                    // Check if the pubkey is a signer
+                    let is_signer = tx
+                        .message
+                        .static_account_keys()
+                        .iter()
+                        .position(|pk| pk == pubkey)
+                        .map(|i| tx.message.is_signer(i))
+                        .unwrap_or(false);
+
+                    if !is_signer {
+                        return None;
+                    }
+
+                    // Determine confirmation status
+                    let confirmation_status = match current_slot {
+                        cs if cs == *slot => SolanaTransactionConfirmationStatus::Processed,
+                        cs if cs < slot + FINALIZATION_SLOT_THRESHOLD => {
+                            SolanaTransactionConfirmationStatus::Confirmed
+                        }
+                        _ => SolanaTransactionConfirmationStatus::Finalized,
+                    };
+
+                    Some(RpcConfirmedTransactionStatusWithSignature {
+                        err: err.clone(),
+                        slot: *slot,
+                        memo: None,
+                        block_time: None,
+                        confirmation_status: Some(confirmation_status),
+                        signature: sig.to_string(),
+                    })
+                })
+                .collect();
+
+            sigs.into_iter()
+                .filter(|sig| {
+                    if config.before.is_none() && config.until.is_none() {
+                        return true;
+                    }
+
+                    if config.before.is_some() && before_slot >= Some(sig.slot) {
+                        return true;
+                    }
+
+                    if config.until.is_some() && until_slot <= Some(sig.slot) {
+                        return true;
+                    }
+
+                    false
+                })
+                .take(limit)
+                .collect()
+        })
+    }
+
+    pub async fn get_signatures_for_address_local_then_remote(
+        &self,
+        client: &SurfnetRemoteClient,
+        pubkey: &Pubkey,
+        config: Option<RpcSignaturesForAddressConfig>,
+    ) -> SurfpoolContextualizedResult<Vec<RpcConfirmedTransactionStatusWithSignature>> {
+        let results = self.get_signatures_for_address_local(pubkey, config.clone());
+        let limit = config.clone().and_then(|c| c.limit).unwrap_or(1000);
+
+        let mut combined_results = results.inner.clone();
+        if combined_results.len() < limit {
+            let mut remote_results = client.get_signatures_for_address(pubkey, config).await?;
+            combined_results.append(&mut remote_results);
+        }
+
+        Ok(results.with_new_value(combined_results))
+    }
+
+    pub async fn get_signatures_for_address(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, ())>,
+        pubkey: &Pubkey,
+        config: Option<RpcSignaturesForAddressConfig>,
+    ) -> SurfpoolContextualizedResult<Vec<RpcConfirmedTransactionStatusWithSignature>> {
+        let results = if let Some((remote_client, _)) = remote_ctx {
+            self.get_signatures_for_address_local_then_remote(remote_client, pubkey, config.clone())
+                .await?
+        } else {
+            self.get_signatures_for_address_local(pubkey, config)
+        };
+
+        Ok(results)
     }
 }
 
@@ -411,12 +577,12 @@ impl SurfnetSvmLocker {
 
         // find accounts that are needed for this transaction but are missing from the local
         // svm cache, fetch them from the RPC, and insert them locally
-        let accounts = self
+        let pubkeys_from_message = self
             .get_pubkeys_from_message(remote_ctx, &transaction.message)
             .await?;
 
         let account_updates = self
-            .get_multiple_accounts(remote_ctx, &accounts, None)
+            .get_multiple_accounts(remote_ctx, &pubkeys_from_message, None)
             .await?
             .inner;
 
@@ -424,6 +590,12 @@ impl SurfnetSvmLocker {
             for update in &account_updates {
                 svm_writer.write_account_update(update.clone());
             }
+
+            let accounts_before = pubkeys_from_message
+                .iter()
+                .map(|p| svm_writer.inner.get_account(p))
+                .collect::<Vec<Option<Account>>>();
+
             // if not skipping preflight, simulate the transaction
             if !skip_preflight {
                 match svm_writer.simulate_transaction(transaction.clone(), true) {
@@ -455,6 +627,24 @@ impl SurfnetSvmLocker {
                 .send_transaction(transaction.clone(), false /* cu_analysis_enabled */)
             {
                 Ok(res) => {
+                    let accounts_after = pubkeys_from_message
+                        .iter()
+                        .map(|p| svm_writer.inner.get_account(p))
+                        .collect::<Vec<Option<Account>>>();
+
+                    for (pubkey, (before, after)) in pubkeys_from_message
+                        .iter()
+                        .zip(accounts_before.iter().zip(accounts_after))
+                    {
+                        if before.ne(&after) {
+                            if let Some(after) = &after {
+                                svm_writer.update_account_registries(pubkey, after);
+                            }
+                            svm_writer
+                                .notify_account_subscribers(pubkey, &after.unwrap_or_default());
+                        }
+                    }
+
                     let transaction_meta = convert_transaction_metadata_from_canonical(&res);
                     let _ = svm_writer
                         .geyser_events_tx
@@ -537,40 +727,210 @@ impl SurfnetSvmLocker {
 /// Token account related functions
 impl SurfnetSvmLocker {
     /// Fetches all token accounts for an owner, returning remote results and missing pubkeys contexts.
-    pub async fn get_all_token_accounts(
+    pub async fn get_token_accounts_by_owner(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
         owner: Pubkey,
-        token_program: Pubkey,
-    ) -> SurfpoolContextualizedResult<(Vec<RpcKeyedAccount>, Vec<Pubkey>)> {
-        let keyed_accounts = if let Some(remote_client) = remote_ctx {
-            remote_client
-                .get_token_accounts_by_owner(owner, token_program)
-                .await?
+        filter: &TokenAccountsFilter,
+        config: &RpcAccountInfoConfig,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        if let Some(remote_client) = remote_ctx {
+            self.get_token_accounts_by_owner_local_then_remote(owner, filter, remote_client, config)
+                .await
         } else {
-            vec![]
-        };
+            Ok(self.get_token_accounts_by_owner_local(owner, filter, config))
+        }
+    }
 
-        let token_account_pubkeys = keyed_accounts
-            .iter()
-            .map(|a| Pubkey::from_str_const(&a.pubkey))
-            .collect::<Vec<_>>();
+    pub fn get_token_accounts_by_owner_local(
+        &self,
+        owner: Pubkey,
+        filter: &TokenAccountsFilter,
+        config: &RpcAccountInfoConfig,
+    ) -> SvmAccessContext<Vec<RpcKeyedAccount>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            svm_reader
+                .get_parsed_token_accounts_by_owner(&owner)
+                .iter()
+                .filter_map(|(pubkey, token_account)| {
+                    let account = svm_reader.accounts_registry.get(pubkey)?;
+                    if match filter {
+                        TokenAccountsFilter::Mint(mint) => token_account.mint.eq(mint),
+                        TokenAccountsFilter::ProgramId(program_id) => account.owner.eq(program_id),
+                    } {
+                        let account_data = encode_ui_account(
+                            pubkey,
+                            account,
+                            config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                            None,
+                            config.data_slice,
+                        );
+                        Some(RpcKeyedAccount {
+                            pubkey: pubkey.to_string(),
+                            account: account_data,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+    }
 
-        // Fetch all of the returned accounts to see which ones aren't available in the local cache
-        let local_accounts = self.get_multiple_accounts_local(&token_account_pubkeys);
+    pub async fn get_token_accounts_by_owner_local_then_remote(
+        &self,
+        owner: Pubkey,
+        filter: &TokenAccountsFilter,
+        remote_client: &SurfnetRemoteClient,
+        config: &RpcAccountInfoConfig,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        let SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: local_accounts,
+        } = self.get_token_accounts_by_owner_local(owner, filter, &config);
 
-        let missing_pubkeys = local_accounts
-            .inner
-            .iter()
-            .filter_map(|some_account_result| match &some_account_result {
-                GetAccountResult::None(pubkey) => Some(*pubkey),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let remote_accounts = remote_client
+            .get_token_accounts_by_owner(owner, filter, config)
+            .await?;
 
-        // TODO: we still need to check local accounts, but I know of no way to iterate over the liteSVM accounts db
+        let mut combined_accounts = remote_accounts;
 
-        Ok(local_accounts.with_new_value((keyed_accounts, missing_pubkeys)))
+        for local_account in local_accounts {
+            if let Some((pos, _)) = combined_accounts
+                .iter()
+                .find_position(|RpcKeyedAccount { pubkey, .. }| pubkey.eq(&local_account.pubkey))
+            {
+                combined_accounts[pos] = local_account;
+            } else {
+                combined_accounts.push(local_account);
+            }
+        }
+
+        Ok(SvmAccessContext::new(
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            combined_accounts,
+        ))
+    }
+
+    pub async fn get_token_accounts_by_delegate(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+        delegate: Pubkey,
+        filter: &TokenAccountsFilter,
+        config: &RpcAccountInfoConfig,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        // Validate that the program is supported if using ProgramId filter
+        if let TokenAccountsFilter::ProgramId(program_id) = filter {
+            if !is_supported_token_program(program_id) {
+                return Err(SurfpoolError::unsupported_token_program(*program_id));
+            }
+        }
+
+        if let Some(remote_client) = remote_ctx {
+            self.get_token_accounts_by_delegate_local_then_remote(
+                delegate,
+                filter,
+                remote_client,
+                config,
+            )
+            .await
+        } else {
+            Ok(self.get_token_accounts_by_delegate_local(delegate, filter, config))
+        }
+    }
+}
+
+/// Token account by delegate related functions
+impl SurfnetSvmLocker {
+    pub fn get_token_accounts_by_delegate_local(
+        &self,
+        delegate: Pubkey,
+        filter: &TokenAccountsFilter,
+        config: &RpcAccountInfoConfig,
+    ) -> SvmAccessContext<Vec<RpcKeyedAccount>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            svm_reader
+                .get_token_accounts_by_delegate(&delegate)
+                .iter()
+                .filter_map(|(pubkey, token_account)| {
+                    let include = match filter {
+                        TokenAccountsFilter::Mint(mint) => token_account.mint == *mint,
+                        TokenAccountsFilter::ProgramId(program_id) => {
+                            if let Some(account) = svm_reader.accounts_registry.get(pubkey) {
+                                account.owner == *program_id
+                                    && is_supported_token_program(program_id)
+                            } else {
+                                false
+                            }
+                        }
+                    };
+
+                    if include {
+                        if let Some(account) = svm_reader.accounts_registry.get(pubkey) {
+                            Some(RpcKeyedAccount {
+                                pubkey: pubkey.to_string(),
+                                account: encode_ui_account(
+                                    pubkey,
+                                    account,
+                                    config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                                    None,
+                                    config.data_slice,
+                                ),
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+    }
+
+    pub async fn get_token_accounts_by_delegate_local_then_remote(
+        &self,
+        delegate: Pubkey,
+        filter: &TokenAccountsFilter,
+        remote_client: &SurfnetRemoteClient,
+        config: &RpcAccountInfoConfig,
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        let SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: local_accounts,
+        } = self.get_token_accounts_by_delegate_local(delegate, filter, config);
+
+        let remote_accounts = remote_client
+            .get_token_accounts_by_delegate(delegate, filter, config)
+            .await?;
+
+        let mut combined_accounts = remote_accounts;
+
+        for local_account in local_accounts {
+            if let Some((pos, _)) = combined_accounts
+                .iter()
+                .find_position(|RpcKeyedAccount { pubkey, .. }| pubkey.eq(&local_account.pubkey))
+            {
+                // Replace remote account with local one (local takes precedence)
+                combined_accounts[pos] = local_account;
+            } else {
+                // Add local account that wasn't found in remote results
+                combined_accounts.push(local_account);
+            }
+        }
+
+        Ok(SvmAccessContext::new(
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            combined_accounts,
+        ))
     }
 }
 
@@ -953,30 +1313,39 @@ impl SurfnetSvmLocker {
         account_config: RpcAccountInfoConfig,
         filters: Option<Vec<RpcFilterType>>,
     ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
-        let local_accounts =
-            self.get_program_accounts_local(program_id, account_config.clone(), filters.clone())?;
+        let SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: local_accounts,
+        } = self.get_program_accounts_local(program_id, account_config.clone(), filters.clone())?;
         let remote_accounts = client
             .get_program_accounts(program_id, account_config, filters)
             .await?;
 
-        let mut combined_accounts = vec![];
+        let mut combined_accounts = remote_accounts;
 
-        for remote_keyed_account in remote_accounts {
-            // if the account exists locally, use that instead of the remote one
-            if let Some(local_data) = local_accounts.inner.iter().find(
+        for local_account in local_accounts {
+            // if the local account is in the remote set, replace it with the local one
+            if let Some((pos, _)) = combined_accounts.iter().find_position(
                 |RpcKeyedAccount {
-                     pubkey: local_pubkey,
+                     pubkey: remote_pubkey,
                      ..
-                 }| local_pubkey.eq(&remote_keyed_account.pubkey),
+                 }| remote_pubkey.eq(&local_account.pubkey),
             ) {
-                combined_accounts.push(local_data.clone());
+                combined_accounts[pos] = local_account;
             } else {
-                // otherwise, use the remote account
-                combined_accounts.push(remote_keyed_account);
-            }
+                // otherwise, add the local account to the combined list
+                combined_accounts.push(local_account);
+            };
         }
 
-        Ok(local_accounts.with_new_value(combined_accounts))
+        Ok(SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: combined_accounts,
+        })
     }
 }
 
@@ -1049,6 +1418,23 @@ impl SurfnetSvmLocker {
             svm_writer.subscribe_for_signature_updates(signature, subscription_type.clone())
         })
     }
+
+    /// Subscribes for account updates and returns a receiver of account updates.
+    pub fn subscribe_for_account_updates(
+        &self,
+        account_pubkey: &Pubkey,
+        encoding: Option<UiAccountEncoding>,
+    ) -> Receiver<UiAccount> {
+        // Handles the locking/unlocking safely
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.subscribe_for_account_updates(account_pubkey, encoding)
+        })
+    }
+
+    /// Subscribes for slot updates and returns a receiver of slot updates.
+    pub fn subscribe_for_slot_updates(&self) -> Receiver<SlotInfo> {
+        self.with_svm_writer(|svm_writer| svm_writer.subscribe_for_slot_updates())
+    }
 }
 
 fn snapshot_get_account_result(
@@ -1110,4 +1496,9 @@ fn apply_rpc_filters(account_data: &[u8], filters: &[RpcFilterType]) -> Surfpool
         }
     }
     Ok(true)
+}
+
+// used in the remote.rs
+pub fn is_supported_token_program(program_id: &Pubkey) -> bool {
+    *program_id == spl_token::ID || *program_id == spl_token_2022::ID
 }
