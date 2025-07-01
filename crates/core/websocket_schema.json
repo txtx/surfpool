@@ -123,19 +123,6 @@
         "response"
       ]
     },
-    "CommitmentConfig": {
-      "description": "Commitment configuration",
-      "type": "object",
-      "properties": {
-        "commitment": {
-          "description": "Commitment level",
-          "$ref": "#/$defs/CommitmentLevel"
-        }
-      },
-      "required": [
-        "commitment"
-      ]
-    },
     "CommitmentLevel": {
       "description": "Commitment levels for transaction confirmation",
       "oneOf": [
@@ -184,15 +171,8 @@
       "type": "object",
       "properties": {
         "commitment": {
-          "description": "Commitment level for notifications",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CommitmentConfig"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "description": "Commitment level",
+          "$ref": "#/$defs/CommitmentLevel"
         },
         "encoding": {
           "description": "Encoding format for account data",
@@ -277,15 +257,8 @@
       "type": "object",
       "properties": {
         "commitment": {
-          "description": "Commitment level for notifications",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CommitmentConfig"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "description": "Commitment level",
+          "$ref": "#/$defs/CommitmentLevel"
         },
         "enableReceivedNotification": {
           "description": "Whether to enable received notification",
@@ -470,20 +443,7 @@
     },
     "SlotSubscribeRequest": {
       "description": "Request parameters for slot subscription",
-      "type": "object",
-      "properties": {
-        "config": {
-          "description": "Optional subscription configuration",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CommitmentConfig"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      }
+      "type": "object"
     },
     "SlotSubscriptionEndpoints": {
       "description": "Slot subscription WebSocket endpoints",
@@ -586,11 +546,7 @@
       "type": "object",
       "properties": {
         "data": {
-          "description": "Account data",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "description": "Account data"
         },
         "executable": {
           "description": "Whether this account contains executable code",

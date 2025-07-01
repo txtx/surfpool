@@ -65,7 +65,8 @@ pub struct SignatureSubscribeRequest {
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Configuration for signature subscription")]
 pub struct RpcSignatureSubscribeConfig {
-    #[schemars(description = "Commitment level for notifications")]
+    #[serde(flatten)]
+    #[schemars(flatten, description = "Commitment level for notifications")]
     pub commitment: Option<CommitmentConfig>,
 
     #[schemars(description = "Whether to enable received notification")]
@@ -153,7 +154,8 @@ pub struct AccountSubscribeRequest {
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Configuration for account subscription")]
 pub struct RpcAccountSubscribeConfig {
-    #[schemars(description = "Commitment level for notifications")]
+    #[serde(flatten)]
+    #[schemars(flatten, description = "Commitment level for notifications")]
     pub commitment: Option<CommitmentConfig>,
 
     #[schemars(description = "Encoding format for account data")]
@@ -174,7 +176,7 @@ pub enum UiAccountEncoding {
     JsonParsed,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Account change notification")]
 pub struct AccountNotification {
@@ -224,10 +226,7 @@ pub struct SlotUnsubscribeEndpoint {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Request parameters for slot subscription")]
-pub struct SlotSubscribeRequest {
-    #[schemars(description = "Optional subscription configuration")]
-    pub config: Option<CommitmentConfig>,
-}
+pub struct SlotSubscribeRequest {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "camelCase")]

@@ -358,11 +358,7 @@ pub trait Rpc {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
     ///   "method": "slotSubscribe",
-    ///   "params": [
-    ///     {
-    ///       "commitment": "finalized"
-    ///     }
-    ///   ]
+    ///   "params": []
     /// }
     /// ```
     ///
