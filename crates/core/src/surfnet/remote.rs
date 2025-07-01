@@ -137,6 +137,8 @@ impl SurfnetRemoteClient {
                         (program_data_address, program_data.value),
                     ));
                 }
+            } else {
+                accounts_result.push(GetAccountResult::None(*pubkey));
             }
         }
         Ok(accounts_result)

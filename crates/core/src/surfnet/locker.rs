@@ -312,26 +312,44 @@ impl SurfnetSvmLocker {
         pubkeys: &[Pubkey],
         commitment_config: CommitmentConfig,
     ) -> SurfpoolContextualizedResult<Vec<GetAccountResult>> {
-        let results = self.get_multiple_accounts_local(pubkeys);
+        let SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: local_results,
+        } = self.get_multiple_accounts_local(pubkeys);
 
         let mut missing_accounts = vec![];
-        for result in &results.inner {
+        let mut found_accounts = vec![];
+        for result in local_results.into_iter() {
             if let GetAccountResult::None(pubkey) = result {
-                missing_accounts.push(*pubkey)
+                missing_accounts.push(pubkey)
+            } else {
+                found_accounts.push(result.clone());
             }
         }
 
         if missing_accounts.is_empty() {
-            return Ok(results);
+            return Ok(SvmAccessContext::new(
+                slot,
+                latest_epoch_info,
+                latest_blockhash,
+                found_accounts,
+            ));
         }
 
         let mut remote_results = client
             .get_multiple_accounts(&missing_accounts, commitment_config)
             .await?;
-        let mut combined_results = results.inner.clone();
+        let mut combined_results = found_accounts.clone();
         combined_results.append(&mut remote_results);
 
-        Ok(results.with_new_value(combined_results))
+        Ok(SvmAccessContext::new(
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            combined_results,
+        ))
     }
 
     /// Retrieves multiple accounts, using local or remote context and applying factory defaults if provided.
