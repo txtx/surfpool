@@ -237,7 +237,17 @@ impl SurfpoolError {
     where
         D: Serialize,
     {
-        let mut error = Error::invalid_params(format!("Invalid pubkey {pubkey}"));
+        let mut error = Error::invalid_params(format!("Invalid pubkey '{pubkey}'"));
+        error.data = Some(json!(data));
+        Self(error)
+    }
+
+    pub fn invalid_pubkey_at_index<D>(pubkey: &str, index: usize, data: D) -> Self
+    where
+        D: Serialize,
+    {
+        let mut error =
+            Error::invalid_params(format!("Invalid pubkey '{pubkey}' at index {index}"));
         error.data = Some(json!(data));
         Self(error)
     }

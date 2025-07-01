@@ -412,7 +412,7 @@ impl SurfnetSvm {
                 if let COption::Some(delegate) = token_account.delegate {
                     let delegate_accounts =
                         self.token_accounts_by_delegate.entry(delegate).or_default();
-                    if !delegate_accounts.contains(&pubkey) {
+                    if !delegate_accounts.contains(pubkey) {
                         delegate_accounts.push(*pubkey);
                     }
                 }
@@ -630,14 +630,13 @@ impl SurfnetSvm {
         tx: VersionedTransaction,
         sigverify: bool,
     ) -> Result<SimulatedTransactionInfo, FailedTransactionMetadata> {
-        if sigverify {
-            if tx.verify_with_results().iter().any(|valid| !*valid) {
-                return Err(FailedTransactionMetadata {
-                    err: TransactionError::SignatureFailure,
-                    meta: TransactionMetadata::default(),
-                });
-            }
+        if sigverify && tx.verify_with_results().iter().any(|valid| !*valid) {
+            return Err(FailedTransactionMetadata {
+                err: TransactionError::SignatureFailure,
+                meta: TransactionMetadata::default(),
+            });
         }
+
         if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
             let meta = TransactionMetadata::default();
             let err = TransactionError::BlockhashNotFound;
@@ -1093,7 +1092,7 @@ impl SurfnetSvm {
             .get(owner)
             .map(|account_pubkeys| {
                 account_pubkeys
-                    .into_iter()
+                    .iter()
                     .filter_map(|pk| {
                         self.accounts_registry
                             .get(pk)

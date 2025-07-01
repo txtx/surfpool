@@ -1781,47 +1781,32 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            // single read lock acquisition for all local state
-            let (local_min_slot, local_slots, effective_end_slot, committed_latest_slot) =
-                svm_locker.with_svm_reader(|svm_reader| {
-                    let latest_slot = svm_reader.get_latest_absolute_slot();
-                    let committed_latest_slot = match commitment.commitment {
-                        CommitmentLevel::Processed => latest_slot,
-                        CommitmentLevel::Confirmed => latest_slot.saturating_sub(1),
-                        CommitmentLevel::Finalized => {
-                            latest_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
-                        }
-                    };
+            let committed_latest_slot = svm_locker.get_slot_for_commitment(&commitment);
+            let effective_end_slot = end_slot
+                .map(|end| end.min(committed_latest_slot))
+                .unwrap_or(committed_latest_slot);
 
-                    let effective_end_slot = end_slot
-                        .map(|end| end.min(committed_latest_slot))
-                        .unwrap_or(committed_latest_slot);
+            let (local_min_slot, local_slots, effective_end_slot) =
+                if effective_end_slot < start_slot {
+                    (None, vec![], effective_end_slot)
+                } else {
+                    svm_locker.with_svm_reader(|svm_reader| {
+                        let local_min_slot = svm_reader.blocks.keys().min().copied();
 
-                    if effective_end_slot < start_slot {
-                        return (None, vec![], effective_end_slot, committed_latest_slot);
-                    }
+                        let local_slots: Vec<Slot> = svm_reader
+                            .blocks
+                            .keys()
+                            .filter(|&&slot| {
+                                slot >= start_slot
+                                    && slot <= effective_end_slot
+                                    && slot <= committed_latest_slot
+                            })
+                            .copied()
+                            .collect();
 
-                    let local_min_slot = svm_reader.blocks.keys().min().copied();
-
-                    let local_slots: Vec<Slot> = svm_reader
-                        .blocks
-                        .keys()
-                        .filter(|&&slot| {
-                            let in_range = slot >= start_slot
-                                && slot <= effective_end_slot
-                                && slot <= committed_latest_slot;
-                            in_range
-                        })
-                        .copied()
-                        .collect();
-
-                    (
-                        local_min_slot,
-                        local_slots,
-                        effective_end_slot,
-                        committed_latest_slot,
-                    )
-                });
+                        (local_min_slot, local_slots, effective_end_slot)
+                    })
+                };
 
             if let Some(min_context_slot) = config.min_context_slot {
                 if committed_latest_slot < min_context_slot {
@@ -1921,28 +1906,19 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            let (local_min_slot, local_slots, committed_latest_slot) =
-                svm_locker.with_svm_reader(|svm_reader| {
-                    let latest_slot = svm_reader.get_latest_absolute_slot();
-                    let committed_latest_slot = match commitment.commitment {
-                        CommitmentLevel::Processed => latest_slot,
-                        CommitmentLevel::Confirmed => latest_slot.saturating_sub(1),
-                        CommitmentLevel::Finalized => {
-                            latest_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
-                        }
-                    };
+            let committed_latest_slot = svm_locker.get_slot_for_commitment(&commitment);
+            let (local_min_slot, local_slots) = svm_locker.with_svm_reader(|svm_reader| {
+                let local_min_slot = svm_reader.blocks.keys().min().copied();
 
-                    let local_min_slot = svm_reader.blocks.keys().min().copied();
+                let local_slots: Vec<Slot> = svm_reader
+                    .blocks
+                    .keys()
+                    .filter(|&&slot| slot >= start_slot && slot <= committed_latest_slot)
+                    .copied()
+                    .collect();
 
-                    let local_slots: Vec<Slot> = svm_reader
-                        .blocks
-                        .keys()
-                        .filter(|&&slot| slot >= start_slot && slot <= committed_latest_slot)
-                        .copied()
-                        .collect();
-
-                    (local_min_slot, local_slots, committed_latest_slot)
-                });
+                (local_min_slot, local_slots)
+            });
 
             if let Some(min_context_slot) = config.min_context_slot {
                 if committed_latest_slot < min_context_slot {
@@ -2096,50 +2072,30 @@ impl Full for SurfpoolFullRpc {
         blockhash: String,
         config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<bool>> {
-        // parse the blockhash string
         let hash = blockhash
             .parse::<solana_hash::Hash>()
             .map_err(|e| Error::invalid_params(format!("Invalid blockhash: {e:?}")))?;
+        let config = config.unwrap_or_default();
 
         let svm_locker = meta.get_svm_locker()?;
 
-        // get current state and determine effective slot based on commitment level
-        let (is_valid, _current_slot, committed_slot) = svm_locker.with_svm_reader(|svm| {
-            let current_slot = svm.get_latest_absolute_slot();
+        let committed_latest_slot =
+            svm_locker.get_slot_for_commitment(&config.commitment.unwrap_or_default());
 
-            let committed_slot = if let Some(ref config) = config {
-                if let Some(ref commitment_config) = config.commitment {
-                    match commitment_config.commitment {
-                        CommitmentLevel::Processed => current_slot,
-                        CommitmentLevel::Confirmed => current_slot.saturating_sub(1),
-                        CommitmentLevel::Finalized => {
-                            current_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
-                        }
-                    }
-                } else {
-                    current_slot
+        let is_valid =
+            svm_locker.with_svm_reader(|svm_reader| svm_reader.check_blockhash_is_recent(&hash));
+
+        if let Some(min_context_slot) = config.min_context_slot {
+            if committed_latest_slot < min_context_slot {
+                return Err(RpcCustomError::MinContextSlotNotReached {
+                    context_slot: min_context_slot,
                 }
-            } else {
-                current_slot
-            };
-
-            let is_valid = svm.check_blockhash_is_recent(&hash);
-            (is_valid, current_slot, committed_slot)
-        });
-
-        if let Some(ref config) = config {
-            if let Some(min_context_slot) = config.min_context_slot {
-                if committed_slot < min_context_slot {
-                    return Err(RpcCustomError::MinContextSlotNotReached {
-                        context_slot: min_context_slot,
-                    }
-                    .into());
-                }
+                .into());
             }
         }
 
         Ok(RpcResponse {
-            context: RpcResponseContext::new(committed_slot),
+            context: RpcResponseContext::new(committed_latest_slot),
             value: is_valid,
         })
     }
@@ -2224,7 +2180,6 @@ impl Full for SurfpoolFullRpc {
                 .into_iter()
                 .sorted_by_key(|(slot, _)| std::cmp::Reverse(*slot))
                 .take(MAX_PRIORITIZATION_FEE_BLOCKS_CACHE)
-                .map(|(slot, header)| (slot, header))
                 .collect::<Vec<_>>();
 
             // Flatten the transactions map to get all transactions in the recent blocks
@@ -2243,19 +2198,16 @@ impl Full for SurfpoolFullRpc {
                 .collect::<Vec<_>>();
 
             // Helper function to extract compute unit price from a CompiledInstruction
-            fn get_compute_unit_price(
-                ix: CompiledInstruction,
-                accounts: &Vec<Pubkey>,
-            ) -> Option<u64> {
+            fn get_compute_unit_price(ix: CompiledInstruction, accounts: &[Pubkey]) -> Option<u64> {
                 let program_account = accounts.get(ix.program_id_index as usize)?;
                 if *program_account != compute_budget::id() {
                     return None;
                 }
 
-                if let Ok(parsed_instr) = borsh::from_slice::<ComputeBudgetInstruction>(&ix.data) {
-                    if let ComputeBudgetInstruction::SetComputeUnitPrice(price) = parsed_instr {
-                        return Some(price);
-                    }
+                if let Ok(ComputeBudgetInstruction::SetComputeUnitPrice(price)) =
+                    borsh::from_slice::<ComputeBudgetInstruction>(&ix.data)
+                {
+                    return Some(price);
                 }
 
                 None

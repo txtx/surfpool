@@ -186,7 +186,7 @@ impl SurfnetRemoteClient {
                 json!([owner.to_string(), token_account_filter, config]),
             )
             .await;
-        res.map_err(|e| SurfpoolError::get_token_accounts(owner, &filter, e))
+        res.map_err(|e| SurfpoolError::get_token_accounts(owner, filter, e))
             .map(|res| res.value)
     }
 
@@ -230,7 +230,7 @@ impl SurfnetRemoteClient {
             )
             .await;
 
-        res.map_err(|e| SurfpoolError::get_token_accounts_by_delegate_error(delegate, &filter, e))
+        res.map_err(|e| SurfpoolError::get_token_accounts_by_delegate_error(delegate, filter, e))
             .map(|res| res.value)
     }
 
@@ -273,7 +273,7 @@ impl SurfnetRemoteClient {
             .get_largest_accounts_with_config(config.unwrap_or_default())
             .await
             .map(|res| res.value)
-            .map_err(|e| SurfpoolError::get_largest_accounts(e))
+            .map_err(SurfpoolError::get_largest_accounts)
     }
 
     pub async fn get_genesis_hash(&self) -> SurfpoolResult<Hash> {
@@ -287,16 +287,16 @@ impl SurfnetRemoteClient {
     ) -> SurfpoolResult<Vec<RpcConfirmedTransactionStatusWithSignature>> {
         let c = match config {
             Some(c) => GetConfirmedSignaturesForAddress2Config {
-                before: c.before.map(|s| Signature::from_str(&s).ok()).flatten(),
+                before: c.before.and_then(|s| Signature::from_str(&s).ok()),
                 commitment: c.commitment,
                 limit: c.limit,
-                until: c.until.map(|s| Signature::from_str(&s).ok()).flatten(),
+                until: c.until.and_then(|s| Signature::from_str(&s).ok()),
             },
             _ => GetConfirmedSignaturesForAddress2Config::default(),
         };
         self.client
-            .get_signatures_for_address_with_config(&pubkey, c)
+            .get_signatures_for_address_with_config(pubkey, c)
             .await
-            .map_err(|e| SurfpoolError::get_signatures_for_address(e))
+            .map_err(SurfpoolError::get_signatures_for_address)
     }
 }
