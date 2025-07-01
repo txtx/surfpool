@@ -14,13 +14,15 @@ use solana_client::{
 use solana_clock::Slot;
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
-use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     rpc::{utils::verify_pubkey, State},
-    surfnet::{locker::SvmAccessContext, GetAccountResult, FINALIZATION_SLOT_THRESHOLD},
+    surfnet::{
+        locker::SvmAccessContext, GetAccountResult, FINALIZATION_SLOT_THRESHOLD,
+        SURFPOOL_IDENTITY_PUBKEY,
+    },
 };
 
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -657,8 +659,7 @@ impl Minimal for SurfpoolMinimalRpc {
 
     fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
         Ok(RpcIdentity {
-            identity: Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr")
-                .to_string(),
+            identity: SURFPOOL_IDENTITY_PUBKEY.to_string(),
         })
     }
 
@@ -762,7 +763,7 @@ impl Minimal for SurfpoolMinimalRpc {
         if let Some(config) = config {
             // validate vote_pubkey if provided
             if let Some(vote_pubkey_str) = config.vote_pubkey {
-                verify_pubkey(&vote_pubkey_str).map_err(jsonrpc_core::Error::from)?;
+                verify_pubkey(&vote_pubkey_str)?;
             }
         }
 
@@ -1042,10 +1043,7 @@ mod tests {
     fn test_get_identity() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup.rpc.get_identity(Some(setup.context)).unwrap();
-        assert_eq!(
-            &result.identity,
-            "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr"
-        );
+        assert_eq!(result.identity, SURFPOOL_IDENTITY_PUBKEY.to_string());
     }
 
     #[test]

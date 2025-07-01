@@ -10,10 +10,10 @@ use solana_client::{
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_schedule::EpochSchedule;
-use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
 use super::{RunloopContext, State};
+use crate::surfnet::SURFPOOL_IDENTITY_PUBKEY;
 
 #[rpc]
 pub trait BankData {
@@ -475,7 +475,7 @@ impl BankData for SurfpoolBankDataRpc {
             }
         }
 
-        Ok(Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr").to_string())
+        Ok(SURFPOOL_IDENTITY_PUBKEY.to_string())
     }
 
     fn get_slot_leaders(
@@ -687,7 +687,7 @@ mod tests {
 
         match result {
             Ok(identity) => {
-                assert_eq!(identity, "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr");
+                assert_eq!(identity, SURFPOOL_IDENTITY_PUBKEY.to_string());
                 println!("✅ Basic test passed");
             }
             Err(e) => {
@@ -713,7 +713,7 @@ mod tests {
 
         match result {
             Ok(identity) => {
-                assert_eq!(identity, "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr");
+                assert_eq!(identity, SURFPOOL_IDENTITY_PUBKEY.to_string());
                 println!("✅ Config test passed");
             }
             Err(e) => {

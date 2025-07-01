@@ -700,52 +700,28 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         };
 
         Box::pin(async move {
-            match token_account_filter {
+            let filter = match token_account_filter {
                 RpcTokenAccountsFilter::Mint(mint_str) => {
-                    let mint = verify_pubkey(&mint_str)?;
-
-                    let remote_ctx = remote_ctx.map(|(r, _)| r);
-                    let SvmAccessContext {
-                        slot,
-                        inner: keyed_accounts,
-                        ..
-                    } = svm_locker
-                        .get_token_accounts_by_delegate(
-                            &remote_ctx,
-                            delegate,
-                            &TokenAccountsFilter::Mint(mint),
-                            &config,
-                        )
-                        .await?;
-
-                    Ok(RpcResponse {
-                        context: RpcResponseContext::new(slot),
-                        value: keyed_accounts,
-                    })
+                    TokenAccountsFilter::Mint(verify_pubkey(&mint_str)?)
                 }
                 RpcTokenAccountsFilter::ProgramId(program_id_str) => {
-                    let program_id = verify_pubkey(&program_id_str)?;
-
-                    let remote_ctx = remote_ctx.map(|(r, _)| r);
-                    let SvmAccessContext {
-                        slot,
-                        inner: keyed_accounts,
-                        ..
-                    } = svm_locker
-                        .get_token_accounts_by_delegate(
-                            &remote_ctx,
-                            delegate,
-                            &TokenAccountsFilter::ProgramId(program_id),
-                            &config,
-                        )
-                        .await?;
-
-                    Ok(RpcResponse {
-                        context: RpcResponseContext::new(slot),
-                        value: keyed_accounts,
-                    })
+                    TokenAccountsFilter::ProgramId(verify_pubkey(&program_id_str)?)
                 }
-            }
+            };
+
+            let remote_ctx = remote_ctx.map(|(r, _)| r);
+            let SvmAccessContext {
+                slot,
+                inner: keyed_accounts,
+                ..
+            } = svm_locker
+                .get_token_accounts_by_delegate(&remote_ctx, delegate, &filter, &config)
+                .await?;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
+                value: keyed_accounts,
+            })
         })
     }
 }
