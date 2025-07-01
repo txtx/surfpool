@@ -6,12 +6,14 @@ use solana_client::{
     nonblocking::rpc_client::RpcClient,
     rpc_client::GetConfirmedSignaturesForAddress2Config,
     rpc_config::{
-        RpcAccountInfoConfig, RpcProgramAccountsConfig, RpcSignaturesForAddressConfig,
-        RpcTokenAccountsFilter,
+        RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig,
+        RpcSignaturesForAddressConfig, RpcTokenAccountsFilter,
     },
     rpc_filter::RpcFilterType,
     rpc_request::{RpcRequest, TokenAccountsFilter},
-    rpc_response::{RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount, RpcResult},
+    rpc_response::{
+        RpcAccountBalance, RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount, RpcResult,
+    },
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
@@ -246,6 +248,17 @@ impl SurfnetRemoteClient {
                     .collect()
             })
             .map_err(|e| SurfpoolError::get_program_accounts(*program_id, e))
+    }
+
+    pub async fn get_largest_accounts(
+        &self,
+        config: Option<RpcLargestAccountsConfig>,
+    ) -> SurfpoolResult<Vec<RpcAccountBalance>> {
+        self.client
+            .get_largest_accounts_with_config(config.unwrap_or_default())
+            .await
+            .map(|res| res.value)
+            .map_err(|e| SurfpoolError::get_largest_accounts(e))
     }
 
     pub async fn get_genesis_hash(&self) -> SurfpoolResult<Hash> {

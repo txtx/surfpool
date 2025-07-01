@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc};
 
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
@@ -14,10 +14,15 @@ use solana_account_decoder::{
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
-    rpc_config::{RpcAccountInfoConfig, RpcSignaturesForAddressConfig},
+    rpc_config::{
+        RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcLargestAccountsFilter,
+        RpcSignaturesForAddressConfig,
+    },
     rpc_filter::RpcFilterType,
     rpc_request::TokenAccountsFilter,
-    rpc_response::{RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount},
+    rpc_response::{
+        RpcAccountBalance, RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount,
+    },
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -29,6 +34,7 @@ use solana_message::{
 };
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
+use solana_runtime::non_circulating_supply;
 use solana_sdk::{
     bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
     transaction::VersionedTransaction,
@@ -53,7 +59,7 @@ use super::{
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    rpc::utils::convert_transaction_metadata_from_canonical,
+    rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
     surfnet::FINALIZATION_SLOT_THRESHOLD,
     types::TransactionWithStatusMeta,
 };
@@ -353,6 +359,110 @@ impl SurfnetSvmLocker {
             }
         }
         Ok(results.with_new_value(combined))
+    }
+
+    /// Retrieves largest accounts from local cache, returning a contextualized result.
+    pub fn get_largest_accounts_local(
+        &self,
+        config: RpcLargestAccountsConfig,
+    ) -> SvmAccessContext<Vec<RpcAccountBalance>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            let non_circulating_accounts: Vec<_> = svm_reader
+                .non_circulating_accounts
+                .iter()
+                .flat_map(|acct| verify_pubkey(acct))
+                .collect();
+
+            let ordered_accounts = svm_reader
+                .accounts_registry
+                .iter()
+                .sorted_by(|a, b| b.1.lamports.cmp(&a.1.lamports))
+                .collect::<Vec<_>>();
+
+            let ordered_filtered_accounts = match config.filter {
+                Some(RpcLargestAccountsFilter::NonCirculating) => ordered_accounts
+                    .into_iter()
+                    .filter(|(pubkey, _)| non_circulating_accounts.contains(pubkey))
+                    .collect::<Vec<_>>(),
+                Some(RpcLargestAccountsFilter::Circulating) => ordered_accounts
+                    .into_iter()
+                    .filter(|(pubkey, _)| !non_circulating_accounts.contains(pubkey))
+                    .collect::<Vec<_>>(),
+                None => ordered_accounts,
+            };
+
+            ordered_filtered_accounts
+                .iter()
+                .take(20)
+                .map(|(pubkey, account)| RpcAccountBalance {
+                    address: pubkey.to_string(),
+                    lamports: account.lamports,
+                })
+                .collect()
+        })
+    }
+
+    pub async fn get_largest_accounts_local_then_remote(
+        &self,
+        client: &SurfnetRemoteClient,
+        config: RpcLargestAccountsConfig,
+        commitment_config: CommitmentConfig,
+    ) -> SurfpoolContextualizedResult<Vec<RpcAccountBalance>> {
+        // get all non-circulating and circulating pubkeys from the remote client first,
+        // and insert them locally
+        {
+            let mut remote_non_circulating_pubkeys = client
+                .get_largest_accounts(Some(RpcLargestAccountsConfig {
+                    filter: Some(RpcLargestAccountsFilter::NonCirculating),
+                    ..config.clone()
+                }))
+                .await?
+                .iter()
+                .map(|account_balance| verify_pubkey(&account_balance.address))
+                .collect::<SurfpoolResult<Vec<_>>>()?;
+
+            let mut remote_circulating_pubkeys = client
+                .get_largest_accounts(Some(RpcLargestAccountsConfig {
+                    filter: Some(RpcLargestAccountsFilter::Circulating),
+                    ..config.clone()
+                }))
+                .await?
+                .iter()
+                .map(|account_balance| verify_pubkey(&account_balance.address))
+                .collect::<SurfpoolResult<Vec<_>>>()?;
+
+            let mut combined = Vec::with_capacity(
+                remote_non_circulating_pubkeys.len() + remote_circulating_pubkeys.len(),
+            );
+            combined.append(&mut remote_non_circulating_pubkeys);
+            combined.append(&mut remote_circulating_pubkeys);
+
+            let get_account_results = self
+                .get_multiple_accounts_local_then_remote(client, &combined, commitment_config)
+                .await?
+                .inner;
+
+            self.write_multiple_account_updates(&get_account_results);
+        }
+
+        // now that our local cache is aware of all large remote accounts, we can get the largest accounts locally
+        // and filter according to the config
+        Ok(self.get_largest_accounts_local(config))
+    }
+
+    pub async fn get_largest_accounts(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+        config: RpcLargestAccountsConfig,
+    ) -> SurfpoolContextualizedResult<Vec<RpcAccountBalance>> {
+        let results = if let Some((remote_client, commitment_config)) = remote_ctx {
+            self.get_largest_accounts_local_then_remote(remote_client, config, *commitment_config)
+                .await?
+        } else {
+            self.get_largest_accounts_local(config)
+        };
+
+        Ok(results)
     }
 }
 
