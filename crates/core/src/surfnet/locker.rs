@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use bincode::serialized_size;
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
 use jsonrpc_core::futures::future::join_all;
@@ -1512,6 +1513,125 @@ impl SurfnetSvmLocker {
         Ok(result.with_new_value(()))
     }
 
+    pub async fn set_program_authority(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+        program_id: Pubkey,
+        new_authority: Option<Pubkey>,
+    ) -> SurfpoolContextualizedResult<()> {
+        let SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: mut get_account_result,
+        } = self.get_account(remote_ctx, &program_id, None).await?;
+
+        let original_authority = match &mut get_account_result {
+            GetAccountResult::None(pubkey) => {
+                return Err(SurfpoolError::invalid_program_account(
+                    pubkey,
+                    "Account not found",
+                ))
+            }
+            GetAccountResult::FoundAccount(pubkey, program_account, _) => {
+                let programdata_address = get_program_data_address(pubkey);
+                let mut programdata_account_result = self
+                    .get_account(remote_ctx, &programdata_address, None)
+                    .await?
+                    .inner;
+                match &mut programdata_account_result {
+                    GetAccountResult::None(pubkey) => {
+                        return Err(SurfpoolError::invalid_program_account(
+                            pubkey,
+                            "Program data account does not exist",
+                        ));
+                    }
+                    GetAccountResult::FoundAccount(_, programdata_account, _) => {
+                        let original_authority = update_programdata_account(
+                            &program_id,
+                            programdata_account,
+                            new_authority,
+                        )?;
+
+                        get_account_result = GetAccountResult::FoundProgramAccount(
+                            (pubkey.clone(), program_account.clone()),
+                            (programdata_address, Some(programdata_account.clone())),
+                        );
+
+                        original_authority
+                    }
+                    GetAccountResult::FoundProgramAccount(_, _) => {
+                        return Err(SurfpoolError::invalid_program_account(
+                            pubkey,
+                            "Not a program account",
+                        ));
+                    }
+                }
+            }
+            GetAccountResult::FoundProgramAccount(_, (_, None)) => {
+                return Err(SurfpoolError::invalid_program_account(
+                    &program_id,
+                    "Program data account does not exist",
+                ))
+            }
+            GetAccountResult::FoundProgramAccount(_, (_, Some(programdata_account))) => {
+                update_programdata_account(&program_id, programdata_account, new_authority)?
+            }
+        };
+
+        let simnet_events_tx = self.simnet_events_tx();
+        match (original_authority, new_authority) {
+            (Some(original), Some(new)) => {
+                if original != new {
+                    let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Setting new authority for program {}",
+                        program_id
+                    )));
+                    let _ = simnet_events_tx
+                        .send(SimnetEvent::info(format!("Old Authority: {}", original)));
+                    let _ =
+                        simnet_events_tx.send(SimnetEvent::info(format!("New Authority: {}", new)));
+                } else {
+                    let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+                        "No authority change for program {}",
+                        program_id
+                    )));
+                }
+            }
+            (Some(original), None) => {
+                let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+                    "Removing authority for program {}",
+                    program_id
+                )));
+                let _ = simnet_events_tx
+                    .send(SimnetEvent::info(format!("Old Authority: {}", original)));
+            }
+            (None, Some(new)) => {
+                let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+                    "Setting new authority for program {}",
+                    program_id
+                )));
+                let _ = simnet_events_tx.send(SimnetEvent::info(format!("Old Authority: None")));
+                let _ = simnet_events_tx.send(SimnetEvent::info(format!("New Authority: {}", new)));
+            }
+            (None, None) => {
+                let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+                    "No authority change for program {}",
+                    program_id
+                )));
+            }
+        };
+
+        self.write_account_update(get_account_result);
+
+        Ok(SvmAccessContext::new(
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            (),
+        ))
+    }
+
     pub async fn get_program_accounts(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
@@ -1766,4 +1886,52 @@ fn apply_rpc_filters(account_data: &[u8], filters: &[RpcFilterType]) -> Surfpool
 // used in the remote.rs
 pub fn is_supported_token_program(program_id: &Pubkey) -> bool {
     *program_id == spl_token::ID || *program_id == spl_token_2022::ID
+}
+
+fn update_programdata_account(
+    program_id: &Pubkey,
+    programdata_account: &mut Account,
+    new_authority: Option<Pubkey>,
+) -> SurfpoolResult<Option<Pubkey>> {
+    let upgradeable_loader_state =
+        bincode::deserialize::<UpgradeableLoaderState>(&programdata_account.data).map_err(|e| {
+            SurfpoolError::invalid_program_account(
+                &program_id,
+                format!("Failed to serialize program data: {}", e),
+            )
+        })?;
+    if let UpgradeableLoaderState::ProgramData {
+        upgrade_authority_address,
+        slot,
+    } = upgradeable_loader_state
+    {
+        let offset = if upgrade_authority_address.is_some() {
+            UpgradeableLoaderState::size_of_programdata_metadata()
+        } else {
+            UpgradeableLoaderState::size_of_programdata_metadata()
+                - serialized_size(&Pubkey::default()).unwrap() as usize
+        };
+
+        let mut data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
+            upgrade_authority_address: new_authority,
+            slot,
+        })
+        .map_err(|e| {
+            SurfpoolError::invalid_program_account(
+                &program_id,
+                format!("Failed to serialize program data: {}", e),
+            )
+        })?;
+
+        data.append(&mut programdata_account.data[offset..].to_vec());
+
+        programdata_account.data = data;
+
+        Ok(upgrade_authority_address)
+    } else {
+        return Err(SurfpoolError::invalid_program_account(
+            &program_id,
+            "Invalid program data account",
+        ));
+    }
 }

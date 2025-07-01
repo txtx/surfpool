@@ -93,7 +93,7 @@ pub enum SignatureSubscriptionType {
 
 type DoUpdateSvm = bool;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Represents the result of a get_account operation.
 pub enum GetAccountResult {
     /// Represents that the account was not found.
