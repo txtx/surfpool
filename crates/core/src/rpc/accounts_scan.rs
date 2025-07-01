@@ -1074,6 +1074,7 @@ mod tests {
     async fn test_set_supply_with_multiple_invalid_pubkeys() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
         let cheatcodes_rpc = SurfnetCheatcodesRpc;
+        let invalid_pubkey = "invalid_pubkey";
 
         // test with multiple invalid pubkeys - should fail on the first one
         let supply_update = SupplyUpdate {
@@ -1081,9 +1082,9 @@ mod tests {
             circulating: Some(800_000_000_000_000),
             non_circulating: Some(200_000_000_000_000),
             non_circulating_accounts: Some(vec![
-                VALID_PUBKEY_1.to_string(),   // Valid
-                "invalid_pubkey".to_string(), // Invalid - should fail here
-                "also_invalid".to_string(),   // Also invalid but won't reach here
+                VALID_PUBKEY_1.to_string(), // Valid
+                invalid_pubkey.to_string(), // Invalid - should fail here
+                "also_invalid".to_string(), // Also invalid but won't reach here
             ]),
         };
 
@@ -1094,8 +1095,10 @@ mod tests {
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
-        assert!(error.message.contains("Invalid pubkey at index 1"));
-        assert!(error.message.contains("invalid_pubkey"));
+        assert_eq!(
+            error.message,
+            format!("Invalid pubkey '{}' at index 1", invalid_pubkey)
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

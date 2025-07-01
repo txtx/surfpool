@@ -85,7 +85,7 @@ pub fn verify_pubkeys(input: &[String]) -> SurfpoolResult<Vec<Pubkey>> {
         .enumerate()
         .map(|(i, s)| {
             verify_pubkey(s)
-                .map_err(|e| SurfpoolError::invalid_pubkey_at_index(s, i + 1, e.to_string()))
+                .map_err(|e| SurfpoolError::invalid_pubkey_at_index(s, i, e.to_string()))
         })
         .collect::<SurfpoolResult<Vec<_>>>()
 }
