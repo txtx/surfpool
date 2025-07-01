@@ -4,6 +4,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use solana_clock::{Epoch, Slot, UnixTimestamp};
 use solana_sdk::inflation::Inflation;
+use surfpool_types::types::{
+    ComputeUnitsEstimationResult, ProfileResult as SurfpoolProfileResult,
+    ProfileState as SurfpoolProfileState,
+};
 
 pub const MAX_LOCKOUT_HISTORY: usize = 31;
 
@@ -47,6 +51,26 @@ pub struct UiAccountSchema {
     pub rent_epoch: u64,
 }
 
+impl From<solana_account_decoder::UiAccount> for UiAccountSchema {
+    fn from(ui_account: solana_account_decoder::UiAccount) -> Self {
+        let data = match ui_account.data {
+            solana_account_decoder::UiAccountData::Binary(data, _) => vec![data],
+            solana_account_decoder::UiAccountData::Json(json) => {
+                vec![serde_json::to_string(&json).unwrap_or_default()]
+            }
+            _ => vec![],
+        };
+
+        Self {
+            lamports: ui_account.lamports,
+            data,
+            owner: ui_account.owner,
+            executable: ui_account.executable,
+            rent_epoch: ui_account.rent_epoch,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Transaction error information")]
@@ -67,16 +91,16 @@ pub struct TransactionResultSchema {
     pub error: Option<TransactionErrorSchema>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Token amount information")]
 pub struct UiTokenAmountSchema {
     #[schemars(description = "Token amount as string")]
-    pub amount: String,
+    pub amount: Option<String>,
     #[schemars(description = "Number of decimals")]
     pub decimals: u8,
-    #[schemars(description = "Human readable amount as string")]
-    pub ui_amount: Option<String>,
+    #[schemars(description = "Human readable amount as float")]
+    pub ui_amount: Option<f64>,
     #[schemars(description = "Human readable amount as string")]
     pub ui_amount_string: String,
 }
@@ -286,21 +310,21 @@ pub enum ReceivedSignatureResult {
     ReceivedSignature,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Contact information for a cluster node")]
 pub struct RpcContactInfo {
     pub pubkey: String,
-    pub gossip: Option<SocketAddr>,
-    pub tvu: Option<SocketAddr>,
-    pub tpu: Option<SocketAddr>,
-    pub tpu_quic: Option<SocketAddr>,
-    pub tpu_forwards: Option<SocketAddr>,
-    pub tpu_forwards_quic: Option<SocketAddr>,
-    pub tpu_vote: Option<SocketAddr>,
-    pub serve_repair: Option<SocketAddr>,
-    pub rpc: Option<SocketAddr>,
-    pub pubsub: Option<SocketAddr>,
+    pub gossip: Option<SocketAddrSchema>,
+    pub tvu: Option<SocketAddrSchema>,
+    pub tpu: Option<SocketAddrSchema>,
+    pub tpu_quic: Option<SocketAddrSchema>,
+    pub tpu_forwards: Option<SocketAddrSchema>,
+    pub tpu_forwards_quic: Option<SocketAddrSchema>,
+    pub tpu_vote: Option<SocketAddrSchema>,
+    pub serve_repair: Option<SocketAddrSchema>,
+    pub rpc: Option<SocketAddrSchema>,
+    pub pubsub: Option<SocketAddrSchema>,
     pub version: Option<String>,
     pub feature_set: Option<u32>,
     pub shred_version: Option<u16>,
@@ -505,13 +529,13 @@ pub struct RpcPrioritizationFee {
     pub prioritization_fee: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Node information including identity, addresses, and version")]
 pub struct RpcNodeInfo {
     pub identity: String,
-    pub gossip: Option<SocketAddr>,
-    pub rpc: Option<SocketAddr>,
+    pub gossip: Option<SocketAddrSchema>,
+    pub rpc: Option<SocketAddrSchema>,
     pub version: String,
 }
 
@@ -705,61 +729,61 @@ pub struct FullEndpoints {
 #[schemars(description = "Admin RPC endpoints for cluster administration")]
 pub struct AdminEndpoints {
     #[schemars(description = "exit - Immediately shuts down the RPC server")]
-    pub exit: String,
+    pub exit: (),
 
     #[schemars(description = "reloadPlugin - Reloads a runtime plugin")]
-    pub reload_plugin: String,
+    pub reload_plugin: ReloadPlugin,
 
     #[schemars(description = "unloadPlugin - Unloads a runtime plugin")]
-    pub unload_plugin: String,
+    pub unload_plugin: UnloadPlugin,
 
     #[schemars(description = "loadPlugin - Loads a new plugin")]
-    pub load_plugin: String,
+    pub load_plugin: LoadPlugin,
 
     #[schemars(description = "listPlugins - Lists all loaded plugins")]
     pub list_plugins: Vec<String>,
 
     #[schemars(description = "rpcAddress - Returns RPC server address")]
-    pub rpc_address: String,
+    pub rpc_address: SocketAddrSchema,
 
     #[schemars(description = "setLogFilter - Sets log filter")]
-    pub set_log_filter: String,
+    pub set_log_filter: (),
 
     #[schemars(description = "startTime - Returns system start time")]
     pub start_time: SystemTimeSchema,
 
     #[schemars(description = "addAuthorizedVoter - Adds authorized voter")]
-    pub add_authorized_voter: String,
+    pub add_authorized_voter: (),
 
     #[schemars(description = "addAuthorizedVoterFromBytes - Adds voter from bytes")]
-    pub add_authorized_voter_from_bytes: String,
+    pub add_authorized_voter_from_bytes: (),
 
     #[schemars(description = "removeAllAuthorizedVoters - Removes all voters")]
-    pub remove_all_authorized_voters: String,
+    pub remove_all_authorized_voters: (),
 
     #[schemars(description = "setIdentity - Sets cluster identity")]
-    pub set_identity: String,
+    pub set_identity: (),
 
     #[schemars(description = "setIdentityFromBytes - Sets identity from bytes")]
-    pub set_identity_from_bytes: String,
+    pub set_identity_from_bytes: (),
 
     #[schemars(description = "setStakedNodesOverrides - Sets staked nodes overrides")]
-    pub set_staked_nodes_overrides: String,
+    pub set_staked_nodes_overrides: (),
 
     #[schemars(description = "repairShredFromPeer - Repairs shred from peer")]
-    pub repair_shred_from_peer: String,
+    pub repair_shred_from_peer: (),
 
     #[schemars(description = "setRepairWhitelist - Sets repair whitelist")]
-    pub set_repair_whitelist: String,
+    pub set_repair_whitelist: (),
 
     #[schemars(description = "getSecondaryIndexKeySize - Gets secondary index key size")]
     pub get_secondary_index_key_size: u64,
 
     #[schemars(description = "setPublicTpuAddress - Sets public TPU address")]
-    pub set_public_tpu_address: String,
+    pub set_public_tpu_address: (),
 
     #[schemars(description = "setPublicTpuForwardsAddress - Sets public TPU forwards address")]
-    pub set_public_tpu_forwards_address: String,
+    pub set_public_tpu_forwards_address: (),
 }
 
 #[derive(JsonSchema)]
@@ -853,48 +877,48 @@ pub struct BankDataEndpoints {
 #[schemars(description = "Surfnet cheatcodes endpoints for testing and development")]
 pub struct SurfnetCheatcodesEndpoints {
     #[schemars(description = "startSurfnet - Starts surfnet instance")]
-    pub start_surfnet: String,
+    pub start_surfnet: (),
 
     #[schemars(description = "stopSurfnet - Stops surfnet instance")]
-    pub stop_surfnet: String,
+    pub stop_surfnet: (),
 
     #[schemars(description = "resetSurfnet - Resets surfnet state")]
-    pub reset_surfnet: String,
+    pub reset_surfnet: (),
 
     #[schemars(description = "setAccount - Sets account data")]
-    pub set_account: String,
+    pub set_account: RpcResponse<()>,
 
     #[schemars(description = "setTokenAccount - Sets token account data")]
-    pub set_token_account: String,
+    pub set_token_account: RpcResponse<()>,
 
     #[schemars(description = "cloneProgramAccount - Clones a program account")]
-    pub clone_program_account: String,
+    pub clone_program_account: RpcResponse<()>,
 
     #[schemars(
         description = "profileTransaction - Profiles a transaction for compute unit estimation"
     )]
-    pub profile_transaction: String,
+    pub profile_transaction: RpcResponse<ProfileResultSchema>,
 
     #[schemars(description = "getProfileResults - Gets profiling results for a tag")]
-    pub get_profile_results: String,
+    pub get_profile_results: RpcResponse<Vec<ProfileResultSchema>>,
 
     #[schemars(description = "setSupply - Sets supply information for testing")]
-    pub set_supply: String,
+    pub set_supply: RpcResponse<()>,
 
     #[schemars(description = "getAccount - Gets account data")]
     pub get_account: Option<UiAccountSchema>,
 
     #[schemars(description = "advanceClock - Advances clock")]
-    pub advance_clock: String,
+    pub advance_clock: (),
 
     #[schemars(description = "setClock - Sets clock")]
-    pub set_clock: String,
+    pub set_clock: (),
 
     #[schemars(description = "getClock - Gets clock information")]
     pub get_clock: ClockSchema,
 
     #[schemars(description = "processTransaction - Processes transaction")]
-    pub process_transaction: String,
+    pub process_transaction: (),
 
     #[schemars(description = "getSurfpoolVersion - Returns surfpool version")]
     pub get_surfpool_version: SurfpoolRpcVersionInfo,
@@ -1010,7 +1034,7 @@ pub struct RentSchema {
     pub burn_percent: u8,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Encoded confirmed transaction with status metadata")]
 pub struct EncodedConfirmedTransactionSchema {
@@ -1080,7 +1104,7 @@ pub struct AddressTableLookupSchema {
     pub readonly_indexes: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Transaction metadata including fee, balances, and logs")]
 pub struct TransactionMetaSchema {
@@ -1114,4 +1138,120 @@ pub struct SystemTimeSchema {
     pub secs_since_epoch: u64,
     #[schemars(description = "Nanoseconds")]
     pub nanos: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(description = "Result of compute units estimation")]
+pub struct ComputeUnitsEstimationResultSchema {
+    #[schemars(description = "Indicates if the estimation was successful")]
+    pub success: bool,
+    #[schemars(description = "Number of compute units consumed")]
+    pub compute_units_consumed: u64,
+    #[schemars(description = "Log messages from the transaction")]
+    pub log_messages: Option<Vec<String>>,
+    #[schemars(description = "Error message if estimation failed")]
+    pub error_message: Option<String>,
+}
+
+impl From<ComputeUnitsEstimationResult> for ComputeUnitsEstimationResultSchema {
+    fn from(result: ComputeUnitsEstimationResult) -> Self {
+        Self {
+            success: result.success,
+            compute_units_consumed: result.compute_units_consumed,
+            log_messages: result.log_messages,
+            error_message: result.error_message,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(description = "State of accounts before and after execution")]
+pub struct ProfileStateSchema {
+    #[schemars(description = "Account states before execution")]
+    pub pre_execution: HashMap<String, Option<UiAccountSchema>>,
+    #[schemars(description = "Account states after execution")]
+    pub post_execution: HashMap<String, Option<UiAccountSchema>>,
+}
+
+impl From<SurfpoolProfileState> for ProfileStateSchema {
+    fn from(state: SurfpoolProfileState) -> Self {
+        let pre_execution = state
+            .pre_execution
+            .into_iter()
+            .map(|(pubkey, account)| {
+                (
+                    pubkey.to_string(),
+                    account.map(|acc| UiAccountSchema::from(acc)),
+                )
+            })
+            .collect();
+        let post_execution = state
+            .post_execution
+            .into_iter()
+            .map(|(pubkey, account)| {
+                (
+                    pubkey.to_string(),
+                    account.map(|acc| UiAccountSchema::from(acc)),
+                )
+            })
+            .collect();
+        Self {
+            pre_execution,
+            post_execution,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(description = "Profile result")]
+pub struct ProfileResultSchema {
+    #[schemars(description = "Compute units estimation result")]
+    pub compute_units: ComputeUnitsEstimationResultSchema,
+    #[schemars(description = "Profile state containing pre and post execution states")]
+    pub state: ProfileStateSchema,
+}
+
+impl From<SurfpoolProfileResult> for ProfileResultSchema {
+    fn from(result: SurfpoolProfileResult) -> Self {
+        Self {
+            compute_units: result.compute_units.into(),
+            state: result.state.into(),
+        }
+    }
+}
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReloadPlugin {
+    pub name: String,
+    pub config_file: String,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UnloadPlugin {
+    pub name: String,
+}
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadPlugin {
+    pub config_file: String,
+}
+#[derive(JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(description = "Socket address")]
+pub struct SocketAddrSchema {
+    pub ip: String,
+    pub port: u16,
+}
+
+impl From<SocketAddr> for SocketAddrSchema {
+    fn from(addr: SocketAddr) -> Self {
+        Self {
+            ip: addr.ip().to_string(),
+            port: addr.port(),
+        }
+    }
 }

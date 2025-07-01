@@ -171,15 +171,15 @@
       "properties": {
         "addAuthorizedVoter": {
           "description": "addAuthorizedVoter - Adds authorized voter",
-          "type": "string"
+          "type": "null"
         },
         "addAuthorizedVoterFromBytes": {
           "description": "addAuthorizedVoterFromBytes - Adds voter from bytes",
-          "type": "string"
+          "type": "null"
         },
         "exit": {
           "description": "exit - Immediately shuts down the RPC server",
-          "type": "string"
+          "type": "null"
         },
         "getSecondaryIndexKeySize": {
           "description": "getSecondaryIndexKeySize - Gets secondary index key size",
@@ -196,51 +196,51 @@
         },
         "loadPlugin": {
           "description": "loadPlugin - Loads a new plugin",
-          "type": "string"
+          "$ref": "#/$defs/LoadPlugin"
         },
         "reloadPlugin": {
           "description": "reloadPlugin - Reloads a runtime plugin",
-          "type": "string"
+          "$ref": "#/$defs/ReloadPlugin"
         },
         "removeAllAuthorizedVoters": {
           "description": "removeAllAuthorizedVoters - Removes all voters",
-          "type": "string"
+          "type": "null"
         },
         "repairShredFromPeer": {
           "description": "repairShredFromPeer - Repairs shred from peer",
-          "type": "string"
+          "type": "null"
         },
         "rpcAddress": {
           "description": "rpcAddress - Returns RPC server address",
-          "type": "string"
+          "$ref": "#/$defs/SocketAddrSchema"
         },
         "setIdentity": {
           "description": "setIdentity - Sets cluster identity",
-          "type": "string"
+          "type": "null"
         },
         "setIdentityFromBytes": {
           "description": "setIdentityFromBytes - Sets identity from bytes",
-          "type": "string"
+          "type": "null"
         },
         "setLogFilter": {
           "description": "setLogFilter - Sets log filter",
-          "type": "string"
+          "type": "null"
         },
         "setPublicTpuAddress": {
           "description": "setPublicTpuAddress - Sets public TPU address",
-          "type": "string"
+          "type": "null"
         },
         "setPublicTpuForwardsAddress": {
           "description": "setPublicTpuForwardsAddress - Sets public TPU forwards address",
-          "type": "string"
+          "type": "null"
         },
         "setRepairWhitelist": {
           "description": "setRepairWhitelist - Sets repair whitelist",
-          "type": "string"
+          "type": "null"
         },
         "setStakedNodesOverrides": {
           "description": "setStakedNodesOverrides - Sets staked nodes overrides",
-          "type": "string"
+          "type": "null"
         },
         "startTime": {
           "description": "startTime - Returns system start time",
@@ -248,7 +248,7 @@
         },
         "unloadPlugin": {
           "description": "unloadPlugin - Unloads a runtime plugin",
-          "type": "string"
+          "$ref": "#/$defs/UnloadPlugin"
         }
       },
       "required": [
@@ -375,6 +375,43 @@
         "epoch",
         "leaderScheduleEpoch",
         "unixTimestamp"
+      ]
+    },
+    "ComputeUnitsEstimationResultSchema": {
+      "description": "Result of compute units estimation",
+      "type": "object",
+      "properties": {
+        "computeUnitsConsumed": {
+          "description": "Number of compute units consumed",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "errorMessage": {
+          "description": "Error message if estimation failed",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "logMessages": {
+          "description": "Log messages from the transaction",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "success": {
+          "description": "Indicates if the estimation was successful",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "success",
+        "computeUnitsConsumed"
       ]
     },
     "EncodedConfirmedTransactionSchema": {
@@ -799,6 +836,17 @@
         "data"
       ]
     },
+    "LoadPlugin": {
+      "type": "object",
+      "properties": {
+        "configFile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "configFile"
+      ]
+    },
     "MinimalEndpoints": {
       "description": "Minimal RPC endpoints providing basic cluster information",
       "type": "object",
@@ -891,11 +939,82 @@
         }
       }
     },
+    "ProfileResultSchema": {
+      "description": "Profile result",
+      "type": "object",
+      "properties": {
+        "computeUnits": {
+          "description": "Compute units estimation result",
+          "$ref": "#/$defs/ComputeUnitsEstimationResultSchema"
+        },
+        "state": {
+          "description": "Profile state containing pre and post execution states",
+          "$ref": "#/$defs/ProfileStateSchema"
+        }
+      },
+      "required": [
+        "computeUnits",
+        "state"
+      ]
+    },
+    "ProfileStateSchema": {
+      "description": "State of accounts before and after execution",
+      "type": "object",
+      "properties": {
+        "postExecution": {
+          "description": "Account states after execution",
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/UiAccountSchema"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "preExecution": {
+          "description": "Account states before execution",
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/UiAccountSchema"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "preExecution",
+        "postExecution"
+      ]
+    },
     "ReceivedSignatureResult": {
       "description": "Received signature confirmation",
       "type": "string",
       "enum": [
         "receivedSignature"
+      ]
+    },
+    "ReloadPlugin": {
+      "type": "object",
+      "properties": {
+        "configFile": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "configFile"
       ]
     },
     "RentSchema": {
@@ -1162,30 +1281,46 @@
           "minimum": 0
         },
         "gossip": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SocketAddrSchema"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "pubkey": {
           "type": "string"
         },
         "pubsub": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SocketAddrSchema"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "rpc": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SocketAddrSchema"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "serveRepair": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SocketAddrSchema"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "shredVersion": {
@@ -1198,39 +1333,63 @@
           "minimum": 0
         },
         "tpu": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SocketAddrSchema"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "tpuForwards": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SocketAddrSchema"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "tpuForwardsQuic": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SocketAddrSchema"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "tpuQuic": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SocketAddrSchema"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "tpuVote": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SocketAddrSchema"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "tvu": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SocketAddrSchema"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "version": {
@@ -1564,6 +1723,25 @@
         "value"
       ]
     },
+    "RpcResponse_for_Array_of_ProfileResultSchema": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProfileResultSchema"
+          }
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
     "RpcResponse_for_Array_of_RpcAccountBalance": {
       "description": "RPC response wrapper with context",
       "type": "object",
@@ -1679,6 +1857,22 @@
         "context"
       ]
     },
+    "RpcResponse_for_ProfileResultSchema": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "$ref": "#/$defs/ProfileResultSchema"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
     "RpcResponse_for_RpcBlockProduction": {
       "description": "RPC response wrapper with context",
       "type": "object",
@@ -1768,6 +1962,22 @@
         },
         "value": {
           "type": "boolean"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse_for_null": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "type": "null"
         }
       },
       "required": [
@@ -1946,7 +2156,10 @@
         },
         "amount": {
           "description": "Token amount as string",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "decimals": {
           "description": "Number of decimals",
@@ -1956,11 +2169,12 @@
           "minimum": 0
         },
         "uiAmount": {
-          "description": "Human readable amount as string",
+          "description": "Human readable amount as float",
           "type": [
-            "string",
+            "number",
             "null"
-          ]
+          ],
+          "format": "double"
         },
         "uiAmountString": {
           "description": "Human readable amount as string",
@@ -1969,7 +2183,6 @@
       },
       "required": [
         "address",
-        "amount",
         "decimals",
         "uiAmountString"
       ]
@@ -2375,17 +2588,36 @@
         }
       ]
     },
+    "SocketAddrSchema": {
+      "description": "Socket address",
+      "type": "object",
+      "properties": {
+        "ip": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "ip",
+        "port"
+      ]
+    },
     "SurfnetCheatcodesEndpoints": {
       "description": "Surfnet cheatcodes endpoints for testing and development",
       "type": "object",
       "properties": {
         "advanceClock": {
           "description": "advanceClock - Advances clock",
-          "type": "string"
+          "type": "null"
         },
         "cloneProgramAccount": {
           "description": "cloneProgramAccount - Clones a program account",
-          "type": "string"
+          "$ref": "#/$defs/RpcResponse_for_null"
         },
         "getAccount": {
           "description": "getAccount - Gets account data",
@@ -2404,7 +2636,7 @@
         },
         "getProfileResults": {
           "description": "getProfileResults - Gets profiling results for a tag",
-          "type": "string"
+          "$ref": "#/$defs/RpcResponse_for_Array_of_ProfileResultSchema"
         },
         "getSurfpoolVersion": {
           "description": "getSurfpoolVersion - Returns surfpool version",
@@ -2412,39 +2644,39 @@
         },
         "processTransaction": {
           "description": "processTransaction - Processes transaction",
-          "type": "string"
+          "type": "null"
         },
         "profileTransaction": {
           "description": "profileTransaction - Profiles a transaction for compute unit estimation",
-          "type": "string"
+          "$ref": "#/$defs/RpcResponse_for_ProfileResultSchema"
         },
         "resetSurfnet": {
           "description": "resetSurfnet - Resets surfnet state",
-          "type": "string"
+          "type": "null"
         },
         "setAccount": {
           "description": "setAccount - Sets account data",
-          "type": "string"
+          "$ref": "#/$defs/RpcResponse_for_null"
         },
         "setClock": {
           "description": "setClock - Sets clock",
-          "type": "string"
+          "type": "null"
         },
         "setSupply": {
           "description": "setSupply - Sets supply information for testing",
-          "type": "string"
+          "$ref": "#/$defs/RpcResponse_for_null"
         },
         "setTokenAccount": {
           "description": "setTokenAccount - Sets token account data",
-          "type": "string"
+          "$ref": "#/$defs/RpcResponse_for_null"
         },
         "startSurfnet": {
           "description": "startSurfnet - Starts surfnet instance",
-          "type": "string"
+          "type": "null"
         },
         "stopSurfnet": {
           "description": "stopSurfnet - Stops surfnet instance",
-          "type": "string"
+          "type": "null"
         }
       },
       "required": [
@@ -2894,7 +3126,10 @@
       "properties": {
         "amount": {
           "description": "Token amount as string",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "decimals": {
           "description": "Number of decimals",
@@ -2904,11 +3139,12 @@
           "minimum": 0
         },
         "uiAmount": {
-          "description": "Human readable amount as string",
+          "description": "Human readable amount as float",
           "type": [
-            "string",
+            "number",
             "null"
-          ]
+          ],
+          "format": "double"
         },
         "uiAmountString": {
           "description": "Human readable amount as string",
@@ -2916,7 +3152,6 @@
         }
       },
       "required": [
-        "amount",
         "decimals",
         "uiAmountString"
       ]
@@ -2940,6 +3175,17 @@
       "required": [
         "programId",
         "data"
+      ]
+    },
+    "UnloadPlugin": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
       ]
     },
     "WebSocketSubscriptions": {
