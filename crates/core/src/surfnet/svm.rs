@@ -9,7 +9,11 @@ use litesvm::{
     LiteSVM,
 };
 use solana_account::Account;
-use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
+use solana_account_decoder::{
+    encode_ui_account,
+    parse_account_data::{AccountAdditionalDataV3, SplTokenAdditionalDataV2},
+    UiAccount, UiAccountEncoding,
+};
 use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_epoch_info::EpochInfo;
@@ -20,8 +24,8 @@ use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    program_option::COption, program_pack::Pack, system_instruction,
-    transaction::VersionedTransaction,
+    genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
+    program_pack::Pack, system_instruction, transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -31,6 +35,7 @@ use solana_transaction_status::{
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
 use spl_token::state::Account as TokenAccount;
+use spl_token_2022::instruction::TokenInstruction;
 use surfpool_types::{
     types::{ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
@@ -78,6 +83,7 @@ pub struct SurfnetSvm {
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
+    pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: HashMap<Pubkey, spl_token::state::Account>,
     pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
@@ -86,6 +92,8 @@ pub struct SurfnetSvm {
     pub circulating_supply: u64,
     pub non_circulating_supply: u64,
     pub non_circulating_accounts: Vec<String>,
+    pub genesis_config: GenesisConfig,
+    pub inflation: Inflation,
 }
 
 impl SurfnetSvm {
@@ -140,6 +148,7 @@ impl SurfnetSvm {
                 updated_at: Utc::now().timestamp_millis() as u64,
                 accounts_registry: HashMap::new(),
                 accounts_by_owner: HashMap::new(),
+                account_associated_data: HashMap::new(),
                 token_accounts: HashMap::new(),
                 token_accounts_by_owner: HashMap::new(),
                 token_accounts_by_delegate: HashMap::new(),
@@ -148,6 +157,8 @@ impl SurfnetSvm {
                 circulating_supply: 0,
                 non_circulating_supply: 0,
                 non_circulating_accounts: Vec::new(),
+                genesis_config: GenesisConfig::default(),
+                inflation: Inflation::default(),
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -296,6 +307,17 @@ impl SurfnetSvm {
         self.inner.set_sysvar(
             &solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes::from_iter(entries),
         );
+
+        let mut slot_hashes = self
+            .inner
+            .get_sysvar::<solana_sdk::sysvar::slot_hashes::SlotHashes>();
+        slot_hashes.add(self.get_latest_absolute_slot() + 1, latest_entry.blockhash);
+
+        self.inner
+            .set_sysvar(&solana_sdk::sysvar::slot_hashes::SlotHashes::new(
+                &slot_hashes,
+            ));
+
         BlockIdentifier::new(
             self.chain_tip.index + 1,
             latest_entry.blockhash.to_string().as_str(),
@@ -387,7 +409,7 @@ impl SurfnetSvm {
                 if let COption::Some(delegate) = token_account.delegate {
                     let delegate_accounts =
                         self.token_accounts_by_delegate.entry(delegate).or_default();
-                    if !delegate_accounts.contains(&pubkey) {
+                    if !delegate_accounts.contains(pubkey) {
                         delegate_accounts.push(*pubkey);
                     }
                 }
@@ -492,8 +514,38 @@ impl SurfnetSvm {
             return Err(FailedTransactionMetadata { err, meta });
         }
         self.inner.set_blockhash_check(false);
+
         match self.inner.send_transaction(tx.clone()) {
             Ok(res) => {
+                for instruction in tx.message.instructions().iter() {
+                    let accounts = tx.message.static_account_keys();
+                    let program_id = instruction.program_id(accounts);
+                    if program_id.eq(&spl_token_2022::id()) {
+                        let Ok(token_instruction) = TokenInstruction::unpack(&instruction.data)
+                        else {
+                            continue;
+                        };
+                        match token_instruction {
+                            TokenInstruction::InitializeMint2 { decimals, .. } => {
+                                let authority_index = instruction.accounts[0] as usize;
+                                let authority = accounts[authority_index];
+
+                                self.account_associated_data.insert(
+                                    authority,
+                                    AccountAdditionalDataV3 {
+                                        spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                                            decimals,
+                                            interest_bearing_config: None,
+                                            scaled_ui_amount_config: None,
+                                        }),
+                                    },
+                                );
+                            }
+                            _ => continue,
+                        }
+                    }
+                }
+
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res);
 
                 self.transactions.insert(
@@ -578,14 +630,13 @@ impl SurfnetSvm {
         tx: VersionedTransaction,
         sigverify: bool,
     ) -> Result<SimulatedTransactionInfo, FailedTransactionMetadata> {
-        if sigverify {
-            if tx.verify_with_results().iter().any(|valid| !*valid) {
-                return Err(FailedTransactionMetadata {
-                    err: TransactionError::SignatureFailure,
-                    meta: TransactionMetadata::default(),
-                });
-            }
+        if sigverify && tx.verify_with_results().iter().any(|valid| !*valid) {
+            return Err(FailedTransactionMetadata {
+                err: TransactionError::SignatureFailure,
+                meta: TransactionMetadata::default(),
+            });
         }
+
         if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
             let meta = TransactionMetadata::default();
             let err = TransactionError::BlockhashNotFound;
@@ -685,18 +736,35 @@ impl SurfnetSvm {
         match account_update {
             GetAccountResult::FoundAccount(pubkey, account, do_update_account) => {
                 if do_update_account {
-                    let _ = self.set_account(&pubkey, account.clone());
+                    if let Err(e) = self.set_account(&pubkey, account.clone()) {
+                        let _ = self
+                            .simnet_events_tx
+                            .send(SimnetEvent::error(e.to_string()));
+                    }
                 }
             }
             GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
-                let _ = self.set_account(&pubkey, account.clone());
+                if let Err(e) = self.set_account(&pubkey, account.clone()) {
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                }
             }
             GetAccountResult::FoundProgramAccount(
                 (pubkey, account),
                 (data_pubkey, Some(data_account)),
             ) => {
-                let _ = self.set_account(&pubkey, account.clone());
-                let _ = self.set_account(&data_pubkey, data_account.clone());
+                // The data account _must_ be set first, as the program account depends on it.
+                if let Err(e) = self.set_account(&data_pubkey, data_account.clone()) {
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                };
+                if let Err(e) = self.set_account(&pubkey, account.clone()) {
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                };
             }
             GetAccountResult::None(_) => {}
         }
@@ -1005,7 +1073,10 @@ impl SurfnetSvm {
     /// # Returns
     ///
     /// * A vector of (account_pubkey, token_account) tuples for all token accounts owned by the specified owner.
-    pub fn get_token_accounts_by_owner(&self, owner: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
+    pub fn get_parsed_token_accounts_by_owner(
+        &self,
+        owner: &Pubkey,
+    ) -> Vec<(Pubkey, TokenAccount)> {
         if let Some(account_pubkeys) = self.token_accounts_by_owner.get(owner) {
             account_pubkeys
                 .iter()
@@ -1014,6 +1085,22 @@ impl SurfnetSvm {
         } else {
             Vec::new()
         }
+    }
+
+    pub fn get_token_accounts_by_owner(&self, owner: &Pubkey) -> Vec<(Pubkey, Account)> {
+        self.token_accounts_by_owner
+            .get(owner)
+            .map(|account_pubkeys| {
+                account_pubkeys
+                    .iter()
+                    .filter_map(|pk| {
+                        self.accounts_registry
+                            .get(pk)
+                            .map(|account| (*pk, account.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Gets all token accounts for a specific mint (token type).
@@ -1052,8 +1139,12 @@ impl SurfnetSvm {
 
 #[cfg(test)]
 mod tests {
+    // use test_log::test; // uncomment to get logs from litesvm
     use solana_account::Account;
-    use solana_sdk::program_pack::Pack;
+    use solana_sdk::{
+        bpf_loader_upgradeable::{self, get_program_data_address},
+        program_pack::Pack,
+    };
     use spl_token::state::{Account as TokenAccount, AccountState};
 
     use super::*;
@@ -1096,7 +1187,7 @@ mod tests {
         assert_eq!(svm.token_accounts.len(), 1);
 
         // test owner index
-        let owner_accounts = svm.get_token_accounts_by_owner(&owner);
+        let owner_accounts = svm.get_parsed_token_accounts_by_owner(&owner);
         assert_eq!(owner_accounts.len(), 1);
         assert_eq!(owner_accounts[0].0, token_account_pubkey);
 
@@ -1178,7 +1269,7 @@ mod tests {
         // verify indexes were updated correctly
         assert_eq!(svm.get_token_accounts_by_delegate(&old_delegate).len(), 0);
         assert_eq!(svm.get_token_accounts_by_delegate(&new_delegate).len(), 1);
-        assert_eq!(svm.get_token_accounts_by_owner(&owner).len(), 1);
+        assert_eq!(svm.get_parsed_token_accounts_by_owner(&owner).len(), 1);
     }
 
     #[test]
@@ -1202,5 +1293,200 @@ mod tests {
         assert_eq!(svm.token_accounts_by_owner.len(), 0);
         assert_eq!(svm.token_accounts_by_delegate.len(), 0);
         assert_eq!(svm.token_accounts_by_mint.len(), 0);
+    }
+
+    fn expect_account_update_event(
+        events_rx: &Receiver<SimnetEvent>,
+        svm: &SurfnetSvm,
+        pubkey: &Pubkey,
+        expected_account: &Account,
+    ) -> bool {
+        match events_rx.recv() {
+            Ok(event) => match event {
+                SimnetEvent::AccountUpdate(_, account_pubkey) => {
+                    assert_eq!(pubkey, &account_pubkey);
+                    assert_eq!(svm.accounts_registry.get(&pubkey), Some(expected_account));
+                    true
+                }
+                event => {
+                    println!("unexpected simnet event: {:?}", event);
+                    false
+                }
+            },
+            Err(_) => false,
+        }
+    }
+
+    fn expect_error_event(events_rx: &Receiver<SimnetEvent>, expected_error: &str) -> bool {
+        match events_rx.recv() {
+            Ok(event) => match event {
+                SimnetEvent::ErrorLog(_, err) => {
+                    assert_eq!(err, expected_error);
+                    true
+                }
+                event => {
+                    println!("unexpected simnet event: {:?}", event);
+                    false
+                }
+            },
+            Err(_) => false,
+        }
+    }
+
+    fn create_program_accounts() -> (Pubkey, Account, Pubkey, Account) {
+        let program_pubkey = Pubkey::new_unique();
+        let program_data_address = get_program_data_address(&program_pubkey);
+        let program_account = Account {
+            lamports: 1000000000000,
+            data: bincode::serialize(&bpf_loader_upgradeable::UpgradeableLoaderState::Program {
+                programdata_address: program_data_address,
+            })
+            .unwrap(),
+            owner: bpf_loader_upgradeable::ID,
+            executable: true,
+            rent_epoch: 10000000000000,
+        };
+
+        let mut bin = include_bytes!("../tests/assets/metaplex_program.bin").to_vec();
+        let mut data = bincode::serialize(
+            &bpf_loader_upgradeable::UpgradeableLoaderState::ProgramData {
+                slot: 0,
+                upgrade_authority_address: Some(Pubkey::new_unique()),
+            },
+        )
+        .unwrap();
+        data.append(&mut bin); // push our binary after the state data
+        let program_data_account = Account {
+            lamports: 10000000000000,
+            data,
+            owner: bpf_loader_upgradeable::ID,
+            executable: false,
+            rent_epoch: 10000000000000,
+        };
+        (
+            program_pubkey,
+            program_account,
+            program_data_address,
+            program_data_account,
+        )
+    }
+
+    #[test]
+    fn test_inserting_account_updates() {
+        let (mut svm, events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let pubkey = Pubkey::new_unique();
+        let account = Account {
+            lamports: 1000,
+            data: vec![1, 2, 3],
+            owner: Pubkey::new_unique(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        // GetAccountResult::None should be a noop when writing account updates
+        {
+            let index_before = svm.accounts_registry.clone();
+            let empty_update = GetAccountResult::None(pubkey);
+            svm.write_account_update(empty_update);
+            assert_eq!(svm.accounts_registry, index_before);
+        }
+
+        // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to false should be a noop
+        {
+            let index_before = svm.accounts_registry.clone();
+            let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), false);
+            svm.write_account_update(found_update);
+            assert_eq!(svm.accounts_registry, index_before);
+        }
+
+        // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to true should update the account
+        {
+            let index_before = svm.accounts_registry.clone();
+            let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), true);
+            svm.write_account_update(found_update);
+            assert_eq!(svm.accounts_registry.len(), index_before.len() + 1);
+            if !expect_account_update_event(&events_rx, &svm, &pubkey, &account) {
+                panic!("Expected account update event not received after GetAccountResult::FoundAccount update");
+            }
+        }
+
+        // GetAccountResult::FoundProgramAccount with no program account fails
+        {
+            let (program_address, program_account, program_data_address, _) =
+                create_program_accounts();
+
+            let index_before = svm.accounts_registry.clone();
+            let found_program_account_update = GetAccountResult::FoundProgramAccount(
+                (program_address, program_account.clone()),
+                (program_data_address, None),
+            );
+            svm.write_account_update(found_program_account_update);
+            if !expect_error_event(&events_rx, &format!("Internal error: \"Failed to set account {}: An account required by the instruction is missing\"", program_address)) {
+                panic!("Expected error event not received after inserting program account with no program data account");
+            }
+            assert_eq!(svm.accounts_registry, index_before);
+        }
+
+        // GetAccountResult::FoundProgramAccount with program account + program data account inserts two accounts
+        {
+            let (program_address, program_account, program_data_address, program_data_account) =
+                create_program_accounts();
+
+            let index_before = svm.accounts_registry.clone();
+            let found_program_account_update = GetAccountResult::FoundProgramAccount(
+                (program_address, program_account.clone()),
+                (program_data_address, Some(program_data_account.clone())),
+            );
+            svm.write_account_update(found_program_account_update);
+            assert_eq!(svm.accounts_registry.len(), index_before.len() + 2);
+            if !expect_account_update_event(
+                &events_rx,
+                &svm,
+                &program_data_address,
+                &program_data_account,
+            ) {
+                panic!("Expected account update event not received after GetAccountResult::FoundProgramAccount update for program data pubkey");
+            }
+
+            if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
+                panic!("Expected account update event not received after GetAccountResult::FoundProgramAccount update for program pubkey");
+            }
+        }
+
+        // If we insert the program data account ahead of time, then have a GetAccountResult::FoundProgramAccount with just the program data account,
+        // we should get one insert
+        {
+            let (program_address, program_account, program_data_address, program_data_account) =
+                create_program_accounts();
+
+            let index_before = svm.accounts_registry.clone();
+            let found_update = GetAccountResult::FoundAccount(
+                program_data_address,
+                program_data_account.clone(),
+                true,
+            );
+            svm.write_account_update(found_update);
+            assert_eq!(svm.accounts_registry.len(), index_before.len() + 1);
+            if !expect_account_update_event(
+                &events_rx,
+                &svm,
+                &program_data_address,
+                &program_data_account,
+            ) {
+                panic!("Expected account update event not received after GetAccountResult::FoundAccount update");
+            }
+
+            let index_before = svm.accounts_registry.clone();
+            let program_account_found_update = GetAccountResult::FoundProgramAccount(
+                (program_address, program_account.clone()),
+                (program_data_address, None),
+            );
+            svm.write_account_update(program_account_found_update);
+            assert_eq!(svm.accounts_registry.len(), index_before.len() + 1);
+            if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
+                panic!("Expected account update event not received after GetAccountResult::FoundAccount update");
+            }
+        }
     }
 }

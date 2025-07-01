@@ -1,8 +1,0 @@
-{
-    "mcpServers": {
-      "surfpool": {
-        "command": "./target/release/surfpool",
-        "args": ["mcp"]
-      }
-    }
-  }

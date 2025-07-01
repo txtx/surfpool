@@ -4,7 +4,10 @@ use crossbeam_channel::Sender;
 use jsonrpc_core::Result as RpcError;
 use locker::SurfnetSvmLocker;
 use solana_account::Account;
-use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding, UiDataSliceConfig};
+use solana_account_decoder::{
+    encode_ui_account, parse_account_data::AccountAdditionalDataV3, UiAccount, UiAccountEncoding,
+    UiDataSliceConfig,
+};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
@@ -22,6 +25,8 @@ pub mod locker;
 pub mod remote;
 pub mod svm;
 
+pub const SURFPOOL_IDENTITY_PUBKEY: Pubkey =
+    Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr");
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
 pub const SLOTS_PER_EPOCH: u64 = 432000;
 // #[cfg(clippy)]
@@ -88,7 +93,7 @@ pub enum SignatureSubscriptionType {
 
 type DoUpdateSvm = bool;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 /// Represents the result of a get_account operation.
 pub enum GetAccountResult {
     /// Represents that the account was not found.
@@ -107,6 +112,7 @@ impl GetAccountResult {
         &self,
         encoding: Option<UiAccountEncoding>,
         data_slice: Option<UiDataSliceConfig>,
+        associated_data: Option<AccountAdditionalDataV3>,
     ) -> Option<UiAccount> {
         match &self {
             Self::None(_) => None,
@@ -115,7 +121,7 @@ impl GetAccountResult {
                 pubkey,
                 account,
                 encoding.unwrap_or(UiAccountEncoding::Base64),
-                None,
+                associated_data,
                 data_slice,
             )),
         }

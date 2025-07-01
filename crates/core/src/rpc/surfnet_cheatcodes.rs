@@ -19,7 +19,10 @@ use surfpool_types::{
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     error::SurfpoolError,
-    rpc::{utils::verify_pubkey, State},
+    rpc::{
+        utils::{verify_pubkey, verify_pubkeys},
+        State,
+    },
     surfnet::{locker::SvmAccessContext, GetAccountResult},
 };
 
@@ -706,19 +709,9 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         };
 
         // validate non-circulating accounts are valid pubkeys
-        if let Some(ref accounts) = update.non_circulating_accounts {
-            for (index, account) in accounts.iter().enumerate() {
-                if !account.is_empty() {
-                    if let Err(_) = verify_pubkey(account) {
-                        let account_clone = account.clone();
-                        return Box::pin(async move {
-                            Err(Error::invalid_params(format!(
-                                "Invalid pubkey at index {}: '{}'",
-                                index, account_clone
-                            )))
-                        });
-                    }
-                }
+        if let Some(ref non_circulating_accounts) = update.non_circulating_accounts {
+            if let Err(e) = verify_pubkeys(non_circulating_accounts) {
+                return e.into();
             }
         }
 
