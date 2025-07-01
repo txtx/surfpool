@@ -197,6 +197,17 @@ impl SurfpoolError {
         )));
         Self(error)
     }
+    pub fn get_largest_accounts<T>(e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to fetch largest accounts from remote: {}",
+            e.to_string()
+        )));
+        Self(error)
+    }
 
     pub fn get_signatures_for_address<T>(e: T) -> Self
     where

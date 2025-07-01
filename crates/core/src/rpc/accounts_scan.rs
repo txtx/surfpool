@@ -522,10 +522,31 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
 
     fn get_largest_accounts(
         &self,
-        _meta: Self::Metadata,
-        _config: Option<RpcLargestAccountsConfig>,
+        meta: Self::Metadata,
+        config: Option<RpcLargestAccountsConfig>,
     ) -> BoxFuture<Result<RpcResponse<Vec<RpcAccountBalance>>>> {
-        not_implemented_err_async("get_largest_accounts")
+        let config = config.unwrap_or_default();
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let current_slot = svm_locker.get_latest_absolute_slot();
+
+            let largest_accounts = svm_locker
+                .get_largest_accounts(&remote_ctx, config)
+                .await?
+                .inner;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(current_slot),
+                value: largest_accounts,
+            })
+        })
     }
 
     fn get_supply(
@@ -712,7 +733,10 @@ mod tests {
 
     use solana_account::Account;
     use solana_client::{
-        rpc_config::{RpcProgramAccountsConfig, RpcSupplyConfig, RpcTokenAccountsFilter},
+        rpc_config::{
+            RpcLargestAccountsConfig, RpcLargestAccountsFilter, RpcProgramAccountsConfig,
+            RpcSupplyConfig, RpcTokenAccountsFilter,
+        },
         rpc_filter::{Memcmp, RpcFilterType},
         rpc_response::OptionalContext,
     };
@@ -1149,6 +1173,113 @@ mod tests {
         assert_eq!(supply.value.total, 0);
         assert_eq!(supply.value.circulating, 0);
         assert_eq!(supply.value.non_circulating, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_largest_accounts() {
+        let setup = TestSetup::new(SurfpoolAccountsScanRpc);
+
+        let large_circulating_pubkey = Pubkey::new_unique();
+        let large_circulating_amount = 1_000_000_000_000_000u64;
+
+        setup
+            .context
+            .svm_locker
+            .with_svm_writer(|svm_writer| {
+                svm_writer.set_account(
+                    &large_circulating_pubkey,
+                    Account {
+                        lamports: large_circulating_amount,
+                        ..Default::default()
+                    },
+                )
+            })
+            .unwrap();
+
+        let large_non_circulating_pubkey = Pubkey::new_unique();
+        let large_non_circulating_amount = 2_000_000_000_000_000u64;
+
+        setup
+            .context
+            .svm_locker
+            .with_svm_writer(|svm_writer| {
+                svm_writer
+                    .non_circulating_accounts
+                    .push(large_non_circulating_pubkey.to_string());
+                svm_writer.set_account(
+                    &large_non_circulating_pubkey,
+                    Account {
+                        lamports: large_non_circulating_amount,
+                        ..Default::default()
+                    },
+                )
+            })
+            .unwrap();
+
+        // Test with filter for circulating accounts
+        {
+            let result = setup
+                .rpc
+                .get_largest_accounts(
+                    Some(setup.context.clone()),
+                    Some(RpcLargestAccountsConfig {
+                        filter: Some(RpcLargestAccountsFilter::Circulating),
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(result.value.len(), 1);
+            assert_eq!(
+                large_circulating_pubkey.to_string(),
+                result.value[0].address
+            );
+            assert_eq!(large_circulating_amount, result.value[0].lamports);
+        }
+
+        // Test with filter for non-circulating accounts
+        {
+            let result = setup
+                .rpc
+                .get_largest_accounts(
+                    Some(setup.context.clone()),
+                    Some(RpcLargestAccountsConfig {
+                        filter: Some(RpcLargestAccountsFilter::NonCirculating),
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(result.value.len(), 1);
+            assert_eq!(
+                large_non_circulating_pubkey.to_string(),
+                result.value[0].address
+            );
+            assert_eq!(large_non_circulating_amount, result.value[0].lamports);
+        }
+
+        // Test without filter - should return both accounts
+        {
+            let result = setup
+                .rpc
+                .get_largest_accounts(Some(setup.context), None)
+                .await
+                .unwrap();
+
+            assert_eq!(result.value.len(), 2);
+            assert_eq!(
+                large_non_circulating_pubkey.to_string(),
+                result.value[0].address
+            );
+            assert_eq!(large_non_circulating_amount, result.value[0].lamports);
+            assert_eq!(
+                large_circulating_pubkey.to_string(),
+                result.value[1].address
+            );
+            assert_eq!(large_circulating_amount, result.value[1].lamports);
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
