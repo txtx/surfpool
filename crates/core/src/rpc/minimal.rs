@@ -743,9 +743,18 @@ impl Minimal for SurfpoolMinimalRpc {
     //       it can be removed from rpc_minimal
     fn get_vote_accounts(
         &self,
-        _meta: Self::Metadata,
-        _config: Option<RpcGetVoteAccountsConfig>,
+        meta: Self::Metadata,
+        config: Option<RpcGetVoteAccountsConfig>,
     ) -> Result<RpcVoteAccountStatus> {
+        // validate inputs if provided
+        if let Some(config) = config {
+            // validate vote_pubkey if provided
+            if let Some(vote_pubkey_str) = config.vote_pubkey {
+                verify_pubkey(&vote_pubkey_str).map_err(jsonrpc_core::Error::from)?;
+            }
+        }
+
+        // Return empty vote accounts
         Ok(RpcVoteAccountStatus {
             current: vec![],
             delinquent: vec![],
@@ -1192,5 +1201,56 @@ mod tests {
         let result = setup.rpc.get_leader_schedule(None, None, None);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_vote_accounts_valid_config_returns_empty() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        // test with valid configuration including all optional parameters
+        let config = RpcGetVoteAccountsConfig {
+            vote_pubkey: Some("11111111111111111111111111111112".to_string()),
+            commitment: Some(CommitmentConfig::processed()),
+            keep_unstaked_delinquents: Some(true),
+            delinquent_slot_distance: Some(100),
+        };
+
+        let result = setup
+            .rpc
+            .get_vote_accounts(Some(setup.context.clone()), Some(config));
+
+        // should succeed with valid inputs
+        assert!(result.is_ok());
+
+        let vote_accounts = result.unwrap();
+
+        // should return empty current and delinquent arrays
+        assert_eq!(vote_accounts.current.len(), 0);
+        assert_eq!(vote_accounts.delinquent.len(), 0);
+    }
+
+    #[test]
+    fn test_get_vote_accounts_invalid_pubkey_returns_error() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        // test with invalid vote pubkey that's not valid base58
+        let config = RpcGetVoteAccountsConfig {
+            vote_pubkey: Some("invalid_pubkey_not_base58".to_string()),
+            commitment: Some(CommitmentConfig::finalized()),
+            keep_unstaked_delinquents: Some(false),
+            delinquent_slot_distance: Some(50),
+        };
+
+        let result = setup
+            .rpc
+            .get_vote_accounts(Some(setup.context.clone()), Some(config));
+
+        // should fail due to invalid vote pubkey
+        assert!(result.is_err());
+
+        let error = result.unwrap_err();
+
+        // should be invalid params error
+        assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
     }
 }
