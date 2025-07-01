@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, str::FromStr, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
@@ -26,7 +26,7 @@ use solana_client::{
     },
 };
 use solana_clock::Slot;
-use solana_commitment_config::CommitmentConfig;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_message::{
@@ -35,7 +35,6 @@ use solana_message::{
 };
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
-use solana_runtime::non_circulating_supply;
 use solana_sdk::{
     bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
     program_pack::Pack,
@@ -277,7 +276,7 @@ impl SurfnetSvmLocker {
                     svm_reader
                         .account_associated_data
                         .get(&token_data.base.mint)
-                        .map(|e| e.clone())
+                        .copied()
                 }
                 _ => None,
             };
@@ -920,7 +919,7 @@ impl SurfnetSvmLocker {
             latest_epoch_info,
             latest_blockhash,
             inner: local_accounts,
-        } = self.get_token_accounts_by_owner_local(owner, filter, &config);
+        } = self.get_token_accounts_by_owner_local(owner, filter, config);
 
         let remote_accounts = remote_client
             .get_token_accounts_by_owner(owner, filter, config)
@@ -1001,8 +1000,10 @@ impl SurfnetSvmLocker {
                     };
 
                     if include {
-                        if let Some(account) = svm_reader.accounts_registry.get(pubkey) {
-                            Some(RpcKeyedAccount {
+                        svm_reader
+                            .accounts_registry
+                            .get(pubkey)
+                            .map(|account| RpcKeyedAccount {
                                 pubkey: pubkey.to_string(),
                                 account: encode_ui_account(
                                     pubkey,
@@ -1012,9 +1013,6 @@ impl SurfnetSvmLocker {
                                     config.data_slice,
                                 ),
                             })
-                        } else {
-                            None
-                        }
                     } else {
                         None
                     }
@@ -1559,7 +1557,7 @@ impl SurfnetSvmLocker {
             filtered.push(RpcKeyedAccount {
                 pubkey: pubkey.to_string(),
                 account: encode_ui_account(
-                    &pubkey,
+                    pubkey,
                     account,
                     account_config.encoding.unwrap_or(UiAccountEncoding::Base64),
                     None, // No additional data for now
@@ -1619,22 +1617,13 @@ impl SurfnetSvmLocker {
         self.with_contextualized_svm_reader(|svm_reader| svm_reader.genesis_config.hash())
     }
 
-    pub async fn get_genesis_hash_local_then_remote(
-        &self,
-        client: &SurfnetRemoteClient,
-    ) -> SurfpoolContextualizedResult<Hash> {
-        let local_hash = self.get_genesis_hash_local();
-        let remote_hash = client.get_genesis_hash().await?;
-
-        Ok(local_hash.with_new_value(remote_hash))
-    }
-
     pub async fn get_genesis_hash(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
     ) -> SurfpoolContextualizedResult<Hash> {
         if let Some(client) = remote_ctx {
-            self.get_genesis_hash_local_then_remote(client).await
+            let remote_hash = client.get_genesis_hash().await?;
+            Ok(self.with_contextualized_svm_reader(|_| remote_hash))
         } else {
             Ok(self.get_genesis_hash_local())
         }
@@ -1656,6 +1645,17 @@ impl SurfnetSvmLocker {
     /// Retrieves the latest absolute slot from the underlying SVM.
     pub fn get_latest_absolute_slot(&self) -> Slot {
         self.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+    }
+
+    pub fn get_slot_for_commitment(&self, commitment: &CommitmentConfig) -> Slot {
+        self.with_svm_reader(|svm_reader| {
+            let slot = svm_reader.get_latest_absolute_slot();
+            match commitment.commitment {
+                CommitmentLevel::Processed => slot,
+                CommitmentLevel::Confirmed => slot.saturating_sub(1),
+                CommitmentLevel::Finalized => slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD),
+            }
+        })
     }
 
     /// Executes an airdrop via the underlying SVM.

@@ -14,7 +14,5 @@ pub fn find_next_available_surfnet_port() -> Result<(u16, u16), String> {
         }
         surfnet_id += 1;
     }
-    Err(format!(
-        "No available surfnet ports of format 127.0.0.1:x8899 found."
-    ))
+    Err("No available surfnet ports of format 127.0.0.1:x8899 found.".to_string())
 }

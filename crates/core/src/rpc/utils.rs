@@ -79,6 +79,17 @@ pub fn verify_pubkey(input: &str) -> SurfpoolResult<Pubkey> {
         .map_err(|e: ParsePubkeyError| SurfpoolError::invalid_pubkey(input, e.to_string()))
 }
 
+pub fn verify_pubkeys(input: &[String]) -> SurfpoolResult<Vec<Pubkey>> {
+    input
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            verify_pubkey(s)
+                .map_err(|e| SurfpoolError::invalid_pubkey_at_index(s, i, e.to_string()))
+        })
+        .collect::<SurfpoolResult<Vec<_>>>()
+}
+
 fn verify_hash(input: &str) -> Result<Hash> {
     input
         .parse()

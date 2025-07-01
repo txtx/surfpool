@@ -10,17 +10,17 @@ use solana_client::{
     rpc_response::{RpcBlockCommitment, RpcResponseContext},
 };
 use solana_clock::Slot;
-use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
+use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_runtime::commitment::BlockCommitmentArray;
 use solana_sdk::program_pack::Pack;
 use spl_token::state::{Account as TokenAccount, Mint};
 
-use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
+use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::{utils::verify_pubkey, State},
-    surfnet::{locker::SvmAccessContext, GetAccountResult},
+    surfnet::locker::SvmAccessContext,
 };
 
 #[rpc]
@@ -658,7 +658,6 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 #[cfg(test)]
 mod tests {
     use solana_account::Account;
-    use solana_client::rpc_client::RpcClient;
     use solana_keypair::Keypair;
     use solana_pubkey::Pubkey;
     use solana_sdk::{
@@ -678,10 +677,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        surfnet::{
-            remote::{SomeRemoteCtx, SurfnetRemoteClient},
-            GetAccountResult,
-        },
+        surfnet::{remote::SurfnetRemoteClient, GetAccountResult},
         tests::helpers::TestSetup,
     };
 

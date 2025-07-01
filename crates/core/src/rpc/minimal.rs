@@ -14,13 +14,15 @@ use solana_client::{
 use solana_clock::Slot;
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
-use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
-use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
+use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     rpc::{utils::verify_pubkey, State},
-    surfnet::{locker::SvmAccessContext, GetAccountResult, FINALIZATION_SLOT_THRESHOLD},
+    surfnet::{
+        locker::SvmAccessContext, GetAccountResult, FINALIZATION_SLOT_THRESHOLD,
+        SURFPOOL_IDENTITY_PUBKEY,
+    },
 };
 
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -657,8 +659,7 @@ impl Minimal for SurfpoolMinimalRpc {
 
     fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
         Ok(RpcIdentity {
-            identity: Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr")
-                .to_string(),
+            identity: SURFPOOL_IDENTITY_PUBKEY.to_string(),
         })
     }
 
@@ -753,18 +754,16 @@ impl Minimal for SurfpoolMinimalRpc {
         })
     }
 
-    // TODO: Refactor `agave-validator wait-for-restart-window` to not require this method, so
-    //       it can be removed from rpc_minimal
     fn get_vote_accounts(
         &self,
-        meta: Self::Metadata,
+        _meta: Self::Metadata,
         config: Option<RpcGetVoteAccountsConfig>,
     ) -> Result<RpcVoteAccountStatus> {
         // validate inputs if provided
         if let Some(config) = config {
             // validate vote_pubkey if provided
             if let Some(vote_pubkey_str) = config.vote_pubkey {
-                verify_pubkey(&vote_pubkey_str).map_err(jsonrpc_core::Error::from)?;
+                verify_pubkey(&vote_pubkey_str)?;
             }
         }
 
@@ -775,8 +774,6 @@ impl Minimal for SurfpoolMinimalRpc {
         })
     }
 
-    // TODO: Refactor `agave-validator wait-for-restart-window` to not require this method, so
-    //       it can be removed from rpc_minimal
     fn get_leader_schedule(
         &self,
         meta: Self::Metadata,
@@ -793,7 +790,7 @@ impl Minimal for SurfpoolMinimalRpc {
         let svm_locker = meta.get_svm_locker()?;
         let epoch_info = svm_locker.get_epoch_info();
 
-        let slot = slot.unwrap_or_else(|| epoch_info.absolute_slot);
+        let slot = slot.unwrap_or(epoch_info.absolute_slot);
 
         let first_slot_in_epoch = epoch_info
             .absolute_slot
@@ -819,7 +816,7 @@ mod tests {
     use solana_sdk::genesis_config::GenesisConfig;
 
     use super::*;
-    use crate::{rpc::full::SurfpoolFullRpc, tests::helpers::TestSetup};
+    use crate::tests::helpers::TestSetup;
 
     #[test]
     fn test_get_block_height_processed_commitment() {
@@ -1046,10 +1043,7 @@ mod tests {
     fn test_get_identity() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup.rpc.get_identity(Some(setup.context)).unwrap();
-        assert_eq!(
-            &result.identity,
-            "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr"
-        );
+        assert_eq!(result.identity, SURFPOOL_IDENTITY_PUBKEY.to_string());
     }
 
     #[test]

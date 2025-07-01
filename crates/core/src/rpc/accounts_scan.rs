@@ -14,9 +14,7 @@ use solana_client::{
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
-use super::{
-    not_implemented_err_async, utils::verify_pubkey, RunloopContext, State, SurfnetRpcContext,
-};
+use super::{utils::verify_pubkey, RunloopContext, State, SurfnetRpcContext};
 use crate::surfnet::locker::SvmAccessContext;
 
 #[rpc]
@@ -702,52 +700,28 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         };
 
         Box::pin(async move {
-            match token_account_filter {
+            let filter = match token_account_filter {
                 RpcTokenAccountsFilter::Mint(mint_str) => {
-                    let mint = verify_pubkey(&mint_str)?;
-
-                    let remote_ctx = remote_ctx.map(|(r, _)| r);
-                    let SvmAccessContext {
-                        slot,
-                        inner: keyed_accounts,
-                        ..
-                    } = svm_locker
-                        .get_token_accounts_by_delegate(
-                            &remote_ctx,
-                            delegate,
-                            &TokenAccountsFilter::Mint(mint),
-                            &config,
-                        )
-                        .await?;
-
-                    Ok(RpcResponse {
-                        context: RpcResponseContext::new(slot),
-                        value: keyed_accounts,
-                    })
+                    TokenAccountsFilter::Mint(verify_pubkey(&mint_str)?)
                 }
                 RpcTokenAccountsFilter::ProgramId(program_id_str) => {
-                    let program_id = verify_pubkey(&program_id_str)?;
-
-                    let remote_ctx = remote_ctx.map(|(r, _)| r);
-                    let SvmAccessContext {
-                        slot,
-                        inner: keyed_accounts,
-                        ..
-                    } = svm_locker
-                        .get_token_accounts_by_delegate(
-                            &remote_ctx,
-                            delegate,
-                            &TokenAccountsFilter::ProgramId(program_id),
-                            &config,
-                        )
-                        .await?;
-
-                    Ok(RpcResponse {
-                        context: RpcResponseContext::new(slot),
-                        value: keyed_accounts,
-                    })
+                    TokenAccountsFilter::ProgramId(verify_pubkey(&program_id_str)?)
                 }
-            }
+            };
+
+            let remote_ctx = remote_ctx.map(|(r, _)| r);
+            let SvmAccessContext {
+                slot,
+                inner: keyed_accounts,
+                ..
+            } = svm_locker
+                .get_token_accounts_by_delegate(&remote_ctx, delegate, &filter, &config)
+                .await?;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
+                value: keyed_accounts,
+            })
         })
     }
 }
@@ -1076,6 +1050,7 @@ mod tests {
     async fn test_set_supply_with_multiple_invalid_pubkeys() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
         let cheatcodes_rpc = SurfnetCheatcodesRpc;
+        let invalid_pubkey = "invalid_pubkey";
 
         // test with multiple invalid pubkeys - should fail on the first one
         let supply_update = SupplyUpdate {
@@ -1083,9 +1058,9 @@ mod tests {
             circulating: Some(800_000_000_000_000),
             non_circulating: Some(200_000_000_000_000),
             non_circulating_accounts: Some(vec![
-                VALID_PUBKEY_1.to_string(),   // Valid
-                "invalid_pubkey".to_string(), // Invalid - should fail here
-                "also_invalid".to_string(),   // Also invalid but won't reach here
+                VALID_PUBKEY_1.to_string(), // Valid
+                invalid_pubkey.to_string(), // Invalid - should fail here
+                "also_invalid".to_string(), // Also invalid but won't reach here
             ]),
         };
 
@@ -1096,8 +1071,10 @@ mod tests {
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
-        assert!(error.message.contains("Invalid pubkey at index 1"));
-        assert!(error.message.contains("invalid_pubkey"));
+        assert_eq!(
+            error.message,
+            format!("Invalid pubkey '{}' at index 1", invalid_pubkey)
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1577,6 +1554,7 @@ mod tests {
         assert_eq!(nonexistent_result.value.len(), 0);
     }
 
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_token_accounts_by_delegate() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
 
