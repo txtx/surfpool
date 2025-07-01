@@ -176,21 +176,36 @@ impl SurfnetRpcCallResponse {
 
 #[tool(tool_box)]
 impl Surfpool {
-    /// Starts a new local Solana network (surfnet).
+    /// Returns a command to start a new local Solana network (surfnet).
     /// This method is exposed as a tool and can be invoked remotely.
-    #[tool(
-        description = "Starts a new local Solana network (surfnet). Returns the RPC server's binding address and the surfnet ID."
-    )]
-    pub fn start_surfnet(&self) -> Json<StartSurfnetResponse> {
+    #[tool(description = "Starts a new local Solana network (surfnet).
+        This tool returns a shell command that the AI must execute in a new terminal.
+        This is the default behavior (`run_as_subprocess: false`).
+        If the user explicitly asks to run surfnet as a background process, 
+        set `run_as_subprocess: true` to start it directly. When in doubt, return the command for execution.")]
+    pub fn start_surfnet(
+        &self,
+        #[tool(param)]
+        #[schemars(
+            description = "If `false` (default), returns a command for the AI to execute. If `true`, starts surfnet directly as a background process."
+        )]
+        run_as_subprocess: bool,
+    ) -> Json<StartSurfnetResponse> {
         let (surfnet_id, port) = match find_next_available_surfnet_port() {
             Ok((id, p)) => (id, p),
             Err(e) => return Json(StartSurfnetResponse::error(e)),
         };
 
-        let res = start_surfnet::run(surfnet_id, port, port.saturating_sub(9));
+        let res = match run_as_subprocess {
+            true => start_surfnet::run_headless(surfnet_id, port, port.saturating_sub(9)),
+            false => start_surfnet::run_command(surfnet_id, port, port.saturating_sub(9)),
+        };
+
+        // Keep track of the surfnet instance in the registry
         if res.success.is_some() {
             self.surfnets.write().unwrap().insert(surfnet_id, port);
         }
+
         Json(res)
     }
 
@@ -260,7 +275,7 @@ impl Surfpool {
             Err(e) => return Json(StartSurfnetWithTokenAccountsResponse::error(e)),
         };
 
-        let start_response = start_surfnet::run(surfnet_id, port, port.saturating_sub(9));
+        let start_response = start_surfnet::run_headless(surfnet_id, port, port.saturating_sub(9));
 
         let surfnet_url = match start_response.success {
             Some(ref success_data) => {

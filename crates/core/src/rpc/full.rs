@@ -36,7 +36,6 @@ use solana_transaction_status::{
 use surfpool_types::{SimnetCommand, TransactionStatusEvent};
 
 use super::{
-    not_implemented_err, not_implemented_err_async,
     utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
     RunloopContext, State, SurfnetRpcContext,
 };
@@ -624,7 +623,7 @@ pub trait Full {
     /// # See Also
     /// - `getSlot`
     #[rpc(meta, name = "minimumLedgerSlot")]
-    fn minimum_ledger_slot(&self, meta: Self::Metadata) -> Result<Slot>;
+    fn minimum_ledger_slot(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>>;
 
     /// Retrieves the details of a block in the blockchain.
     ///
@@ -1348,15 +1347,56 @@ impl Full for SurfpoolFullRpc {
 
     fn get_inflation_reward(
         &self,
-        _meta: Self::Metadata,
-        _address_strs: Vec<String>,
-        _config: Option<RpcEpochConfig>,
+        meta: Self::Metadata,
+        address_strs: Vec<String>,
+        config: Option<RpcEpochConfig>,
     ) -> BoxFuture<Result<Vec<Option<RpcInflationReward>>>> {
-        not_implemented_err_async("get_inflation_reward")
+        Box::pin(async move {
+            let svm_locker = meta.get_svm_locker()?;
+
+            let current_epoch = svm_locker.get_epoch_info().epoch;
+            if let Some(epoch) = config.as_ref().and_then(|config| config.epoch) {
+                if epoch > current_epoch {
+                    return Err(Error::invalid_params(
+                        "Invalid epoch. Epoch is larger that current epoch",
+                    ));
+                }
+            };
+
+            let current_slot = svm_locker.get_epoch_info().absolute_slot;
+            if let Some(slot) = config.as_ref().and_then(|config| config.min_context_slot) {
+                if slot > current_slot {
+                    return Err(Error::invalid_params(
+                        "Minimum context slot has not been reached",
+                    ));
+                }
+            };
+
+            let pubkeys = address_strs
+                .iter()
+                .map(|addr| verify_pubkey(addr))
+                .collect::<std::result::Result<Vec<Pubkey>, SurfpoolError>>()?;
+
+            meta.with_svm_reader(|svm_reader| {
+                pubkeys
+                    .iter()
+                    .map(|_| {
+                        Some(RpcInflationReward {
+                            amount: 0,
+                            commission: None,
+                            effective_slot: svm_reader.get_latest_absolute_slot(),
+                            epoch: svm_reader.latest_epoch_info().epoch,
+                            post_balance: 0,
+                        })
+                    })
+                    .collect()
+            })
+            .map_err(Into::into)
+        })
     }
 
     fn get_cluster_nodes(&self, _meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
-        not_implemented_err("get_cluster_nodes")
+        Ok(vec![])
     }
 
     fn get_recent_performance_samples(
@@ -1422,12 +1462,14 @@ impl Full for SurfpoolFullRpc {
         })
     }
 
-    fn get_max_retransmit_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        not_implemented_err("get_max_retransmit_slot")
+    fn get_max_retransmit_slot(&self, meta: Self::Metadata) -> Result<Slot> {
+        meta.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+            .map_err(Into::into)
     }
 
-    fn get_max_shred_insert_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        not_implemented_err("get_max_shred_insert_slot")
+    fn get_max_shred_insert_slot(&self, meta: Self::Metadata) -> Result<Slot> {
+        meta.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+            .map_err(Into::into)
     }
 
     fn request_airdrop(
@@ -1531,6 +1573,11 @@ impl Full for SurfpoolFullRpc {
         config: Option<RpcSimulateTransactionConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSimulateTransactionResult>>> {
         let config = config.unwrap_or_default();
+
+        if config.sig_verify && config.replace_recent_blockhash {
+            return SurfpoolError::sig_verify_replace_recent_blockhash_collision().into();
+        }
+
         let tx_encoding = config.encoding.unwrap_or(UiTransactionEncoding::Base58);
         let binary_encoding = tx_encoding
             .into_binary_encoding()
@@ -1540,7 +1587,7 @@ impl Full for SurfpoolFullRpc {
                 ))
             })
             .unwrap();
-        let (_, unsanitized_tx) =
+        let (_, mut unsanitized_tx) =
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding).unwrap();
 
         let SurfnetRpcContext {
@@ -1567,10 +1614,20 @@ impl Full for SurfpoolFullRpc {
 
             svm_locker.write_multiple_account_updates(&account_updates);
 
-            let replacement_blockhash = Some(RpcBlockhash {
-                blockhash: latest_blockhash.to_string(),
-                last_valid_block_height: latest_epoch_info.block_height,
-            });
+            let replacement_blockhash = if config.replace_recent_blockhash {
+                match &mut unsanitized_tx.message {
+                    VersionedMessage::Legacy(message) => {
+                        message.recent_blockhash = latest_blockhash
+                    }
+                    VersionedMessage::V0(message) => message.recent_blockhash = latest_blockhash,
+                }
+                Some(RpcBlockhash {
+                    blockhash: latest_blockhash.to_string(),
+                    last_valid_block_height: latest_epoch_info.block_height,
+                })
+            } else {
+                None
+            };
 
             let value = match svm_locker.simulate_transaction(unsanitized_tx, config.sig_verify) {
                 Ok(tx_info) => {
@@ -1631,15 +1688,38 @@ impl Full for SurfpoolFullRpc {
         })
     }
 
-    fn minimum_ledger_slot(&self, _meta: Self::Metadata) -> Result<Slot> {
-        not_implemented_err("minimum_ledger_slot")
+    fn minimum_ledger_slot(&self, meta: Self::Metadata) -> BoxFuture<Result<Slot>> {
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            // forward to remote if available, otherwise use local fallback
+            if let Some((remote_client, _)) = remote_ctx {
+                remote_client
+                    .client
+                    .minimum_ledger_slot()
+                    .await
+                    .map_err(|e| SurfpoolError::client_error(e).into())
+            } else {
+                let min_slot = svm_locker.with_svm_reader(|svm_reader| {
+                    svm_reader.blocks.keys().min().copied().unwrap_or(0)
+                });
+
+                Ok(min_slot)
+            }
+        })
     }
 
     fn get_block(
         &self,
         meta: Self::Metadata,
         slot: Slot,
-        config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
+        _config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
@@ -1956,11 +2036,29 @@ impl Full for SurfpoolFullRpc {
 
     fn get_signatures_for_address(
         &self,
-        _meta: Self::Metadata,
-        _address: String,
-        _config: Option<RpcSignaturesForAddressConfig>,
+        meta: Self::Metadata,
+        address: String,
+        config: Option<RpcSignaturesForAddressConfig>,
     ) -> BoxFuture<Result<Vec<RpcConfirmedTransactionStatusWithSignature>>> {
-        not_implemented_err_async("get_signatures_for_address")
+        let pubkey = match verify_pubkey(&address) {
+            Ok(s) => s,
+            Err(e) => return e.into(),
+        };
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let signatures = svm_locker
+                .get_signatures_for_address(&remote_ctx, &pubkey, config)
+                .await?
+                .inner;
+            Ok(signatures)
+        })
     }
 
     fn get_first_available_block(&self, meta: Self::Metadata) -> Result<Slot> {
@@ -1995,14 +2093,55 @@ impl Full for SurfpoolFullRpc {
     fn is_blockhash_valid(
         &self,
         meta: Self::Metadata,
-        _blockhash: String,
-        _config: Option<RpcContextConfig>,
+        blockhash: String,
+        config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<bool>> {
-        meta.with_svm_reader(|svm_reader| RpcResponse {
-            context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
-            value: true,
+        // parse the blockhash string
+        let hash = blockhash
+            .parse::<solana_hash::Hash>()
+            .map_err(|e| Error::invalid_params(format!("Invalid blockhash: {e:?}")))?;
+
+        let svm_locker = meta.get_svm_locker()?;
+
+        // get current state and determine effective slot based on commitment level
+        let (is_valid, _current_slot, committed_slot) = svm_locker.with_svm_reader(|svm| {
+            let current_slot = svm.get_latest_absolute_slot();
+
+            let committed_slot = if let Some(ref config) = config {
+                if let Some(ref commitment_config) = config.commitment {
+                    match commitment_config.commitment {
+                        CommitmentLevel::Processed => current_slot,
+                        CommitmentLevel::Confirmed => current_slot.saturating_sub(1),
+                        CommitmentLevel::Finalized => {
+                            current_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
+                        }
+                    }
+                } else {
+                    current_slot
+                }
+            } else {
+                current_slot
+            };
+
+            let is_valid = svm.check_blockhash_is_recent(&hash);
+            (is_valid, current_slot, committed_slot)
+        });
+
+        if let Some(ref config) = config {
+            if let Some(min_context_slot) = config.min_context_slot {
+                if committed_slot < min_context_slot {
+                    return Err(RpcCustomError::MinContextSlotNotReached {
+                        context_slot: min_context_slot,
+                    }
+                    .into());
+                }
+            }
+        }
+
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(committed_slot),
+            value: is_valid,
         })
-        .map_err(Into::into)
     }
 
     fn get_fee_for_message(
@@ -2023,10 +2162,31 @@ impl Full for SurfpoolFullRpc {
 
     fn get_stake_minimum_delegation(
         &self,
-        _meta: Self::Metadata,
-        _config: Option<RpcContextConfig>,
+        meta: Self::Metadata,
+        config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<u64>> {
-        not_implemented_err("get_stake_minimum_delegation")
+        let config = config.unwrap_or_default();
+        let commitment_config = config.commitment.unwrap_or(CommitmentConfig {
+            commitment: CommitmentLevel::Processed,
+        });
+
+        meta.with_svm_reader(|svm_reader| {
+            let context_slot = match commitment_config.commitment {
+                CommitmentLevel::Processed => svm_reader.get_latest_absolute_slot(),
+                CommitmentLevel::Confirmed => {
+                    svm_reader.get_latest_absolute_slot().saturating_sub(1)
+                }
+                CommitmentLevel::Finalized => svm_reader
+                    .get_latest_absolute_slot()
+                    .saturating_sub(FINALIZATION_SLOT_THRESHOLD),
+            };
+
+            RpcResponse {
+                context: RpcResponseContext::new(context_slot),
+                value: 0,
+            }
+        })
+        .map_err(Into::into)
     }
 
     fn get_recent_prioritization_fees(
@@ -2185,7 +2345,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        surfnet::{BlockHeader, BlockIdentifier},
+        surfnet::{remote::SurfnetRemoteClient, BlockHeader, BlockIdentifier},
         tests::helpers::TestSetup,
         types::TransactionWithStatusMeta,
     };
@@ -2657,6 +2817,111 @@ mod tests {
         assert_eq!(
             simulation_res.value.err,
             Some(TransactionError::SignatureFailure)
+        );
+    }
+
+    #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
+    #[test_case(TransactionVersion::Number(0) ; "V0 transactions")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_simulate_transaction_replace_recent_blockhash(version: TransactionVersion) {
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let lamports = LAMPORTS_PER_SOL;
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+        let block_height = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.block_height);
+        let bad_blockhash = Hash::new_unique();
+
+        let _ = setup
+            .rpc
+            .request_airdrop(
+                Some(setup.context.clone()),
+                payer.pubkey().to_string(),
+                2 * lamports,
+                None,
+            )
+            .unwrap();
+
+        let mut tx = match version {
+            TransactionVersion::Legacy(_) => build_legacy_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
+            ),
+            TransactionVersion::Number(0) => build_v0_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
+            ),
+            _ => unimplemented!(),
+        };
+        match &mut tx.message {
+            VersionedMessage::Legacy(msg) => {
+                msg.recent_blockhash = bad_blockhash;
+            }
+            VersionedMessage::V0(msg) => {
+                msg.recent_blockhash = bad_blockhash;
+            }
+        }
+
+        let invalid_config = RpcSimulateTransactionConfig {
+            sig_verify: true,
+            replace_recent_blockhash: true,
+            commitment: Some(CommitmentConfig::finalized()),
+            encoding: None,
+            accounts: Some(RpcSimulateTransactionAccountsConfig {
+                encoding: None,
+                addresses: vec![pk.to_string()],
+            }),
+            min_context_slot: None,
+            inner_instructions: false,
+        };
+        let err = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context.clone()),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(invalid_config.clone()),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            err.message, "sigVerify may not be used with replaceRecentBlockhash",
+            "sigVerify should not be allowed to be used with replaceRecentBlockhash"
+        );
+
+        let mut valid_config = invalid_config;
+        valid_config.sig_verify = false;
+        let simulation_res = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(valid_config),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            simulation_res.value.err, None,
+            "Unexpected simulation error"
+        );
+        assert_eq!(
+            simulation_res.value.replacement_blockhash,
+            Some(RpcBlockhash {
+                blockhash: recent_blockhash.to_string(),
+                last_valid_block_height: block_height
+            }),
+            "Replacement blockhash should be the latest blockhash"
         );
     }
 
@@ -3492,26 +3757,6 @@ mod tests {
         });
     }
 
-    // helper to set up SVM state with proper latest_slot
-    fn setup_svm_state(setup: &TestSetup<SurfpoolFullRpc>, latest_slot: Slot, blocks: Vec<Slot>) {
-        // set latest_slot first
-        setup.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer.latest_epoch_info.absolute_slot = latest_slot;
-            println!("🔧 Set latest_slot to {}", latest_slot);
-        });
-
-        // then insert blocks
-        insert_test_blocks(setup, blocks);
-
-        let (local_min, local_max, current_latest) =
-            setup.context.svm_locker.with_svm_reader(|svm_reader| {
-                let min = svm_reader.blocks.keys().min().copied();
-                let max = svm_reader.blocks.keys().max().copied();
-                let latest = svm_reader.get_latest_absolute_slot();
-                (min, max, latest)
-            });
-    }
-
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_blocks_local_only() {
         let setup = TestSetup::new(SurfpoolFullRpc);
@@ -3568,7 +3813,6 @@ mod tests {
 
         let local_min = setup.context.svm_locker.with_svm_reader(|svm_reader| {
             let min = svm_reader.blocks.keys().min().copied();
-            let all_blocks: Vec<_> = svm_reader.blocks.keys().copied().collect();
             min
         });
         assert_eq!(local_min, Some(50), "Local minimum should be slot 50");
@@ -3715,5 +3959,420 @@ mod tests {
 
         let expected_local: Vec<Slot> = (100..=120).collect();
         assert_eq!(result, expected_local, "Should return local blocks 100-120");
+    }
+
+    #[test]
+    fn test_get_max_shred_insert_slot() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup
+            .rpc
+            .get_max_shred_insert_slot(Some(setup.context.clone()))
+            .unwrap();
+        let stake_min_delegation = setup
+            .rpc
+            .get_stake_minimum_delegation(Some(setup.context.clone()), None)
+            .unwrap();
+
+        let expected_slot = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
+
+        assert_eq!(result, expected_slot);
+        assert_eq!(stake_min_delegation.context.slot, expected_slot);
+        assert_eq!(stake_min_delegation.value, 0); // minimum delegation
+    }
+
+    #[test]
+    fn test_get_max_retransmit_slot() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup
+            .rpc
+            .get_max_retransmit_slot(Some(setup.context.clone()))
+            .unwrap();
+        let slot = setup
+            .context
+            .clone()
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
+
+        assert_eq!(result, slot)
+    }
+
+    #[test]
+    fn test_get_cluster_nodes() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let cluster_nodes = setup.rpc.get_cluster_nodes(Some(setup.context)).unwrap();
+
+        assert_eq!(cluster_nodes, vec![]);
+    }
+
+    #[test]
+    fn test_get_stake_minimum_delegation_default() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup
+            .rpc
+            .get_max_shred_insert_slot(Some(setup.context.clone()))
+            .unwrap();
+
+        let stake_min_delegation = setup
+            .rpc
+            .get_stake_minimum_delegation(Some(setup.context.clone()), None)
+            .unwrap();
+
+        let expected_slot = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
+
+        assert_eq!(result, expected_slot);
+        assert_eq!(stake_min_delegation.context.slot, expected_slot);
+        assert_eq!(stake_min_delegation.value, 0); // minimum delegation
+    }
+
+    #[test]
+    fn test_get_stake_minimum_delegation_with_finalized_commitment() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let config = Some(RpcContextConfig {
+            commitment: Some(CommitmentConfig {
+                commitment: CommitmentLevel::Finalized,
+            }),
+            min_context_slot: None,
+        });
+
+        let result = setup
+            .rpc
+            .get_stake_minimum_delegation(Some(setup.context.clone()), config)
+            .unwrap();
+
+        // Should return finalized slot
+        let expected_slot = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .get_latest_absolute_slot()
+                .saturating_sub(FINALIZATION_SLOT_THRESHOLD)
+        });
+
+        assert_eq!(result.context.slot, expected_slot);
+        assert_eq!(result.value, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_is_blockhash_valid_recent_blockhash() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        // Get the current recent blockhash from the SVM
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm| svm.latest_blockhash());
+
+        let result = setup
+            .rpc
+            .is_blockhash_valid(
+                Some(setup.context.clone()),
+                recent_blockhash.to_string(),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(result.value, true);
+        assert!(result.context.slot > 0);
+
+        // Test with explicit processed commitment
+        let result_processed = setup
+            .rpc
+            .is_blockhash_valid(
+                Some(setup.context.clone()),
+                recent_blockhash.to_string(),
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Processed,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(result_processed.value, true);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_is_blockhash_valid_invalid_blockhash() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let fake_blockhash = Hash::new_from_array([1u8; 32]);
+
+        // Non-existent blockhash returns false
+        let result = setup
+            .rpc
+            .is_blockhash_valid(
+                Some(setup.context.clone()),
+                fake_blockhash.to_string(),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(result.value, false);
+
+        // Test with different commitment levels - should still be false
+        let result_confirmed = setup
+            .rpc
+            .is_blockhash_valid(
+                Some(setup.context.clone()),
+                fake_blockhash.to_string(),
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Confirmed,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(result_confirmed.value, false);
+
+        // Test another fake blockhash to be thorough
+        let another_fake = Hash::new_from_array([255u8; 32]);
+        let result2 = setup
+            .rpc
+            .is_blockhash_valid(Some(setup.context.clone()), another_fake.to_string(), None)
+            .unwrap();
+
+        assert_eq!(result2.value, false);
+
+        let invalid_result = setup.rpc.is_blockhash_valid(
+            Some(setup.context.clone()),
+            "invalid-blockhash-format".to_string(),
+            None,
+        );
+
+        assert!(invalid_result.is_err());
+
+        let short_result =
+            setup
+                .rpc
+                .is_blockhash_valid(Some(setup.context.clone()), "123".to_string(), None);
+        assert!(short_result.is_err());
+
+        // Test with invalid base58 characters
+        let invalid_chars_result =
+            setup
+                .rpc
+                .is_blockhash_valid(Some(setup.context.clone()), "0OIl".to_string(), None);
+        assert!(invalid_chars_result.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_is_blockhash_valid_commitment_and_context_slot() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        // Set up some block history to test commitment levels
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+
+            // Update the absolute slot to something higher to test commitment differences
+            svm_writer.latest_epoch_info.absolute_slot = 100;
+
+            // Add some block headers for different slots
+            for slot in 70..=100 {
+                svm_writer.blocks.insert(
+                    slot,
+                    BlockHeader {
+                        hash: format!("hash_{}", slot),
+                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: slot,
+                        parent_slot: slot.saturating_sub(1),
+                        signatures: Vec::new(),
+                    },
+                );
+            }
+        }
+
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm| svm.latest_blockhash());
+
+        // Test processed commitment (should use latest slot = 100)
+        let processed_result = setup
+            .rpc
+            .is_blockhash_valid(
+                Some(setup.context.clone()),
+                recent_blockhash.to_string(),
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Processed,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(processed_result.value, true);
+        assert_eq!(processed_result.context.slot, 100);
+
+        // Test confirmed commitment (should use slot = 99)
+        let confirmed_result = setup
+            .rpc
+            .is_blockhash_valid(
+                Some(setup.context.clone()),
+                recent_blockhash.to_string(),
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Confirmed,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(confirmed_result.value, true);
+        assert_eq!(confirmed_result.context.slot, 99);
+
+        // Test finalized commitment (should use slot = 100 - 31 = 69)
+        let finalized_result = setup
+            .rpc
+            .is_blockhash_valid(
+                Some(setup.context.clone()),
+                recent_blockhash.to_string(),
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Finalized,
+                    }),
+                    min_context_slot: None,
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(finalized_result.value, true);
+        assert_eq!(finalized_result.context.slot, 69);
+
+        // Test min_context_slot validation - should succeed when slot is high enough
+        let min_context_success = setup
+            .rpc
+            .is_blockhash_valid(
+                Some(setup.context.clone()),
+                recent_blockhash.to_string(),
+                Some(RpcContextConfig {
+                    commitment: Some(CommitmentConfig {
+                        commitment: CommitmentLevel::Processed,
+                    }),
+                    min_context_slot: Some(95),
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(min_context_success.value, true);
+
+        // Test min_context_slot validation - should fail when slot is too low
+        let min_context_failure = setup.rpc.is_blockhash_valid(
+            Some(setup.context.clone()),
+            recent_blockhash.to_string(),
+            Some(RpcContextConfig {
+                commitment: Some(CommitmentConfig {
+                    commitment: CommitmentLevel::Finalized,
+                }),
+                min_context_slot: Some(80),
+            }),
+        );
+
+        assert!(min_context_failure.is_err());
+    }
+
+    #[ignore = "requires-network"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_from_remote() {
+        // Forwarding to remote mainnet
+        let remote_client = SurfnetRemoteClient::new("https://api.mainnet-beta.solana.com");
+        let mut setup = TestSetup::new(SurfpoolFullRpc);
+        setup.context.remote_rpc_client = Some(remote_client);
+
+        let result = setup
+            .rpc
+            .minimum_ledger_slot(Some(setup.context))
+            .await
+            .unwrap();
+
+        assert!(
+            result > 0,
+            "Mainnet should return a valid minimum ledger slot > 0"
+        );
+        println!("Mainnet minimum ledger slot: {}", result);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_no_context_fails() {
+        // fail gracefully when called without metadata context
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let result = setup.rpc.minimum_ledger_slot(None).await;
+
+        assert!(
+            result.is_err(),
+            "Should fail when called without metadata context"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_minimum_ledger_slot_finds_minimum() {
+        // find correct minimum from sparse, unordered blocks (local fallback)
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        insert_test_blocks(&setup, vec![500, 100, 1000, 50, 750]);
+
+        let result = setup
+            .rpc
+            .minimum_ledger_slot(Some(setup.context))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result, 50,
+            "Should return minimum slot (50) regardless of insertion order"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_inflation_reward() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let (epoch, effective_slot) =
+            setup
+                .context
+                .clone()
+                .svm_locker
+                .with_svm_reader(|svm_reader| {
+                    (
+                        svm_reader.latest_epoch_info().epoch,
+                        svm_reader.get_latest_absolute_slot(),
+                    )
+                });
+
+        let result = setup
+            .rpc
+            .get_inflation_reward(
+                Some(setup.context),
+                vec![Pubkey::new_unique().to_string()],
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result[0],
+            Some(RpcInflationReward {
+                epoch,
+                effective_slot,
+                amount: 0,
+                post_balance: 0,
+                commission: None
+            })
+        )
     }
 }

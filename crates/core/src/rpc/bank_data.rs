@@ -2,16 +2,20 @@ use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use solana_client::{
     rpc_config::{RpcBlockProductionConfig, RpcContextConfig},
+    rpc_custom_error::RpcCustomError,
     rpc_response::{
         RpcBlockProduction, RpcInflationGovernor, RpcInflationRate, RpcResponseContext,
     },
 };
 use solana_clock::Slot;
-use solana_commitment_config::CommitmentConfig;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_schedule::EpochSchedule;
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_sdk::inflation::Inflation;
 
 use super::{not_implemented_err, RunloopContext, State};
+use crate::surfnet::FINALIZATION_SLOT_THRESHOLD;
 
 #[rpc]
 pub trait BankData {
@@ -412,10 +416,11 @@ impl BankData for SurfpoolBankDataRpc {
 
     fn get_inflation_governor(
         &self,
-        _meta: Self::Metadata,
+        meta: Self::Metadata,
         _commitment: Option<CommitmentConfig>,
     ) -> Result<RpcInflationGovernor> {
-        not_implemented_err("get_inflation_governor")
+        meta.with_svm_reader(|svm_reader| svm_reader.inflation.into())
+            .map_err(Into::into)
     }
 
     fn get_inflation_rate(&self, meta: Self::Metadata) -> Result<RpcInflationRate> {
@@ -453,10 +458,47 @@ impl BankData for SurfpoolBankDataRpc {
 
     fn get_slot_leader(
         &self,
-        _meta: Self::Metadata,
-        _config: Option<RpcContextConfig>,
+        meta: Self::Metadata,
+        config: Option<RpcContextConfig>,
     ) -> Result<String> {
-        not_implemented_err("get_slot_leader")
+        let svm_locker = meta.get_svm_locker()?;
+
+        // use the config to determine commitment level and validate minContextSlot
+        let (slot, committed_slot) = svm_locker.with_svm_reader(|svm_reader| {
+            let current_slot = svm_reader.get_latest_absolute_slot();
+
+            let committed_slot = if let Some(ref config) = config {
+                if let Some(ref commitment_config) = config.commitment {
+                    match commitment_config.commitment {
+                        CommitmentLevel::Processed => current_slot,
+                        CommitmentLevel::Confirmed => current_slot.saturating_sub(1),
+                        CommitmentLevel::Finalized => {
+                            current_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
+                        }
+                    }
+                } else {
+                    current_slot
+                }
+            } else {
+                current_slot
+            };
+
+            (current_slot, committed_slot)
+        });
+
+        // validate minContextSlot if provided
+        if let Some(ref config) = config {
+            if let Some(min_context_slot) = config.min_context_slot {
+                if committed_slot < min_context_slot {
+                    return Err(RpcCustomError::MinContextSlotNotReached {
+                        context_slot: min_context_slot,
+                    }
+                    .into());
+                }
+            }
+        }
+
+        Ok(Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr").to_string())
     }
 
     fn get_slot_leaders(
@@ -474,12 +516,19 @@ impl BankData for SurfpoolBankDataRpc {
         }
 
         let svm_locker = meta.get_svm_locker()?;
-        let latest_slot = svm_locker.get_latest_absolute_slot();
-        if start_slot >= latest_slot {
+        let epoch_info = svm_locker.get_epoch_info();
+
+        let first_slot_in_epoch = epoch_info
+            .absolute_slot
+            .saturating_sub(epoch_info.slot_index);
+        let last_slot_in_epoch = first_slot_in_epoch + epoch_info.slots_in_epoch.saturating_sub(1);
+        if start_slot > last_slot_in_epoch || (start_slot + limit) > last_slot_in_epoch {
             return Err(jsonrpc_core::Error {
                 code: jsonrpc_core::ErrorCode::InvalidParams,
-                message: "Invalid slot range: start slot must be less than the latest slot"
-                    .to_string(),
+                message: format!(
+                    "Invalid slot range: leader schedule for epoch {} is unavailable",
+                    epoch_info.epoch
+                ),
                 data: None,
             });
         }
@@ -626,5 +675,90 @@ mod tests {
         let setup = TestSetup::new(SurfpoolBankDataRpc);
         let result = setup.rpc.get_inflation_rate(Some(setup.context));
         assert!(result.is_ok())
+    }
+
+    #[test]
+    fn test_get_inflation_governor() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+
+        let result = setup
+            .rpc
+            .get_inflation_governor(Some(setup.context), None)
+            .unwrap();
+
+        assert_eq!(result, Inflation::default().into());
+    }
+
+    #[test]
+    fn test_get_minimum_balance_for_rent_exemption() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+        let rent = setup
+            .rpc
+            .get_minimum_balance_for_rent_exemption(Some(setup.context), 0, None)
+            .unwrap();
+
+        assert_eq!(rent, 890880)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_slot_leader_basic() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+
+        let result = setup.rpc.get_slot_leader(Some(setup.context.clone()), None);
+
+        match result {
+            Ok(identity) => {
+                assert_eq!(identity, "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr");
+                println!("✅ Basic test passed");
+            }
+            Err(e) => {
+                panic!("❌ Test failed: {:?}", e);
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_slot_leader_with_config() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+
+        let config = RpcContextConfig {
+            commitment: Some(CommitmentConfig {
+                commitment: CommitmentLevel::Processed,
+            }),
+            min_context_slot: None,
+        };
+
+        let result = setup
+            .rpc
+            .get_slot_leader(Some(setup.context.clone()), Some(config));
+
+        match result {
+            Ok(identity) => {
+                assert_eq!(identity, "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr");
+                println!("✅ Config test passed");
+            }
+            Err(e) => {
+                panic!("❌ Test failed: {:?}", e);
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_slot_leader_min_context_slot_error() {
+        let setup = TestSetup::new(SurfpoolBankDataRpc);
+
+        let config = RpcContextConfig {
+            commitment: Some(CommitmentConfig {
+                commitment: CommitmentLevel::Finalized,
+            }),
+            min_context_slot: Some(999999), // high number that should fail
+        };
+
+        let result = setup
+            .rpc
+            .get_slot_leader(Some(setup.context.clone()), Some(config));
+
+        assert!(result.is_err());
+        println!("✅ MinContextSlot error test passed");
     }
 }
