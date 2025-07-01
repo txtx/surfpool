@@ -9,7 +9,13 @@ use litesvm::{
     LiteSVM,
 };
 use solana_account::Account;
-use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
+use solana_account_decoder::{
+    encode_ui_account,
+    parse_account_data::{
+        AccountAdditionalData, AccountAdditionalDataV3, SplTokenAdditionalDataV2,
+    },
+    UiAccount, UiAccountEncoding,
+};
 use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
 use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
 use solana_epoch_info::EpochInfo;
@@ -18,9 +24,10 @@ use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
+use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    program_option::COption, program_pack::Pack, system_instruction,
-    transaction::VersionedTransaction,
+    genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
+    program_pack::Pack, system_instruction, transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -29,7 +36,9 @@ use solana_transaction_status::{
     EncodedTransaction, EncodedTransactionWithStatusMeta, UiAddressTableLookup,
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
+use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::Account as TokenAccount;
+use spl_token_2022::instruction::TokenInstruction;
 use surfpool_types::{
     types::{ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
@@ -72,10 +81,12 @@ pub struct SurfnetSvm {
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub account_subscriptions: AccountSubscriptionData,
+    pub slot_subscriptions: Vec<Sender<SlotInfo>>,
     pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
+    pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: HashMap<Pubkey, spl_token::state::Account>,
     pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
@@ -84,6 +95,8 @@ pub struct SurfnetSvm {
     pub circulating_supply: u64,
     pub non_circulating_supply: u64,
     pub non_circulating_accounts: Vec<String>,
+    pub genesis_config: GenesisConfig,
+    pub inflation: Inflation,
 }
 
 impl SurfnetSvm {
@@ -133,10 +146,12 @@ impl SurfnetSvm {
                 transactions_queued_for_finalization: VecDeque::new(),
                 signature_subscriptions: HashMap::new(),
                 account_subscriptions: HashMap::new(),
+                slot_subscriptions: Vec::new(),
                 tagged_profiling_results: HashMap::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 accounts_registry: HashMap::new(),
                 accounts_by_owner: HashMap::new(),
+                account_associated_data: HashMap::new(),
                 token_accounts: HashMap::new(),
                 token_accounts_by_owner: HashMap::new(),
                 token_accounts_by_delegate: HashMap::new(),
@@ -145,6 +160,8 @@ impl SurfnetSvm {
                 circulating_supply: 0,
                 non_circulating_supply: 0,
                 non_circulating_accounts: Vec::new(),
+                genesis_config: GenesisConfig::default(),
+                inflation: Inflation::default(),
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -293,6 +310,17 @@ impl SurfnetSvm {
         self.inner.set_sysvar(
             &solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes::from_iter(entries),
         );
+
+        let mut slot_hashes = self
+            .inner
+            .get_sysvar::<solana_sdk::sysvar::slot_hashes::SlotHashes>();
+        slot_hashes.add(self.get_latest_absolute_slot() + 1, latest_entry.blockhash);
+
+        self.inner
+            .set_sysvar(&solana_sdk::sysvar::slot_hashes::SlotHashes::new(
+                &slot_hashes,
+            ));
+
         BlockIdentifier::new(
             self.chain_tip.index + 1,
             latest_entry.blockhash.to_string().as_str(),
@@ -489,8 +517,38 @@ impl SurfnetSvm {
             return Err(FailedTransactionMetadata { err, meta });
         }
         self.inner.set_blockhash_check(false);
+
         match self.inner.send_transaction(tx.clone()) {
             Ok(res) => {
+                for instruction in tx.message.instructions().iter() {
+                    let accounts = tx.message.static_account_keys();
+                    let program_id = instruction.program_id(accounts);
+                    if program_id.eq(&spl_token_2022::id()) {
+                        let Ok(token_instruction) = TokenInstruction::unpack(&instruction.data)
+                        else {
+                            continue;
+                        };
+                        match token_instruction {
+                            TokenInstruction::InitializeMint2 { decimals, .. } => {
+                                let authority_index = instruction.accounts[0] as usize;
+                                let authority = accounts[authority_index];
+
+                                self.account_associated_data.insert(
+                                    authority,
+                                    AccountAdditionalDataV3 {
+                                        spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                                            decimals,
+                                            interest_bearing_config: None,
+                                            scaled_ui_amount_config: None,
+                                        }),
+                                    },
+                                );
+                            }
+                            _ => continue,
+                        }
+                    }
+                }
+
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res);
 
                 self.transactions.insert(
@@ -738,6 +796,12 @@ impl SurfnetSvm {
             self.latest_epoch_info.slot_index = 0;
             self.latest_epoch_info.epoch += 1;
         }
+
+        let parent_slot = self.latest_epoch_info.absolute_slot.saturating_sub(1);
+        let new_slot = self.latest_epoch_info.absolute_slot;
+        let root = new_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD);
+        self.notify_slot_subscribers(new_slot, parent_slot, root);
+
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
@@ -996,7 +1060,10 @@ impl SurfnetSvm {
     /// # Returns
     ///
     /// * A vector of (account_pubkey, token_account) tuples for all token accounts owned by the specified owner.
-    pub fn get_token_accounts_by_owner(&self, owner: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
+    pub fn get_parsed_token_accounts_by_owner(
+        &self,
+        owner: &Pubkey,
+    ) -> Vec<(Pubkey, TokenAccount)> {
         if let Some(account_pubkeys) = self.token_accounts_by_owner.get(owner) {
             account_pubkeys
                 .iter()
@@ -1005,6 +1072,22 @@ impl SurfnetSvm {
         } else {
             Vec::new()
         }
+    }
+
+    pub fn get_token_accounts_by_owner(&self, owner: &Pubkey) -> Vec<(Pubkey, Account)> {
+        self.token_accounts_by_owner
+            .get(owner)
+            .map(|account_pubkeys| {
+                account_pubkeys
+                    .into_iter()
+                    .filter_map(|pk| {
+                        self.accounts_registry
+                            .get(pk)
+                            .map(|account| (*pk, account.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Gets all token accounts for a specific mint (token type).
@@ -1025,6 +1108,19 @@ impl SurfnetSvm {
         } else {
             Vec::new()
         }
+    }
+
+    pub fn subscribe_for_slot_updates(&mut self) -> Receiver<SlotInfo> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        let (tx, rx) = unbounded();
+        self.slot_subscriptions.push(tx);
+        rx
+    }
+
+    pub fn notify_slot_subscribers(&mut self, slot: Slot, parent: Slot, root: Slot) {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        self.slot_subscriptions
+            .retain(|tx| tx.send(SlotInfo { slot, parent, root }).is_ok());
     }
 }
 
@@ -1074,7 +1170,7 @@ mod tests {
         assert_eq!(svm.token_accounts.len(), 1);
 
         // test owner index
-        let owner_accounts = svm.get_token_accounts_by_owner(&owner);
+        let owner_accounts = svm.get_parsed_token_accounts_by_owner(&owner);
         assert_eq!(owner_accounts.len(), 1);
         assert_eq!(owner_accounts[0].0, token_account_pubkey);
 
@@ -1156,7 +1252,7 @@ mod tests {
         // verify indexes were updated correctly
         assert_eq!(svm.get_token_accounts_by_delegate(&old_delegate).len(), 0);
         assert_eq!(svm.get_token_accounts_by_delegate(&new_delegate).len(), 1);
-        assert_eq!(svm.get_token_accounts_by_owner(&owner).len(), 1);
+        assert_eq!(svm.get_parsed_token_accounts_by_owner(&owner).len(), 1);
     }
 
     #[test]
