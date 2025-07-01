@@ -328,4 +328,10 @@ impl SurfpoolError {
         error.data = Some(json!(data));
         Self(error)
     }
+
+    pub fn sig_verify_replace_recent_blockhash_collision() -> Self {
+        Self(Error::invalid_params(
+            "sigVerify may not be used with replaceRecentBlockhash",
+        ))
+    }
 }

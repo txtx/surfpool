@@ -36,14 +36,13 @@ use solana_transaction_status::{
 use surfpool_types::{SimnetCommand, TransactionStatusEvent};
 
 use super::{
-    not_implemented_err, not_implemented_err_async,
     utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
     RunloopContext, State, SurfnetRpcContext,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     surfnet::{locker::SvmAccessContext, GetTransactionResult, FINALIZATION_SLOT_THRESHOLD},
-    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
+    types::SurfnetTransactionStatus,
 };
 
 const MAX_PRIORITIZATION_FEE_BLOCKS_CACHE: usize = 150;
@@ -1574,6 +1573,11 @@ impl Full for SurfpoolFullRpc {
         config: Option<RpcSimulateTransactionConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSimulateTransactionResult>>> {
         let config = config.unwrap_or_default();
+
+        if config.sig_verify && config.replace_recent_blockhash {
+            return SurfpoolError::sig_verify_replace_recent_blockhash_collision().into();
+        }
+
         let tx_encoding = config.encoding.unwrap_or(UiTransactionEncoding::Base58);
         let binary_encoding = tx_encoding
             .into_binary_encoding()
@@ -1583,7 +1587,7 @@ impl Full for SurfpoolFullRpc {
                 ))
             })
             .unwrap();
-        let (_, unsanitized_tx) =
+        let (_, mut unsanitized_tx) =
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding).unwrap();
 
         let SurfnetRpcContext {
@@ -1610,10 +1614,20 @@ impl Full for SurfpoolFullRpc {
 
             svm_locker.write_multiple_account_updates(&account_updates);
 
-            let replacement_blockhash = Some(RpcBlockhash {
-                blockhash: latest_blockhash.to_string(),
-                last_valid_block_height: latest_epoch_info.block_height,
-            });
+            let replacement_blockhash = if config.replace_recent_blockhash {
+                match &mut unsanitized_tx.message {
+                    VersionedMessage::Legacy(message) => {
+                        message.recent_blockhash = latest_blockhash
+                    }
+                    VersionedMessage::V0(message) => message.recent_blockhash = latest_blockhash,
+                }
+                Some(RpcBlockhash {
+                    blockhash: latest_blockhash.to_string(),
+                    last_valid_block_height: latest_epoch_info.block_height,
+                })
+            } else {
+                None
+            };
 
             let value = match svm_locker.simulate_transaction(unsanitized_tx, config.sig_verify) {
                 Ok(tx_info) => {
@@ -1705,7 +1719,7 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         slot: Slot,
-        config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
+        _config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
@@ -2310,15 +2324,11 @@ mod tests {
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::{
-        legacy::Message as LegacyMessage,
-        v0::{self, Message as V0Message},
-        MessageHeader,
+        legacy::Message as LegacyMessage, v0::Message as V0Message, MessageHeader,
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
-    use solana_sdk::{
-        instruction::Instruction, system_instruction, transaction_context::TransactionReturnData,
-    };
+    use solana_sdk::{instruction::Instruction, system_instruction};
     use solana_signer::Signer;
     use solana_system_interface::program as system_program;
     use solana_transaction::{
@@ -2807,6 +2817,111 @@ mod tests {
         assert_eq!(
             simulation_res.value.err,
             Some(TransactionError::SignatureFailure)
+        );
+    }
+
+    #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
+    #[test_case(TransactionVersion::Number(0) ; "V0 transactions")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_simulate_transaction_replace_recent_blockhash(version: TransactionVersion) {
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let lamports = LAMPORTS_PER_SOL;
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+        let block_height = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.block_height);
+        let bad_blockhash = Hash::new_unique();
+
+        let _ = setup
+            .rpc
+            .request_airdrop(
+                Some(setup.context.clone()),
+                payer.pubkey().to_string(),
+                2 * lamports,
+                None,
+            )
+            .unwrap();
+
+        let mut tx = match version {
+            TransactionVersion::Legacy(_) => build_legacy_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
+            ),
+            TransactionVersion::Number(0) => build_v0_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
+            ),
+            _ => unimplemented!(),
+        };
+        match &mut tx.message {
+            VersionedMessage::Legacy(msg) => {
+                msg.recent_blockhash = bad_blockhash;
+            }
+            VersionedMessage::V0(msg) => {
+                msg.recent_blockhash = bad_blockhash;
+            }
+        }
+
+        let invalid_config = RpcSimulateTransactionConfig {
+            sig_verify: true,
+            replace_recent_blockhash: true,
+            commitment: Some(CommitmentConfig::finalized()),
+            encoding: None,
+            accounts: Some(RpcSimulateTransactionAccountsConfig {
+                encoding: None,
+                addresses: vec![pk.to_string()],
+            }),
+            min_context_slot: None,
+            inner_instructions: false,
+        };
+        let err = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context.clone()),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(invalid_config.clone()),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            err.message, "sigVerify may not be used with replaceRecentBlockhash",
+            "sigVerify should not be allowed to be used with replaceRecentBlockhash"
+        );
+
+        let mut valid_config = invalid_config;
+        valid_config.sig_verify = false;
+        let simulation_res = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(valid_config),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            simulation_res.value.err, None,
+            "Unexpected simulation error"
+        );
+        assert_eq!(
+            simulation_res.value.replacement_blockhash,
+            Some(RpcBlockhash {
+                blockhash: recent_blockhash.to_string(),
+                last_valid_block_height: block_height
+            }),
+            "Replacement blockhash should be the latest blockhash"
         );
     }
 
@@ -3642,26 +3757,6 @@ mod tests {
         });
     }
 
-    // helper to set up SVM state with proper latest_slot
-    fn setup_svm_state(setup: &TestSetup<SurfpoolFullRpc>, latest_slot: Slot, blocks: Vec<Slot>) {
-        // set latest_slot first
-        setup.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer.latest_epoch_info.absolute_slot = latest_slot;
-            println!("🔧 Set latest_slot to {}", latest_slot);
-        });
-
-        // then insert blocks
-        insert_test_blocks(setup, blocks);
-
-        let (local_min, local_max, current_latest) =
-            setup.context.svm_locker.with_svm_reader(|svm_reader| {
-                let min = svm_reader.blocks.keys().min().copied();
-                let max = svm_reader.blocks.keys().max().copied();
-                let latest = svm_reader.get_latest_absolute_slot();
-                (min, max, latest)
-            });
-    }
-
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_blocks_local_only() {
         let setup = TestSetup::new(SurfpoolFullRpc);
@@ -3718,7 +3813,6 @@ mod tests {
 
         let local_min = setup.context.svm_locker.with_svm_reader(|svm_reader| {
             let min = svm_reader.blocks.keys().min().copied();
-            let all_blocks: Vec<_> = svm_reader.blocks.keys().copied().collect();
             min
         });
         assert_eq!(local_min, Some(50), "Local minimum should be slot 50");
