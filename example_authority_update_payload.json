@@ -1,9 +1,0 @@
-{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "surfnet_setProgramAuthority",
-    "params": [
-      "<PROGRAM_ADDRESS>",
-      "<NEW_AUTHORITY_ADDRESS>"
-    ]
-}
