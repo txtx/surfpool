@@ -1309,11 +1309,11 @@ mod tests {
         }
     }
 
-    fn expect_error_event(events_rx: &Receiver<SimnetEvent>, expected_error: &str) -> bool {
+    fn expect_warn_event(events_rx: &Receiver<SimnetEvent>, expected_warning: &str) -> bool {
         match events_rx.recv() {
             Ok(event) => match event {
-                SimnetEvent::ErrorLog(_, err) => {
-                    assert_eq!(err, expected_error);
+                SimnetEvent::WarnLog(_, warn) => {
+                    assert_eq!(warn, expected_warning);
                     true
                 }
                 event => {
@@ -1414,7 +1414,7 @@ mod tests {
                 (program_data_address, None),
             );
             svm.write_account_update(found_program_account_update);
-            if !expect_error_event(&events_rx, &format!("Internal error: \"Failed to set account {}: An account required by the instruction is missing\"", program_address)) {
+            if !expect_warn_event(&events_rx, &format!("Internal error: \"Failed to set account {}: An account required by the instruction is missing\"", program_address)) {
                 panic!("Expected error event not received after inserting program account with no program data account");
             }
             assert_eq!(svm.accounts_registry, index_before);
