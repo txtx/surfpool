@@ -452,20 +452,6 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
             svm_locker.write_account_update(account_to_set);
 
-            let refreshed = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
-            if let GetAccountResult::FoundAccount(_, ref account, _) = refreshed.inner {
-                if account.data.len() >= 45 {
-                    let authority_bytes = &account.data[13..45];
-                    let authority_b58 = bs58::encode(authority_bytes).into_string();
-                    let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
-                        format!(
-                            "After write: Account {}: authority bytes at offset 13 (base58): {}",
-                            pubkey, authority_b58
-                        )
-                    ));
-                }
-            }
-
             Ok(RpcResponse {
                 context: RpcResponseContext::new(latest_absolute_slot),
                 value: (),
@@ -563,20 +549,6 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 Ok(())
             })?;
             svm_locker.write_account_update(token_account);
-
-            let refreshed = svm_locker.get_account(&remote_ctx, &associated_token_account, None).await?;
-            if let GetAccountResult::FoundAccount(_, ref account, _) = refreshed.inner {
-                if account.data.len() >= 45 {
-                    let authority_bytes = &account.data[13..45];
-                    let authority_b58 = bs58::encode(authority_bytes).into_string();
-                    let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
-                        format!(
-                            "After write: Account {}: authority bytes at offset 13 (base58): {}",
-                            associated_token_account, authority_b58
-                        )
-                    ));
-                }
-            }
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
