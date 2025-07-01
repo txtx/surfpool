@@ -14,9 +14,7 @@ use solana_client::{
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
-use super::{
-    not_implemented_err_async, utils::verify_pubkey, RunloopContext, State, SurfnetRpcContext,
-};
+use super::{utils::verify_pubkey, RunloopContext, State, SurfnetRpcContext};
 use crate::surfnet::locker::SvmAccessContext;
 
 #[rpc]
@@ -1577,6 +1575,7 @@ mod tests {
         assert_eq!(nonexistent_result.value.len(), 0);
     }
 
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_token_accounts_by_delegate() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
 

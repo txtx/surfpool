@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, str::FromStr, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
@@ -26,7 +26,7 @@ use solana_client::{
     },
 };
 use solana_clock::Slot;
-use solana_commitment_config::CommitmentConfig;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_message::{
@@ -35,7 +35,6 @@ use solana_message::{
 };
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
-use solana_runtime::non_circulating_supply;
 use solana_sdk::{
     bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
     program_pack::Pack,
@@ -1656,6 +1655,17 @@ impl SurfnetSvmLocker {
     /// Retrieves the latest absolute slot from the underlying SVM.
     pub fn get_latest_absolute_slot(&self) -> Slot {
         self.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+    }
+
+    pub fn get_slot_for_commitment(&self, commitment: &CommitmentConfig) -> Slot {
+        self.with_svm_reader(|svm_reader| {
+            let slot = svm_reader.get_latest_absolute_slot();
+            match commitment.commitment {
+                CommitmentLevel::Processed => slot,
+                CommitmentLevel::Confirmed => slot.saturating_sub(1),
+                CommitmentLevel::Finalized => slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD),
+            }
+        })
     }
 
     /// Executes an airdrop via the underlying SVM.

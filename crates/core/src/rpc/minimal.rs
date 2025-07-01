@@ -17,7 +17,7 @@ use solana_epoch_info::EpochInfo;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
-use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
+use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     rpc::{utils::verify_pubkey, State},
     surfnet::{locker::SvmAccessContext, GetAccountResult, FINALIZATION_SLOT_THRESHOLD},
@@ -753,11 +753,9 @@ impl Minimal for SurfpoolMinimalRpc {
         })
     }
 
-    // TODO: Refactor `agave-validator wait-for-restart-window` to not require this method, so
-    //       it can be removed from rpc_minimal
     fn get_vote_accounts(
         &self,
-        meta: Self::Metadata,
+        _meta: Self::Metadata,
         config: Option<RpcGetVoteAccountsConfig>,
     ) -> Result<RpcVoteAccountStatus> {
         // validate inputs if provided
@@ -775,8 +773,6 @@ impl Minimal for SurfpoolMinimalRpc {
         })
     }
 
-    // TODO: Refactor `agave-validator wait-for-restart-window` to not require this method, so
-    //       it can be removed from rpc_minimal
     fn get_leader_schedule(
         &self,
         meta: Self::Metadata,
@@ -819,7 +815,7 @@ mod tests {
     use solana_sdk::genesis_config::GenesisConfig;
 
     use super::*;
-    use crate::{rpc::full::SurfpoolFullRpc, tests::helpers::TestSetup};
+    use crate::tests::helpers::TestSetup;
 
     #[test]
     fn test_get_block_height_processed_commitment() {

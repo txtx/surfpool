@@ -8,14 +8,12 @@ use solana_client::{
     },
 };
 use solana_clock::Slot;
-use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
+use solana_commitment_config::CommitmentConfig;
 use solana_epoch_schedule::EpochSchedule;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::inflation::Inflation;
 
-use super::{not_implemented_err, RunloopContext, State};
-use crate::surfnet::FINALIZATION_SLOT_THRESHOLD;
+use super::{RunloopContext, State};
 
 #[rpc]
 pub trait BankData {
@@ -462,39 +460,18 @@ impl BankData for SurfpoolBankDataRpc {
         config: Option<RpcContextConfig>,
     ) -> Result<String> {
         let svm_locker = meta.get_svm_locker()?;
+        let config = config.unwrap_or_default();
 
-        // use the config to determine commitment level and validate minContextSlot
-        let (slot, committed_slot) = svm_locker.with_svm_reader(|svm_reader| {
-            let current_slot = svm_reader.get_latest_absolute_slot();
-
-            let committed_slot = if let Some(ref config) = config {
-                if let Some(ref commitment_config) = config.commitment {
-                    match commitment_config.commitment {
-                        CommitmentLevel::Processed => current_slot,
-                        CommitmentLevel::Confirmed => current_slot.saturating_sub(1),
-                        CommitmentLevel::Finalized => {
-                            current_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
-                        }
-                    }
-                } else {
-                    current_slot
-                }
-            } else {
-                current_slot
-            };
-
-            (current_slot, committed_slot)
-        });
+        let committed_slot =
+            svm_locker.get_slot_for_commitment(&config.commitment.unwrap_or_default());
 
         // validate minContextSlot if provided
-        if let Some(ref config) = config {
-            if let Some(min_context_slot) = config.min_context_slot {
-                if committed_slot < min_context_slot {
-                    return Err(RpcCustomError::MinContextSlotNotReached {
-                        context_slot: min_context_slot,
-                    }
-                    .into());
+        if let Some(min_context_slot) = config.min_context_slot {
+            if committed_slot < min_context_slot {
+                return Err(RpcCustomError::MinContextSlotNotReached {
+                    context_slot: min_context_slot,
                 }
+                .into());
             }
         }
 
@@ -576,6 +553,8 @@ impl BankData for SurfpoolBankDataRpc {
 #[cfg(test)]
 mod tests {
     use solana_client::rpc_config::RpcBlockProductionConfigRange;
+    use solana_commitment_config::CommitmentLevel;
+    use solana_sdk::inflation::Inflation;
 
     use super::*;
     use crate::tests::helpers::TestSetup;

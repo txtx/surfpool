@@ -11,9 +11,7 @@ use litesvm::{
 use solana_account::Account;
 use solana_account_decoder::{
     encode_ui_account,
-    parse_account_data::{
-        AccountAdditionalData, AccountAdditionalDataV3, SplTokenAdditionalDataV2,
-    },
+    parse_account_data::{AccountAdditionalDataV3, SplTokenAdditionalDataV2},
     UiAccount, UiAccountEncoding,
 };
 use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
@@ -36,7 +34,6 @@ use solana_transaction_status::{
     EncodedTransaction, EncodedTransactionWithStatusMeta, UiAddressTableLookup,
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
-use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::Account as TokenAccount;
 use spl_token_2022::instruction::TokenInstruction;
 use surfpool_types::{
