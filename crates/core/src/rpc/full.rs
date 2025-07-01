@@ -18,7 +18,7 @@ use solana_client::{
         RpcSimulateTransactionResult,
     },
 };
-use solana_clock::{Slot, UnixTimestamp};
+use solana_clock::{Slot, UnixTimestamp, MAX_RECENT_BLOCKHASHES};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
@@ -2050,7 +2050,8 @@ impl Full for SurfpoolFullRpc {
         _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<RpcBlockhash>> {
         meta.with_svm_reader(|svm_reader| {
-            let last_valid_block_height = svm_reader.latest_epoch_info.block_height;
+            let last_valid_block_height =
+                svm_reader.latest_epoch_info.block_height + MAX_RECENT_BLOCKHASHES as u64;
             let value = RpcBlockhash {
                 blockhash: svm_reader.latest_blockhash().to_string(),
                 last_valid_block_height,
@@ -3053,16 +3054,28 @@ mod tests {
             .rpc
             .get_latest_blockhash(Some(setup.context.clone()), None)
             .unwrap();
-
+        let expected_blockhash = setup
+            .context
+            .svm_locker
+            .0
+            .blocking_read()
+            .latest_blockhash();
+        let expected_last_valid_block_height = setup
+            .context
+            .svm_locker
+            .0
+            .blocking_read()
+            .latest_epoch_info
+            .block_height
+            + MAX_RECENT_BLOCKHASHES as u64;
         assert_eq!(
             res.value.blockhash,
-            setup
-                .context
-                .svm_locker
-                .0
-                .blocking_read()
-                .latest_blockhash()
-                .to_string()
+            expected_blockhash.to_string(),
+            "Latest blockhash does not match expected value"
+        );
+        assert_eq!(
+            res.value.last_valid_block_height, expected_last_valid_block_height,
+            "Last valid block height does not match expected value"
         );
     }
 
