@@ -26,8 +26,8 @@ use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    inflation::Inflation, program_option::COption, program_pack::Pack, system_instruction,
-    transaction::VersionedTransaction,
+    genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
+    program_pack::Pack, system_instruction, transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -95,6 +95,7 @@ pub struct SurfnetSvm {
     pub circulating_supply: u64,
     pub non_circulating_supply: u64,
     pub non_circulating_accounts: Vec<String>,
+    pub genesis_config: GenesisConfig,
     pub inflation: Inflation,
 }
 
@@ -159,6 +160,7 @@ impl SurfnetSvm {
                 circulating_supply: 0,
                 non_circulating_supply: 0,
                 non_circulating_accounts: Vec::new(),
+                genesis_config: GenesisConfig::default(),
                 inflation: Inflation::default(),
             },
             simnet_events_rx,

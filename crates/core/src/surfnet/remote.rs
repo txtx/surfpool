@@ -15,6 +15,7 @@ use solana_client::{
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
+use solana_hash::Hash;
 use solana_pubkey::Pubkey;
 use solana_sdk::bpf_loader_upgradeable::get_program_data_address;
 use solana_signature::Signature;
@@ -245,6 +246,10 @@ impl SurfnetRemoteClient {
                     .collect()
             })
             .map_err(|e| SurfpoolError::get_program_accounts(*program_id, e))
+    }
+
+    pub async fn get_genesis_hash(&self) -> SurfpoolResult<Hash> {
+        self.client.get_genesis_hash().await.map_err(Into::into)
     }
 
     pub async fn get_signatures_for_address(
