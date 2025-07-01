@@ -13,6 +13,7 @@ use solana_client::{
     rpc_request::{RpcRequest, TokenAccountsFilter},
     rpc_response::{
         RpcAccountBalance, RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount, RpcResult,
+        RpcTokenAccountBalance,
     },
 };
 use solana_commitment_config::CommitmentConfig;
@@ -187,6 +188,18 @@ impl SurfnetRemoteClient {
             .await;
         res.map_err(|e| SurfpoolError::get_token_accounts(owner, &filter, e))
             .map(|res| res.value)
+    }
+
+    pub async fn get_token_largest_accounts(
+        &self,
+        mint: &Pubkey,
+        commitment_config: CommitmentConfig,
+    ) -> SurfpoolResult<Vec<RpcTokenAccountBalance>> {
+        self.client
+            .get_token_largest_accounts_with_commitment(mint, commitment_config)
+            .await
+            .map(|response| response.value)
+            .map_err(|e| SurfpoolError::get_token_largest_accounts(*mint, e))
     }
 
     pub async fn get_token_accounts_by_delegate(
