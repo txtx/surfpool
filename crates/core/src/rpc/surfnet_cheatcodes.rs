@@ -345,6 +345,47 @@ pub trait SvmTricksRpc {
         meta: Self::Metadata,
         update: SupplyUpdate,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
+
+    /// A cheat code to set the upgrade authority of a program's ProgramData account.
+    ///
+    /// This method allows developers to directly patch the upgrade authority of a program's ProgramData account.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `program_id`: The base-58 encoded public key of the program.
+    /// - `new_authority`: The base-58 encoded public key of the new authority. If omitted, the program will have no upgrade authority.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the authority update was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_setProgramAuthority",
+    ///   "params": [
+    ///     "PROGRAM_ID_BASE58",
+    ///     "NEW_AUTHORITY_BASE58"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_setProgramAuthority")]
+    fn set_program_authority(
+        &self,
+        meta: Self::Metadata,
+        program_id_str: String,
+        new_authority_str: Option<String>,
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
 }
 
 #[derive(Clone)]
@@ -671,6 +712,44 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(latest_absolute_slot),
+                value: (),
+            })
+        })
+    }
+
+    fn set_program_authority(
+        &self,
+        meta: Self::Metadata,
+        program_id_str: String,
+        new_authority_str: Option<String>,
+    ) -> BoxFuture<Result<RpcResponse<()>>> {
+        let program_id = match verify_pubkey(&program_id_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+        let new_authority = if let Some(ref new_authority_str) = new_authority_str {
+            match verify_pubkey(new_authority_str) {
+                Ok(res) => Some(res),
+                Err(e) => return e.into(),
+            }
+        } else {
+            None
+        };
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+        Box::pin(async move {
+            let SvmAccessContext { slot, .. } = svm_locker
+                .set_program_authority(&remote_ctx, program_id, new_authority)
+                .await?;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
                 value: (),
             })
         })
