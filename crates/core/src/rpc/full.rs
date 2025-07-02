@@ -1537,7 +1537,11 @@ impl Full for SurfpoolFullRpc {
                             None,
                             false,
                         ))
-                        .unwrap(),
+                        .map_err(|e| {
+                            Error::invalid_params(format!(
+                                "Failed to serialize simulation result: {e}"
+                            ))
+                        })?,
                     ),
                     message: format!(
                         "Transaction simulation failed: {}{}",
