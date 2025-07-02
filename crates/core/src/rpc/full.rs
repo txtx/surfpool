@@ -3,7 +3,8 @@ use std::str::FromStr;
 use itertools::Itertools;
 use jsonrpc_core::{BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
-use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
+use litesvm::types::TransactionMetadata;
+use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
 use solana_client::{
     rpc_config::{
         RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig, RpcEncodingConfigWrapper,
@@ -26,9 +27,11 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{
     compute_budget::{self, ComputeBudgetInstruction},
     instruction::CompiledInstruction,
+    system_program,
 };
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
+use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatus,
     UiConfirmedBlock, UiTransactionEncoding,
@@ -42,7 +45,7 @@ use super::{
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     surfnet::{locker::SvmAccessContext, GetTransactionResult, FINALIZATION_SLOT_THRESHOLD},
-    types::SurfnetTransactionStatus,
+    types::{surfpool_tx_metadata_to_litesvm_tx_metadata, SurfnetTransactionStatus},
 };
 
 const MAX_PRIORITIZATION_FEE_BLOCKS_CACHE: usize = 150;
@@ -1522,27 +1525,55 @@ impl Full for SurfpoolFullRpc {
             .map_err(|_| RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             })?;
+
         match status_update_rx.recv() {
-            Ok(TransactionStatusEvent::SimulationFailure(e)) => {
+            Ok(TransactionStatusEvent::SimulationFailure((error, metadata))) => {
                 return Err(Error {
-                    data: None,
+                    data: Some(
+                        serde_json::to_value(get_simulate_transaction_result(
+                            &surfpool_tx_metadata_to_litesvm_tx_metadata(&metadata),
+                            None,
+                            Some(error.clone()),
+                            None,
+                            false,
+                        ))
+                        .map_err(|e| {
+                            Error::invalid_params(format!(
+                                "Failed to serialize simulation result: {e}"
+                            ))
+                        })?,
+                    ),
                     message: format!(
-                        "Transaction simulation failed: {}: {} log messages:\n{}",
-                        e.0,
-                        e.1.logs.len(),
-                        e.1.logs.iter().map(|l| l.to_string()).join("\n")
+                        "Transaction simulation failed: {}{}",
+                        error,
+                        if metadata.logs.is_empty() {
+                            String::new()
+                        } else {
+                            format!(
+                                ": {} log messages:\n{}",
+                                metadata.logs.len(),
+                                metadata.logs.iter().map(|l| l.to_string()).join("\n")
+                            )
+                        }
                     ),
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
             }
-            Ok(TransactionStatusEvent::ExecutionFailure(e)) => {
+            Ok(TransactionStatusEvent::ExecutionFailure((error, metadata))) => {
                 return Err(Error {
                     data: None,
                     message: format!(
-                        "Transaction execution failed: {}: {} log messages:\n{}",
-                        e.0,
-                        e.1.logs.len(),
-                        e.1.logs.iter().map(|l| l.to_string()).join("\n")
+                        "Transaction execution failed: {}{}",
+                        error,
+                        if metadata.logs.is_empty() {
+                            String::new()
+                        } else {
+                            format!(
+                                ": {} log messages:\n{}",
+                                metadata.logs.len(),
+                                metadata.logs.iter().map(|l| l.to_string()).join("\n")
+                            )
+                        }
                     ),
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
@@ -1651,34 +1682,21 @@ impl Full for SurfpoolFullRpc {
                         }
                         accounts = Some(ui_accounts);
                     }
-
-                    RpcSimulateTransactionResult {
-                        err: None,
-                        logs: Some(tx_info.meta.logs.clone()),
+                    get_simulate_transaction_result(
+                        &tx_info.meta,
                         accounts,
-                        units_consumed: Some(tx_info.meta.compute_units_consumed),
-                        return_data: Some(tx_info.meta.return_data.clone().into()),
-                        inner_instructions: if config.inner_instructions {
-                            Some(transform_tx_metadata_to_ui_accounts(&tx_info.meta))
-                        } else {
-                            None
-                        },
+                        None,
                         replacement_blockhash,
-                    }
+                        config.inner_instructions,
+                    )
                 }
-                Err(tx_info) => RpcSimulateTransactionResult {
-                    err: Some(tx_info.err),
-                    logs: Some(tx_info.meta.logs.clone()),
-                    accounts: None,
-                    units_consumed: Some(tx_info.meta.compute_units_consumed),
-                    return_data: Some(tx_info.meta.return_data.clone().into()),
-                    inner_instructions: if config.inner_instructions {
-                        Some(transform_tx_metadata_to_ui_accounts(&tx_info.meta))
-                    } else {
-                        None
-                    },
+                Err(tx_info) => get_simulate_transaction_result(
+                    &tx_info.meta,
+                    None,
+                    Some(tx_info.err),
                     replacement_blockhash,
-                },
+                    config.inner_instructions,
+                ),
             };
 
             Ok(RpcResponse {
@@ -2261,6 +2279,34 @@ impl Full for SurfpoolFullRpc {
             }
             Ok(prioritization_fees)
         })
+    }
+}
+
+fn get_simulate_transaction_result(
+    metadata: &TransactionMetadata,
+    accounts: Option<Vec<Option<UiAccount>>>,
+    error: Option<TransactionError>,
+    replacement_blockhash: Option<RpcBlockhash>,
+    include_inner_instructions: bool,
+) -> RpcSimulateTransactionResult {
+    RpcSimulateTransactionResult {
+        accounts,
+        err: error,
+        inner_instructions: if include_inner_instructions {
+            Some(transform_tx_metadata_to_ui_accounts(&metadata))
+        } else {
+            None
+        },
+        logs: Some(metadata.logs.clone()),
+        replacement_blockhash,
+        return_data: if metadata.return_data.program_id == system_program::id()
+            && metadata.return_data.data.len() == 0
+        {
+            None
+        } else {
+            Some(metadata.return_data.clone().into())
+        },
+        units_consumed: Some(metadata.compute_units_consumed),
     }
 }
 
