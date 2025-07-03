@@ -512,7 +512,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
             let token_account = token_account_result.map_account()?;
 
-            let (mint_pubkey, amount) = if token_account.owner == spl_token::id() {
+            let (mint_pubkey, _amount) = if token_account.owner == spl_token::id() {
                 let unpacked_token_account =
                     TokenAccount::unpack(&token_account.data).map_err(|e| {
                         SurfpoolError::invalid_account_data(
@@ -1422,12 +1422,14 @@ mod tests {
             recent_blockhash,
         );
 
+        let (status_tx, _status_rx) = crossbeam_channel::unbounded();
         // Send and confirm transaction
-        client.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer
-                .send_transaction(transaction.clone().into(), false)
-                .unwrap();
-        });
+        client.context.svm_locker.process_transaction(
+            &None,
+            transaction.clone().into(),
+            status_tx,
+            true,
+        ).await.unwrap();
 
         println!("Mint Address: {}", mint.pubkey());
         println!("Recipient Address: {}", recipient.pubkey());
@@ -1467,14 +1469,15 @@ mod tests {
             &[&fee_payer],
             recent_blockhash,
         );
-
+        let (status_tx, _status_rx) = crossbeam_channel::unbounded();
         // Send and confirm transaction
-        client.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer
-                .send_transaction(transaction.clone().into(), false)
-                .unwrap();
-        });
-
+        client.context.svm_locker.process_transaction(
+            &None,
+            transaction.clone().into(),
+            status_tx,
+            true,
+        ).await.unwrap();
+    
         println!(
             "Successfully transferred 0.50 tokens from {} to {}",
             source_token_address, destination_token_address
