@@ -512,35 +512,89 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
             let token_account = token_account_result.map_account()?;
 
-            let unpacked_token_account =
-                TokenAccount::unpack(&token_account.data).map_err(|e| {
+            let (mint_pubkey, amount) = if token_account.owner == spl_token::id() {
+                let unpacked_token_account =
+                    TokenAccount::unpack(&token_account.data).map_err(|e| {
+                        SurfpoolError::invalid_account_data(
+                            pubkey,
+                            "Invalid token account data",
+                            Some(e.to_string()),
+                        )
+                    })?;
+                (unpacked_token_account.mint, unpacked_token_account.amount)
+            } else if token_account.owner == spl_token_2022::id() {
+                use spl_token_2022::{
+                    extension::StateWithExtensions, state::Account as Token2022Account,
+                };
+
+                let unpacked_token_account = StateWithExtensions::<Token2022Account>::unpack(
+                    &token_account.data,
+                )
+                .map_err(|e| {
                     SurfpoolError::invalid_account_data(
                         pubkey,
-                        "Invalid token account data",
+                        "Invalid token-2022 account data",
                         Some(e.to_string()),
                     )
                 })?;
+                (
+                    unpacked_token_account.base.mint,
+                    unpacked_token_account.base.amount,
+                )
+            } else {
+                return Err(SurfpoolError::invalid_account_data(
+                    pubkey,
+                    "Account is not owned by Token or Token-2022 program",
+                    None::<String>,
+                )
+                .into());
+            };
 
             let SvmAccessContext {
                 slot,
                 inner: mint_account_result,
                 ..
             } = svm_locker
-                .get_account(&remote_ctx, &unpacked_token_account.mint, None)
+                .get_account(&remote_ctx, &mint_pubkey, None)
                 .await?;
 
             svm_locker.write_account_update(mint_account_result.clone());
 
             let mint_account = mint_account_result.map_account()?;
-            let unpacked_mint_account = Mint::unpack(&mint_account.data).map_err(|e| {
-                SurfpoolError::invalid_account_data(
-                    unpacked_token_account.mint,
-                    "Invalid token mint account data",
-                    Some(e.to_string()),
-                )
-            })?;
 
-            let token_decimals = unpacked_mint_account.decimals;
+            let token_decimals = if mint_account.owner == spl_token::id() {
+                let unpacked_mint_account = Mint::unpack(&mint_account.data).map_err(|e| {
+                    SurfpoolError::invalid_account_data(
+                        mint_pubkey,
+                        "Invalid token mint account data",
+                        Some(e.to_string()),
+                    )
+                })?;
+                unpacked_mint_account.decimals
+            } else if mint_account.owner == spl_token_2022::id() {
+                use spl_token_2022::{
+                    extension::StateWithExtensions, state::Mint as Token2022Mint,
+                };
+
+                let unpacked_mint_account = StateWithExtensions::<Token2022Mint>::unpack(
+                    &mint_account.data,
+                )
+                .map_err(|e| {
+                    SurfpoolError::invalid_account_data(
+                        mint_pubkey,
+                        "Invalid token-2022 mint account data",
+                        Some(e.to_string()),
+                    )
+                })?;
+                unpacked_mint_account.base.decimals
+            } else {
+                return Err(SurfpoolError::invalid_account_data(
+                    mint_pubkey,
+                    "Mint account is not owned by Token or Token-2022 program",
+                    None::<String>,
+                )
+                .into());
+            };
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
@@ -669,11 +723,7 @@ mod tests {
         get_associated_token_address_with_program_id, instruction::create_associated_token_account,
     };
     use spl_token::state::{Account as TokenAccount, AccountState, Mint};
-    use spl_token_2022::{
-        extension::StateWithExtensions,
-        instruction::{initialize_mint2, mint_to, transfer_checked},
-        state::Account as Token2022Account,
-    };
+    use spl_token_2022::instruction::{initialize_mint2, mint_to, transfer_checked};
 
     use super::*;
     use crate::{
@@ -1215,37 +1265,43 @@ mod tests {
 
         println!("Successfully transferred 0.50 tokens from sender to recipient");
 
-        // Get token account balances to verify the transfer
-        let source_token_account = client
-            .context
-            .svm_locker
-            .get_account_local(&source_token_address)
-            .inner;
-        let destination_token_account = client
-            .context
-            .svm_locker
-            .get_account_local(&destination_token_address)
-            .inner;
+        let source_balance = client
+            .rpc
+            .get_token_account_balance(
+                Some(client.context.clone()),
+                source_token_address.to_string(),
+                Some(CommitmentConfig::confirmed()),
+            )
+            .await
+            .unwrap();
 
-        if let GetAccountResult::FoundAccount(_, source_account, _) = source_token_account {
-            let unpacked =
-                StateWithExtensions::<Token2022Account>::unpack(&source_account.data).unwrap();
-            println!(
-                "Source Token Account Balance: {} tokens",
-                unpacked.base.amount
-            );
-            assert_eq!(unpacked.base.amount, 9950);
-        }
+        let destination_balance = client
+            .rpc
+            .get_token_account_balance(
+                Some(client.context.clone()),
+                destination_token_address.to_string(),
+                Some(CommitmentConfig::confirmed()),
+            )
+            .await
+            .unwrap();
 
-        if let GetAccountResult::FoundAccount(_, destination_account, _) = destination_token_account
-        {
-            let unpacked =
-                StateWithExtensions::<Token2022Account>::unpack(&destination_account.data).unwrap();
-            println!(
-                "Destination Token Account Balance: {} tokens",
-                unpacked.base.amount
-            );
-            assert_eq!(unpacked.base.amount, 50);
-        }
+        println!(
+            "Source Token Account Balance: {} tokens ({})",
+            source_balance.value.as_ref().unwrap().ui_amount.unwrap(),
+            source_balance.value.as_ref().unwrap().amount
+        );
+        println!(
+            "Destination Token Account Balance: {} tokens ({})",
+            destination_balance
+                .value
+                .as_ref()
+                .unwrap()
+                .ui_amount
+                .unwrap(),
+            destination_balance.value.as_ref().unwrap().amount
+        );
+
+        assert_eq!(source_balance.value.unwrap().amount, "9950");
+        assert_eq!(destination_balance.value.unwrap().amount, "50");
     }
 }

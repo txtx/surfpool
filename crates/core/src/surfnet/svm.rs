@@ -35,7 +35,10 @@ use solana_transaction_status::{
     UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
 };
 use spl_token::state::Account as TokenAccount;
-use spl_token_2022::instruction::TokenInstruction;
+use spl_token_2022::extension::{
+    interest_bearing_mint::InterestBearingConfig, scaled_ui_amount::ScaledUiAmountConfig,
+    BaseStateWithExtensions, StateWithExtensions,
+};
 use surfpool_types::{
     types::{ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
@@ -382,7 +385,7 @@ impl SurfnetSvm {
         }
 
         // if it's a token account, update token-specific indexes
-        if account.owner == spl_token::id() {
+        if account.owner == spl_token::id() || account.owner == spl_token_2022::id() {
             if let Ok(token_account) = TokenAccount::unpack(&account.data) {
                 self.token_accounts.insert(*pubkey, token_account);
 
@@ -414,6 +417,32 @@ impl SurfnetSvm {
                     }
                 }
             }
+        }
+
+        if account.owner == spl_token_2022::id() {
+            if let Ok(mint) =
+                StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&account.data)
+            {
+                let unix_timestamp = self.inner.get_sysvar::<Clock>().unix_timestamp;
+                let interest_bearing_config = mint
+                    .get_extension::<InterestBearingConfig>()
+                    .map(|x| (*x, unix_timestamp))
+                    .ok();
+                let scaled_ui_amount_config = mint
+                    .get_extension::<ScaledUiAmountConfig>()
+                    .map(|x| (*x, unix_timestamp))
+                    .ok();
+                self.account_associated_data.insert(
+                    *pubkey,
+                    AccountAdditionalDataV3 {
+                        spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                            decimals: mint.base.decimals,
+                            interest_bearing_config,
+                            scaled_ui_amount_config,
+                        }),
+                    },
+                );
+            };
         }
     }
 
@@ -517,35 +546,6 @@ impl SurfnetSvm {
 
         match self.inner.send_transaction(tx.clone()) {
             Ok(res) => {
-                for instruction in tx.message.instructions().iter() {
-                    let accounts = tx.message.static_account_keys();
-                    let program_id = instruction.program_id(accounts);
-                    if program_id.eq(&spl_token_2022::id()) {
-                        let Ok(token_instruction) = TokenInstruction::unpack(&instruction.data)
-                        else {
-                            continue;
-                        };
-                        match token_instruction {
-                            TokenInstruction::InitializeMint2 { decimals, .. } => {
-                                let authority_index = instruction.accounts[0] as usize;
-                                let authority = accounts[authority_index];
-
-                                self.account_associated_data.insert(
-                                    authority,
-                                    AccountAdditionalDataV3 {
-                                        spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
-                                            decimals,
-                                            interest_bearing_config: None,
-                                            scaled_ui_amount_config: None,
-                                        }),
-                                    },
-                                );
-                            }
-                            _ => continue,
-                        }
-                    }
-                }
-
                 let transaction_meta = convert_transaction_metadata_from_canonical(&res);
 
                 self.transactions.insert(
@@ -737,13 +737,17 @@ impl SurfnetSvm {
             GetAccountResult::FoundAccount(pubkey, account, do_update_account) => {
                 if do_update_account {
                     if let Err(e) = self.set_account(&pubkey, account.clone()) {
-                        let _ = self.simnet_events_tx.send(SimnetEvent::warn(e.to_string()));
+                        let _ = self
+                            .simnet_events_tx
+                            .send(SimnetEvent::error(e.to_string()));
                     }
                 }
             }
             GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
                 if let Err(e) = self.set_account(&pubkey, account.clone()) {
-                    let _ = self.simnet_events_tx.send(SimnetEvent::warn(e.to_string()));
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
                 }
             }
             GetAccountResult::FoundProgramAccount(
@@ -752,11 +756,15 @@ impl SurfnetSvm {
             ) => {
                 // The data account _must_ be set first, as the program account depends on it.
                 if let Err(e) = self.set_account(&data_pubkey, data_account.clone()) {
-                    let _ = self.simnet_events_tx.send(SimnetEvent::warn(e.to_string()));
-                };
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                }
                 if let Err(e) = self.set_account(&pubkey, account.clone()) {
-                    let _ = self.simnet_events_tx.send(SimnetEvent::warn(e.to_string()));
-                };
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                }
             }
             GetAccountResult::None(_) => {}
         }
@@ -1309,11 +1317,12 @@ mod tests {
         }
     }
 
-    fn expect_warn_event(events_rx: &Receiver<SimnetEvent>, expected_warning: &str) -> bool {
+    fn expect_error_event(events_rx: &Receiver<SimnetEvent>, expected_error: &str) -> bool {
         match events_rx.recv() {
             Ok(event) => match event {
-                SimnetEvent::WarnLog(_, warn) => {
-                    assert_eq!(warn, expected_warning);
+                SimnetEvent::ErrorLog(_, err) => {
+                    assert_eq!(err, expected_error);
+
                     true
                 }
                 event => {
@@ -1414,7 +1423,8 @@ mod tests {
                 (program_data_address, None),
             );
             svm.write_account_update(found_program_account_update);
-            if !expect_warn_event(&events_rx, &format!("Internal error: \"Failed to set account {}: An account required by the instruction is missing\"", program_address)) {
+
+            if !expect_error_event(&events_rx, &format!("Internal error: \"Failed to set account {}: An account required by the instruction is missing\"", program_address)) {
                 panic!("Expected error event not received after inserting program account with no program data account");
             }
             assert_eq!(svm.accounts_registry, index_before);
