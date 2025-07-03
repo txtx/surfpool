@@ -1304,4 +1304,229 @@ mod tests {
         assert_eq!(source_balance.value.unwrap().amount, "9950");
         assert_eq!(destination_balance.value.unwrap().amount, "50");
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_account_info() {
+        // Create connection to local validator
+        let client = TestSetup::new(SurfpoolAccountsDataRpc);
+        let recent_blockhash = client
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        // Generate a new keypair for the fee payer
+        let fee_payer = Keypair::new();
+
+        // Generate a second keypair for the token recipient
+        let recipient = Keypair::new();
+
+        // Airdrop 1 SOL to fee payer
+        client
+            .context
+            .svm_locker
+            .airdrop(&fee_payer.pubkey(), 1_000_000_000)
+            .unwrap();
+
+        // Airdrop 1 SOL to recipient for rent exemption
+        client
+            .context
+            .svm_locker
+            .airdrop(&recipient.pubkey(), 1_000_000_000)
+            .unwrap();
+
+        // Generate keypair to use as address of mint
+        let mint = Keypair::new();
+
+        // Get default mint account size (in bytes), no extensions enabled
+        let mint_space = Mint::LEN;
+        let mint_rent = client.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .inner
+                .minimum_balance_for_rent_exemption(mint_space)
+        });
+
+        // Instruction to create new account for mint (token 2022 program)
+        let create_account_instruction = create_account(
+            &fee_payer.pubkey(),   // payer
+            &mint.pubkey(),        // new account (mint)
+            mint_rent,             // lamports
+            mint_space as u64,     // space
+            &spl_token_2022::id(), // program id
+        );
+
+        // Instruction to initialize mint account data
+        let initialize_mint_instruction = initialize_mint2(
+            &spl_token_2022::id(),
+            &mint.pubkey(),            // mint
+            &fee_payer.pubkey(),       // mint authority
+            Some(&fee_payer.pubkey()), // freeze authority
+            2,                         // decimals
+        )
+        .unwrap();
+
+        // Calculate the associated token account address for fee_payer
+        let source_token_address = get_associated_token_address_with_program_id(
+            &fee_payer.pubkey(),   // owner
+            &mint.pubkey(),        // mint
+            &spl_token_2022::id(), // program_id
+        );
+
+        // Instruction to create associated token account for fee_payer
+        let create_source_ata_instruction = create_associated_token_account(
+            &fee_payer.pubkey(),   // funding address
+            &fee_payer.pubkey(),   // wallet address
+            &mint.pubkey(),        // mint address
+            &spl_token_2022::id(), // program id
+        );
+
+        // Calculate the associated token account address for recipient
+        let destination_token_address = get_associated_token_address_with_program_id(
+            &recipient.pubkey(),   // owner
+            &mint.pubkey(),        // mint
+            &spl_token_2022::id(), // program_id
+        );
+
+        // Instruction to create associated token account for recipient
+        let create_destination_ata_instruction = create_associated_token_account(
+            &fee_payer.pubkey(),   // funding address
+            &recipient.pubkey(),   // wallet address
+            &mint.pubkey(),        // mint address
+            &spl_token_2022::id(), // program id
+        );
+
+        // Amount of tokens to mint (100 tokens with 2 decimal places)
+        let amount = 100_00;
+
+        // Create mint_to instruction to mint tokens to the source token account
+        let mint_to_instruction = mint_to(
+            &spl_token_2022::id(),
+            &mint.pubkey(),         // mint
+            &source_token_address,  // destination
+            &fee_payer.pubkey(),    // authority
+            &[&fee_payer.pubkey()], // signer
+            amount,                 // amount
+        )
+        .unwrap();
+
+        // Create transaction and add instructions
+        let transaction = Transaction::new_signed_with_payer(
+            &[
+                create_account_instruction,
+                initialize_mint_instruction,
+                create_source_ata_instruction,
+                create_destination_ata_instruction,
+                mint_to_instruction,
+            ],
+            Some(&fee_payer.pubkey()),
+            &[&fee_payer, &mint],
+            recent_blockhash,
+        );
+
+        // Send and confirm transaction
+        client.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer
+                .send_transaction(transaction.clone().into(), false)
+                .unwrap();
+        });
+
+        println!("Mint Address: {}", mint.pubkey());
+        println!("Recipient Address: {}", recipient.pubkey());
+        println!("Source Token Account Address: {}", source_token_address);
+        println!(
+            "Destination Token Account Address: {}",
+            destination_token_address
+        );
+        println!("Minted {} tokens to the source token account", amount);
+
+        // Get the latest blockhash for the transfer transaction
+        let recent_blockhash = client
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        // Amount of tokens to transfer (0.50 tokens with 2 decimals)
+        let transfer_amount = 50;
+
+        // Create transfer_checked instruction to send tokens from source to destination
+        let transfer_instruction = transfer_checked(
+            &spl_token_2022::id(),      // program id
+            &source_token_address,      // source
+            &mint.pubkey(),             // mint
+            &destination_token_address, // destination
+            &fee_payer.pubkey(),        // owner of source
+            &[&fee_payer.pubkey()],     // signers
+            transfer_amount,            // amount
+            2,                          // decimals
+        )
+        .unwrap();
+
+        // Create transaction for transferring tokens
+        let transaction = Transaction::new_signed_with_payer(
+            &[transfer_instruction],
+            Some(&fee_payer.pubkey()),
+            &[&fee_payer],
+            recent_blockhash,
+        );
+
+        // Send and confirm transaction
+        client.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer
+                .send_transaction(transaction.clone().into(), false)
+                .unwrap();
+        });
+
+        println!(
+            "Successfully transferred 0.50 tokens from {} to {}",
+            source_token_address, destination_token_address
+        );
+
+        let source_account_info = client
+            .rpc
+            .get_account_info(
+                Some(client.context.clone()),
+                source_token_address.to_string(),
+                Some(RpcAccountInfoConfig {
+                    encoding: Some(solana_account_decoder::UiAccountEncoding::JsonParsed),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .unwrap();
+
+        let destination_account_info = client
+            .rpc
+            .get_account_info(
+                Some(client.context.clone()),
+                destination_token_address.to_string(),
+                Some(RpcAccountInfoConfig {
+                    encoding: Some(solana_account_decoder::UiAccountEncoding::JsonParsed),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .unwrap();
+
+        println!("Source Account Info: {:?}", source_account_info);
+        println!("Destination Account Info: {:?}", destination_account_info);
+
+        let source_account = source_account_info.value.unwrap();
+        if let solana_account_decoder::UiAccountData::Json(parsed) = source_account.data {
+            let amount = parsed.parsed["info"]["tokenAmount"]["amount"]
+                .as_str()
+                .unwrap();
+            assert_eq!(amount, "9950");
+        } else {
+            panic!("source account data was not in json parsed format");
+        }
+
+        let destination_account = destination_account_info.value.unwrap();
+        if let solana_account_decoder::UiAccountData::Json(parsed) = destination_account.data {
+            let amount = parsed.parsed["info"]["tokenAmount"]["amount"]
+                .as_str()
+                .unwrap();
+            assert_eq!(amount, "50");
+        } else {
+            panic!("destination account data was not in json parsed format");
+        }
+    }
 }
