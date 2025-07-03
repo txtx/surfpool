@@ -1424,12 +1424,12 @@ mod tests {
 
         let (status_tx, _status_rx) = crossbeam_channel::unbounded();
         // Send and confirm transaction
-        client.context.svm_locker.process_transaction(
-            &None,
-            transaction.clone().into(),
-            status_tx,
-            true,
-        ).await.unwrap();
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.clone().into(), status_tx, true)
+            .await
+            .unwrap();
 
         println!("Mint Address: {}", mint.pubkey());
         println!("Recipient Address: {}", recipient.pubkey());
@@ -1471,13 +1471,13 @@ mod tests {
         );
         let (status_tx, _status_rx) = crossbeam_channel::unbounded();
         // Send and confirm transaction
-        client.context.svm_locker.process_transaction(
-            &None,
-            transaction.clone().into(),
-            status_tx,
-            true,
-        ).await.unwrap();
-    
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.clone().into(), status_tx, true)
+            .await
+            .unwrap();
+
         println!(
             "Successfully transferred 0.50 tokens from {} to {}",
             source_token_address, destination_token_address
