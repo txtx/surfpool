@@ -9869,7 +9869,7 @@ dependencies = [
  "txtx-addon-network-svm",
  "txtx-cloud",
  "txtx-core",
- "txtx-gql",
+ "txtx-gql 0.3.0",
  "txtx-supervisor-ui",
  "url 2.5.4",
 ]
@@ -9964,7 +9964,7 @@ dependencies = [
  "solana-pubkey",
  "solana-sdk",
  "surfpool-types",
- "txtx-addon-kit",
+ "txtx-addon-kit 0.4.0",
  "txtx-addon-network-svm-types",
  "uuid",
 ]
@@ -10028,7 +10028,7 @@ dependencies = [
  "solana-transaction-context",
  "solana-transaction-error",
  "test-case",
- "txtx-addon-kit",
+ "txtx-addon-kit 0.4.0",
  "txtx-addon-network-svm-types",
  "uuid",
 ]
@@ -10780,15 +10780,48 @@ dependencies = [
  "tiny-hderive",
  "url 2.5.4",
  "uuid",
+]
+
+[[package]]
+name = "txtx-addon-kit"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a94db3dd4c131260d877f80ab8c0ab0cb8683f17a176e8bcaec345b0f22e3b58"
+dependencies = [
+ "crossbeam-channel",
+ "dirs 5.0.1",
+ "dyn-clone",
+ "futures 0.3.31",
+ "getrandom 0.2.15",
+ "hcl-edit",
+ "hex",
+ "highway",
+ "hmac 0.12.1",
+ "indexmap 2.7.1",
+ "indoc",
+ "jaq-interpret",
+ "keccak-hash",
+ "lazy_static",
+ "libsecp256k1 0.7.1",
+ "pbkdf2 0.12.2",
+ "rand 0.8.5",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2 0.10.8",
+ "tiny-hderive",
+ "url 2.5.4",
+ "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
 ]
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.23"
+version = "0.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85197834a4f03bbf5262718a2f77fc1541bfbe1985a9e22a62e4b9dbaed9fe08"
+checksum = "807e83e5ea7c65cb71b54b516724074edc1c39dca1147323ae6d44d5606f9087"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -10808,15 +10841,15 @@ dependencies = [
  "spl-token 7.0.0",
  "spl-token-2022 7.0.0",
  "tiny-bip39",
- "txtx-addon-kit",
+ "txtx-addon-kit 0.4.0",
  "txtx-addon-network-svm-types",
 ]
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.1.20"
+version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4e4dc12fe46eac1066e854024735d3118cb507d77c3d2ddb7796960bfa396c7"
+checksum = "a4ed307483f20b5375f93059aba10af3ee89c5cc3e9b0b0099742db3adc87850"
 dependencies = [
  "anchor-lang-idl",
  "lazy_static",
@@ -10833,14 +10866,14 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-context",
  "solana-transaction-error",
- "txtx-addon-kit",
+ "txtx-addon-kit 0.4.0",
 ]
 
 [[package]]
 name = "txtx-cloud"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d0d923f2a8e6a6463953dcd0e7a48a6829c7d3bf675065a5c5c6a8d9a019e50"
+checksum = "7883b2c3f1fc4fa9d0a6bd1e36a04714e94d2be769e34ecfc012b75331744d4f"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -10861,16 +10894,16 @@ dependencies = [
  "serde_urlencoded",
  "tokio",
  "toml 0.8.19",
- "txtx-addon-kit",
+ "txtx-addon-kit 0.4.0",
  "txtx-core",
- "txtx-gql",
+ "txtx-gql 0.2.8",
 ]
 
 [[package]]
 name = "txtx-core"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b34dcc4ac3c80e220ac2887ca38b7e1737a478222b1e298fb4e990f567a8cbb"
+checksum = "2ce03ffaee1a9f671a73d56bf33fb403ef0fca3f6f4cc3392052294676dee0d8"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
@@ -10892,7 +10925,7 @@ dependencies = [
  "serde_yml",
  "similar",
  "tokio",
- "txtx-addon-kit",
+ "txtx-addon-kit 0.4.0",
 ]
 
 [[package]]
@@ -10907,14 +10940,29 @@ dependencies = [
  "juniper",
  "juniper_codegen",
  "tokio",
- "txtx-addon-kit",
+ "txtx-addon-kit 0.3.1",
+]
+
+[[package]]
+name = "txtx-gql"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7aa5e1603350d3f6dec8f482ab82d5d002625d9db281cdba73811e3e0ce3114c"
+dependencies = [
+ "async-stream",
+ "futures 0.3.31",
+ "futures-enum",
+ "juniper",
+ "juniper_codegen",
+ "tokio",
+ "txtx-addon-kit 0.4.0",
 ]
 
 [[package]]
 name = "txtx-supervisor-ui"
-version = "0.1.7"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3396cd76a118c493a51883bb9f0cb8dd0b517a973ac66815fde6fd14ff9cebd3"
+checksum = "66ffbd469abb59ba8368a6b4a059b34135b9a3eb67098b36485740b86bdb1601"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -10932,9 +10980,9 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.23.1",
  "totp-rs",
- "txtx-addon-kit",
+ "txtx-addon-kit 0.4.0",
  "txtx-core",
- "txtx-gql",
+ "txtx-gql 0.3.0",
 ]
 
 [[package]]
