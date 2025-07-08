@@ -5632,7 +5632,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rand_xorshift",
- "regex-syntax",
+ "regex-syntax 0.8.5",
  "rusty-fork",
  "tempfile",
  "unarray",
@@ -8996,6 +8996,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-remote-wallet"
+version = "2.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f6c8a74ea5e4c430ca41cae7da03ba7c7c6da0b8c1513aeef16f18b86c5cb30"
+dependencies = [
+ "console",
+ "dialoguer 0.10.4",
+ "hidapi",
+ "log 0.4.25",
+ "num-derive",
+ "num-traits",
+ "parking_lot 0.12.3",
+ "qstring",
+ "semver",
+ "solana-derivation-path",
+ "solana-offchain-message",
+ "solana-pubkey",
+ "solana-signature",
+ "solana-signer",
+ "thiserror 2.0.11",
+ "uriparse",
+]
+
+[[package]]
 name = "solana-rent"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11082,7 +11106,7 @@ dependencies = [
  "test-log",
  "tokio",
  "tokio-util 0.7.13",
- "txtx-addon-kit",
+ "txtx-addon-kit 0.4.0",
  "txtx-addon-network-svm-types",
  "uuid",
  "zstd",

@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
+    path::PathBuf,
     sync::{Arc, RwLock},
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
@@ -21,7 +22,9 @@ use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
 use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
 use libloading::{Library, Symbol};
-use solana_geyser_plugin_manager::geyser_plugin_manager::{GeyserPluginManager, LoadedGeyserPlugin};
+use solana_geyser_plugin_manager::geyser_plugin_manager::{
+    GeyserPluginManager, LoadedGeyserPlugin,
+};
 use solana_message::{v0::LoadedAddresses, SimpleAddressLoader};
 use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
@@ -78,19 +81,19 @@ pub async fn start_local_surfnet_runloop(
 
     let simnet_config = simnet.clone();
 
-        match start_geyser_runloop(
-            config.plugin_config_path.clone(),
-            plugin_manager_commands_rx,
-            subgraph_commands_tx.clone(),
-            simnet_events_tx_cc.clone(),
-            geyser_events_rx,
-        ) {
-            Ok(_) => {}
-            Err(e) => {
-                let _ = simnet_events_tx_cc
-                    .send(SimnetEvent::error(format!("Geyser plugin failed: {e}")));
-            }
-        };
+    match start_geyser_runloop(
+        config.plugin_config_path.clone(),
+        plugin_manager_commands_rx,
+        subgraph_commands_tx.clone(),
+        simnet_events_tx_cc.clone(),
+        geyser_events_rx,
+    ) {
+        Ok(_) => {}
+        Err(e) => {
+            let _ =
+                simnet_events_tx_cc.send(SimnetEvent::error(format!("Geyser plugin failed: {e}")));
+        }
+    };
 
     let (clock_event_rx, clock_command_tx) = start_clock_runloop(simnet_config.slot_time);
 
@@ -376,7 +379,7 @@ fn start_geyser_runloop(
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
                             };
                         }
-                        
+
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
