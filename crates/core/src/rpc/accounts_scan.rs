@@ -533,15 +533,14 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         };
 
         Box::pin(async move {
-            let current_slot = svm_locker.get_latest_absolute_slot();
-
-            let largest_accounts = svm_locker
-                .get_largest_accounts(&remote_ctx, config)
-                .await?
-                .inner;
+            let SvmAccessContext {
+                slot,
+                inner: largest_accounts,
+                ..
+            } = svm_locker.get_largest_accounts(&remote_ctx, config).await?;
 
             Ok(RpcResponse {
-                context: RpcResponseContext::new(current_slot),
+                context: RpcResponseContext::new(slot),
                 value: largest_accounts,
             })
         })

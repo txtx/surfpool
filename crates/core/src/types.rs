@@ -150,3 +150,24 @@ pub fn surfpool_tx_metadata_to_litesvm_tx_metadata(
         signature: metadata.signature,
     }
 }
+
+#[derive(Debug, Clone)]
+pub enum RemoteRpcResult<T> {
+    Ok(T),
+    MethodNotSupported,
+}
+
+impl<T> IntoIterator for RemoteRpcResult<T>
+where
+    T: IntoIterator,
+{
+    type Item = <T as IntoIterator>::Item;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            RemoteRpcResult::Ok(t) => t.into_iter().collect::<Vec<_>>().into_iter(),
+            RemoteRpcResult::MethodNotSupported => Vec::new().into_iter(),
+        }
+    }
+}

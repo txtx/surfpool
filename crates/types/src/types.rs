@@ -434,7 +434,6 @@ pub struct CreateNetworkResponse {
     pub rpc_url: String,
 }
 
-
 #[derive(Serialize, Deserialize)]
 pub struct DeleteNetworkRequest {
     pub workspace_id: Uuid,
@@ -442,10 +441,7 @@ pub struct DeleteNetworkRequest {
 }
 
 impl DeleteNetworkRequest {
-    pub fn new(
-        workspace_id: Uuid,
-        network_id: Uuid,
-    ) -> Self {
+    pub fn new(workspace_id: Uuid, network_id: Uuid) -> Self {
         Self {
             workspace_id,
             network_id,
@@ -455,7 +451,6 @@ impl DeleteNetworkRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct DeleteNetworkResponse;
-
 
 #[serde_as]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

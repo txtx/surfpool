@@ -233,6 +233,8 @@ impl SurfnetSvm {
                     None,
                 ))),
             );
+            let account = self.inner.get_account(pubkey).unwrap();
+            let _ = self.set_account(pubkey, account);
         }
         res
     }
