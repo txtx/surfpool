@@ -188,7 +188,10 @@ jobs:
         run: |
           echo "SHORT_TARGET_NAME=${{ matrix.platform }}-${{ matrix.architecture }}" >> $GITHUB_ENV
           echo "PRE_GYP_TARGET_NAME=${{ matrix.platform }}-${{ matrix.architecture }}-unknown" >> $GITHUB_ENV
-        
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
       - name: Build - Cargo
         run: 
           cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui
