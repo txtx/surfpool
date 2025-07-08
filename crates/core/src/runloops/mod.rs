@@ -1,5 +1,9 @@
 use std::{
-    collections::{HashMap, HashSet}, net::SocketAddr, path::PathBuf, sync::Arc, thread::{sleep, JoinHandle}, time::{Duration, Instant}
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+    thread::{sleep, JoinHandle},
+    time::{Duration, Instant},
 };
 
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
@@ -479,7 +483,6 @@ async fn start_ws_rpc_server_runloop(
         .map_err(|e| e.to_string())?;
 
     let uid = std::sync::atomic::AtomicUsize::new(0);
-    let subscription_map = Arc::new(std::sync::RwLock::new(HashMap::new()));
     let ws_middleware = SurfpoolWebsocketMiddleware::new(middleware.clone(), None);
 
     let mut rpc_io = PubSubHandler::new(MetaIoHandler::with_middleware(ws_middleware));
@@ -496,7 +499,9 @@ async fn start_ws_rpc_server_runloop(
             rpc_io.extend_with(
                 rpc::ws::SurfpoolWsRpc {
                     uid,
-                    active: subscription_map,
+                    signature_subscription_map: Arc::new(RwLock::new(HashMap::new())),
+                    account_subscription_map: Arc::new(RwLock::new(HashMap::new())),
+                    slot_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     tokio_handle: tokio_handle.clone(),
                 }
                 .to_delegate(),

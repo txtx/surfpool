@@ -18,7 +18,7 @@ solana-program = { workspace = true }
 txtx-addon-network-svm = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }
 ipc-channel = { workspace = true }
-# surfpool-types = { version = "0.2.0", default-features = false }
+# surfpool-types = { version = "0.8.1", default-features = false }
 surfpool-types = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }

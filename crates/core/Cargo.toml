@@ -71,8 +71,8 @@ solana-version = { workspace = true }
 spl-associated-token-account = { workspace = true }
 surfpool-subgraph = { workspace = true }
 surfpool-types = { workspace = true }
-# surfpool-types = { version = "0.2.0", default-features = false }
-# surfpool-subgraph = { version = "0.2.0", default-features = false }
+# surfpool-types = { version = "0.8.1", default-features = false }
+# surfpool-subgraph = { version = "0.8.1", default-features = false }
 symlink = "0.1.0"
 tokio = { version = "1.45.0", features = ["full"] }
 tokio-util = "0.7.13"
@@ -89,6 +89,7 @@ anyhow = "1.0.98"
 
 [dev-dependencies]
 test-case = "^3.3.1"
+test-log = "0.2.18"
 
 [features]
 ignore_tests_ci = []

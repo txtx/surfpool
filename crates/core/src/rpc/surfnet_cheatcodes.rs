@@ -12,14 +12,17 @@ use solana_sdk::{
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
 use surfpool_types::{
-    types::{AccountUpdate, ProfileResult, SetSomeAccount, TokenAccountUpdate},
+    types::{AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate},
     SimnetEvent,
 };
 
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     error::SurfpoolError,
-    rpc::{utils::verify_pubkey, State},
+    rpc::{
+        utils::{verify_pubkey, verify_pubkeys},
+        State,
+    },
     surfnet::{locker::SvmAccessContext, GetAccountResult},
 };
 
@@ -287,6 +290,102 @@ pub trait SvmTricksRpc {
         meta: Self::Metadata,
         tag: String,
     ) -> Result<RpcResponse<Vec<ProfileResult>>>;
+
+    /// A "cheat code" method for developers to set or update the network supply information in Surfpool.
+    ///
+    /// This method allows developers to configure the total supply, circulating supply,
+    /// non-circulating supply, and non-circulating accounts list that will be returned
+    /// by the `getSupply` RPC method.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `update`: The `SupplyUpdate` struct containing the optional fields to update:
+    ///   - `total`: Optional total supply in lamports
+    ///   - `circulating`: Optional circulating supply in lamports  
+    ///   - `non_circulating`: Optional non-circulating supply in lamports
+    ///   - `non_circulating_accounts`: Optional list of non-circulating account addresses
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the supply update was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_setSupply",
+    ///   "params": [{
+    ///     "total": 1000000000000000,
+    ///     "circulating": 800000000000000,
+    ///     "non_circulating": 200000000000000,
+    ///     "non_circulating_accounts": ["Account1...", "Account2..."]
+    ///   }]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// This method is designed to help developers test supply-related functionality by
+    /// allowing them to configure the values returned by `getSupply` without needing
+    /// to connect to a real network or manipulate actual token supplies.
+    ///
+    /// # See Also
+    /// - `getSupply`
+    #[rpc(meta, name = "surfnet_setSupply")]
+    fn set_supply(
+        &self,
+        meta: Self::Metadata,
+        update: SupplyUpdate,
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
+
+    /// A cheat code to set the upgrade authority of a program's ProgramData account.
+    ///
+    /// This method allows developers to directly patch the upgrade authority of a program's ProgramData account.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `program_id`: The base-58 encoded public key of the program.
+    /// - `new_authority`: The base-58 encoded public key of the new authority. If omitted, the program will have no upgrade authority.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the authority update was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_setProgramAuthority",
+    ///   "params": [
+    ///     "PROGRAM_ID_BASE58",
+    ///     "NEW_AUTHORITY_BASE58"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_setProgramAuthority")]
+    fn set_program_authority(
+        &self,
+        meta: Self::Metadata,
+        program_id_str: String,
+        new_authority_str: Option<String>,
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
 }
 
 #[derive(Clone)]
@@ -569,5 +668,90 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             }
         })
         .map_err(Into::into)
+    }
+
+    fn set_supply(
+        &self,
+        meta: Self::Metadata,
+        update: SupplyUpdate,
+    ) -> BoxFuture<Result<RpcResponse<()>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        // validate non-circulating accounts are valid pubkeys
+        if let Some(ref non_circulating_accounts) = update.non_circulating_accounts {
+            if let Err(e) = verify_pubkeys(non_circulating_accounts) {
+                return e.into();
+            }
+        }
+
+        Box::pin(async move {
+            let latest_absolute_slot = svm_locker.with_svm_writer(|svm_writer| {
+                // update the supply fields if provided
+                if let Some(total) = update.total {
+                    svm_writer.total_supply = total;
+                }
+
+                if let Some(circulating) = update.circulating {
+                    svm_writer.circulating_supply = circulating;
+                }
+
+                if let Some(non_circulating) = update.non_circulating {
+                    svm_writer.non_circulating_supply = non_circulating;
+                }
+
+                if let Some(ref accounts) = update.non_circulating_accounts {
+                    svm_writer.non_circulating_accounts = accounts.clone();
+                }
+
+                svm_writer.updated_at = chrono::Utc::now().timestamp_millis() as u64;
+                svm_writer.get_latest_absolute_slot()
+            });
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(latest_absolute_slot),
+                value: (),
+            })
+        })
+    }
+
+    fn set_program_authority(
+        &self,
+        meta: Self::Metadata,
+        program_id_str: String,
+        new_authority_str: Option<String>,
+    ) -> BoxFuture<Result<RpcResponse<()>>> {
+        let program_id = match verify_pubkey(&program_id_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+        let new_authority = if let Some(ref new_authority_str) = new_authority_str {
+            match verify_pubkey(new_authority_str) {
+                Ok(res) => Some(res),
+                Err(e) => return e.into(),
+            }
+        } else {
+            None
+        };
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+        Box::pin(async move {
+            let SvmAccessContext { slot, .. } = svm_locker
+                .set_program_authority(&remote_ctx, program_id, new_authority)
+                .await?;
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
+                value: (),
+            })
+        })
     }
 }

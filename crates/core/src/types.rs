@@ -3,16 +3,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::prelude::{Engine, BASE64_STANDARD};
 use solana_client::rpc_client::SerializableTransaction;
 use solana_message::VersionedMessage;
-use solana_sdk::{inner_instruction::InnerInstruction, transaction::VersionedTransaction};
+use solana_sdk::transaction::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionConfirmationStatus,
-    TransactionStatus, UiAddressTableLookup, UiCompiledInstruction, UiInnerInstructions,
-    UiInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
-    UiTransactionReturnData, UiTransactionStatusMeta,
+    TransactionStatus, UiAddressTableLookup, UiCompiledInstruction, UiMessage, UiRawMessage,
+    UiReturnDataEncoding, UiTransaction, UiTransactionReturnData, UiTransactionStatusMeta,
 };
 use surfpool_types::TransactionMetadata;
+
+use crate::rpc::utils::transform_tx_metadata_to_ui_accounts;
 
 #[derive(Debug, Clone)]
 pub enum SurfnetTransactionStatus {
@@ -110,28 +111,9 @@ impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMe
                     pre_balances: vec![],
                     post_balances: vec![],
                     inner_instructions: OptionSerializer::Some(
-                        meta.inner_instructions
-                            .iter()
-                            .enumerate()
-                            .map(|(i, ixs)| UiInnerInstructions {
-                                index: i as u8,
-                                instructions: ixs
-                                    .iter()
-                                    .map(
-                                        |InnerInstruction {
-                                             instruction,
-                                             stack_height,
-                                         }| {
-                                            UiInstruction::Compiled(UiCompiledInstruction::from(
-                                                instruction,
-                                                // todo: concerned by this cast, we must be getting something wrong upstream
-                                                Some(*stack_height as u32),
-                                            ))
-                                        },
-                                    )
-                                    .collect(),
-                            })
-                            .collect(),
+                        transform_tx_metadata_to_ui_accounts(
+                            &surfpool_tx_metadata_to_litesvm_tx_metadata(&meta),
+                        ),
                     ),
                     log_messages: OptionSerializer::Some(meta.logs),
                     pre_token_balances: OptionSerializer::None,
@@ -154,5 +136,17 @@ impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMe
                 .map(|d| d.as_millis() as i64)
                 .ok(),
         }
+    }
+}
+
+pub fn surfpool_tx_metadata_to_litesvm_tx_metadata(
+    metadata: &surfpool_types::TransactionMetadata,
+) -> litesvm::types::TransactionMetadata {
+    litesvm::types::TransactionMetadata {
+        compute_units_consumed: metadata.compute_units_consumed,
+        logs: metadata.logs.clone(),
+        return_data: metadata.return_data.clone(),
+        inner_instructions: metadata.inner_instructions.clone(),
+        signature: metadata.signature,
     }
 }
