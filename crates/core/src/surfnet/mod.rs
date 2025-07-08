@@ -29,17 +29,12 @@ pub const SURFPOOL_IDENTITY_PUBKEY: Pubkey =
     Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr");
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
 pub const SLOTS_PER_EPOCH: u64 = 432000;
-// #[cfg(clippy)]
-// const SUBGRAPH_PLUGIN_BYTES: &[u8] = &[0];
-
-// #[cfg(not(clippy))]
-// const SUBGRAPH_PLUGIN_BYTES: &[u8] =
-//     include_bytes!("../../../../target/release/libsurfpool_subgraph.dylib");
 
 pub type AccountFactory = Box<dyn Fn(SurfnetSvmLocker) -> GetAccountResult + Send + Sync>;
 
 pub enum GeyserEvent {
-    NewTransaction(VersionedTransaction, TransactionMetadata, Slot),
+    NotifyTransaction(VersionedTransaction, TransactionMetadata, Slot),
+    // todo: add more events
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
@@ -168,16 +163,17 @@ impl GetAccountResult {
     pub fn map_account(self) -> SurfpoolResult<Account> {
         match self {
             Self::None(pubkey) => Err(SurfpoolError::account_not_found(pubkey)),
-            Self::FoundAccount(_, account, _) => Ok(account),
-            Self::FoundProgramAccount((_, account), _) => Ok(account),
+            Self::FoundAccount(_, account, _) | Self::FoundProgramAccount((_, account), _) => {
+                Ok(account)
+            }
         }
     }
 
-    pub fn is_none(&self) -> bool {
+    pub const fn is_none(&self) -> bool {
         matches!(self, Self::None(_))
     }
 
-    pub fn requires_update(&self) -> bool {
+    pub const fn requires_update(&self) -> bool {
         match self {
             Self::None(_) => false,
             Self::FoundAccount(_, _, do_update) => *do_update,
@@ -193,19 +189,19 @@ impl From<GetAccountResult> for Result<Account, SurfpoolError> {
 }
 
 impl SignatureSubscriptionType {
-    pub fn received() -> Self {
+    pub const fn received() -> Self {
         SignatureSubscriptionType::Received
     }
 
-    pub fn processed() -> Self {
+    pub const fn processed() -> Self {
         SignatureSubscriptionType::Commitment(CommitmentLevel::Processed)
     }
 
-    pub fn confirmed() -> Self {
+    pub const fn confirmed() -> Self {
         SignatureSubscriptionType::Commitment(CommitmentLevel::Confirmed)
     }
 
-    pub fn finalized() -> Self {
+    pub const fn finalized() -> Self {
         SignatureSubscriptionType::Commitment(CommitmentLevel::Finalized)
     }
 }
@@ -238,7 +234,7 @@ impl GetTransactionResult {
         Self::FoundTransaction(signature, tx, status)
     }
 
-    pub fn is_none(&self) -> bool {
+    pub const fn is_none(&self) -> bool {
         matches!(self, Self::None(_))
     }
 
