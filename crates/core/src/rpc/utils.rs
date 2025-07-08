@@ -225,7 +225,6 @@ pub fn transform_tx_metadata_to_ui_accounts(
 /// Returns true if the error indicates the remote method is not supported.
 pub fn is_method_not_supported_error<E: std::fmt::Display>(err: &E) -> bool {
     let msg = err.to_string().to_lowercase();
-    log::debug!("Checking for method not supported in error: {}", msg);
     msg.contains("not supported")
         || msg.contains("unsupported")
         || msg.contains("unavailable")
