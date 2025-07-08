@@ -3,21 +3,22 @@ use std::{future::Future, sync::Arc};
 use blake3::Hash;
 use crossbeam_channel::Sender;
 use jsonrpc_core::{
-    futures::{future::Either, FutureExt},
-    middleware, BoxFuture, Error, FutureResponse, Metadata, Middleware, Request, Response,
+    BoxFuture, Error, FutureResponse, Metadata, Middleware, Request, Response,
+    futures::{FutureExt, future::Either},
+    middleware,
 };
 use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
-use surfpool_types::{types::RpcConfig, SimnetCommand};
+use surfpool_types::{SimnetCommand, types::RpcConfig};
 
 use crate::{
+    PluginManagerCommand,
     error::{SurfpoolError, SurfpoolResult},
     surfnet::{
         locker::SurfnetSvmLocker,
         remote::{SomeRemoteCtx, SurfnetRemoteClient},
         svm::SurfnetSvm,
     },
-    PluginManagerCommand,
 };
 
 pub mod accounts_data;
@@ -249,7 +250,10 @@ impl PubSubMetadata for SurfpoolWebsocketMeta {
 pub const NOT_IMPLEMENTED_CODE: i64 = -32051; // -32000 to -32099 are reserved by the json-rpc spec for custom errors
 pub const NOT_IMPLEMENTED_MSG: &str = "Method not yet implemented. If this endpoint is a priority for you, please open an issue here so we can prioritize: https://github.com/txtx/surfpool/issues";
 fn not_implemented_msg(method: &str) -> String {
-    format!("Method `{}` is not yet implemented. If this endpoint is a priority for you, please open an issue here so we can prioritize: https://github.com/txtx/surfpool/issues", method)
+    format!(
+        "Method `{}` is not yet implemented. If this endpoint is a priority for you, please open an issue here so we can prioritize: https://github.com/txtx/surfpool/issues",
+        method
+    )
 }
 /// Helper function to return a `NotImplemented` JSON RPC error
 pub fn not_implemented_err<T>(method: &str) -> Result<T, Error> {

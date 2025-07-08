@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use serde_json::json;
-use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
+use solana_account_decoder::{UiAccountEncoding, encode_ui_account};
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
     rpc_client::GetConfirmedSignaturesForAddress2Config,
@@ -27,7 +27,7 @@ use solana_transaction_status::UiTransactionEncoding;
 use super::GetTransactionResult;
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    surfnet::{locker::is_supported_token_program, GetAccountResult},
+    surfnet::{GetAccountResult, locker::is_supported_token_program},
 };
 
 pub struct SurfnetRemoteClient {

@@ -243,7 +243,7 @@ pub fn run(
                 return SetTokenAccountsResponse::error(format!(
                     "Failed to serialize params for surfnet_setAccount: {}",
                     e
-                ))
+                ));
             }
         };
         JsonRpcRequest {
@@ -269,7 +269,7 @@ pub fn run(
                 return SetTokenAccountsResponse::error(format!(
                     "Failed to serialize params for surfnet_setTokenAccount: {}",
                     e
-                ))
+                ));
             }
         };
         JsonRpcRequest {
@@ -314,7 +314,7 @@ pub fn run(
                                             return SetTokenAccountsResponse::error(format!(
                                                 "Invalid program_id provided: {}",
                                                 id_str
-                                            ))
+                                            ));
                                         }
                                     },
                                     None => spl_token::id(),

@@ -7,11 +7,10 @@ use jsonrpc_core::futures::future::join_all;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
 use solana_account_decoder::{
-    encode_ui_account,
+    UiAccount, UiAccountEncoding, encode_ui_account,
     parse_account_data::AccountAdditionalDataV3,
-    parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram},
+    parse_bpf_loader::{BpfUpgradeableLoaderAccountType, UiProgram, parse_bpf_upgradeable_loader},
     parse_token::UiTokenAmount,
-    UiAccount, UiAccountEncoding,
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
@@ -31,13 +30,13 @@ use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_message::{
-    v0::{LoadedAddresses, MessageAddressTableLookup},
     VersionedMessage,
+    v0::{LoadedAddresses, MessageAddressTableLookup},
 };
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
+    bpf_loader_upgradeable::{UpgradeableLoaderState, get_program_data_address},
     program_pack::Pack,
     transaction::VersionedTransaction,
 };
@@ -56,9 +55,9 @@ use surfpool_types::{
 use tokio::sync::RwLock;
 
 use super::{
-    remote::{SomeRemoteCtx, SurfnetRemoteClient},
     AccountFactory, GetAccountResult, GetTransactionResult, GeyserEvent, SignatureSubscriptionType,
     SurfnetSvm,
+    remote::{SomeRemoteCtx, SurfnetRemoteClient},
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -1531,7 +1530,7 @@ impl SurfnetSvmLocker {
                 return Err(SurfpoolError::invalid_program_account(
                     pubkey,
                     "Account not found",
-                ))
+                ));
             }
             GetAccountResult::FoundAccount(pubkey, program_account, _) => {
                 let programdata_address = get_program_data_address(pubkey);
@@ -1572,7 +1571,7 @@ impl SurfnetSvmLocker {
                 return Err(SurfpoolError::invalid_program_account(
                     &program_id,
                     "Program data account does not exist",
-                ))
+                ));
             }
             GetAccountResult::FoundProgramAccount(_, (_, Some(programdata_account))) => {
                 update_programdata_account(&program_id, programdata_account, new_authority)?

@@ -443,7 +443,10 @@ pub async fn handle_list_command(cmd: ListRunbooks, _ctx: &Context) -> Result<()
     let manifest_location = FileLocation::from_path_string(&cmd.manifest_path)?;
     let manifest = WorkspaceManifest::from_location(&manifest_location)?;
     if manifest.runbooks.is_empty() {
-        println!("{}: no runbooks referenced in the txtx.yml manifest.\nRun the command `txtx new` to create a new runbook.", yellow!("warning"));
+        println!(
+            "{}: no runbooks referenced in the txtx.yml manifest.\nRun the command `txtx new` to create a new runbook.",
+            yellow!("warning")
+        );
         std::process::exit(1);
     }
     println!("{:<35}\t{}", "Name", yellow!("Description"));

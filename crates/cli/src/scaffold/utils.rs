@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use convert_case::{Case, Casing};
 use serde::Deserialize;
 use txtx_addon_network_svm::codec::idl::IdlRef;

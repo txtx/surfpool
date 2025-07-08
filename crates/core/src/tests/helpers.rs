@@ -9,7 +9,7 @@ use solana_sdk::transaction::VersionedTransaction;
 use surfpool_types::SimnetCommand;
 
 use crate::{
-    rpc::{utils::convert_transaction_metadata_from_canonical, RunloopContext},
+    rpc::{RunloopContext, utils::convert_transaction_metadata_from_canonical},
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
     types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };

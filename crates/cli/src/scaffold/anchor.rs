@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeMap, str::FromStr};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use txtx_core::kit::helpers::fs::FileLocation;
 use url::Url;
@@ -198,17 +198,19 @@ impl FromStr for Cluster {
 
                 let mut ws_url = Url::parse(http_url)?;
                 if let Some(port) = ws_url.port() {
-                    ws_url.set_port(Some(port + 1))
+                    ws_url
+                        .set_port(Some(port + 1))
                         .map_err(|_| anyhow!("Unable to set port"))?;
                 }
                 if ws_url.scheme() == "https" {
-                    ws_url.set_scheme("wss")
+                    ws_url
+                        .set_scheme("wss")
                         .map_err(|_| anyhow!("Unable to set scheme"))?;
                 } else {
-                    ws_url.set_scheme("ws")
+                    ws_url
+                        .set_scheme("ws")
                         .map_err(|_| anyhow!("Unable to set scheme"))?;
                 }
-
 
                 Ok(Cluster::Custom(http_url.to_string(), ws_url.to_string()))
             }

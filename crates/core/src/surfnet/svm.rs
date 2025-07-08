@@ -1,23 +1,22 @@
 use std::collections::{HashMap, VecDeque};
 
 use chrono::Utc;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use litesvm::{
+    LiteSVM,
     types::{
         FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
     },
-    LiteSVM,
 };
 use solana_account::Account;
 use solana_account_decoder::{
-    encode_ui_account,
+    UiAccount, UiAccountEncoding, encode_ui_account,
     parse_account_data::{AccountAdditionalDataV3, SplTokenAdditionalDataV2},
-    UiAccount, UiAccountEncoding,
 };
 use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
-use solana_clock::{Clock, Slot, MAX_RECENT_BLOCKHASHES};
+use solana_clock::{Clock, MAX_RECENT_BLOCKHASHES, Slot};
 use solana_epoch_info::EpochInfo;
-use solana_feature_set::{disable_new_loader_v3_deployments, FeatureSet};
+use solana_feature_set::{FeatureSet, disable_new_loader_v3_deployments};
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
@@ -36,18 +35,18 @@ use solana_transaction_status::{
 };
 use spl_token::state::Account as TokenAccount;
 use spl_token_2022::extension::{
-    interest_bearing_mint::InterestBearingConfig, scaled_ui_amount::ScaledUiAmountConfig,
-    BaseStateWithExtensions, StateWithExtensions,
+    BaseStateWithExtensions, StateWithExtensions, interest_bearing_mint::InterestBearingConfig,
+    scaled_ui_amount::ScaledUiAmountConfig,
 };
 use surfpool_types::{
-    types::{ComputeUnitsEstimationResult, ProfileResult},
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
+    types::{ComputeUnitsEstimationResult, ProfileResult},
 };
 
 use super::{
-    remote::SurfnetRemoteClient, AccountSubscriptionData, BlockHeader, BlockIdentifier,
-    GetAccountResult, GeyserEvent, SignatureSubscriptionData, SignatureSubscriptionType,
-    FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH,
+    AccountSubscriptionData, BlockHeader, BlockIdentifier, FINALIZATION_SLOT_THRESHOLD,
+    GetAccountResult, GeyserEvent, SLOTS_PER_EPOCH, SignatureSubscriptionData,
+    SignatureSubscriptionType, remote::SurfnetRemoteClient,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -515,10 +514,11 @@ impl SurfnetSvm {
 
         if cu_analysis_enabled {
             let estimation_result = self.estimate_compute_units(&tx);
-            let _ =
-                self.simnet_events_tx.try_send(SimnetEvent::info(format!(
+            let _ = self.simnet_events_tx.try_send(SimnetEvent::info(format!(
                 "CU Estimation for tx: {} | Consumed: {} | Success: {} | Logs: {:?} | Error: {:?}",
-                tx.signatures.first().map_or_else(|| "N/A".to_string(), |s| s.to_string()),
+                tx.signatures
+                    .first()
+                    .map_or_else(|| "N/A".to_string(), |s| s.to_string()),
                 estimation_result.compute_units_consumed,
                 estimation_result.success,
                 estimation_result.log_messages,
@@ -1408,7 +1408,9 @@ mod tests {
             svm.write_account_update(found_update);
             assert_eq!(svm.accounts_registry.len(), index_before.len() + 1);
             if !expect_account_update_event(&events_rx, &svm, &pubkey, &account) {
-                panic!("Expected account update event not received after GetAccountResult::FoundAccount update");
+                panic!(
+                    "Expected account update event not received after GetAccountResult::FoundAccount update"
+                );
             }
         }
 
@@ -1424,8 +1426,16 @@ mod tests {
             );
             svm.write_account_update(found_program_account_update);
 
-            if !expect_error_event(&events_rx, &format!("Internal error: \"Failed to set account {}: An account required by the instruction is missing\"", program_address)) {
-                panic!("Expected error event not received after inserting program account with no program data account");
+            if !expect_error_event(
+                &events_rx,
+                &format!(
+                    "Internal error: \"Failed to set account {}: An account required by the instruction is missing\"",
+                    program_address
+                ),
+            ) {
+                panic!(
+                    "Expected error event not received after inserting program account with no program data account"
+                );
             }
             assert_eq!(svm.accounts_registry, index_before);
         }
@@ -1448,11 +1458,15 @@ mod tests {
                 &program_data_address,
                 &program_data_account,
             ) {
-                panic!("Expected account update event not received after GetAccountResult::FoundProgramAccount update for program data pubkey");
+                panic!(
+                    "Expected account update event not received after GetAccountResult::FoundProgramAccount update for program data pubkey"
+                );
             }
 
             if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
-                panic!("Expected account update event not received after GetAccountResult::FoundProgramAccount update for program pubkey");
+                panic!(
+                    "Expected account update event not received after GetAccountResult::FoundProgramAccount update for program pubkey"
+                );
             }
         }
 
@@ -1476,7 +1490,9 @@ mod tests {
                 &program_data_address,
                 &program_data_account,
             ) {
-                panic!("Expected account update event not received after GetAccountResult::FoundAccount update");
+                panic!(
+                    "Expected account update event not received after GetAccountResult::FoundAccount update"
+                );
             }
 
             let index_before = svm.accounts_registry.clone();
@@ -1487,7 +1503,9 @@ mod tests {
             svm.write_account_update(program_account_found_update);
             assert_eq!(svm.accounts_registry.len(), index_before.len() + 1);
             if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
-                panic!("Expected account update event not received after GetAccountResult::FoundAccount update");
+                panic!(
+                    "Expected account update event not received after GetAccountResult::FoundAccount update"
+                );
             }
         }
     }

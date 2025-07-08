@@ -1,10 +1,10 @@
 use std::fmt;
 
-use clap::{builder::PossibleValue, Parser, ValueEnum};
-use dialoguer::{console::Style, theme::ColorfulTheme, Input, Select};
+use clap::{Parser, ValueEnum, builder::PossibleValue};
+use dialoguer::{Input, Select, console::Style, theme::ColorfulTheme};
 use surfpool_types::{BlockProductionMode, CreateNetworkRequest, CreateNetworkResponse};
 use txtx_cloud::{
-    auth::AuthConfig, login::pat_login, workspace::fetch_svm_workspaces, LoginCommand,
+    LoginCommand, auth::AuthConfig, login::pat_login, workspace::fetch_svm_workspaces,
 };
 use txtx_gql::kit::{reqwest, uuid::Uuid};
 

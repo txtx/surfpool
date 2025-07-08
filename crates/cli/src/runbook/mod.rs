@@ -1,21 +1,21 @@
 use std::{collections::BTreeMap, io::Write, sync::Arc};
 
 use crossbeam::channel;
-use dialoguer::{console::Style, theme::ColorfulTheme, Confirm};
+use dialoguer::{Confirm, console::Style, theme::ColorfulTheme};
 use surfpool_types::SimnetEvent;
 use tokio::{sync::RwLock, task::JoinHandle};
 use txtx_addon_network_svm::SvmNetworkAddon;
 use txtx_cloud::router::TxtxAuthenticatedCloudServiceRouter;
 use txtx_core::{
     kit::{
+        Addon,
         channel::Sender,
         helpers::fs::FileLocation,
-        types::{diagnostics::Diagnostic, frontend::BlockEvent, AuthorizationContext},
-        Addon,
+        types::{AuthorizationContext, diagnostics::Diagnostic, frontend::BlockEvent},
     },
     manifest::{
-        file::{read_runbook_from_location, read_runbooks_from_manifest},
         RunbookStateLocation, WorkspaceManifest,
+        file::{read_runbook_from_location, read_runbooks_from_manifest},
     },
     runbook::{ConsolidatedChanges, SynthesizedChange},
     start_supervised_runbook_runloop, start_unsupervised_runbook_runloop,
@@ -30,7 +30,7 @@ use txtx_gql::kit::{
 #[cfg(feature = "supervisor_ui")]
 use txtx_supervisor_ui::cloud_relayer::RelayerChannelEvent;
 
-use crate::cli::{ExecuteRunbook, DEFAULT_ID_SVC_URL};
+use crate::cli::{DEFAULT_ID_SVC_URL, ExecuteRunbook};
 
 pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
     let available_addons: Vec<Box<dyn Addon>> =
@@ -528,11 +528,19 @@ pub fn display_snapshot_diffing(
                         })
                         .collect::<Vec<_>>()
                         .join("");
-                    println!("{}. The following edits:\n-------------------------\n{}\n-------------------------", i + 1, formatted_change);
+                    println!(
+                        "{}. The following edits:\n-------------------------\n{}\n-------------------------",
+                        i + 1,
+                        formatted_change
+                    );
                     println!("will introduce breaking changes.\n\n");
                 }
                 SynthesizedChange::FormerFailure(_construct_to_run, command_name) => {
-                    println!("{}. The action error:\n-------------------------\n{}\n-------------------------", i + 1, command_name);
+                    println!(
+                        "{}. The action error:\n-------------------------\n{}\n-------------------------",
+                        i + 1,
+                        command_name
+                    );
                     println!("will be re-executed.\n\n");
                 }
                 SynthesizedChange::Addition(_new_construct_did) => {}
@@ -550,7 +558,9 @@ pub fn display_snapshot_diffing(
         .count();
     if unexecuted > 0 {
         println!("\n{}", yellow!("Runbook Recovery Plan"));
-        println!("The previous runbook execution was interrupted before completion, causing the following actions to be aborted:");
+        println!(
+            "The previous runbook execution was interrupted before completion, causing the following actions to be aborted:"
+        );
 
         for (change, _impacted) in synthesized_changes.iter() {
             match change {
