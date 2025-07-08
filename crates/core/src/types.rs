@@ -156,4 +156,3 @@ pub enum RemoteRpcResult<T> {
     Ok(T),
     MethodNotSupported,
 }
-
