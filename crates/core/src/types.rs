@@ -157,17 +157,3 @@ pub enum RemoteRpcResult<T> {
     MethodNotSupported,
 }
 
-impl<T> IntoIterator for RemoteRpcResult<T>
-where
-    T: IntoIterator,
-{
-    type Item = <T as IntoIterator>::Item;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        match self {
-            RemoteRpcResult::Ok(t) => t.into_iter().collect::<Vec<_>>().into_iter(),
-            RemoteRpcResult::MethodNotSupported => Vec::new().into_iter(),
-        }
-    }
-}
