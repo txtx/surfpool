@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
+    path::PathBuf,
     sync::{Arc, RwLock},
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
@@ -9,7 +10,7 @@ use std::{
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, ReplicaTransactionInfoV2, ReplicaTransactionInfoVersions,
 };
-use chrono::Utc;
+use chrono::{Local, Utc};
 use crossbeam::select;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ipc_channel::{
@@ -20,6 +21,10 @@ use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
 use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
+use libloading::{Library, Symbol};
+use solana_geyser_plugin_manager::geyser_plugin_manager::{
+    GeyserPluginManager, LoadedGeyserPlugin,
+};
 use solana_message::{v0::LoadedAddresses, SimpleAddressLoader};
 use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
@@ -29,6 +34,9 @@ use surfpool_types::{
     BlockProductionMode, ClockCommand, ClockEvent, SchemaDataSourcingEvent, SimnetCommand,
     SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
 };
+type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
+
+use txtx_addon_kit::helpers::fs::FileLocation;
 
 use crate::{
     rpc::{
@@ -73,20 +81,19 @@ pub async fn start_local_surfnet_runloop(
 
     let simnet_config = simnet.clone();
 
-    if !config.plugin_config_path.is_empty() {
-        match start_geyser_runloop(
-            plugin_manager_commands_rx,
-            subgraph_commands_tx.clone(),
-            simnet_events_tx_cc.clone(),
-            geyser_events_rx,
-        ) {
-            Ok(_) => {}
-            Err(e) => {
-                let _ = simnet_events_tx_cc
-                    .send(SimnetEvent::error(format!("Geyser plugin failed: {e}")));
-            }
-        };
-    }
+    match start_geyser_runloop(
+        config.plugin_config_path.clone(),
+        plugin_manager_commands_rx,
+        subgraph_commands_tx.clone(),
+        simnet_events_tx_cc.clone(),
+        geyser_events_rx,
+    ) {
+        Ok(_) => {}
+        Err(e) => {
+            let _ =
+                simnet_events_tx_cc.send(SimnetEvent::error(format!("Geyser plugin failed: {e}")));
+        }
+    };
 
     let (clock_event_rx, clock_command_tx) = start_clock_runloop(simnet_config.slot_time);
 
@@ -226,51 +233,58 @@ pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<
 }
 
 fn start_geyser_runloop(
+    plugin_config_paths: Vec<PathBuf>,
     plugin_manager_commands_rx: Receiver<PluginManagerCommand>,
     subgraph_commands_tx: Sender<SubgraphCommand>,
     simnet_events_tx: Sender<SimnetEvent>,
     geyser_events_rx: Receiver<GeyserEvent>,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let handle = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
-        let mut plugin_manager = vec![];
+        let mut plugin_manager = GeyserPluginManager::new();
+        let mut surfpool_plugin = None;
+
+        for plugin_config_path in plugin_config_paths.into_iter() {
+            let plugin_manifest_location = FileLocation::from_path(plugin_config_path);
+            let contents = plugin_manifest_location.read_content_as_utf8()?;
+            let result: serde_json::Value = match json5::from_str(&contents) {
+                Ok(res) => res,
+                Err(e) => {
+                    let error = format!("Unable to read manifest: {}", e);
+                    let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
+                    return Err(error)
+                }
+            };
+            let (plugin_name, plugin_dylib_path) = match (result.get("name").map(|p| p.as_str()), result.get("libpath").map(|p| p.as_str())) {
+                (Some(Some(name)), Some(Some(libpath))) => (name, libpath),
+                _ => {
+                    let error = format!("Unable to retrieve dylib: {}", plugin_manifest_location);
+                    let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
+                    return Err(error)
+                }
+            };
+
+            let mut plugin_dylib_location = plugin_manifest_location.get_parent_location().expect("path invalid");
+            plugin_dylib_location.append_path(&plugin_dylib_path).expect("path invalid");
+
+            let (plugin, lib) = unsafe {
+                let lib = match Library::new(&plugin_dylib_location.to_string()) {
+                    Ok(lib) => lib,
+                    Err(e) => {
+                        let _ = simnet_events_tx.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
+                        continue;
+                    }
+                };
+                let constructor: Symbol<PluginConstructor> = lib
+                    .get(b"_create_plugin")
+                    .map_err(|e| format!("{}", e.to_string()))?;
+                let plugin_raw = constructor();
+                (Box::from_raw(plugin_raw), lib)
+            };
+            plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.to_string())));
+        }
 
         let ipc_router = RouterProxy::new();
-        // Note:
-        // At the moment, surfpool-subgraph is the only plugin that we're mounting.
-        // Please open an issue http://github.com/txtx/surfpool/issues/new if this is a feature you need!
         //
-        // Proof of concept:
-        //
-        // let geyser_plugin_config_file = PathBuf::from("../../surfpool_subgraph_plugin.json");
-        // let contents = "{\"name\": \"surfpool-subgraph\", \"libpath\": \"target/release/libsurfpool_subgraph.dylib\"}";
-        // let result: serde_json::Value = json5::from_str(&contents).unwrap();
-        // let libpath = result["libpath"]
-        //     .as_str()
-        //     .unwrap();
-        // let mut libpath = PathBuf::from(libpath);
-        // if libpath.is_relative() {
-        //     let config_dir = geyser_plugin_config_file.parent().ok_or_else(|| {
-        //         GeyserPluginManagerError::CannotOpenConfigFile(format!(
-        //             "Failed to resolve parent of {geyser_plugin_config_file:?}",
-        //         ))
-        //     }).unwrap();
-        //     libpath = config_dir.join(libpath);
-        // }
-        // let plugin_name = result["name"].as_str().map(|s| s.to_owned()).unwrap_or(format!("surfpool-subgraph"));
-        // let (plugin, lib) = unsafe {
-        //     let lib = match Library::new(&surfpool_subgraph_path) {
-        //         Ok(lib) => lib,
-        //         Err(e) => {
-        //             let _ = simnet_events_tx_copy.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
-        //             continue;
-        //         }
-        //     };
-        //     let constructor: Symbol<PluginConstructor> = lib
-        //         .get(b"_create_plugin")
-        //         .map_err(|e| format!("{}", e.to_string()))?;
-        //     let plugin_raw = constructor();
-        //     (Box::from_raw(plugin_raw), lib)
-        // };
 
         let err = loop {
             select! {
@@ -305,7 +319,7 @@ fn start_geyser_runloop(
                                         let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveSubgraph(subgraph_rx));
                                     };
                                     let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
-                                    plugin_manager.push(plugin);
+                                    surfpool_plugin = Some(plugin);
                                     let _ = simnet_events_tx.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
                                 }
                             }
@@ -319,7 +333,7 @@ fn start_geyser_runloop(
                     Err(e) => {
                         break format!("Failed to read new transaction to send to Geyser plugin: {e}");
                     },
-                    Ok(GeyserEvent::NewTransaction(transaction, transaction_metadata, slot)) => {
+                    Ok(GeyserEvent::NotifyTransaction(transaction, transaction_metadata, slot)) => {
                         let mut inner_instructions = vec![];
                         for (i,inner) in transaction_metadata.inner_instructions.iter().enumerate() {
                             inner_instructions.push(
@@ -366,7 +380,14 @@ fn start_geyser_runloop(
                             transaction_status_meta: &transaction_status_meta,
                             index: 0
                         };
-                        for plugin in plugin_manager.iter() {
+
+                        if let Some(ref plugin) = surfpool_plugin {
+                            if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), slot) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
+                            };
+                        }
+
+                        for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
                             };
@@ -421,7 +442,7 @@ async fn start_http_rpc_server_runloop(
         .parse::<SocketAddr>()
         .map_err(|e| e.to_string())?;
 
-    let mut io = MetaIoHandler::with_middleware(middleware.clone());
+    let mut io = MetaIoHandler::with_middleware(middleware);
     io.extend_with(rpc::minimal::SurfpoolMinimalRpc.to_delegate());
     io.extend_with(rpc::full::SurfpoolFullRpc.to_delegate());
     io.extend_with(rpc::accounts_data::SurfpoolAccountsDataRpc.to_delegate());

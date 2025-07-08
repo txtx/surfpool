@@ -13,6 +13,8 @@ jobs:
   run_cargo_checks:
     runs-on: ubuntu-latest
     steps:
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - uses: actions/checkout@v4
       - name: Rust install nightly
         uses: dtolnay/rust-toolchain@nightly
@@ -27,6 +29,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - uses: actions/checkout@v4
       - name: Build
         run: cargo build --verbose

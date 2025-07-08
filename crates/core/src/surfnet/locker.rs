@@ -293,7 +293,7 @@ impl SurfnetSvmLocker {
         self.with_contextualized_svm_reader(|svm_reader| {
             let mut accounts = vec![];
 
-            for pubkey in pubkeys.iter() {
+            for pubkey in pubkeys {
                 let res = match svm_reader.inner.get_account(pubkey) {
                     Some(account) => GetAccountResult::FoundAccount(
                         *pubkey, account,
@@ -779,9 +779,9 @@ impl SurfnetSvmLocker {
                     let transaction_meta = convert_transaction_metadata_from_canonical(&res);
                     let _ = svm_writer
                         .geyser_events_tx
-                        .send(GeyserEvent::NewTransaction(
+                        .send(GeyserEvent::NotifyTransaction(
                             transaction.clone(),
-                            transaction_meta.clone(),
+                            transaction_meta,
                             latest_absolute_slot,
                         ));
                     let _ = status_tx.try_send(TransactionStatusEvent::Success(
@@ -1664,7 +1664,7 @@ impl SurfnetSvmLocker {
         });
 
         let mut filtered = vec![];
-        for (pubkey, account) in res.inner.iter() {
+        for (pubkey, account) in &res.inner {
             if let Some(ref active_filters) = filters {
                 match apply_rpc_filters(&account.data, active_filters) {
                     Ok(true) => {}           // Account matches all filters
