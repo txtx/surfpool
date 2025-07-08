@@ -246,12 +246,19 @@ fn start_geyser_runloop(
         for plugin_config_path in plugin_config_paths.into_iter() {
             let plugin_manifest_location = FileLocation::from_path(plugin_config_path);
             let contents = plugin_manifest_location.read_content_as_utf8()?;
-            let result: serde_json::Value = json5::from_str(&contents).unwrap();
+            let result: serde_json::Value = match json5::from_str(&contents) {
+                Ok(res) => res,
+                Err(e) => {
+                    let error = format!("Unable to read manifest: {}", e);
+                    let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
+                    return Err(error)
+                }
+            };
             let (plugin_name, plugin_dylib_path) = match (result.get("name").map(|p| p.as_str()), result.get("libpath").map(|p| p.as_str())) {
                 (Some(Some(name)), Some(Some(libpath))) => (name, libpath),
                 _ => {
                     let error = format!("Unable to retrieve dylib: {}", plugin_manifest_location);
-                    let _ = simnet_events_tx.send(SimnetEvent::ErrorLog(Local::now(), error.clone()));
+                    let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
                     return Err(error)
                 }
             };
