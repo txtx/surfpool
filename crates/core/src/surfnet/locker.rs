@@ -469,7 +469,7 @@ impl SurfnetSvmLocker {
                     let transaction_meta = convert_transaction_metadata_from_canonical(&res);
                     let _ = svm_writer
                         .geyser_events_tx
-                        .send(GeyserEvent::NewTransaction(
+                        .send(GeyserEvent::NotifyTransaction(
                             transaction.clone(),
                             transaction_meta,
                             latest_absolute_slot,

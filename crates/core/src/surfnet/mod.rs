@@ -22,17 +22,12 @@ pub mod svm;
 
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
 pub const SLOTS_PER_EPOCH: u64 = 432000;
-// #[cfg(clippy)]
-// const SUBGRAPH_PLUGIN_BYTES: &[u8] = &[0];
-
-// #[cfg(not(clippy))]
-// const SUBGRAPH_PLUGIN_BYTES: &[u8] =
-//     include_bytes!("../../../../target/release/libsurfpool_subgraph.dylib");
 
 pub type AccountFactory = Box<dyn Fn(SurfnetSvmLocker) -> GetAccountResult + Send + Sync>;
 
 pub enum GeyserEvent {
-    NewTransaction(VersionedTransaction, TransactionMetadata, Slot),
+    NotifyTransaction(VersionedTransaction, TransactionMetadata, Slot),
+    // todo: add more events
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]

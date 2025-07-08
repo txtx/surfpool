@@ -1,0 +1,11 @@
+[package]
+name = "hello-geyser"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+agave-geyser-plugin-interface = "2.2.1"
+solana-program = "2.2.1"

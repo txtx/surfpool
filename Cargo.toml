@@ -17,6 +17,7 @@ members = [
     "crates/subgraph",
     "crates/types"
 ]
+exclude = ["example/hello-geyser"]
 default-members = ["crates/cli"]
 resolver = "2"
 
