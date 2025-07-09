@@ -27,7 +27,9 @@ use solana_transaction_status::UiTransactionEncoding;
 use super::GetTransactionResult;
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
+    rpc::utils::is_method_not_supported_error,
     surfnet::{GetAccountResult, locker::is_supported_token_program},
+    types::RemoteRpcResult,
 };
 
 pub struct SurfnetRemoteClient {
@@ -268,12 +270,15 @@ impl SurfnetRemoteClient {
     pub async fn get_largest_accounts(
         &self,
         config: Option<RpcLargestAccountsConfig>,
-    ) -> SurfpoolResult<Vec<RpcAccountBalance>> {
-        self.client
-            .get_largest_accounts_with_config(config.unwrap_or_default())
-            .await
-            .map(|res| res.value)
-            .map_err(SurfpoolError::get_largest_accounts)
+    ) -> SurfpoolResult<RemoteRpcResult<Vec<RpcAccountBalance>>> {
+        handle_remote_rpc(|| async {
+            self.client
+                .get_largest_accounts_with_config(config.unwrap_or_default())
+                .await
+                .map(|res| res.value)
+                .map_err(SurfpoolError::get_largest_accounts)
+        })
+        .await
     }
 
     pub async fn get_genesis_hash(&self) -> SurfpoolResult<Hash> {
@@ -298,5 +303,22 @@ impl SurfnetRemoteClient {
             .get_signatures_for_address_with_config(pubkey, c)
             .await
             .map_err(SurfpoolError::get_signatures_for_address)
+    }
+}
+
+/// Handles remote RPC calls, returning a `RemoteRpcResult` indicating whether the method was supported.
+/// If the method is not supported, it returns `RemoteRpcResult::MethodNotSupported`.
+/// If the method is supported, it returns `RemoteRpcResult::Ok(T)`.
+/// If the method is supported but returns an error, it returns `Err(E)`.
+pub async fn handle_remote_rpc<T, E, F, Fut>(fut: F) -> Result<RemoteRpcResult<T>, E>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    match fut().await {
+        Ok(val) => Ok(RemoteRpcResult::Ok(val)),
+        Err(e) if is_method_not_supported_error(&e) => Ok(RemoteRpcResult::MethodNotSupported),
+        Err(e) => Err(e),
     }
 }
