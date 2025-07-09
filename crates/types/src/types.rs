@@ -24,6 +24,9 @@ use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
 
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
+pub const DEFAULT_RPC_PORT: u16 = 8899;
+pub const DEFAULT_WS_PORT: u16 = 8900;
+pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionMetadata {
@@ -383,9 +386,9 @@ pub struct SubgraphPluginConfig {
 impl Default for RpcConfig {
     fn default() -> Self {
         Self {
-            bind_host: "127.0.0.1".to_string(),
-            bind_port: 8899,
-            ws_port: 8900,
+            bind_host: DEFAULT_NETWORK_HOST.to_string(),
+            bind_port: DEFAULT_RPC_PORT,
+            ws_port: DEFAULT_WS_PORT,
         }
     }
 }

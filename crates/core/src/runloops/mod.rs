@@ -241,7 +241,7 @@ fn start_geyser_runloop(
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let handle = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
         let mut plugin_manager = GeyserPluginManager::new();
-        let mut surfpool_plugin = None;
+        let mut surfpool_plugin_manager = vec![];
 
         for plugin_config_path in plugin_config_paths.into_iter() {
             let plugin_manifest_location = FileLocation::from_path(plugin_config_path);
@@ -319,7 +319,7 @@ fn start_geyser_runloop(
                                         let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveSubgraph(subgraph_rx));
                                     };
                                     let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
-                                    surfpool_plugin = Some(plugin);
+                                    surfpool_plugin_manager.push(plugin);
                                     let _ = simnet_events_tx.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
                                 }
                             }
@@ -381,7 +381,7 @@ fn start_geyser_runloop(
                             index: 0
                         };
 
-                        if let Some(ref plugin) = surfpool_plugin {
+                        for plugin in surfpool_plugin_manager.iter() {
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
                             };

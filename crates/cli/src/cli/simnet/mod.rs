@@ -24,7 +24,7 @@ use txtx_core::kit::{
 };
 use txtx_gql::kit::reqwest;
 
-use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_CLOUD_URL, DEFAULT_EXPLORER_PORT};
+use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_CLOUD_URL, DEFAULT_TXTX_PORT};
 use crate::{
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
@@ -65,7 +65,7 @@ pub async fn handle_start_local_surfnet_command(
     let remote_rpc_url = config.simnets[0].remote_rpc_url.clone();
     let local_rpc_url = config.rpc.get_socket_address();
 
-    let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);
+    let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_TXTX_PORT);
 
     let explorer_handle = match start_subgraph_and_explorer_server(
         network_binding,

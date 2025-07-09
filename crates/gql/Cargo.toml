@@ -13,7 +13,7 @@ categories = { workspace = true }
 [dependencies]
 futures = { version = "0.3.22", features = ["alloc"], default-features = false }
 uuid = { version = "1.6.1", features = ["serde", "v7"] }
-juniper = { version = "0.16.1", features = ["uuid"] }
+juniper = { version = "0.16.2", features = ["uuid"] }
 juniper_codegen = { version = "0.16.0" }
 # juniper_codegen = { git = "https://github.com/graphql-rust/juniper", rev = "c0e1b3e" }
 surfpool-types = { workspace = true }

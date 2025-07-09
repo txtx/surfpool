@@ -29,7 +29,7 @@ use surfpool_types::{
 };
 use txtx_core::kit::types::types::Value;
 
-use crate::cli::{Context, DEFAULT_EXPLORER_PORT};
+use crate::cli::{Context, DEFAULT_TXTX_PORT};
 
 #[cfg(feature = "explorer")]
 #[derive(RustEmbed)]
@@ -73,12 +73,12 @@ pub async fn start_subgraph_and_explorer_server(
             .wrap(middleware::Compress::default())
             .wrap(middleware::Logger::default())
             .service(
-                web::scope("/gql/v1")
-                    .route("/graphql?<request..>", web::get().to(get_graphql))
-                    .route("/graphql", web::post().to(post_graphql))
-                    .route("/subscriptions", web::get().to(subscriptions)),
+                web::scope("/gql")
+                    .route("/v1/graphql?<request..>", web::get().to(get_graphql))
+                    .route("/v1/graphql", web::post().to(post_graphql))
+                    .route("/v1/subscriptions", web::get().to(subscriptions))
+                    .route("/console", web::get().to(graphiql)),
             )
-            .service(web::resource("/gql/console").route(web::get().to(graphiql)))
             .service(dist)
     })
     .workers(5)
@@ -203,6 +203,7 @@ fn start_subgraph_runloop(
                     0 => match oper.recv(&subgraph_commands_rx) {
                         Err(_e) => {
                             // todo
+                            std::process::exit(1);
                         }
                         Ok(cmd) => match cmd {
                             SubgraphCommand::CreateSubgraph(uuid, request, sender) => {
@@ -218,8 +219,10 @@ fn start_subgraph_runloop(
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql context")
                                 })?;
+
                                 gql_context.register_subgraph(&request.subgraph_name, subgraph_uuid)?;
-                                let _ = sender.send(format!("http://127.0.0.1:{}/gql/console", DEFAULT_EXPLORER_PORT));
+                                let console_url = format!("http://127.0.0.1:{}/gql/console", DEFAULT_TXTX_PORT);
+                                let _ = sender.send(console_url);
                             }
                             SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
                                 observers.push(subgraph_observer_rx);
@@ -253,7 +256,9 @@ fn start_subgraph_runloop(
                             }
                             SchemaDataSourcingEvent::Rountrip(_uuid) => {}
                         },
-                        Err(_e) => {}
+                        Err(_e) => {
+                            std::process::exit(1);
+                        }
                     },
                 }
             }

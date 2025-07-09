@@ -7,7 +7,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
-use surfpool_types::{RpcConfig, SimnetConfig, SubgraphConfig, SurfpoolConfig};
+use surfpool_types::{
+    RpcConfig, SimnetConfig, SubgraphConfig, SurfpoolConfig, DEFAULT_NETWORK_HOST,
+    DEFAULT_RPC_PORT, DEFAULT_WS_PORT,
+};
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
 use txtx_gql::kit::helpers::fs::FileLocation;
@@ -24,11 +27,7 @@ pub struct Context {
 }
 
 pub const DEFAULT_SLOT_TIME_MS: &str = "400";
-pub const DEFAULT_EXPLORER_PORT: &str = "8901";
-pub const DEFAULT_SIMNET_PORT: &str = "8899";
-pub const DEFAULT_WS_PORT: &str = "8900";
 pub const DEFAULT_TXTX_PORT: &str = "8488";
-pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
 pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
@@ -135,10 +134,10 @@ pub struct StartSimnet {
     )]
     pub manifest_path: String,
     /// Set the Simnet RPC port
-    #[arg(long = "port", short = 'p', default_value = DEFAULT_SIMNET_PORT)]
+    #[arg(long = "port", short = 'p', default_value_t = DEFAULT_RPC_PORT)]
     pub simnet_port: u16,
     /// Set the Simnet WS port
-    #[arg(long = "ws-port", short = 'w', default_value = DEFAULT_WS_PORT)]
+    #[arg(long = "ws-port", short = 'w', default_value_t = DEFAULT_WS_PORT)]
     pub ws_port: u16,
     /// Set the Simnet host address
     #[arg(long = "host", short = 'o', default_value = DEFAULT_NETWORK_HOST)]
@@ -268,15 +267,12 @@ impl StartSimnet {
     }
 
     pub fn surfpool_config(&self, airdrop_addresses: Vec<Pubkey>) -> SurfpoolConfig {
-        let mut plugin_config_path = self
+        let plugin_config_path = self
             .plugin_config_path
             .iter()
             .map(PathBuf::from)
             .collect::<Vec<_>>();
 
-        if plugin_config_path.is_empty() {
-            plugin_config_path.push(PathBuf::from("plugins"));
-        }
         SurfpoolConfig {
             simnets: vec![self.simnet_config(airdrop_addresses)],
             rpc: self.rpc_config(),
