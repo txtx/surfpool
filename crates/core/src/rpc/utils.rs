@@ -10,7 +10,7 @@ use solana_client::{
     rpc_config::RpcTokenAccountsFilter,
     rpc_custom_error::RpcCustomError,
     rpc_filter::RpcFilterType,
-    rpc_request::{TokenAccountsFilter, MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT},
+    rpc_request::{MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT, TokenAccountsFilter},
 };
 use solana_hash::Hash;
 use solana_packet::PACKET_DATA_SIZE;

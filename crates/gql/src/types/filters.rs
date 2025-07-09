@@ -1,8 +1,8 @@
 use convert_case::{Case, Casing};
 use juniper::{
-    meta::{Argument, EnumValue, MetaType},
     DefaultScalarValue, FieldError, FromInputValue, GraphQLType, GraphQLValue, InputValue,
     Registry,
+    meta::{Argument, EnumValue, MetaType},
 };
 use serde::{Deserialize, Serialize};
 
@@ -24,9 +24,9 @@ impl GraphQLType<DefaultScalarValue> for SubgraphFilterSpec {
     where
         DefaultScalarValue: 'r,
     {
-        let mut args =
-            vec![registry
-                .arg::<Option<NumericFilter>>("blockHeight", &FieldInfo::new("blockHeight"))];
+        let mut args = vec![
+            registry.arg::<Option<NumericFilter>>("blockHeight", &FieldInfo::new("blockHeight")),
+        ];
 
         for field in spec.fields.iter() {
             if field.is_bool() {

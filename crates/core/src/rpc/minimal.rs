@@ -18,10 +18,10 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
-    rpc::{utils::verify_pubkey, State},
+    rpc::{State, utils::verify_pubkey},
     surfnet::{
-        locker::SvmAccessContext, GetAccountResult, FINALIZATION_SLOT_THRESHOLD,
-        SURFPOOL_IDENTITY_PUBKEY,
+        FINALIZATION_SLOT_THRESHOLD, GetAccountResult, SURFPOOL_IDENTITY_PUBKEY,
+        locker::SvmAccessContext,
     },
 };
 

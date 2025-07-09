@@ -6,13 +6,13 @@ use std::{
 
 use convert_case::{Case, Casing};
 use juniper::{
-    meta::MetaType, Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
-    GraphQLValueAsync, Registry,
+    Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
+    GraphQLValueAsync, Registry, meta::MetaType,
 };
 use uuid::Uuid;
 
 use crate::types::{
-    filters::SubgraphFilterSpec, scalars::bigint::BigInt, schema::DynamicSchemaSpec, SubgraphSpec,
+    SubgraphSpec, filters::SubgraphFilterSpec, scalars::bigint::BigInt, schema::DynamicSchemaSpec,
 };
 
 #[derive(Debug)]

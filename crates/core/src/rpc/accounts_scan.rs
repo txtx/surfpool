@@ -14,7 +14,7 @@ use solana_client::{
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
-use super::{utils::verify_pubkey, RunloopContext, State, SurfnetRpcContext};
+use super::{RunloopContext, State, SurfnetRpcContext, utils::verify_pubkey};
 use crate::surfnet::locker::SvmAccessContext;
 
 #[rpc]

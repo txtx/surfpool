@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use serde_json::json;
-use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
+use solana_account_decoder::{UiAccountEncoding, encode_ui_account};
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
     rpc_client::GetConfirmedSignaturesForAddress2Config,
@@ -28,7 +28,7 @@ use super::GetTransactionResult;
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::is_method_not_supported_error,
-    surfnet::{locker::is_supported_token_program, GetAccountResult},
+    surfnet::{GetAccountResult, locker::is_supported_token_program},
     types::RemoteRpcResult,
 };
 

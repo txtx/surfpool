@@ -4,7 +4,7 @@ use itertools::Itertools;
 use jsonrpc_core::{BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
 use litesvm::types::TransactionMetadata;
-use solana_account_decoder::{encode_ui_account, UiAccount, UiAccountEncoding};
+use solana_account_decoder::{UiAccount, UiAccountEncoding, encode_ui_account};
 use solana_client::{
     rpc_config::{
         RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig, RpcEncodingConfigWrapper,
@@ -19,7 +19,7 @@ use solana_client::{
         RpcSimulateTransactionResult,
     },
 };
-use solana_clock::{Slot, UnixTimestamp, MAX_RECENT_BLOCKHASHES};
+use solana_clock::{MAX_RECENT_BLOCKHASHES, Slot, UnixTimestamp};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
@@ -39,13 +39,13 @@ use solana_transaction_status::{
 use surfpool_types::{SimnetCommand, TransactionStatusEvent};
 
 use super::{
-    utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
     RunloopContext, State, SurfnetRpcContext,
+    utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    surfnet::{locker::SvmAccessContext, GetTransactionResult, FINALIZATION_SLOT_THRESHOLD},
-    types::{surfpool_tx_metadata_to_litesvm_tx_metadata, SurfnetTransactionStatus},
+    surfnet::{FINALIZATION_SLOT_THRESHOLD, GetTransactionResult, locker::SvmAccessContext},
+    types::{SurfnetTransactionStatus, surfpool_tx_metadata_to_litesvm_tx_metadata},
 };
 
 const MAX_PRIORITIZATION_FEE_BLOCKS_CACHE: usize = 150;
@@ -2315,7 +2315,7 @@ mod tests {
 
     use std::thread::JoinHandle;
 
-    use base64::{prelude::BASE64_STANDARD, Engine};
+    use base64::{Engine, prelude::BASE64_STANDARD};
     use crossbeam_channel::Receiver;
     use solana_account_decoder::{UiAccount, UiAccountData};
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
@@ -2323,7 +2323,7 @@ mod tests {
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::{
-        legacy::Message as LegacyMessage, v0::Message as V0Message, MessageHeader,
+        MessageHeader, legacy::Message as LegacyMessage, v0::Message as V0Message,
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
@@ -2331,8 +2331,8 @@ mod tests {
     use solana_signer::Signer;
     use solana_system_interface::program as system_program;
     use solana_transaction::{
-        versioned::{Legacy, TransactionVersion},
         Transaction,
+        versioned::{Legacy, TransactionVersion},
     };
     use solana_transaction_error::TransactionError;
     use solana_transaction_status::{
@@ -2344,7 +2344,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        surfnet::{remote::SurfnetRemoteClient, BlockHeader, BlockIdentifier},
+        surfnet::{BlockHeader, BlockIdentifier, remote::SurfnetRemoteClient},
         tests::helpers::TestSetup,
         types::TransactionWithStatusMeta,
     };

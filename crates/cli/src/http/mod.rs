@@ -7,11 +7,11 @@ use std::{
 
 use actix_cors::Cors;
 use actix_web::{
+    App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
     dev::ServerHandle,
     http::header::{self},
     middleware,
     web::{self, Data},
-    App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
 };
 use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
@@ -19,10 +19,9 @@ use juniper_graphql_ws::ConnectionConfig;
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
 use surfpool_gql::{
-    new_dynamic_schema,
+    DynamicSchema, new_dynamic_schema,
     query::{DataloaderContext, MemoryStore, SchemaDataSource},
-    types::{schema::DynamicSchemaSpec, SubgraphSpec},
-    DynamicSchema,
+    types::{SubgraphSpec, schema::DynamicSchemaSpec},
 };
 use surfpool_types::{
     SchemaDataSourcingEvent, SubgraphCommand, SubgraphDataEntry, SubgraphEvent, SurfpoolConfig,

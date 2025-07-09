@@ -12,7 +12,7 @@ use surfpool_types::SimnetCommand;
 use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
-use super::{not_implemented_err, not_implemented_err_async, RunloopContext};
+use super::{RunloopContext, not_implemented_err, not_implemented_err_async};
 use crate::PluginManagerCommand;
 
 #[rpc]
@@ -345,7 +345,7 @@ pub trait AdminRpc {
     /// - Once added, the new voter will be able to participate in governance actions.
     #[rpc(meta, name = "addAuthorizedVoterFromBytes")]
     fn add_authorized_voter_from_bytes(&self, meta: Self::Metadata, keypair: Vec<u8>)
-        -> Result<()>;
+    -> Result<()>;
 
     /// Removes all authorized voters from the system.
     ///
