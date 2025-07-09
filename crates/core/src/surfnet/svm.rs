@@ -792,12 +792,12 @@ impl SurfnetSvm {
                 signatures: confirmed_signatures,
             },
         );
-
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
         }
+        // Always add a perf_sample for the new block slot
         self.perf_samples.push_front(RpcPerfSample {
-            slot: self.latest_epoch_info.slot_index,
+            slot: self.get_latest_absolute_slot(),
             num_slots: 1,
             sample_period_secs: 1,
             num_transactions,
@@ -1020,6 +1020,13 @@ impl SurfnetSvm {
         };
 
         Some(block)
+    }
+
+    /// Returns the blockhash for a given slot, if available.
+    pub fn blockhash_for_slot(&self, slot: Slot) -> Option<Hash> {
+        self.blocks
+            .get(&slot)
+            .and_then(|header| header.hash.parse().ok())
     }
 
     /// Gets all accounts owned by a specific program ID from the account registry.

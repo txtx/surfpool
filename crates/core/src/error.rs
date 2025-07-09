@@ -6,6 +6,7 @@ use serde::Serialize;
 use serde_json::json;
 use solana_client::rpc_request::TokenAccountsFilter;
 use solana_pubkey::Pubkey;
+use solana_sdk::slot_history::Slot;
 
 pub type SurfpoolResult<T> = std::result::Result<T, SurfpoolError>;
 
@@ -366,5 +367,17 @@ impl SurfpoolError {
         Self(Error::invalid_params(
             "sigVerify may not be used with replaceRecentBlockhash",
         ))
+    }
+
+    pub fn slot_too_old(slot: Slot) -> Self {
+        Self(Error::invalid_params(format!(
+            "Requested {slot} is before the first local slot, and no remote RPC was provided."
+        )))
+    }
+
+    pub fn get_block(e: solana_client::client_error::ClientError) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!("Failed to get block: {e}")));
+        Self(error)
     }
 }

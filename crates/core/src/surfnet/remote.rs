@@ -6,7 +6,7 @@ use solana_client::{
     nonblocking::rpc_client::RpcClient,
     rpc_client::GetConfirmedSignaturesForAddress2Config,
     rpc_config::{
-        RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig,
+        RpcAccountInfoConfig, RpcBlockConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig,
         RpcSignaturesForAddressConfig, RpcTokenAccountsFilter,
     },
     rpc_filter::RpcFilterType,
@@ -16,13 +16,14 @@ use solana_client::{
         RpcTokenAccountBalance,
     },
 };
+use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_pubkey::Pubkey;
 use solana_sdk::bpf_loader_upgradeable::get_program_data_address;
 use solana_signature::Signature;
-use solana_transaction_status::UiTransactionEncoding;
+use solana_transaction_status::{UiConfirmedBlock, UiTransactionEncoding};
 
 use super::GetTransactionResult;
 use crate::{
@@ -303,6 +304,17 @@ impl SurfnetRemoteClient {
             .get_signatures_for_address_with_config(pubkey, c)
             .await
             .map_err(SurfpoolError::get_signatures_for_address)
+    }
+
+    pub async fn get_block(
+        &self,
+        slot: &Slot,
+        config: RpcBlockConfig,
+    ) -> SurfpoolResult<UiConfirmedBlock> {
+        self.client
+            .get_block_with_config(*slot, config)
+            .await
+            .map_err(SurfpoolError::get_block)
     }
 }
 
