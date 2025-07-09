@@ -150,3 +150,9 @@ pub fn surfpool_tx_metadata_to_litesvm_tx_metadata(
         signature: metadata.signature,
     }
 }
+
+#[derive(Debug, Clone)]
+pub enum RemoteRpcResult<T> {
+    Ok(T),
+    MethodNotSupported,
+}

@@ -64,7 +64,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
     surfnet::FINALIZATION_SLOT_THRESHOLD,
-    types::TransactionWithStatusMeta,
+    types::{RemoteRpcResult, TransactionWithStatusMeta},
 };
 
 pub struct SvmAccessContext<T> {
@@ -399,7 +399,6 @@ impl SurfnetSvmLocker {
                 .iter()
                 .sorted_by(|a, b| b.1.lamports.cmp(&a.1.lamports))
                 .collect::<Vec<_>>();
-
             let ordered_filtered_accounts = match config.filter {
                 Some(RpcLargestAccountsFilter::NonCirculating) => ordered_accounts
                     .into_iter()
@@ -432,25 +431,46 @@ impl SurfnetSvmLocker {
         // get all non-circulating and circulating pubkeys from the remote client first,
         // and insert them locally
         {
-            let mut remote_non_circulating_pubkeys = client
+            let remote_non_circulating_pubkeys_result = client
                 .get_largest_accounts(Some(RpcLargestAccountsConfig {
                     filter: Some(RpcLargestAccountsFilter::NonCirculating),
                     ..config.clone()
                 }))
-                .await?
-                .iter()
-                .map(|account_balance| verify_pubkey(&account_balance.address))
-                .collect::<SurfpoolResult<Vec<_>>>()?;
+                .await?;
 
-            let mut remote_circulating_pubkeys = client
-                .get_largest_accounts(Some(RpcLargestAccountsConfig {
-                    filter: Some(RpcLargestAccountsFilter::Circulating),
-                    ..config.clone()
-                }))
-                .await?
-                .iter()
-                .map(|account_balance| verify_pubkey(&account_balance.address))
-                .collect::<SurfpoolResult<Vec<_>>>()?;
+            let (mut remote_non_circulating_pubkeys, mut remote_circulating_pubkeys) =
+                match remote_non_circulating_pubkeys_result {
+                    RemoteRpcResult::Ok(non_circulating_accounts) => {
+                        let remote_circulating_pubkeys_result = client
+                            .get_largest_accounts(Some(RpcLargestAccountsConfig {
+                                filter: Some(RpcLargestAccountsFilter::Circulating),
+                                ..config.clone()
+                            }))
+                            .await?;
+
+                        let remote_circulating_pubkeys = match remote_circulating_pubkeys_result {
+                            RemoteRpcResult::Ok(circulating_accounts) => circulating_accounts,
+                            RemoteRpcResult::MethodNotSupported => {
+                                unreachable!()
+                            }
+                        };
+                        (
+                            non_circulating_accounts
+                                .iter()
+                                .map(|account_balance| verify_pubkey(&account_balance.address))
+                                .collect::<SurfpoolResult<Vec<_>>>()?,
+                            remote_circulating_pubkeys
+                                .iter()
+                                .map(|account_balance| verify_pubkey(&account_balance.address))
+                                .collect::<SurfpoolResult<Vec<_>>>()?,
+                        )
+                    }
+                    RemoteRpcResult::MethodNotSupported => {
+                        let tx = self.simnet_events_tx();
+                        let _ = tx.send(SimnetEvent::warn("The `getLargestAccounts` method was sent to the remote RPC, but this method isn't supported by your RPC provider. Only local accounts will be returned."));
+                        (vec![], vec![])
+                    }
+                };
 
             let mut combined = Vec::with_capacity(
                 remote_non_circulating_pubkeys.len() + remote_circulating_pubkeys.len(),
