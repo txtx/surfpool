@@ -1737,16 +1737,16 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         slot: Slot,
-        _config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
+        config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
+        let config = config.map(|c| c.convert_to_current()).unwrap_or_default();
+
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
 
-        Box::pin(async move {
-            Ok(svm_locker.with_svm_reader(|svm_reader| svm_reader.get_block_at_slot(slot)))
-        })
+        Box::pin(async move { Ok(svm_locker.get_block_local(&slot, &config).inner) })
     }
 
     fn get_block_time(
@@ -1819,7 +1819,6 @@ impl Full for SurfpoolFullRpc {
                 .map(|end| end.min(committed_latest_slot))
                 .unwrap_or(committed_latest_slot);
 
-            println!("effective_end_slot: {}", effective_end_slot);
             if let Some(min_context_slot) = config.min_context_slot {
                 if committed_latest_slot < min_context_slot {
                     return Err(RpcCustomError::MinContextSlotNotReached {
@@ -1837,18 +1836,8 @@ impl Full for SurfpoolFullRpc {
                         .get_blocks(start_slot, end_slot)
                         .await
                         .unwrap_or_else(|_| vec![]);
-                    println!(
-                        "[getBlocks] FORWARDED to remote: start_slot={}, end_slot={:?}, got {} slots",
-                        start_slot,
-                        end_slot,
-                        remote_result.len()
-                    );
                     return Ok(remote_result);
                 } else {
-                    println!(
-                        "[getBlocks] EMPTY: start_slot={}, end_slot={:?}, committed_latest_slot={}, effective_end_slot={}",
-                        start_slot, end_slot, committed_latest_slot, effective_end_slot
-                    );
                     return Ok(vec![]);
                 }
             }
@@ -1859,11 +1848,6 @@ impl Full for SurfpoolFullRpc {
                     effective_end_slot.saturating_sub(start_slot)
                 )));
             }
-
-            println!(
-                "[getBlocks] start_slot={}, end_slot={:?}, committed_latest_slot={}, effective_end_slot={}",
-                start_slot, end_slot, committed_latest_slot, effective_end_slot
-            );
 
             let slots: Vec<Slot> = (start_slot..=effective_end_slot).collect();
             Ok(slots)

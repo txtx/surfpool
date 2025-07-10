@@ -1797,7 +1797,9 @@ impl SurfnetSvmLocker {
         slot: &Slot,
         config: &RpcBlockConfig,
     ) -> SvmAccessContext<Option<UiConfirmedBlock>> {
-        self.with_contextualized_svm_reader(|svm_reader| svm_reader.get_block_at_slot(*slot))
+        self.with_contextualized_svm_reader(|svm_reader| {
+            svm_reader.get_block_at_slot(*slot, config)
+        })
     }
 
     pub fn get_genesis_hash_local(&self) -> SvmAccessContext<Hash> {
