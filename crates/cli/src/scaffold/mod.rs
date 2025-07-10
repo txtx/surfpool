@@ -4,7 +4,7 @@ use std::{
 };
 
 use dialoguer::{console::Style, theme::ColorfulTheme, Confirm, Input, MultiSelect};
-use surfpool_types::{DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT, DEFAULT_RPC_URL};
+use surfpool_types::{DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT};
 use txtx_addon_network_svm::templates::{
     get_interpolated_addon_template, get_interpolated_devnet_signer_template,
     get_interpolated_header_template, get_interpolated_localnet_signer_template,

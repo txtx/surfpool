@@ -13,6 +13,7 @@ use actix_web::{
     web::{self, Data},
     App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
 };
+use convert_case::{Case, Casing};
 use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
@@ -20,7 +21,7 @@ use juniper_graphql_ws::ConnectionConfig;
 use rust_embed::RustEmbed;
 use surfpool_gql::{
     new_dynamic_schema,
-    query::{DataloaderContext, MemoryStore, SchemaDataSource},
+    query::{DataloaderContext, SchemaDataSource, SqlStore},
     types::{schema::DynamicSchemaSpec, SubgraphSpec},
     DynamicSchema,
 };
@@ -43,7 +44,7 @@ pub async fn start_subgraph_and_explorer_server(
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     _ctx: &Context,
 ) -> Result<(ServerHandle, JoinHandle<Result<(), String>>), Box<dyn StdError>> {
-    let context: DataloaderContext = Box::new(MemoryStore::new());
+    let context: DataloaderContext = Box::new(SqlStore::new_in_memory());
     let schema_datasource = SchemaDataSource::new();
     let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
     let schema_wrapped = Data::new(schema);
@@ -178,7 +179,7 @@ async fn subscriptions(
 }
 
 async fn graphiql() -> Result<HttpResponse, Error> {
-    graphiql_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
+    graphiql_handler("/gql/v1/graphql", None).await
 }
 
 fn start_subgraph_runloop(
@@ -213,14 +214,15 @@ fn start_subgraph_runloop(
                                 })?;
 
                                 let subgraph_uuid = uuid;
-                                schema_datasource.add_entry(DynamicSchemaSpec::from_request(&uuid, &request));
-                                gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
-
+                                let subgraph_name = request.subgraph_name.to_case(Case::Camel);
+                                let schema = DynamicSchemaSpec::from_request(&uuid, &request);
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql context")
                                 })?;
+                                gql_context.register_collection(&subgraph_uuid, &subgraph_name, &schema)?;
+                                schema_datasource.add_entry(schema);
+                                gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
 
-                                gql_context.register_subgraph(&request.subgraph_name, subgraph_uuid)?;
                                 let console_url = format!("http://127.0.0.1:{}/gql/console", DEFAULT_TXTX_PORT);
                                 let _ = sender.send(console_url);
                             }
@@ -244,14 +246,11 @@ fn start_subgraph_runloop(
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql context")
                                 })?;
-                                let subgraph_name = gql_context.get_subgraph_name(&uuid).ok_or_else(|| {
-                                    format!("{err_ctx}: Subgraph name not found for uuid: {}", uuid)
-                                })?;
                                 let entries: Vec<HashMap<String, Value>> = serde_json::from_slice(values.as_slice()).map_err(|e| {
-                                    format!("{err_ctx}: Failed to deserialize new database entry for subgraph {}: {}", subgraph_name, e)
+                                    format!("{err_ctx}: Failed to deserialize new database entry for subgraph {}: {}", uuid, e)
                                 })?;
                                 for entry in entries.into_iter() {
-                                    gql_context.insert_entry_to_subgraph(&subgraph_name, SubgraphSpec(SubgraphDataEntry::new(entry, slot, tx_hash)))?;
+                                    gql_context.insert_entry_to_subgraph(&uuid, SubgraphSpec(SubgraphDataEntry::new(entry, slot, tx_hash)))?;
                                 }
                             }
                             SchemaDataSourcingEvent::Rountrip(_uuid) => {}

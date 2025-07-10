@@ -49,12 +49,12 @@ struct ColorTheme {
 impl ColorTheme {
     fn new(color: &tailwind::Palette) -> Self {
         Self {
-            background: tailwind::SLATE.c950,
+            background: tailwind::ZINC.c900,
             accent: color.c400,
             primary: color.c500,
             secondary: color.c300,
             white: tailwind::SLATE.c200,
-            gray: tailwind::SLATE.c500,
+            gray: tailwind::ZINC.c800,
             error: tailwind::RED.c400,
             warning: tailwind::YELLOW.c500,
             info: tailwind::BLUE.c500,
@@ -100,11 +100,8 @@ impl App {
         local_rpc_url: &str,
         breaker: Option<Keypair>,
     ) -> App {
-        let palette = if remote_rpc_url.contains("helius") {
-            palette::tailwind::RED
-        } else {
-            palette::tailwind::EMERALD
-        };
+        let palette = palette::tailwind::EMERALD;
+
         let remote_rpc_host = {
             let comps = remote_rpc_url
                 .split("?")
@@ -532,20 +529,25 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
-    let line_len = area.width.max(1) as usize;
+    let line_len = area.width.max(1) as usize / 2;
     let total_chars = line_len * 3;
     let cursor = app.slot() % total_chars;
-    let sequence: Vec<char> = (0..total_chars)
-        .map(|i| if i < cursor { '▮' } else { '▯' })
-        .collect();
 
-    let text: String = sequence
-        .chunks(line_len)
-        .map(|line| line.iter().collect::<String>())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut lines = Vec::new();
+    for chunk in (0..total_chars).collect::<Vec<_>>().chunks(line_len) {
+        let mut spans = Vec::new();
+        for &i in chunk {
+            let color = if i < cursor {
+                app.colors.accent
+            } else {
+                app.colors.gray
+            };
+            spans.push(Span::styled("● ", color));
+        }
+        lines.push(Line::from(spans));
+    }
 
-    let title = Paragraph::new(text);
+    let title = Paragraph::new(lines);
     f.render_widget(title.style(app.colors.accent), area);
 }
 

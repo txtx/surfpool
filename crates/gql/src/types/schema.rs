@@ -87,7 +87,7 @@ impl GraphQLType<DefaultScalarValue> for DynamicSchemaSpec {
         );
         fields.push(
             registry
-                .field::<&Uuid>("blockHeight", &())
+                .field::<&Uuid>("slot", &())
                 .description("The block height that the entry was processed in"),
         );
         fields.push(

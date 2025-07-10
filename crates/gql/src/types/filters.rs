@@ -24,9 +24,7 @@ impl GraphQLType<DefaultScalarValue> for SubgraphFilterSpec {
     where
         DefaultScalarValue: 'r,
     {
-        let mut args =
-            vec![registry
-                .arg::<Option<NumericFilter>>("blockHeight", &FieldInfo::new("blockHeight"))];
+        let mut args = vec![registry.arg::<Option<NumericFilter>>("slot", &FieldInfo::new("slot"))];
 
         for field in spec.fields.iter() {
             if field.is_bool() {
