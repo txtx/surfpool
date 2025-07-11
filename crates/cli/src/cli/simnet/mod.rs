@@ -25,8 +25,9 @@ use txtx_core::kit::{
 };
 use txtx_gql::kit::reqwest;
 
-use super::{Context, DEFAULT_CLOUD_URL, DEFAULT_EXPLORER_PORT, ExecuteRunbook, StartSimnet};
+use super::{Context, DEFAULT_CLOUD_URL, ExecuteRunbook, StartSimnet};
 use crate::{
+    cli::DEFAULT_TXTX_PORT,
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
