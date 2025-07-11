@@ -1,9 +1,9 @@
 use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{
-    parse_account_data::SplTokenAdditionalDataV2,
-    parse_token::{parse_token_v3, TokenAccountType, UiTokenAmount},
     UiAccount,
+    parse_account_data::SplTokenAdditionalDataV2,
+    parse_token::{TokenAccountType, UiTokenAmount, parse_token_v3},
 };
 use solana_client::{
     rpc_config::RpcAccountInfoConfig,
@@ -19,7 +19,7 @@ use spl_token::state::{Account as TokenAccount, Mint};
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    rpc::{utils::verify_pubkey, State},
+    rpc::{State, utils::verify_pubkey},
     surfnet::locker::SvmAccessContext,
 };
 
@@ -727,7 +727,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        surfnet::{remote::SurfnetRemoteClient, GetAccountResult},
+        surfnet::{GetAccountResult, remote::SurfnetRemoteClient},
         tests::helpers::TestSetup,
     };
 

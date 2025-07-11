@@ -1,11 +1,11 @@
 use std::{collections::VecDeque, error::Error, io, time::Duration};
 
 use chrono::{DateTime, Local};
-use crossbeam::channel::{unbounded, Select, Sender};
+use crossbeam::channel::{Select, Sender, unbounded};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
     prelude::*,

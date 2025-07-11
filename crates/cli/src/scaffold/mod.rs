@@ -3,7 +3,7 @@ use std::{
     fs::{self, File},
 };
 
-use dialoguer::{console::Style, theme::ColorfulTheme, Confirm, Input, MultiSelect};
+use dialoguer::{Confirm, Input, MultiSelect, console::Style, theme::ColorfulTheme};
 use surfpool_types::{DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT};
 use txtx_addon_network_svm::templates::{
     get_interpolated_addon_template, get_interpolated_devnet_signer_template,
@@ -13,7 +13,7 @@ use txtx_addon_network_svm::templates::{
 use txtx_core::{
     kit::{helpers::fs::FileLocation, indexmap::indexmap},
     manifest::{RunbookMetadata, WorkspaceManifest},
-    templates::{build_manifest_data, TXTX_MANIFEST_TEMPLATE, TXTX_README_TEMPLATE},
+    templates::{TXTX_MANIFEST_TEMPLATE, TXTX_README_TEMPLATE, build_manifest_data},
 };
 
 use crate::{cli::DEFAULT_SOLANA_KEYPAIR_PATH, types::Framework};

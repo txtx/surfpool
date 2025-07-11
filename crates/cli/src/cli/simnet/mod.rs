@@ -1,8 +1,9 @@
 use std::{
     path::Path,
     sync::{
+        Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
+        mpsc,
     },
     thread::sleep,
     time::Duration,
@@ -10,8 +11,8 @@ use std::{
 
 use crossbeam::channel::{Select, Sender};
 use notify::{
-    event::{CreateKind, DataChange, ModifyKind},
     Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
+    event::{CreateKind, DataChange, ModifyKind},
 };
 use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
@@ -24,7 +25,7 @@ use txtx_core::kit::{
 };
 use txtx_gql::kit::reqwest;
 
-use super::{Context, ExecuteRunbook, StartSimnet, DEFAULT_CLOUD_URL, DEFAULT_TXTX_PORT};
+use super::{Context, DEFAULT_CLOUD_URL, DEFAULT_EXPLORER_PORT, ExecuteRunbook, StartSimnet};
 use crate::{
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,

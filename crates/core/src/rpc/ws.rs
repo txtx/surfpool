@@ -1,14 +1,14 @@
 use std::{
     collections::HashMap,
     str::FromStr,
-    sync::{atomic, Arc, RwLock},
+    sync::{Arc, RwLock, atomic},
 };
 
 use jsonrpc_core::{Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_pubsub::{
-    typed::{Sink, Subscriber},
     SubscriptionId,
+    typed::{Sink, Subscriber},
 };
 use solana_account_decoder::{UiAccount, UiAccountEncoding};
 use solana_client::{
@@ -24,7 +24,7 @@ use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
 
 use super::{State, SurfnetRpcContext, SurfpoolWebsocketMeta};
-use crate::surfnet::{locker::SvmAccessContext, GetTransactionResult, SignatureSubscriptionType};
+use crate::surfnet::{GetTransactionResult, SignatureSubscriptionType, locker::SvmAccessContext};
 
 /// Configuration for account subscription requests.
 ///

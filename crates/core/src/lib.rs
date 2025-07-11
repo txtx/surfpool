@@ -21,7 +21,7 @@ pub use jsonrpc_core;
 pub use jsonrpc_http_server;
 pub use litesvm;
 pub use solana_rpc_client;
-use surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm, GeyserEvent};
+use surfnet::{GeyserEvent, locker::SurfnetSvmLocker, svm::SurfnetSvm};
 use surfpool_types::{SimnetCommand, SubgraphCommand, SurfpoolConfig};
 use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;

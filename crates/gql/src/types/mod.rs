@@ -1,12 +1,12 @@
 use juniper::{
+    Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue, Registry,
     graphql_object,
     meta::{Field, MetaType},
-    Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue, Registry,
 };
 use scalars::{bigint::BigInt, hash::Hash, pubkey::PublicKey, slot::Slot};
 use surfpool_types::SubgraphDataEntry;
 use txtx_addon_kit::{hex, types::types::Value};
-use txtx_addon_network_svm_types::{SvmValue, SVM_PUBKEY};
+use txtx_addon_network_svm_types::{SVM_PUBKEY, SvmValue};
 use uuid::Uuid;
 
 use crate::{query::DataloaderContext, types::schema::DynamicSchemaSpec};

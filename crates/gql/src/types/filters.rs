@@ -1,8 +1,8 @@
 use convert_case::{Case, Casing};
 use juniper::{
-    meta::{Argument, EnumValue, MetaType},
     DefaultScalarValue, FieldError, FromInputValue, GraphQLType, GraphQLValue, InputValue,
     Registry,
+    meta::{Argument, EnumValue, MetaType},
 };
 use serde::{Deserialize, Serialize};
 

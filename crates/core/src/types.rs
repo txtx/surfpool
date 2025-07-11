@@ -1,15 +1,16 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::prelude::{Engine, BASE64_STANDARD};
+use base64::prelude::{BASE64_STANDARD, Engine};
 use solana_client::rpc_client::SerializableTransaction;
 use solana_message::VersionedMessage;
 use solana_sdk::transaction::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
-    option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
-    EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionConfirmationStatus,
-    TransactionStatus, UiAddressTableLookup, UiCompiledInstruction, UiMessage, UiRawMessage,
-    UiReturnDataEncoding, UiTransaction, UiTransactionReturnData, UiTransactionStatusMeta,
+    EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction,
+    EncodedTransactionWithStatusMeta, TransactionConfirmationStatus, TransactionStatus,
+    UiAddressTableLookup, UiCompiledInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding,
+    UiTransaction, UiTransactionReturnData, UiTransactionStatusMeta,
+    option_serializer::OptionSerializer,
 };
 use surfpool_types::TransactionMetadata;
 
@@ -149,4 +150,10 @@ pub fn surfpool_tx_metadata_to_litesvm_tx_metadata(
         inner_instructions: metadata.inner_instructions.clone(),
         signature: metadata.signature,
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum RemoteRpcResult<T> {
+    Ok(T),
+    MethodNotSupported,
 }

@@ -3,7 +3,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, RwLock},
-    thread::{sleep, JoinHandle},
+    thread::{JoinHandle, sleep},
     time::{Duration, Instant},
 };
 
@@ -12,7 +12,7 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
 };
 use chrono::{Local, Utc};
 use crossbeam::select;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use ipc_channel::{
     ipc::{IpcOneShotServer, IpcReceiver},
     router::RouterProxy,
@@ -25,7 +25,7 @@ use libloading::{Library, Symbol};
 use solana_geyser_plugin_manager::geyser_plugin_manager::{
     GeyserPluginManager, LoadedGeyserPlugin,
 };
-use solana_message::{v0::LoadedAddresses, SimpleAddressLoader};
+use solana_message::{SimpleAddressLoader, v0::LoadedAddresses};
 use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
 use solana_transaction_status::{InnerInstruction, InnerInstructions, TransactionStatusMeta};
@@ -39,14 +39,14 @@ type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use txtx_addon_kit::helpers::fs::FileLocation;
 
 use crate::{
-    rpc::{
-        self, accounts_data::AccountsData, accounts_scan::AccountsScan, admin::AdminRpc,
-        bank_data::BankData, full::Full, minimal::Minimal, surfnet_cheatcodes::SvmTricksRpc,
-        ws::Rpc, RunloopContext, SurfpoolMiddleware, SurfpoolWebsocketMeta,
-        SurfpoolWebsocketMiddleware,
-    },
-    surfnet::{locker::SurfnetSvmLocker, remote::SurfnetRemoteClient, GeyserEvent},
     PluginManagerCommand,
+    rpc::{
+        self, RunloopContext, SurfpoolMiddleware, SurfpoolWebsocketMeta,
+        SurfpoolWebsocketMiddleware, accounts_data::AccountsData, accounts_scan::AccountsScan,
+        admin::AdminRpc, bank_data::BankData, full::Full, minimal::Minimal,
+        surfnet_cheatcodes::SvmTricksRpc, ws::Rpc,
+    },
+    surfnet::{GeyserEvent, locker::SurfnetSvmLocker, remote::SurfnetRemoteClient},
 };
 
 const BLOCKHASH_SLOT_TTL: u64 = 75;

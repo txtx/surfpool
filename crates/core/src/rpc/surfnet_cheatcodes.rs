@@ -1,5 +1,5 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
-use jsonrpc_core::{futures::future, BoxFuture, Error, Result};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
 use solana_account::Account;
 use solana_account_decoder::UiAccountEncoding;
@@ -12,18 +12,18 @@ use solana_sdk::{
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::{Account as TokenAccount, AccountState};
 use surfpool_types::{
-    types::{AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate},
     SimnetEvent,
+    types::{AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate},
 };
 
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     error::SurfpoolError,
     rpc::{
-        utils::{verify_pubkey, verify_pubkeys},
         State,
+        utils::{verify_pubkey, verify_pubkeys},
     },
-    surfnet::{locker::SvmAccessContext, GetAccountResult},
+    surfnet::{GetAccountResult, locker::SvmAccessContext},
 };
 
 pub trait AccountUpdateExt {
@@ -114,7 +114,7 @@ impl TokenAccountUpdateExt for TokenAccountUpdate {
                     return Err(Error::invalid_params(format!(
                         "Invalid token account state: {}",
                         state
-                    )))
+                    )));
                 }
             };
         }

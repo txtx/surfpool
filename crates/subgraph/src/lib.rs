@@ -176,7 +176,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
 /// # Safety
 ///

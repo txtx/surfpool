@@ -1,13 +1,13 @@
 use convert_case::{Case, Casing};
 use juniper::{
-    meta::{Field, MetaType},
     DefaultScalarValue, GraphQLType, GraphQLValue, Registry,
+    meta::{Field, MetaType},
 };
 use serde::{Deserialize, Serialize};
 use txtx_addon_kit::types::types::Type;
 use txtx_addon_network_svm_types::{
-    subgraph::{IndexedSubgraphField, SubgraphRequest},
     SVM_PUBKEY,
+    subgraph::{IndexedSubgraphField, SubgraphRequest},
 };
 use uuid::Uuid;
 

@@ -5,8 +5,8 @@ use jsonrpc_core::Result as RpcError;
 use locker::SurfnetSvmLocker;
 use solana_account::Account;
 use solana_account_decoder::{
-    encode_ui_account, parse_account_data::AccountAdditionalDataV3, UiAccount, UiAccountEncoding,
-    UiDataSliceConfig,
+    UiAccount, UiAccountEncoding, UiDataSliceConfig, encode_ui_account,
+    parse_account_data::AccountAdditionalDataV3,
 };
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentLevel;
@@ -137,11 +137,11 @@ impl GetAccountResult {
     {
         match self {
             Self::None(_) => unreachable!(),
-            Self::FoundAccount(_, ref mut account, ref mut do_update_account) => {
+            Self::FoundAccount(_, account, do_update_account) => {
                 update(account)?;
                 *do_update_account = true;
             }
-            Self::FoundProgramAccount((_, ref mut account), _) => {
+            Self::FoundProgramAccount((_, account), _) => {
                 update(account)?;
             }
         }

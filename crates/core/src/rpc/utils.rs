@@ -10,7 +10,7 @@ use solana_client::{
     rpc_config::RpcTokenAccountsFilter,
     rpc_custom_error::RpcCustomError,
     rpc_filter::RpcFilterType,
-    rpc_request::{TokenAccountsFilter, MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT},
+    rpc_request::{MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT, TokenAccountsFilter},
 };
 use solana_hash::Hash;
 use solana_packet::PACKET_DATA_SIZE;
@@ -220,4 +220,17 @@ pub fn transform_tx_metadata_to_ui_accounts(
             .into()
         })
         .collect()
+}
+
+/// Returns true if the error indicates the remote method is not supported.
+pub fn is_method_not_supported_error<E: std::fmt::Display>(err: &E) -> bool {
+    let msg = err.to_string().to_lowercase();
+    msg.contains("not supported")
+        || msg.contains("unsupported")
+        || msg.contains("unavailable")
+        || msg.contains("method blocked")
+        || msg.contains("invalid request")
+        || msg.contains("is blocked")
+        || msg.contains("if you need this method")
+        || msg.contains("client error")
 }

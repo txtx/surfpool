@@ -7,11 +7,10 @@ use jsonrpc_core::futures::future::join_all;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
 use solana_account_decoder::{
-    encode_ui_account,
+    UiAccount, UiAccountEncoding, encode_ui_account,
     parse_account_data::AccountAdditionalDataV3,
-    parse_bpf_loader::{parse_bpf_upgradeable_loader, BpfUpgradeableLoaderAccountType, UiProgram},
+    parse_bpf_loader::{BpfUpgradeableLoaderAccountType, UiProgram, parse_bpf_upgradeable_loader},
     parse_token::UiTokenAmount,
-    UiAccount, UiAccountEncoding,
 };
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
@@ -31,13 +30,13 @@ use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_message::{
-    v0::{LoadedAddresses, MessageAddressTableLookup},
     VersionedMessage,
+    v0::{LoadedAddresses, MessageAddressTableLookup},
 };
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
+    bpf_loader_upgradeable::{UpgradeableLoaderState, get_program_data_address},
     program_pack::Pack,
     transaction::VersionedTransaction,
 };
@@ -56,15 +55,15 @@ use surfpool_types::{
 use tokio::sync::RwLock;
 
 use super::{
-    remote::{SomeRemoteCtx, SurfnetRemoteClient},
     AccountFactory, GetAccountResult, GetTransactionResult, GeyserEvent, SignatureSubscriptionType,
     SurfnetSvm,
+    remote::{SomeRemoteCtx, SurfnetRemoteClient},
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
     surfnet::FINALIZATION_SLOT_THRESHOLD,
-    types::TransactionWithStatusMeta,
+    types::{RemoteRpcResult, TransactionWithStatusMeta},
 };
 
 pub struct SvmAccessContext<T> {
@@ -399,7 +398,6 @@ impl SurfnetSvmLocker {
                 .iter()
                 .sorted_by(|a, b| b.1.lamports.cmp(&a.1.lamports))
                 .collect::<Vec<_>>();
-
             let ordered_filtered_accounts = match config.filter {
                 Some(RpcLargestAccountsFilter::NonCirculating) => ordered_accounts
                     .into_iter()
@@ -432,25 +430,46 @@ impl SurfnetSvmLocker {
         // get all non-circulating and circulating pubkeys from the remote client first,
         // and insert them locally
         {
-            let mut remote_non_circulating_pubkeys = client
+            let remote_non_circulating_pubkeys_result = client
                 .get_largest_accounts(Some(RpcLargestAccountsConfig {
                     filter: Some(RpcLargestAccountsFilter::NonCirculating),
                     ..config.clone()
                 }))
-                .await?
-                .iter()
-                .map(|account_balance| verify_pubkey(&account_balance.address))
-                .collect::<SurfpoolResult<Vec<_>>>()?;
+                .await?;
 
-            let mut remote_circulating_pubkeys = client
-                .get_largest_accounts(Some(RpcLargestAccountsConfig {
-                    filter: Some(RpcLargestAccountsFilter::Circulating),
-                    ..config.clone()
-                }))
-                .await?
-                .iter()
-                .map(|account_balance| verify_pubkey(&account_balance.address))
-                .collect::<SurfpoolResult<Vec<_>>>()?;
+            let (mut remote_non_circulating_pubkeys, mut remote_circulating_pubkeys) =
+                match remote_non_circulating_pubkeys_result {
+                    RemoteRpcResult::Ok(non_circulating_accounts) => {
+                        let remote_circulating_pubkeys_result = client
+                            .get_largest_accounts(Some(RpcLargestAccountsConfig {
+                                filter: Some(RpcLargestAccountsFilter::Circulating),
+                                ..config.clone()
+                            }))
+                            .await?;
+
+                        let remote_circulating_pubkeys = match remote_circulating_pubkeys_result {
+                            RemoteRpcResult::Ok(circulating_accounts) => circulating_accounts,
+                            RemoteRpcResult::MethodNotSupported => {
+                                unreachable!()
+                            }
+                        };
+                        (
+                            non_circulating_accounts
+                                .iter()
+                                .map(|account_balance| verify_pubkey(&account_balance.address))
+                                .collect::<SurfpoolResult<Vec<_>>>()?,
+                            remote_circulating_pubkeys
+                                .iter()
+                                .map(|account_balance| verify_pubkey(&account_balance.address))
+                                .collect::<SurfpoolResult<Vec<_>>>()?,
+                        )
+                    }
+                    RemoteRpcResult::MethodNotSupported => {
+                        let tx = self.simnet_events_tx();
+                        let _ = tx.send(SimnetEvent::warn("The `getLargestAccounts` method was sent to the remote RPC, but this method isn't supported by your RPC provider. Only local accounts will be returned."));
+                        (vec![], vec![])
+                    }
+                };
 
             let mut combined = Vec::with_capacity(
                 remote_non_circulating_pubkeys.len() + remote_circulating_pubkeys.len(),
@@ -1531,7 +1550,7 @@ impl SurfnetSvmLocker {
                 return Err(SurfpoolError::invalid_program_account(
                     pubkey,
                     "Account not found",
-                ))
+                ));
             }
             GetAccountResult::FoundAccount(pubkey, program_account, _) => {
                 let programdata_address = get_program_data_address(pubkey);
@@ -1572,7 +1591,7 @@ impl SurfnetSvmLocker {
                 return Err(SurfpoolError::invalid_program_account(
                     &program_id,
                     "Program data account does not exist",
-                ))
+                ));
             }
             GetAccountResult::FoundProgramAccount(_, (_, Some(programdata_account))) => {
                 update_programdata_account(&program_id, programdata_account, new_authority)?

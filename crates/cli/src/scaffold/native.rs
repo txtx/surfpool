@@ -1,9 +1,9 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use txtx_core::kit::helpers::fs::FileLocation;
 
 use super::{
-    utils::{get_program_metadata_from_manifest_with_dep, CargoManifestFile},
     ProgramMetadata,
+    utils::{CargoManifestFile, get_program_metadata_from_manifest_with_dep},
 };
 use crate::types::Framework;
 

@@ -1,7 +1,7 @@
 use std::pin::Pin;
 
 use futures::Stream;
-use juniper::{graphql_subscription, FieldError};
+use juniper::{FieldError, graphql_subscription};
 
 use crate::{query::DataloaderContext, types::SubgraphDataEntryUpdate};
 

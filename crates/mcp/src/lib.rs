@@ -1,4 +1,4 @@
-use rmcp::{transport::stdio, ServiceExt};
+use rmcp::{ServiceExt, transport::stdio};
 use surfpool::Surfpool;
 
 mod helpers;

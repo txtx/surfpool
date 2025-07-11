@@ -7,21 +7,21 @@ use std::{
 use convert_case::{Case, Casing};
 use diesel::{expression::BoxableExpression, prelude::*};
 use juniper::{
-    meta::MetaType, Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
-    GraphQLValueAsync, Registry, ScalarValue,
+    Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
+    GraphQLValueAsync, Registry, ScalarValue, meta::MetaType,
 };
 use surfpool_db::{
+    DynamicValue,
     diesel::{
-        self, sql_query,
+        self, Connection, ExpressionMethods, QueryDsl, RunQueryDsl, sql_query,
         sql_types::{Bool, Integer, Text, Untyped},
-        Connection, ExpressionMethods, QueryDsl, RunQueryDsl,
     },
     diesel_dynamic_schema::{
+        DynamicSelectClause, Table,
         dynamic_value::{DynamicRow, NamedField},
-        table, DynamicSelectClause, Table,
+        table,
     },
     schema::collections::dsl as collections_dsl,
-    DynamicValue,
 };
 use surfpool_types::SubgraphDataEntry;
 use txtx_addon_kit::{
@@ -31,7 +31,7 @@ use txtx_addon_kit::{
 use uuid::Uuid;
 
 use crate::types::{
-    filters::SubgraphFilterSpec, scalars::bigint::BigInt, schema::DynamicSchemaSpec, SubgraphSpec,
+    SubgraphSpec, filters::SubgraphFilterSpec, scalars::bigint::BigInt, schema::DynamicSchemaSpec,
 };
 
 #[derive(Debug)]

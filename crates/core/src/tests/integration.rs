@@ -3,38 +3,38 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 use base64::Engine;
 use crossbeam_channel::{unbounded, unbounded as crossbeam_unbounded};
 use jsonrpc_core::{
-    futures::future::{self, join_all},
     Error, Result as JsonRpcResult,
+    futures::future::{self, join_all},
 };
 use jsonrpc_core_client::transports::http;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
-    v0::{self},
     AddressLookupTableAccount, Message, VersionedMessage,
+    v0::{self},
 };
 use solana_native_token::LAMPORTS_PER_SOL;
-use solana_pubkey::{pubkey, Pubkey};
+use solana_pubkey::{Pubkey, pubkey};
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::system_instruction::transfer;
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
-    types::{BlockProductionMode, ProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig},
     SimnetCommand, SimnetEvent, SurfpoolConfig,
+    types::{BlockProductionMode, ProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig},
 };
 use tokio::{sync::RwLock, task};
 
 use crate::{
+    PluginManagerCommand,
     error::SurfpoolError,
     rpc::{
-        full::FullClient, minimal::MinimalClient, surfnet_cheatcodes::SvmTricksRpc, RunloopContext,
+        RunloopContext, full::FullClient, minimal::MinimalClient, surfnet_cheatcodes::SvmTricksRpc,
     },
     runloops::start_local_surfnet_runloop,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
     tests::helpers::get_free_port,
-    PluginManagerCommand,
 };
 
 fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<SimnetEvent>) {
@@ -942,15 +942,19 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     );
 
     // Verify pre_execution state
-    assert!(profile_result
-        .state
-        .pre_execution
-        .contains_key(&payer_pubkey));
+    assert!(
+        profile_result
+            .state
+            .pre_execution
+            .contains_key(&payer_pubkey)
+    );
 
-    assert!(profile_result
-        .state
-        .pre_execution
-        .contains_key(&recipient_pubkey));
+    assert!(
+        profile_result
+            .state
+            .pre_execution
+            .contains_key(&recipient_pubkey)
+    );
 
     let payer_pre_account = profile_result
         .state
@@ -976,14 +980,18 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     );
 
     // Verify post_execution state
-    assert!(profile_result
-        .state
-        .post_execution
-        .contains_key(&payer_pubkey));
-    assert!(profile_result
-        .state
-        .post_execution
-        .contains_key(&recipient_pubkey));
+    assert!(
+        profile_result
+            .state
+            .post_execution
+            .contains_key(&payer_pubkey)
+    );
+    assert!(
+        profile_result
+            .state
+            .post_execution
+            .contains_key(&recipient_pubkey)
+    );
 
     let payer_post_data = profile_result
         .state

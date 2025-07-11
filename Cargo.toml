@@ -1,6 +1,6 @@
 [workspace.package]
 version = "0.9.1"
-edition = "2021"
+edition = "2024"
 description = "Surfpool is the best place to train before surfing Solana."
 license = "Apache-2.0"
 readme = "README.md"
