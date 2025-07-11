@@ -4,7 +4,7 @@ use crossbeam_channel::TrySendError;
 use jsonrpc_core::{Error, Result};
 use serde::Serialize;
 use serde_json::json;
-use solana_client::rpc_request::TokenAccountsFilter;
+use solana_client::{client_error::ClientError, rpc_request::TokenAccountsFilter};
 use solana_pubkey::Pubkey;
 use solana_sdk::slot_history::Slot;
 
@@ -375,9 +375,11 @@ impl SurfpoolError {
         )))
     }
 
-    pub fn get_block(e: solana_client::client_error::ClientError) -> Self {
+    pub fn get_block(e: ClientError, block: Slot) -> Self {
         let mut error = Error::internal_error();
-        error.data = Some(json!(format!("Failed to get block: {e}")));
+        error.data = Some(json!(format!(
+            "Failed to get block {block} from remote: {e}"
+        )));
         Self(error)
     }
 }

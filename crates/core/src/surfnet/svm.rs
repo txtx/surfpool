@@ -38,7 +38,8 @@ use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionDetails, UiAddressTableLookup,
     UiCompiledInstruction, UiConfirmedBlock, UiInnerInstructions, UiInstruction, UiMessage,
-    UiRawMessage, UiTransaction, UiTransactionStatusMeta, option_serializer::OptionSerializer,
+    UiRawMessage, UiReturnDataEncoding, UiTransaction, UiTransactionReturnData,
+    UiTransactionStatusMeta, option_serializer::OptionSerializer,
 };
 use spl_token::state::Account as TokenAccount;
 use spl_token_2022::extension::{
@@ -802,7 +803,6 @@ impl SurfnetSvm {
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
         }
-        // Always add a perf_sample for the new block slot
         self.perf_samples.push_front(RpcPerfSample {
             slot: self.get_latest_absolute_slot(),
             num_slots: 1,
@@ -955,7 +955,7 @@ impl SurfnetSvm {
     ) -> Option<UiConfirmedBlock> {
         let block = self.blocks.get(&slot)?;
 
-        let num_reward_partitions = config.rewards.unwrap_or(false);
+        let rewards_partitions = config.rewards.unwrap_or(false);
         let transaction_details = config
             .transaction_details
             .unwrap_or(TransactionDetails::Full);
@@ -964,15 +964,13 @@ impl SurfnetSvm {
             TransactionDetails::Full => {
                 let mut txs = vec![];
                 for signature in &block.signatures {
-                    let Some(tx_with_meta) = self
+                    let Some(TransactionWithStatusMeta(_slot, tx, meta, err)) = self
                         .transactions
                         .get(signature)
                         .map(|t| t.expect_processed().clone())
                     else {
                         continue;
                     };
-
-                    let TransactionWithStatusMeta(_slot, tx, meta, err) = tx_with_meta.clone();
 
                     // Match on VersionedMessage to extract fields
                     let (header, account_keys, instructions, address_table_lookups) =
@@ -1028,6 +1026,16 @@ impl SurfnetSvm {
                             .collect(),
                     );
 
+                    let return_data = match meta.return_data.data.is_empty() {
+                        true => OptionSerializer::None,
+                        false => OptionSerializer::Some(UiTransactionReturnData {
+                            program_id: meta.return_data.program_id.to_string(),
+                            data: (
+                                base64::encode(&meta.return_data.data),
+                                UiReturnDataEncoding::Base64,
+                            ),
+                        }),
+                    };
                     let transaction = EncodedTransactionWithStatusMeta {
                         transaction: EncodedTransaction::Json(UiTransaction {
                             signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
@@ -1039,12 +1047,13 @@ impl SurfnetSvm {
                                 address_table_lookups,
                             }),
                         }),
+
                         meta: Some(UiTransactionStatusMeta {
                             err: err.clone(),
                             status: err.map(|e| Err(e)).unwrap_or(Ok(())),
                             inner_instructions,
                             log_messages: OptionSerializer::Some(meta.logs.clone()),
-                            return_data: OptionSerializer::None,
+                            return_data,
                             compute_units_consumed: OptionSerializer::Some(
                                 meta.compute_units_consumed,
                             ),
@@ -1082,7 +1091,66 @@ impl SurfnetSvm {
                 )
             }
             TransactionDetails::None => None,
-            _ => None,
+            TransactionDetails::Accounts => {
+                let mut txs = vec![];
+                for signature in &block.signatures {
+                    if let Some(TransactionWithStatusMeta(_, tx, _meta, _err)) = self
+                        .transactions
+                        .get(signature)
+                        .map(|t| t.expect_processed().clone())
+                    {
+                        let (header, account_keys, recent_blockhash, address_table_lookups) =
+                            match &tx.message {
+                                VersionedMessage::Legacy(legacy_msg) => (
+                                    legacy_msg.header,
+                                    legacy_msg
+                                        .account_keys
+                                        .iter()
+                                        .map(|k| k.to_string())
+                                        .collect(),
+                                    tx.get_recent_blockhash().to_string(),
+                                    None,
+                                ),
+                                VersionedMessage::V0(v0_msg) => (
+                                    v0_msg.header,
+                                    v0_msg.account_keys.iter().map(|k| k.to_string()).collect(),
+                                    tx.get_recent_blockhash().to_string(),
+                                    Some(
+                                        v0_msg
+                                            .address_table_lookups
+                                            .iter()
+                                            .map(UiAddressTableLookup::from)
+                                            .collect(),
+                                    ),
+                                ),
+                            };
+
+                        let message = UiMessage::Raw(UiRawMessage {
+                            header,
+                            account_keys,
+                            recent_blockhash,
+                            instructions: vec![],
+                            address_table_lookups,
+                        });
+
+                        let transaction = EncodedTransactionWithStatusMeta {
+                            transaction: EncodedTransaction::Json(UiTransaction {
+                                signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
+                                message,
+                            }),
+                            meta: None,
+                            version: Some(match &tx.message {
+                                VersionedMessage::Legacy(_) => {
+                                    TransactionVersion::Legacy(Legacy::Legacy)
+                                }
+                                VersionedMessage::V0(_) => TransactionVersion::Number(0),
+                            }),
+                        };
+                        txs.push(transaction);
+                    }
+                }
+                Some(txs)
+            }
         };
 
         let signatures = match transaction_details {
@@ -1098,7 +1166,7 @@ impl SurfnetSvm {
             blockhash: block.hash.clone(),
             previous_blockhash: block.previous_blockhash.clone(),
             rewards: Some(vec![]),
-            num_reward_partitions: Some(num_reward_partitions as u64),
+            num_reward_partitions: Some(rewards_partitions as u64),
             block_time: Some(block.block_time / 1000),
             block_height: Some(block.block_height),
             parent_slot: block.parent_slot,

@@ -1772,23 +1772,22 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolContextualizedResult<Option<UiConfirmedBlock>> {
         let first_local_slot = self.get_first_local_slot();
 
-        let result = match first_local_slot > *slot {
-            true => match remote_ctx {
-                Some(remote_client) => remote_client.get_block(slot, *config).await?,
+        let result = if first_local_slot > *slot {
+            match remote_ctx {
+                Some(remote_client) => Some(remote_client.get_block(slot, *config).await?),
                 None => return Err(SurfpoolError::slot_too_old(*slot)),
-            },
-            false => match self.get_block_local(slot, config).inner {
-                Some(block) => block,
-                None => return Err(SurfpoolError::slot_too_old(*slot)),
-            },
+            }
+        } else {
+            self.get_block_local(slot, config).inner
         };
+
         Ok(SvmAccessContext {
             slot: *slot,
             latest_epoch_info: self.get_epoch_info(),
             latest_blockhash: self
                 .get_latest_blockhash(&CommitmentConfig::processed())
                 .unwrap_or_default(),
-            inner: Some(result),
+            inner: result,
         })
     }
 

@@ -1741,12 +1741,19 @@ impl Full for SurfpoolFullRpc {
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
         let config = config.map(|c| c.convert_to_current()).unwrap_or_default();
 
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(locker) => locker,
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment) {
+            Ok(res) => res,
             Err(e) => return e.into(),
         };
 
-        Box::pin(async move { Ok(svm_locker.get_block_local(&slot, &config).inner) })
+        Box::pin(async move {
+            let remote_client = remote_ctx.as_ref().map(|(client, _)| client.clone());
+            let result = svm_locker.get_block(&remote_client, &slot, &config).await;
+            Ok(result?.inner)
+        })
     }
 
     fn get_block_time(
@@ -1784,6 +1791,7 @@ impl Full for SurfpoolFullRpc {
         };
 
         let config = config.unwrap_or_default();
+        // get blocks should default to processed rather than finalized to default to the most recent
         let commitment = config.commitment.unwrap_or(CommitmentConfig {
             commitment: CommitmentLevel::Processed,
         });
@@ -1819,6 +1827,28 @@ impl Full for SurfpoolFullRpc {
                 .map(|end| end.min(committed_latest_slot))
                 .unwrap_or(committed_latest_slot);
 
+            let (local_min_slot, local_slots, effective_end_slot) =
+                if effective_end_slot < start_slot {
+                    (None, vec![], effective_end_slot)
+                } else {
+                    svm_locker.with_svm_reader(|svm_reader| {
+                        let local_min_slot = svm_reader.blocks.keys().min().copied();
+
+                        let local_slots: Vec<Slot> = svm_reader
+                            .blocks
+                            .keys()
+                            .filter(|&&slot| {
+                                slot >= start_slot
+                                    && slot <= effective_end_slot
+                                    && slot <= committed_latest_slot
+                            })
+                            .copied()
+                            .collect();
+
+                        (local_min_slot, local_slots, effective_end_slot)
+                    })
+                };
+
             if let Some(min_context_slot) = config.min_context_slot {
                 if committed_latest_slot < min_context_slot {
                     return Err(RpcCustomError::MinContextSlotNotReached {
@@ -1828,19 +1858,6 @@ impl Full for SurfpoolFullRpc {
                 }
             }
 
-            if effective_end_slot < start_slot {
-                if let Some((remote_client, _)) = &remote_ctx {
-                    // Forward to remote if local is behind
-                    let remote_result = remote_client
-                        .client
-                        .get_blocks(start_slot, end_slot)
-                        .await
-                        .unwrap_or_else(|_| vec![]);
-                    return Ok(remote_result);
-                } else {
-                    return Ok(vec![]);
-                }
-            }
             if effective_end_slot.saturating_sub(start_slot) > MAX_SLOT_RANGE {
                 return Err(Error::invalid_params(format!(
                     "Slot range too large. Maximum: {}, Requested: {}",
@@ -1849,8 +1866,47 @@ impl Full for SurfpoolFullRpc {
                 )));
             }
 
-            let slots: Vec<Slot> = (start_slot..=effective_end_slot).collect();
-            Ok(slots)
+            let remote_slots = if let (Some((remote_client, _)), Some(local_min)) =
+                (&remote_ctx, local_min_slot)
+            {
+                if start_slot < local_min {
+                    let remote_end = effective_end_slot.min(local_min.saturating_sub(1));
+                    if start_slot <= remote_end {
+                        remote_client
+                            .client
+                            .get_blocks(start_slot, Some(remote_end))
+                            .await
+                            .unwrap_or_else(|_| vec![])
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                }
+            } else if remote_ctx.is_some() && local_min_slot.is_none() {
+                remote_ctx
+                    .as_ref()
+                    .unwrap()
+                    .0
+                    .client
+                    .get_blocks(start_slot, Some(effective_end_slot))
+                    .await
+                    .unwrap_or_else(|_| vec![])
+            } else {
+                vec![]
+            };
+
+            // Combine results
+            let mut combined_slots = remote_slots;
+            combined_slots.extend(local_slots);
+            combined_slots.sort_unstable();
+            combined_slots.dedup();
+
+            if combined_slots.len() > MAX_SLOT_RANGE as usize {
+                combined_slots.truncate(MAX_SLOT_RANGE as usize);
+            }
+
+            Ok(combined_slots)
         })
     }
 

@@ -314,7 +314,7 @@ impl SurfnetRemoteClient {
         self.client
             .get_block_with_config(*slot, config)
             .await
-            .map_err(SurfpoolError::get_block)
+            .map_err(|e| SurfpoolError::get_block(e, *slot))
     }
 }
 
