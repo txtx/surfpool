@@ -69,7 +69,7 @@ pub struct SubgraphDataEntry {
     // The slot that the transaction that created this entry was processed in
     pub slot: u64,
     // The transaction hash that created this entry
-    pub transaction_hash: Hash,
+    pub transaction_signature: Hash,
 }
 
 impl SubgraphDataEntry {
@@ -78,7 +78,7 @@ impl SubgraphDataEntry {
             uuid: Uuid::new_v4(),
             values,
             slot,
-            transaction_hash: Hash::from_bytes(tx_hash),
+            transaction_signature: Hash::from_bytes(tx_hash),
         }
     }
 }

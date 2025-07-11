@@ -79,12 +79,13 @@ impl FieldInfo {
 
 #[derive(Debug)]
 pub enum NumericFilter {
-    IsEqual(i32),
+    Equals(i32),
     GreaterThan(i32),
     GreaterOrEqual(i32),
     LowerThan(i32),
     LowerOrEqual(i32),
     Between(i32, i32),
+    NotEquals(i32),
 }
 
 impl GraphQLType<DefaultScalarValue> for NumericFilter {
@@ -97,7 +98,8 @@ impl GraphQLType<DefaultScalarValue> for NumericFilter {
         DefaultScalarValue: 'r,
     {
         let args = [
-            build_number_filter_argument(&spec.name, "isEqual"),
+            build_number_filter_argument(&spec.name, "equals"),
+            build_number_filter_argument(&spec.name, "notEquals"),
             build_number_filter_argument(&spec.name, "greaterThan"),
             build_number_filter_argument(&spec.name, "greaterOrEqual"),
             build_number_filter_argument(&spec.name, "lowerThan"),
@@ -177,6 +179,8 @@ pub enum StringFilter {
     EndsWith(String),
     Contains(String),
     Equals(String),
+    NotEquals(String),
+    NotContains(String),
 }
 
 impl GraphQLType<DefaultScalarValue> for StringFilter {
@@ -193,6 +197,8 @@ impl GraphQLType<DefaultScalarValue> for StringFilter {
             build_string_filter_argument(&spec.name, "endsWith"),
             build_string_filter_argument(&spec.name, "contains"),
             build_string_filter_argument(&spec.name, "equals"),
+            build_string_filter_argument(&spec.name, "notEquals"),
+            build_string_filter_argument(&spec.name, "notContains"),
         ];
         registry
             .build_input_object_type::<Self>(spec, &args)

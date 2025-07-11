@@ -29,8 +29,8 @@ impl GraphQLType<DefaultScalarValue> for SubgraphSpec {
     {
         let mut fields: Vec<Field<'r, DefaultScalarValue>> = vec![];
         fields.push(registry.field::<&Uuid>("uuid", &()));
-        fields.push(registry.field::<&String>("slot", &()));
-        fields.push(registry.field::<&String>("transactionHash", &()));
+        fields.push(registry.field::<i32>("slot", &()));
+        fields.push(registry.field::<&String>("transactionSignature", &()));
         for field_metadata in spec.fields.iter() {
             let field = field_metadata.register_as_scalar(registry);
             fields.push(field);
@@ -60,7 +60,9 @@ impl GraphQLValue<DefaultScalarValue> for SubgraphSpec {
         match field_name {
             "uuid" => executor.resolve_with_ctx(&(), &entry.uuid.to_string()),
             "slot" => executor.resolve_with_ctx(&(), &Slot(entry.slot)),
-            "transactionHash" => executor.resolve_with_ctx(&(), &Hash(entry.transaction_hash)),
+            "transactionSignature" => {
+                executor.resolve_with_ctx(&(), &Hash(entry.transaction_signature))
+            }
             field_name => {
                 let value = entry.values.get(field_name).unwrap();
                 match value {

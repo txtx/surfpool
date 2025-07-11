@@ -1,25 +1,33 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     pin::Pin,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
 };
 
-use chrono::Utc;
 use convert_case::{Case, Casing};
+use diesel::{expression::BoxableExpression, prelude::*};
 use juniper::{
     meta::MetaType, Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
-    GraphQLValueAsync, Registry,
+    GraphQLValueAsync, Registry, ScalarValue,
 };
 use surfpool_db::{
     diesel::{
-        self, deserialize::FromSql, query_dsl::methods::LoadQuery, sql_types::Untyped, table,
-        Connection, ExpressionMethods, QueryDsl,
+        self, sql_query,
+        sql_types::{Bool, Integer, Text, Untyped},
+        Connection, ExpressionMethods, QueryDsl, RunQueryDsl,
     },
-    diesel_dynamic_schema::dynamic_value::{Any, DynamicRow, NamedField},
+    diesel_dynamic_schema::{
+        dynamic_value::{DynamicRow, NamedField},
+        table, DynamicSelectClause, Table,
+    },
+    schema::collections::dsl as collections_dsl,
     DynamicValue,
 };
 use surfpool_types::SubgraphDataEntry;
-use txtx_addon_kit::{hex, serde_json, types::types::Type};
+use txtx_addon_kit::{
+    hex, serde_json,
+    types::types::{Type, Value},
+};
 use uuid::Uuid;
 
 use crate::types::{
@@ -148,27 +156,6 @@ impl SchemaDataSource {
     }
 }
 
-// impl FromSql<Any, diesel::pg::Pg> for MyDynamicValue {
-//     fn from_sql(value: diesel::pg::PgValue) -> Result<Self> {
-//         use diesel::pg::Pg;
-//         use std::num::NonZeroU32;
-
-//         const VARCHAR_OID: NonZeroU32 = NonZeroU32::new(1043).unwrap();
-//         const TEXT_OID: NonZeroU32 = NonZeroU32::new(25).unwrap();
-//         const INTEGER_OID: NonZeroU32 = NonZeroU32::new(23).unwrap();
-
-//         match value.get_oid() {
-//             VARCHAR_OID | TEXT_OID => {
-//                 <String as FromSql<diesel::sql_types::Text, Pg>>::from_sql(value)
-//                     .map(MyDynamicValue::String)
-//             }
-//             INTEGER_OID => <i32 as FromSql<diesel::sql_types::Integer, Pg>>::from_sql(value)
-//                 .map(MyDynamicValue::Integer),
-//             e => Err(format!("Unknown type: {e}").into()),
-//         }
-//     }
-// }
-
 #[derive(Debug, Clone)]
 pub enum DatabaseConfiguration {
     Sqlite(String),
@@ -183,7 +170,7 @@ pub struct SqlStore {
 
 impl SqlStore {
     pub fn new_in_memory() -> SqlStore {
-        let conn = surfpool_db::diesel::sqlite::SqliteConnection::establish("surfpool.db")
+        let conn = surfpool_db::diesel::sqlite::SqliteConnection::establish(":memory:")
             .expect("Failed to create in-memory sqlite connection");
         SqlStore {
             db_conf: DatabaseConfiguration::Sqlite("surfpool.db".to_string()),
@@ -196,17 +183,9 @@ impl Dataloader for SqlStore {
     fn fetch_entries_from_subgraph(
         &self,
         subgraph_name: &str,
-        _executor: Option<&Executor<DataloaderContext>>,
+        executor: Option<&Executor<DataloaderContext>>,
         schema: &DynamicSchemaSpec,
     ) -> Result<Vec<SubgraphSpec>, FieldError> {
-        use convert_case::{Case, Casing};
-        use surfpool_db::{
-            diesel::RunQueryDsl,
-            diesel_dynamic_schema::{table, DynamicSelectClause},
-            schema::collections::dsl as collections_dsl,
-        };
-        use txtx_addon_kit::types::types::{Type, Value};
-
         let mut conn = self.conn.lock().unwrap();
         // Use Diesel's query DSL to fetch the entries_table
 
@@ -222,22 +201,65 @@ impl Dataloader for SqlStore {
             })?;
 
         // Build dynamic select clause
-        let subgraph = table(entries_table.clone());
+        let subgraph = table(entries_table.clone()); // This is a DynamicTable<Sqlite>
         let uuid_col = subgraph.column::<Untyped, _>("uuid");
         let slot_col = subgraph.column::<Untyped, _>("slot");
-        // let transaction_hash_col = users.column::<Untyped, _>("transaction_hash");
+        // let transaction_signature_col = users.column::<Untyped, _>("transaction_signature");
 
         let mut select = DynamicSelectClause::new();
         select.add_field(uuid_col);
         select.add_field(slot_col);
-        // select.add_field(transaction_hash_col);
+
+        // select.add_field(transaction_signature_col);
         for field in schema.fields.iter() {
             let col = field.data.display_name.to_case(Case::Snake);
             select.add_field(subgraph.column::<Untyped, _>(col));
         }
 
+        // Build the query and apply filters immediately to avoid borrow checker issues
+        let mut query = subgraph.clone().select(select).into_boxed();
+
+        if let Some(executor) = executor {
+            // Isolate filters
+            let mut filters_specs = vec![];
+            for arg in executor.look_ahead().arguments() {
+                if arg.name().eq("where") {
+                    match arg.value() {
+                        juniper::LookAheadValue::Object(obj) => {
+                            for (attribute, value) in obj.iter() {
+                                match value.item {
+                                    juniper::LookAheadValue::Object(obj) => {
+                                        for (predicate, predicate_value) in obj.iter() {
+                                            match predicate_value.item {
+                                                juniper::LookAheadValue::Scalar(value) => {
+                                                    filters_specs.push((
+                                                        attribute.item,
+                                                        predicate.item,
+                                                        value,
+                                                    ));
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                    _ => unreachable!(),
+                                }
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+
+            for (field, predicate, value) in &filters_specs {
+                let value = juniper_scalar_to_value(value);
+                let pred = build_predicate(&subgraph, field, predicate, value);
+                query = query.filter(pred);
+            }
+        }
+
         let actual_data: Vec<DynamicRow<NamedField<DynamicValue>>> =
-            subgraph.select(select).load(&mut *conn).map_err(|e| {
+            query.load(&mut *conn).map_err(|e| {
                 FieldError::new(
                     format!("Failed to query entries: {e}"),
                     juniper::Value::null(),
@@ -248,7 +270,7 @@ impl Dataloader for SqlStore {
         for row in actual_data {
             let uuid = Uuid::parse_str(row[0].value.0.expect_string()).unwrap_or(Uuid::nil());
             let slot = row[1].value.0.expect_integer().try_into().unwrap_or(0);
-            // let transaction_hash = row[2].value.as_str().and_then(|s| s.parse().ok()).unwrap_or_else(|| blake3::Hash::from([0u8; 32]));
+            // let transaction_signature = row[2].value.as_str().and_then(|s| s.parse().ok()).unwrap_or_else(|| blake3::Hash::from([0u8; 32]));
             let mut values = HashMap::new();
             for (i, field) in schema.fields.iter().enumerate() {
                 let val = &row[2 + i].value;
@@ -287,7 +309,7 @@ impl Dataloader for SqlStore {
                 uuid,
                 values,
                 slot,
-                transaction_hash: blake3::Hash::from([0u8; 32]),
+                transaction_signature: blake3::Hash::from([0u8; 32]),
             };
             results.push(SubgraphSpec(entry));
         }
@@ -300,13 +322,6 @@ impl Dataloader for SqlStore {
         subgraph_name: &str,
         schema: &DynamicSchemaSpec,
     ) -> Result<(), String> {
-        use convert_case::{Case, Casing};
-        use surfpool_db::{
-            diesel,
-            diesel::{sql_query, RunQueryDsl},
-        };
-        use txtx_addon_kit::types::types::Type;
-
         let mut conn = self.conn.lock().unwrap();
 
         // 1. Ensure subgraphs table exists
@@ -331,7 +346,7 @@ impl Dataloader for SqlStore {
             "id INTEGER PRIMARY KEY AUTOINCREMENT".to_string(),
             "uuid TEXT".to_string(),
             "slot INTEGER".to_string(),
-            "transaction_hash TEXT".to_string(),
+            "transaction_signature TEXT".to_string(),
         ];
         for field in &schema.fields {
             // Map field types to SQLite types (expand as needed)
@@ -381,13 +396,6 @@ impl Dataloader for SqlStore {
         subgraph_uuid: &Uuid,
         entry: SubgraphSpec,
     ) -> Result<(), String> {
-        use convert_case::{Case, Casing};
-        use surfpool_db::{
-            diesel::{sql_query, RunQueryDsl},
-            schema::collections::dsl as collections_dsl,
-        };
-        use txtx_addon_kit::types::types::Value;
-
         let mut conn = self.conn.lock().unwrap();
 
         let (entries_table, schema_json): (String, String) = collections_dsl::collections
@@ -404,12 +412,12 @@ impl Dataloader for SqlStore {
         let mut columns = vec![
             "uuid".to_string(),
             "slot".to_string(),
-            "transaction_hash".to_string(),
+            "transaction_signature".to_string(),
         ];
         let mut values: Vec<String> = vec![
             format!("'{}'", data_entry.uuid),
             format!("{}", data_entry.slot),
-            format!("'{}'", data_entry.transaction_hash),
+            format!("'{}'", data_entry.transaction_signature),
         ];
 
         // Use the schema to determine the order and names of dynamic fields
@@ -427,8 +435,8 @@ impl Dataloader for SqlStore {
                     Value::Buffer(bytes) => format!("'{}'", hex::encode(bytes)),
                     Value::Addon(addon) => format!("'{}'", format!("{:?}", addon)),
                     Value::Null => "NULL".to_string(),
-                    Value::Array(arr) => unimplemented!(),
-                    Value::Object(obj) => unimplemented!(),
+                    Value::Array(_arr) => unimplemented!(),
+                    Value::Object(_obj) => unimplemented!(),
                 };
                 values.push(val_str);
             } else {
@@ -448,6 +456,65 @@ impl Dataloader for SqlStore {
             .map_err(|e| format!("Failed to insert entry: {e}"))?;
 
         Ok(())
+    }
+}
+
+fn juniper_scalar_to_value(scalar: &DefaultScalarValue) -> Value {
+    match scalar.as_string() {
+        Some(s) => Value::String(s.to_string()),
+        None => panic!("Only string scalars are supported in filters for now"),
+    }
+}
+
+fn build_predicate<'a>(
+    table: &'a Table<String, String>,
+    field: &'a str,
+    predicate: &str,
+    value: Value,
+) -> Box<
+    dyn BoxableExpression<
+            Table<String, String>,
+            diesel::sqlite::Sqlite,
+            SqlType = diesel::sql_types::Bool,
+        > + 'a,
+> {
+    // Try to infer column type from value
+    match value {
+        Value::String(s) => {
+            let col = table.column::<Text, _>(field);
+            match predicate {
+                "equals" => Box::new(col.eq(s)),
+                "notEquals" => Box::new(col.ne(s)),
+                "contains" => Box::new(col.like(format!("%{}%", s))),
+                "notContains" => Box::new(col.not_like(format!("%{}%", s))),
+                "endsWith" => Box::new(col.like(format!("%{}", s))),
+                "startsWith" => Box::new(col.like(format!("{}%", s))),
+                _ => panic!("Unsupported string predicate: {}", predicate),
+            }
+        }
+        Value::Integer(i) => {
+            let i: i64 = i.try_into().unwrap();
+            let col = table.column::<Integer, _>(field);
+            match predicate {
+                "equals" | "isEqual" => Box::new(col.eq(i as i32)),
+                "notEquals" => Box::new(col.ne(i as i32)),
+                "greaterThan" => Box::new(col.gt(i as i32)),
+                "greaterOrEqual" => Box::new(col.ge(i as i32)),
+                "lowerThan" => Box::new(col.lt(i as i32)),
+                "lowerOrEqual" => Box::new(col.le(i as i32)),
+                "between" => panic!("'between' requires a tuple/array value"),
+                _ => panic!("Unsupported integer predicate: {}", predicate),
+            }
+        }
+        Value::Bool(b) => {
+            let col = table.column::<Bool, _>(field);
+            match predicate {
+                "true" => Box::new(col.eq(true)),
+                "false" => Box::new(col.eq(false)),
+                _ => panic!("Unsupported boolean predicate: {}", predicate),
+            }
+        }
+        _ => panic!("Unsupported predicate or value type"),
     }
 }
 
@@ -482,14 +549,14 @@ mod tests {
         }
     }
 
-    fn test_entry(schema: &DynamicSchemaSpec) -> SubgraphSpec {
+    fn test_entry(_schema: &DynamicSchemaSpec) -> SubgraphSpec {
         let mut values = HashMap::new();
         values.insert("test_field".to_string(), Value::String("hello".to_string()));
         SubgraphSpec(surfpool_types::SubgraphDataEntry {
             uuid: Uuid::new_v4(),
             values,
             slot: 42,
-            transaction_hash: Blake3Hash::from([1u8; 32]),
+            transaction_signature: Blake3Hash::from([1u8; 32]),
         })
     }
 
@@ -523,55 +590,3 @@ mod tests {
         );
     }
 }
-
-// struct Context {
-//     repo: Repository,
-//     cult_loader: CultLoader,
-// }
-
-// impl juniper::Context for Context {}
-
-// #[derive(Clone, GraphQLObject)]
-// struct Cult {
-//     id: CultId,
-//     name: String,
-// }
-
-// struct CultBatcher {
-//     repo: Repository,
-// }
-
-// // Since `BatchFn` doesn't provide any notion of fallible loading, like
-// // `try_load()` returning `Result<HashMap<K, V>, E>`, we handle possible
-// // errors as loaded values and unpack them later in the resolver.
-// impl dataloader::BatchFn<CultId, Result<Cult, Arc<anyhow::Error>>> for CultBatcher {
-//     async fn load(
-//         &mut self,
-//         cult_ids: &[CultId],
-//     ) -> HashMap<CultId, Result<Cult, Arc<anyhow::Error>>> {
-//         // Effectively performs the following SQL query:
-//         // SELECT id, name FROM cults WHERE id IN (${cult_id1}, ${cult_id2}, ...)
-//         match self.repo.load_cults_by_ids(cult_ids).await {
-//             Ok(found_cults) => {
-//                 found_cults.into_iter().map(|(id, cult)| (id, Ok(cult))).collect()
-//             }
-//             // One could choose a different strategy to deal with fallible loads,
-//             // like consider values that failed to load as absent, or just panic.
-//             // See cksac/dataloader-rs#35 for details:
-//             // https://github.com/cksac/dataloader-rs/issues/35
-//             Err(e) => {
-//                 // Since `anyhow::Error` doesn't implement `Clone`, we have to
-//                 // work around here.
-//                 let e = Arc::new(e);
-//                 cult_ids.iter().map(|k| (k.clone(), Err(e.clone()))).collect()
-//             }
-//         }
-//     }
-// }
-
-// type CultLoader = Loader<CultId, Result<Cult, Arc<anyhow::Error>>, CultBatcher>;
-
-// fn new_cult_loader(repo: Repository) -> CultLoader {
-//     CultLoader::new(CultBatcher { repo })
-//         // Usually a `Loader` will coalesce all individual loads which occur
-//         // within a single frame of execution before calling a `BatchFn::load()`
