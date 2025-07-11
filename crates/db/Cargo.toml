@@ -1,0 +1,21 @@
+[package]
+name = "surfpool-db"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+diesel = { version = "2.2.11", features = ["extras", "i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
+diesel_derives = { version = "2.2.6"}
+diesel-dynamic-schema = { version = "0.2.2" }
+txtx-addon-kit = { workspace = true }
+
+[features]
+default = ["sqlite"]
+sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "diesel_derives/sqlite", "diesel-dynamic-schema/sqlite"]
+postgres = ["diesel/postgres", "diesel_derives/postgres", "diesel-dynamic-schema/postgres"]
