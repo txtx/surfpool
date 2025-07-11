@@ -1,6 +1,5 @@
 use juniper::{DefaultScalarValue, EmptyMutation, EmptySubscription, RootNode};
 use query::{DynamicQuery, SchemaDataSource};
-use subscription::DynamicSubscription;
 
 use crate::query::DataloaderContext;
 

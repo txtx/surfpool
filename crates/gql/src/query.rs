@@ -506,7 +506,7 @@ fn build_predicate<'a>(
                 _ => panic!("Unsupported integer predicate: {}", predicate),
             }
         }
-        Value::Bool(b) => {
+        Value::Bool(_b) => {
             let col = table.column::<Bool, _>(field);
             match predicate {
                 "true" => Box::new(col.eq(true)),
