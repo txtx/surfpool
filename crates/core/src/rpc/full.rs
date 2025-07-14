@@ -720,7 +720,7 @@ pub trait Full {
     /// {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
-    ///   "result": 1620000000
+    ///   "result": 1752080472
     /// }
     /// ```
     ///
@@ -1737,24 +1737,44 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         slot: Slot,
-        _config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
+        config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
+        let config = config.map(|c| c.convert_to_current()).unwrap_or_default();
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let remote_client = remote_ctx.as_ref().map(|(client, _)| client.clone());
+            let result = svm_locker.get_block(&remote_client, &slot, &config).await;
+            Ok(result?.inner)
+        })
+    }
+
+    fn get_block_time(
+        &self,
+        meta: Self::Metadata,
+        slot: Slot,
+    ) -> BoxFuture<Result<Option<UnixTimestamp>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            Ok(svm_locker.with_svm_reader(|svm_reader| svm_reader.get_block_at_slot(slot)))
+            let block_time = svm_locker.with_svm_reader(|svm_reader| {
+                svm_reader
+                    .blocks
+                    .get(&slot)
+                    .map(|block| (block.block_time / 1000) as UnixTimestamp)
+            });
+            Ok(block_time)
         })
-    }
-
-    fn get_block_time(
-        &self,
-        _meta: Self::Metadata,
-        _slot: Slot,
-    ) -> BoxFuture<Result<Option<UnixTimestamp>>> {
-        Box::pin(async { Ok(None) })
     }
 
     fn get_blocks(
@@ -1771,7 +1791,10 @@ impl Full for SurfpoolFullRpc {
         };
 
         let config = config.unwrap_or_default();
-        let commitment = config.commitment.unwrap_or_default();
+        // get blocks should default to processed rather than finalized to default to the most recent
+        let commitment = config.commitment.unwrap_or(CommitmentConfig {
+            commitment: CommitmentLevel::Processed,
+        });
 
         const MAX_SLOT_RANGE: u64 = 500_000;
         if let Some(end) = end_slot {
@@ -2936,7 +2959,7 @@ mod tests {
         assert_eq!(res, None);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_block_time() {
         let setup = TestSetup::new(SurfpoolFullRpc);
         let res = setup
@@ -3656,7 +3679,6 @@ mod tests {
 
         {
             let mut svm_writer = setup.context.svm_locker.0.write().await;
-
             for slot in 100..=110 {
                 svm_writer.blocks.insert(
                     slot,
@@ -3670,7 +3692,6 @@ mod tests {
                     },
                 );
             }
-
             svm_writer.latest_epoch_info.absolute_slot = 110;
         }
 
@@ -3682,7 +3703,7 @@ mod tests {
                 100,
                 Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(105))),
                 Some(RpcContextConfig {
-                    commitment: None,
+                    commitment: Some(CommitmentConfig::finalized()),
                     min_context_slot: Some(105),
                 }),
             )

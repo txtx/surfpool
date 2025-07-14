@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
+use base64::Engine;
 use chrono::Utc;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use litesvm::{
@@ -13,7 +14,9 @@ use solana_account_decoder::{
     UiAccount, UiAccountEncoding, encode_ui_account,
     parse_account_data::{AccountAdditionalDataV3, SplTokenAdditionalDataV2},
 };
-use solana_client::{rpc_client::SerializableTransaction, rpc_response::RpcPerfSample};
+use solana_client::{
+    rpc_client::SerializableTransaction, rpc_config::RpcBlockConfig, rpc_response::RpcPerfSample,
+};
 use solana_clock::{Clock, MAX_RECENT_BLOCKHASHES, Slot};
 use solana_epoch_info::EpochInfo;
 use solana_feature_set::{FeatureSet, disable_new_loader_v3_deployments};
@@ -23,15 +26,22 @@ use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
-    program_pack::Pack, system_instruction, transaction::VersionedTransaction,
+    genesis_config::GenesisConfig,
+    inflation::Inflation,
+    program_option::COption,
+    program_pack::Pack,
+    system_instruction,
+    transaction::{Legacy, TransactionVersion, VersionedTransaction},
 };
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
-    EncodedTransaction, EncodedTransactionWithStatusMeta, UiAddressTableLookup,
-    UiCompiledInstruction, UiConfirmedBlock, UiMessage, UiRawMessage, UiTransaction,
+    EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionDetails, UiAccountsList,
+    UiAddressTableLookup, UiCompiledInstruction, UiConfirmedBlock, UiInnerInstructions,
+    UiInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
+    UiTransactionReturnData, UiTransactionStatusMeta, option_serializer::OptionSerializer,
+    parse_accounts::ParsedAccount,
 };
 use spl_token::state::Account as TokenAccount;
 use spl_token_2022::extension::{
@@ -792,12 +802,11 @@ impl SurfnetSvm {
                 signatures: confirmed_signatures,
             },
         );
-
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
         }
         self.perf_samples.push_front(RpcPerfSample {
-            slot: self.latest_epoch_info.slot_index,
+            slot: self.get_latest_absolute_slot(),
             num_slots: 1,
             sample_period_secs: 1,
             num_transactions,
@@ -937,89 +946,130 @@ impl SurfnetSvm {
     ///
     /// # Arguments
     /// * `slot` - The slot number to retrieve the block for.
+    /// * `config` - The configuration for the block retrieval.
     ///
     /// # Returns
     /// `Some(UiConfirmedBlock)` if found, or `None` if not present.
-    pub fn get_block_at_slot(&self, slot: Slot) -> Option<UiConfirmedBlock> {
-        // Retrieve block
+    pub fn get_block_at_slot(
+        &self,
+        slot: Slot,
+        config: &RpcBlockConfig,
+    ) -> Option<UiConfirmedBlock> {
         let block = self.blocks.get(&slot)?;
 
-        // Retrieve parent block
+        let rewards = config.rewards.unwrap_or(false);
+        let transaction_details = config
+            .transaction_details
+            .unwrap_or(TransactionDetails::Full);
 
-        // Retrieve transactions
-        let mut transactions = vec![];
-        for signature in &block.signatures {
-            let Some(TransactionWithStatusMeta(_slot, tx, _meta, _err)) = self
-                .transactions
-                .get(signature)
-                .map(|t| t.expect_processed().clone())
-            else {
-                continue;
-            };
+        let transactions = match transaction_details {
+            TransactionDetails::Full => {
+                let mut txs = vec![];
+                for signature in &block.signatures {
+                    let Some(TransactionWithStatusMeta(_slot, tx, meta, err)) = self
+                        .transactions
+                        .get(signature)
+                        .map(|t| t.expect_processed().clone())
+                    else {
+                        continue;
+                    };
 
-            let (header, account_keys, instructions) = match &tx.message {
-                VersionedMessage::Legacy(message) => (
-                    message.header,
-                    message.account_keys.iter().map(|k| k.to_string()).collect(),
-                    message
-                        .instructions
-                        .iter()
-                        // TODO: use stack height
-                        .map(|ix| UiCompiledInstruction::from(ix, None))
-                        .collect(),
-                ),
-                VersionedMessage::V0(message) => (
-                    message.header,
-                    message.account_keys.iter().map(|k| k.to_string()).collect(),
-                    message
-                        .instructions
-                        .iter()
-                        // TODO: use stack height
-                        .map(|ix| UiCompiledInstruction::from(ix, None))
-                        .collect(),
-                ),
-            };
+                    let inner_instructions = to_ui_inner_instructions(&meta);
 
-            let transaction = EncodedTransactionWithStatusMeta {
-                transaction: EncodedTransaction::Json(UiTransaction {
-                    signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
-                    message: UiMessage::Raw(UiRawMessage {
-                        header,
-                        account_keys,
-                        recent_blockhash: tx.get_recent_blockhash().to_string(),
-                        instructions,
-                        address_table_lookups: match tx.message {
-                            VersionedMessage::Legacy(_) => None,
-                            VersionedMessage::V0(ref msg) => Some(
-                                msg.address_table_lookups
-                                    .iter()
-                                    .map(UiAddressTableLookup::from)
-                                    .collect::<Vec<UiAddressTableLookup>>(),
+                    let return_data = to_ui_return_data(&meta);
+
+                    let transaction = EncodedTransactionWithStatusMeta {
+                        transaction: EncodedTransaction::Json(UiTransaction {
+                            signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
+                            message: to_ui_message(&tx),
+                        }),
+
+                        meta: Some(UiTransactionStatusMeta {
+                            err: err.clone(),
+                            status: err.map(|e| Err(e)).unwrap_or(Ok(())),
+                            inner_instructions,
+                            log_messages: OptionSerializer::Some(meta.logs.clone()),
+                            return_data,
+                            compute_units_consumed: OptionSerializer::Some(
+                                meta.compute_units_consumed,
                             ),
-                        },
-                    }),
-                }),
-                meta: None,
-                version: None,
-            };
-            // let transaction = EncodedTransaction::Json(UiTransaction::from(res));
-            transactions.push(transaction);
-        }
+                            pre_token_balances: OptionSerializer::None, // todo
+                            post_token_balances: OptionSerializer::None, // todo
+                            rewards: OptionSerializer::None,            // todo
+                            loaded_addresses: OptionSerializer::None,   // todo
+                            pre_balances: vec![],
+                            post_balances: vec![],
+                            fee: 0,
+                        }),
+                        version: Some(get_transaction_version(&tx)),
+                    };
+                    txs.push(transaction);
+                }
+                Some(txs)
+            }
+            TransactionDetails::Signatures => {
+                // Just the signatures as strings
+                Some(
+                    block
+                        .signatures
+                        .iter()
+                        .map(|t| EncodedTransactionWithStatusMeta {
+                            transaction: EncodedTransaction::LegacyBinary(t.to_string()),
+                            meta: None,
+                            version: None,
+                        })
+                        .collect(),
+                )
+            }
+            TransactionDetails::None => None,
+            TransactionDetails::Accounts => {
+                let mut txs = vec![];
+                for signature in &block.signatures {
+                    if let Some(TransactionWithStatusMeta(_, tx, _meta, _err)) = self
+                        .transactions
+                        .get(signature)
+                        .map(|t| t.expect_processed().clone())
+                    {
+                        let transaction = EncodedTransactionWithStatusMeta {
+                            transaction: EncodedTransaction::Accounts(to_ui_accounts_list(&tx)),
+                            meta: None,
+                            version: Some(get_transaction_version(&tx)),
+                        };
+                        txs.push(transaction);
+                    }
+                }
+                Some(txs)
+            }
+        };
 
-        // Construct block
+        let signatures = match transaction_details {
+            TransactionDetails::Full
+            | TransactionDetails::Signatures
+            | TransactionDetails::Accounts => {
+                Some(block.signatures.iter().map(|t| t.to_string()).collect())
+            }
+            TransactionDetails::None => None,
+        };
+
         let block = UiConfirmedBlock {
             blockhash: block.hash.clone(),
             previous_blockhash: block.previous_blockhash.clone(),
-            rewards: None,
+            rewards: if rewards { Some(vec![]) } else { None },
             num_reward_partitions: None,
-            block_time: Some(block.block_time),
+            block_time: Some(block.block_time / 1000),
             block_height: Some(block.block_height),
             parent_slot: block.parent_slot,
-            transactions: Some(transactions),
-            signatures: Some(block.signatures.iter().map(|t| t.to_string()).collect()),
+            transactions,
+            signatures,
         };
-
         Some(block)
+    }
+
+    /// Returns the blockhash for a given slot, if available.
+    pub fn blockhash_for_slot(&self, slot: Slot) -> Option<Hash> {
+        self.blocks
+            .get(&slot)
+            .and_then(|header| header.hash.parse().ok())
     }
 
     /// Gets all accounts owned by a specific program ID from the account registry.
@@ -1136,6 +1186,119 @@ impl SurfnetSvm {
         self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_subscriptions
             .retain(|tx| tx.send(SlotInfo { slot, parent, root }).is_ok());
+    }
+}
+
+fn to_ui_inner_instructions(
+    meta: &surfpool_types::TransactionMetadata,
+) -> solana_transaction_status::option_serializer::OptionSerializer<Vec<UiInnerInstructions>> {
+    solana_transaction_status::option_serializer::OptionSerializer::Some(
+        meta.inner_instructions
+            .iter()
+            .enumerate()
+            .map(|(i, inner_ixs)| UiInnerInstructions {
+                index: i as u8,
+                instructions: inner_ixs
+                    .iter()
+                    .map(|ix| {
+                        UiInstruction::Compiled(UiCompiledInstruction::from(
+                            &ix.instruction,
+                            Some(ix.stack_height as u32),
+                        ))
+                    })
+                    .collect(),
+            })
+            .collect(),
+    )
+}
+
+fn to_ui_return_data(
+    meta: &surfpool_types::TransactionMetadata,
+) -> solana_transaction_status::option_serializer::OptionSerializer<UiTransactionReturnData> {
+    match meta.return_data.data.is_empty() {
+        true => solana_transaction_status::option_serializer::OptionSerializer::None,
+        false => solana_transaction_status::option_serializer::OptionSerializer::Some(
+            UiTransactionReturnData {
+                program_id: meta.return_data.program_id.to_string(),
+                data: (
+                    base64::engine::general_purpose::STANDARD.encode(&meta.return_data.data),
+                    UiReturnDataEncoding::Base64,
+                ),
+            },
+        ),
+    }
+}
+
+fn to_ui_message(tx: &VersionedTransaction) -> UiMessage {
+    match &tx.message {
+        VersionedMessage::Legacy(legacy_msg) => UiMessage::Raw(UiRawMessage {
+            header: legacy_msg.header,
+            account_keys: legacy_msg
+                .account_keys
+                .iter()
+                .map(|k| k.to_string())
+                .collect(),
+            recent_blockhash: tx.get_recent_blockhash().to_string(),
+            instructions: legacy_msg
+                .instructions
+                .iter()
+                .map(|ix| UiCompiledInstruction::from(ix, None))
+                .collect(),
+            address_table_lookups: None,
+        }),
+        VersionedMessage::V0(v0_msg) => UiMessage::Raw(UiRawMessage {
+            header: v0_msg.header,
+            account_keys: v0_msg.account_keys.iter().map(|k| k.to_string()).collect(),
+            recent_blockhash: tx.get_recent_blockhash().to_string(),
+            instructions: v0_msg
+                .instructions
+                .iter()
+                .map(|ix| UiCompiledInstruction::from(ix, None))
+                .collect(),
+            address_table_lookups: Some(
+                v0_msg
+                    .address_table_lookups
+                    .iter()
+                    .map(UiAddressTableLookup::from)
+                    .collect(),
+            ),
+        }),
+    }
+}
+
+fn to_ui_accounts_list(tx: &VersionedTransaction) -> UiAccountsList {
+    let account_keys = match &tx.message {
+        VersionedMessage::Legacy(legacy_msg) => legacy_msg
+            .account_keys
+            .iter()
+            .map(|k| ParsedAccount {
+                pubkey: k.to_string(),
+                writable: true,
+                signer: false,
+                source: None,
+            })
+            .collect(),
+        VersionedMessage::V0(v0_msg) => v0_msg
+            .account_keys
+            .iter()
+            .map(|k| ParsedAccount {
+                pubkey: k.to_string(),
+                writable: true,
+                signer: false,
+                source: None,
+            })
+            .collect(),
+    };
+    UiAccountsList {
+        account_keys,
+        signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
+    }
+}
+
+fn get_transaction_version(tx: &VersionedTransaction) -> TransactionVersion {
+    match &tx.message {
+        VersionedMessage::Legacy(_) => TransactionVersion::Legacy(Legacy::Legacy),
+        VersionedMessage::V0(_) => TransactionVersion::Number(0),
     }
 }
 

@@ -15,7 +15,7 @@ use solana_account_decoder::{
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
     rpc_config::{
-        RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcLargestAccountsFilter,
+        RpcAccountInfoConfig, RpcBlockConfig, RpcLargestAccountsConfig, RpcLargestAccountsFilter,
         RpcSignaturesForAddressConfig,
     },
     rpc_filter::RpcFilterType,
@@ -44,7 +44,8 @@ use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta,
-    TransactionConfirmationStatus as SolanaTransactionConfirmationStatus, UiTransactionEncoding,
+    TransactionConfirmationStatus as SolanaTransactionConfirmationStatus, UiConfirmedBlock,
+    UiTransactionEncoding,
 };
 use spl_token::state::Mint;
 use spl_token_2022::extension::StateWithExtensions;
@@ -1752,6 +1753,47 @@ impl SurfnetSvmLocker {
 }
 
 impl SurfnetSvmLocker {
+    pub fn get_first_local_slot(&self) -> Option<Slot> {
+        self.with_svm_reader(|svm_reader| svm_reader.blocks.keys().min().copied())
+    }
+
+    pub async fn get_block(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+        slot: &Slot,
+        config: &RpcBlockConfig,
+    ) -> SurfpoolContextualizedResult<Option<UiConfirmedBlock>> {
+        let first_local_slot = self.get_first_local_slot();
+
+        let result = if first_local_slot.is_some() && first_local_slot.unwrap() > *slot {
+            match remote_ctx {
+                Some(remote_client) => Some(remote_client.get_block(slot, *config).await?),
+                None => return Err(SurfpoolError::slot_too_old(*slot)),
+            }
+        } else {
+            self.get_block_local(slot, config).inner
+        };
+
+        Ok(SvmAccessContext {
+            slot: *slot,
+            latest_epoch_info: self.get_epoch_info(),
+            latest_blockhash: self
+                .get_latest_blockhash(&CommitmentConfig::processed())
+                .unwrap_or_default(),
+            inner: result,
+        })
+    }
+
+    pub fn get_block_local(
+        &self,
+        slot: &Slot,
+        config: &RpcBlockConfig,
+    ) -> SvmAccessContext<Option<UiConfirmedBlock>> {
+        self.with_contextualized_svm_reader(|svm_reader| {
+            svm_reader.get_block_at_slot(*slot, config)
+        })
+    }
+
     pub fn get_genesis_hash_local(&self) -> SvmAccessContext<Hash> {
         self.with_contextualized_svm_reader(|svm_reader| svm_reader.genesis_config.hash())
     }
@@ -1784,6 +1826,12 @@ impl SurfnetSvmLocker {
     /// Retrieves the latest absolute slot from the underlying SVM.
     pub fn get_latest_absolute_slot(&self) -> Slot {
         self.with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot())
+    }
+
+    /// Retrieves the latest blockhash for the given commitment config from the underlying SVM.
+    pub fn get_latest_blockhash(&self, config: &CommitmentConfig) -> Option<Hash> {
+        let slot = self.get_slot_for_commitment(config);
+        self.with_svm_reader(|svm_reader| svm_reader.blockhash_for_slot(slot))
     }
 
     pub fn get_slot_for_commitment(&self, commitment: &CommitmentConfig) -> Slot {
