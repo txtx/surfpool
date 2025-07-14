@@ -3679,7 +3679,6 @@ mod tests {
 
         {
             let mut svm_writer = setup.context.svm_locker.0.write().await;
-
             for slot in 100..=110 {
                 svm_writer.blocks.insert(
                     slot,
@@ -3693,8 +3692,8 @@ mod tests {
                     },
                 );
             }
-
-            svm_writer.latest_epoch_info.absolute_slot = 110;
+            svm_writer.latest_epoch_info.absolute_slot = 100;
+            drop(svm_writer);
         }
 
         // min_context_slot = 105 > 79, so should return MinContextSlotNotReached error
@@ -3712,6 +3711,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+
+        {
+            let mut svm_writer = setup.context.svm_locker.0.write().await;
+            svm_writer.latest_epoch_info.absolute_slot = 110;
+            drop(svm_writer);
+        }
 
         let result = setup
             .rpc

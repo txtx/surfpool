@@ -1753,15 +1753,8 @@ impl SurfnetSvmLocker {
 }
 
 impl SurfnetSvmLocker {
-    pub fn get_first_local_slot(&self) -> Slot {
-        self.with_svm_reader(|svm_reader| {
-            svm_reader
-                .blocks
-                .keys()
-                .min()
-                .copied()
-                .expect("Should have blocks")
-        })
+    pub fn get_first_local_slot(&self) -> Option<Slot> {
+        self.with_svm_reader(|svm_reader| svm_reader.blocks.keys().min().copied())
     }
 
     pub async fn get_block(
@@ -1772,7 +1765,7 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolContextualizedResult<Option<UiConfirmedBlock>> {
         let first_local_slot = self.get_first_local_slot();
 
-        let result = if first_local_slot > *slot {
+        let result = if first_local_slot.is_some() && first_local_slot.unwrap() > *slot {
             match remote_ctx {
                 Some(remote_client) => Some(remote_client.get_block(slot, *config).await?),
                 None => return Err(SurfpoolError::slot_too_old(*slot)),
