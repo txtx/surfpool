@@ -221,14 +221,24 @@ impl GetTransactionResult {
         tx: EncodedConfirmedTransactionWithStatusMeta,
         latest_absolute_slot: u64,
     ) -> Self {
+        let is_finalized = latest_absolute_slot >= tx.slot + FINALIZATION_SLOT_THRESHOLD;
+        let (confirmation_status, confirmations) = if is_finalized {
+            (
+                Some(solana_transaction_status::TransactionConfirmationStatus::Finalized),
+                None,
+            )
+        } else {
+            (
+                Some(solana_transaction_status::TransactionConfirmationStatus::Confirmed),
+                Some((latest_absolute_slot - tx.slot) as usize),
+            )
+        };
         let status = TransactionStatus {
             slot: tx.slot,
-            confirmations: Some((latest_absolute_slot - tx.slot) as usize),
+            confirmations,
             status: tx.transaction.clone().meta.map_or(Ok(()), |m| m.status),
             err: tx.transaction.clone().meta.and_then(|m| m.err),
-            confirmation_status: Some(
-                solana_transaction_status::TransactionConfirmationStatus::Confirmed,
-            ),
+            confirmation_status,
         };
 
         Self::FoundTransaction(signature, tx, status)
