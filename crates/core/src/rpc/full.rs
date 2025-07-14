@@ -3692,8 +3692,7 @@ mod tests {
                     },
                 );
             }
-            svm_writer.latest_epoch_info.absolute_slot = 100;
-            drop(svm_writer);
+            svm_writer.latest_epoch_info.absolute_slot = 110;
         }
 
         // min_context_slot = 105 > 79, so should return MinContextSlotNotReached error
@@ -3704,19 +3703,13 @@ mod tests {
                 100,
                 Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(105))),
                 Some(RpcContextConfig {
-                    commitment: None,
+                    commitment: Some(CommitmentConfig::finalized()),
                     min_context_slot: Some(105),
                 }),
             )
             .await;
 
         assert!(result.is_err());
-
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-            svm_writer.latest_epoch_info.absolute_slot = 110;
-            drop(svm_writer);
-        }
 
         let result = setup
             .rpc
