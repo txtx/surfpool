@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
+use base64::Engine;
 use chrono::Utc;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use litesvm::{
@@ -36,10 +37,11 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
-    EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionDetails, UiAddressTableLookup,
-    UiCompiledInstruction, UiConfirmedBlock, UiInnerInstructions, UiInstruction, UiMessage,
-    UiRawMessage, UiReturnDataEncoding, UiTransaction, UiTransactionReturnData,
-    UiTransactionStatusMeta, option_serializer::OptionSerializer,
+    EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionDetails, UiAccountsList,
+    UiAddressTableLookup, UiCompiledInstruction, UiConfirmedBlock, UiInnerInstructions,
+    UiInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
+    UiTransactionReturnData, UiTransactionStatusMeta, option_serializer::OptionSerializer,
+    parse_accounts::ParsedAccount,
 };
 use spl_token::state::Account as TokenAccount;
 use spl_token_2022::extension::{
@@ -955,7 +957,7 @@ impl SurfnetSvm {
     ) -> Option<UiConfirmedBlock> {
         let block = self.blocks.get(&slot)?;
 
-        let rewards_partitions = config.rewards.unwrap_or(false);
+        let rewards = config.rewards.unwrap_or(false);
         let transaction_details = config
             .transaction_details
             .unwrap_or(TransactionDetails::Full);
@@ -972,80 +974,14 @@ impl SurfnetSvm {
                         continue;
                     };
 
-                    // Match on VersionedMessage to extract fields
-                    let (header, account_keys, instructions, address_table_lookups) =
-                        match &tx.message {
-                            VersionedMessage::Legacy(legacy_msg) => (
-                                legacy_msg.header,
-                                legacy_msg
-                                    .account_keys
-                                    .iter()
-                                    .map(|k| k.to_string())
-                                    .collect(),
-                                legacy_msg
-                                    .instructions
-                                    .iter()
-                                    .map(|ix| UiCompiledInstruction::from(ix, None))
-                                    .collect(),
-                                None,
-                            ),
-                            VersionedMessage::V0(v0_msg) => (
-                                v0_msg.header,
-                                v0_msg.account_keys.iter().map(|k| k.to_string()).collect(),
-                                v0_msg
-                                    .instructions
-                                    .iter()
-                                    .map(|ix| UiCompiledInstruction::from(ix, None))
-                                    .collect(),
-                                Some(
-                                    v0_msg
-                                        .address_table_lookups
-                                        .iter()
-                                        .map(UiAddressTableLookup::from)
-                                        .collect(),
-                                ),
-                            ),
-                        };
+                    let inner_instructions = to_ui_inner_instructions(&meta);
 
-                    let inner_instructions = OptionSerializer::Some(
-                        meta.inner_instructions
-                            .iter()
-                            .enumerate()
-                            .map(|(i, inner_ixs)| UiInnerInstructions {
-                                index: i as u8,
-                                instructions: inner_ixs
-                                    .iter()
-                                    .map(|ix| {
-                                        UiInstruction::Compiled(UiCompiledInstruction::from(
-                                            &ix.instruction,
-                                            Some(ix.stack_height as u32),
-                                        ))
-                                    })
-                                    .collect(),
-                            })
-                            .collect(),
-                    );
+                    let return_data = to_ui_return_data(&meta);
 
-                    let return_data = match meta.return_data.data.is_empty() {
-                        true => OptionSerializer::None,
-                        false => OptionSerializer::Some(UiTransactionReturnData {
-                            program_id: meta.return_data.program_id.to_string(),
-                            data: (
-                                base64::encode(&meta.return_data.data),
-                                UiReturnDataEncoding::Base64,
-                            ),
-                        }),
-                    };
                     let transaction = EncodedTransactionWithStatusMeta {
                         transaction: EncodedTransaction::Json(UiTransaction {
                             signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
-                            message: UiMessage::Raw(UiRawMessage {
-                                header,
-                                account_keys,
-                                recent_blockhash: tx.get_recent_blockhash().to_string(),
-                                instructions,
-                                address_table_lookups,
-                            }),
+                            message: to_ui_message(&tx),
                         }),
 
                         meta: Some(UiTransactionStatusMeta {
@@ -1065,12 +1001,7 @@ impl SurfnetSvm {
                             post_balances: vec![],
                             fee: 0,
                         }),
-                        version: Some(match &tx.message {
-                            VersionedMessage::Legacy(_) => {
-                                TransactionVersion::Legacy(Legacy::Legacy)
-                            }
-                            VersionedMessage::V0(_) => TransactionVersion::Number(0),
-                        }),
+                        version: Some(get_transaction_version(&tx)),
                     };
                     txs.push(transaction);
                 }
@@ -1099,52 +1030,10 @@ impl SurfnetSvm {
                         .get(signature)
                         .map(|t| t.expect_processed().clone())
                     {
-                        let (header, account_keys, recent_blockhash, address_table_lookups) =
-                            match &tx.message {
-                                VersionedMessage::Legacy(legacy_msg) => (
-                                    legacy_msg.header,
-                                    legacy_msg
-                                        .account_keys
-                                        .iter()
-                                        .map(|k| k.to_string())
-                                        .collect(),
-                                    tx.get_recent_blockhash().to_string(),
-                                    None,
-                                ),
-                                VersionedMessage::V0(v0_msg) => (
-                                    v0_msg.header,
-                                    v0_msg.account_keys.iter().map(|k| k.to_string()).collect(),
-                                    tx.get_recent_blockhash().to_string(),
-                                    Some(
-                                        v0_msg
-                                            .address_table_lookups
-                                            .iter()
-                                            .map(UiAddressTableLookup::from)
-                                            .collect(),
-                                    ),
-                                ),
-                            };
-
-                        let message = UiMessage::Raw(UiRawMessage {
-                            header,
-                            account_keys,
-                            recent_blockhash,
-                            instructions: vec![],
-                            address_table_lookups,
-                        });
-
                         let transaction = EncodedTransactionWithStatusMeta {
-                            transaction: EncodedTransaction::Json(UiTransaction {
-                                signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
-                                message,
-                            }),
+                            transaction: EncodedTransaction::Accounts(to_ui_accounts_list(&tx)),
                             meta: None,
-                            version: Some(match &tx.message {
-                                VersionedMessage::Legacy(_) => {
-                                    TransactionVersion::Legacy(Legacy::Legacy)
-                                }
-                                VersionedMessage::V0(_) => TransactionVersion::Number(0),
-                            }),
+                            version: Some(get_transaction_version(&tx)),
                         };
                         txs.push(transaction);
                     }
@@ -1165,8 +1054,8 @@ impl SurfnetSvm {
         let block = UiConfirmedBlock {
             blockhash: block.hash.clone(),
             previous_blockhash: block.previous_blockhash.clone(),
-            rewards: Some(vec![]),
-            num_reward_partitions: Some(rewards_partitions as u64),
+            rewards: if rewards { Some(vec![]) } else { None },
+            num_reward_partitions: None,
             block_time: Some(block.block_time / 1000),
             block_height: Some(block.block_height),
             parent_slot: block.parent_slot,
@@ -1297,6 +1186,119 @@ impl SurfnetSvm {
         self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_subscriptions
             .retain(|tx| tx.send(SlotInfo { slot, parent, root }).is_ok());
+    }
+}
+
+fn to_ui_inner_instructions(
+    meta: &surfpool_types::TransactionMetadata,
+) -> solana_transaction_status::option_serializer::OptionSerializer<Vec<UiInnerInstructions>> {
+    solana_transaction_status::option_serializer::OptionSerializer::Some(
+        meta.inner_instructions
+            .iter()
+            .enumerate()
+            .map(|(i, inner_ixs)| UiInnerInstructions {
+                index: i as u8,
+                instructions: inner_ixs
+                    .iter()
+                    .map(|ix| {
+                        UiInstruction::Compiled(UiCompiledInstruction::from(
+                            &ix.instruction,
+                            Some(ix.stack_height as u32),
+                        ))
+                    })
+                    .collect(),
+            })
+            .collect(),
+    )
+}
+
+fn to_ui_return_data(
+    meta: &surfpool_types::TransactionMetadata,
+) -> solana_transaction_status::option_serializer::OptionSerializer<UiTransactionReturnData> {
+    match meta.return_data.data.is_empty() {
+        true => solana_transaction_status::option_serializer::OptionSerializer::None,
+        false => solana_transaction_status::option_serializer::OptionSerializer::Some(
+            UiTransactionReturnData {
+                program_id: meta.return_data.program_id.to_string(),
+                data: (
+                    base64::engine::general_purpose::STANDARD.encode(&meta.return_data.data),
+                    UiReturnDataEncoding::Base64,
+                ),
+            },
+        ),
+    }
+}
+
+fn to_ui_message(tx: &VersionedTransaction) -> UiMessage {
+    match &tx.message {
+        VersionedMessage::Legacy(legacy_msg) => UiMessage::Raw(UiRawMessage {
+            header: legacy_msg.header,
+            account_keys: legacy_msg
+                .account_keys
+                .iter()
+                .map(|k| k.to_string())
+                .collect(),
+            recent_blockhash: tx.get_recent_blockhash().to_string(),
+            instructions: legacy_msg
+                .instructions
+                .iter()
+                .map(|ix| UiCompiledInstruction::from(ix, None))
+                .collect(),
+            address_table_lookups: None,
+        }),
+        VersionedMessage::V0(v0_msg) => UiMessage::Raw(UiRawMessage {
+            header: v0_msg.header,
+            account_keys: v0_msg.account_keys.iter().map(|k| k.to_string()).collect(),
+            recent_blockhash: tx.get_recent_blockhash().to_string(),
+            instructions: v0_msg
+                .instructions
+                .iter()
+                .map(|ix| UiCompiledInstruction::from(ix, None))
+                .collect(),
+            address_table_lookups: Some(
+                v0_msg
+                    .address_table_lookups
+                    .iter()
+                    .map(UiAddressTableLookup::from)
+                    .collect(),
+            ),
+        }),
+    }
+}
+
+fn to_ui_accounts_list(tx: &VersionedTransaction) -> UiAccountsList {
+    let account_keys = match &tx.message {
+        VersionedMessage::Legacy(legacy_msg) => legacy_msg
+            .account_keys
+            .iter()
+            .map(|k| ParsedAccount {
+                pubkey: k.to_string(),
+                writable: true,
+                signer: false,
+                source: None,
+            })
+            .collect(),
+        VersionedMessage::V0(v0_msg) => v0_msg
+            .account_keys
+            .iter()
+            .map(|k| ParsedAccount {
+                pubkey: k.to_string(),
+                writable: true,
+                signer: false,
+                source: None,
+            })
+            .collect(),
+    };
+    UiAccountsList {
+        account_keys,
+        signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
+    }
+}
+
+fn get_transaction_version(tx: &VersionedTransaction) -> TransactionVersion {
+    match &tx.message {
+        VersionedMessage::Legacy(_) => TransactionVersion::Legacy(Legacy::Legacy),
+        VersionedMessage::V0(_) => TransactionVersion::Number(0),
     }
 }
 

@@ -2959,7 +2959,7 @@ mod tests {
         assert_eq!(res, None);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_block_time() {
         let setup = TestSetup::new(SurfpoolFullRpc);
         let res = setup
