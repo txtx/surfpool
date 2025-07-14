@@ -978,16 +978,6 @@ impl SurfnetSvm {
 
                     let return_data = to_ui_return_data(&meta);
 
-                    let return_data = match meta.return_data.data.is_empty() {
-                        true => OptionSerializer::None,
-                        false => OptionSerializer::Some(UiTransactionReturnData {
-                            program_id: meta.return_data.program_id.to_string(),
-                            data: (
-                                base64::encode(&meta.return_data.data),
-                                UiReturnDataEncoding::Base64,
-                            ),
-                        }),
-                    };
                     let transaction = EncodedTransactionWithStatusMeta {
                         transaction: EncodedTransaction::Json(UiTransaction {
                             signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
