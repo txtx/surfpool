@@ -206,18 +206,25 @@ pub fn transform_tx_metadata_to_ui_accounts(
     meta.inner_instructions
         .iter()
         .enumerate()
-        .map(|(i, ixs)| {
-            InnerInstructions {
-                index: i as u8,
-                instructions: ixs
-                    .iter()
-                    .map(|ix| InnerInstruction {
-                        instruction: ix.instruction.clone(),
-                        stack_height: Some(ix.stack_height as u32),
-                    })
-                    .collect(),
+        .filter_map(|(i, ixs)| {
+            let instructions: Vec<InnerInstruction> = ixs
+                .iter()
+                .map(|ix| InnerInstruction {
+                    instruction: ix.instruction.clone(),
+                    stack_height: Some(ix.stack_height as u32),
+                })
+                .collect();
+            if instructions.is_empty() {
+                None
+            } else {
+                Some(
+                    InnerInstructions {
+                        index: i as u8,
+                        instructions,
+                    }
+                    .into(),
+                )
             }
-            .into()
         })
         .collect()
 }
