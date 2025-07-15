@@ -1,6 +1,5 @@
 use std::collections::{HashMap, VecDeque};
 
-use base64::Engine;
 use chrono::Utc;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use litesvm::{
@@ -22,28 +21,18 @@ use solana_epoch_info::EpochInfo;
 use solana_feature_set::{FeatureSet, disable_new_loader_v3_deployments};
 use solana_hash::Hash;
 use solana_keypair::Keypair;
-use solana_message::{Message, VersionedMessage};
+use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    genesis_config::GenesisConfig,
-    inflation::Inflation,
-    program_option::COption,
-    program_pack::Pack,
-    system_instruction,
-    transaction::{Legacy, TransactionVersion, VersionedTransaction},
+    genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
+    program_pack::Pack, system_instruction, transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
-use solana_transaction_status::{
-    EncodedTransaction, EncodedTransactionWithStatusMeta, TransactionDetails, UiAccountsList,
-    UiAddressTableLookup, UiCompiledInstruction, UiConfirmedBlock, UiInnerInstructions,
-    UiInstruction, UiMessage, UiRawMessage, UiReturnDataEncoding, UiTransaction,
-    UiTransactionReturnData, UiTransactionStatusMeta, option_serializer::OptionSerializer,
-    parse_accounts::ParsedAccount,
-};
-use spl_token::state::Account as TokenAccount;
+use solana_transaction_status::{TransactionDetails, TransactionStatusMeta, UiConfirmedBlock};
+use spl_token::state::{Account as TokenAccount, Mint};
 use spl_token_2022::extension::{
     BaseStateWithExtensions, StateWithExtensions, interest_bearing_mint::InterestBearingConfig,
     scaled_ui_amount::ScaledUiAmountConfig,
@@ -163,6 +152,7 @@ impl SurfnetSvm {
                 accounts_by_owner: HashMap::new(),
                 account_associated_data: HashMap::new(),
                 token_accounts: HashMap::new(),
+                token_mints: HashMap::new(),
                 token_accounts_by_owner: HashMap::new(),
                 token_accounts_by_delegate: HashMap::new(),
                 token_accounts_by_mint: HashMap::new(),
@@ -219,7 +209,9 @@ impl SurfnetSvm {
     /// A `TransactionResult` indicating success or failure.
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
         self.updated_at = Utc::now().timestamp_millis() as u64;
+
         let res = self.inner.airdrop(pubkey, lamports);
+        let (status_tx, _rx) = unbounded();
         if let Ok(ref tx_result) = res {
             let airdrop_keypair = Keypair::new();
             let slot = self.latest_epoch_info.absolute_slot;
@@ -584,24 +576,7 @@ impl SurfnetSvm {
         self.inner.set_blockhash_check(false);
 
         match self.inner.send_transaction(tx.clone()) {
-            Ok(res) => {
-                let transaction_meta = convert_transaction_metadata_from_canonical(&res);
-
-                self.transactions.insert(
-                    transaction_meta.signature,
-                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
-                        self.get_latest_absolute_slot(),
-                        tx,
-                        transaction_meta.clone(),
-                        None,
-                    ))),
-                );
-                let _ = self
-                    .simnet_events_tx
-                    .try_send(SimnetEvent::transaction_processed(transaction_meta, None));
-
-                Ok(res)
-            }
+            Ok(res) => Ok(res),
             Err(tx_failure) => {
                 let transaction_meta =
                     convert_transaction_metadata_from_canonical(&tx_failure.meta);

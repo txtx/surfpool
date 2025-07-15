@@ -382,4 +382,10 @@ impl SurfpoolError {
         )));
         Self(error)
     }
+
+    pub fn token_mint_not_found(mint: Pubkey) -> Self {
+        let mut error = Error::internal_error();
+        error.message = format!("Token mint {mint} not found");
+        Self(error)
+    }
 }

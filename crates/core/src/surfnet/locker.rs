@@ -850,13 +850,34 @@ impl SurfnetSvmLocker {
                         .collect::<Vec<_>>();
 
                     let transaction_meta = convert_transaction_metadata_from_canonical(&res);
+
+                    let transaction_with_status_meta = TransactionWithStatusMeta::new(
+                        svm_writer.get_latest_absolute_slot(),
+                        transaction.clone(),
+                        res,
+                        accounts_before,
+                        accounts_after,
+                        token_accounts_before,
+                        token_accounts_after,
+                        token_mints,
+                        token_programs,
+                        loaded_addresses.clone().unwrap_or_default(),
+                    );
+                    svm_writer.transactions.insert(
+                        transaction_meta.signature,
+                        SurfnetTransactionStatus::Processed(Box::new(
+                            transaction_with_status_meta.clone(),
+                        )),
+                    );
+
+                    let _ = svm_writer
+                        .simnet_events_tx
+                        .try_send(SimnetEvent::transaction_processed(transaction_meta, None));
+
                     let _ = svm_writer
                         .geyser_events_tx
-                        .send(GeyserEvent::NotifyTransaction(
-                            transaction.clone(),
-                            transaction_meta,
-                            latest_absolute_slot,
-                        ));
+                        .send(GeyserEvent::NotifyTransaction(transaction_with_status_meta));
+
                     let _ = status_tx.try_send(TransactionStatusEvent::Success(
                         TransactionConfirmationStatus::Processed,
                     ));
