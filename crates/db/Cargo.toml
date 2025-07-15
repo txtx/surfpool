@@ -16,6 +16,6 @@ diesel-dynamic-schema = { version = "0.2.3" }
 txtx-addon-kit = { workspace = true }
 
 [features]
-default = ["sqlite"]
+default = []
 sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "diesel_derives/sqlite", "diesel-dynamic-schema/sqlite"]
 postgres = ["diesel/postgres", "diesel_derives/postgres", "diesel-dynamic-schema/postgres"]

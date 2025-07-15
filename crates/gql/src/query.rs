@@ -156,6 +156,7 @@ impl SchemaDataSource {
 
 #[derive(MultiConnection)]
 pub enum DatabaseConnection {
+    #[cfg(feature = "sqlite")]
     Sqlite(SqliteConnection),
     #[cfg(feature = "postgres")]
     Postgresql(PgConnection),
@@ -287,6 +288,7 @@ pub fn fetch_dynamic_entries_from_postres(
     Ok(actual_data)
 }
 
+#[cfg(feature = "sqlite")]
 pub fn fetch_dynamic_entries_from_sqlite(
     sqlite_conn: &mut diesel::sqlite::SqliteConnection,
     schema: &DynamicSchemaSpec,
@@ -411,6 +413,7 @@ impl Dataloader for SqlStore {
             })?;
 
         let entries = match &mut *conn {
+            #[cfg(feature = "sqlite")]
             DatabaseConnection::Sqlite(sqlite_conn) => fetch_dynamic_entries_from_sqlite(
                 sqlite_conn,
                 schema,
