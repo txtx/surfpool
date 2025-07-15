@@ -3,7 +3,6 @@ use std::{collections::BTreeMap, sync::Arc};
 use bincode::serialized_size;
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
-use jsonrpc_core::futures::future::join_all;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
 use solana_account_decoder::{
@@ -64,7 +63,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
     surfnet::FINALIZATION_SLOT_THRESHOLD,
-    types::{RemoteRpcResult, TransactionWithStatusMeta},
+    types::{RemoteRpcResult, SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 
 pub struct SvmAccessContext<T> {
@@ -527,7 +526,11 @@ impl SurfnetSvmLocker {
                 .transactions
                 .iter()
                 .filter_map(|(sig, status)| {
-                    let TransactionWithStatusMeta(slot, tx, _, err) = status.expect_processed();
+                    let TransactionWithStatusMeta {
+                        slot,
+                        transaction,
+                        meta,
+                    } = status.expect_processed();
 
                     if *slot < config.clone().min_context_slot.unwrap_or_default() {
                         return None;
@@ -542,12 +545,12 @@ impl SurfnetSvmLocker {
                     }
 
                     // Check if the pubkey is a signer
-                    let is_signer = tx
+                    let is_signer = transaction
                         .message
                         .static_account_keys()
                         .iter()
                         .position(|pk| pk == pubkey)
-                        .map(|i| tx.message.is_signer(i))
+                        .map(|i| transaction.message.is_signer(i))
                         .unwrap_or(false);
 
                     if !is_signer {
@@ -564,7 +567,10 @@ impl SurfnetSvmLocker {
                     };
 
                     Some(RpcConfirmedTransactionStatusWithSignature {
-                        err: err.clone(),
+                        err: match &meta.status {
+                            Ok(_) => None,
+                            Err(e) => Some(e.clone()),
+                        },
                         slot: *slot,
                         memo: None,
                         block_time: None,

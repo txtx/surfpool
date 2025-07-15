@@ -223,26 +223,49 @@ impl SurfnetSvm {
         if let Ok(ref tx_result) = res {
             let airdrop_keypair = Keypair::new();
             let slot = self.latest_epoch_info.absolute_slot;
+            let account = self.inner.get_account(pubkey).unwrap();
+
+            let mut tx = VersionedTransaction::try_new(
+                VersionedMessage::Legacy(Message::new(
+                    &[system_instruction::transfer(
+                        &airdrop_keypair.pubkey(),
+                        pubkey,
+                        lamports,
+                    )],
+                    Some(&airdrop_keypair.pubkey()),
+                )),
+                &[airdrop_keypair],
+            )
+            .unwrap();
+
+            // we need the airdrop tx to store in our transactions list,
+            // but for it to be properly processed we need its signature to match
+            // the actual underlying transaction
+            tx.signatures[0] = tx_result.signature.clone();
+
             self.transactions.insert(
-                tx_result.signature,
-                SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                tx.get_signature().clone(),
+                SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta {
                     slot,
-                    VersionedTransaction::try_new(
-                        VersionedMessage::Legacy(Message::new(
-                            &[system_instruction::transfer(
-                                &airdrop_keypair.pubkey(),
-                                pubkey,
-                                lamports,
-                            )],
-                            Some(&airdrop_keypair.pubkey()),
-                        )),
-                        &[airdrop_keypair],
-                    )
-                    .unwrap(),
-                    convert_transaction_metadata_from_canonical(tx_result),
-                    None,
-                ))),
+                    transaction: tx.clone(),
+                    meta: TransactionStatusMeta {
+                        status: Ok(()),
+                        fee: 5000,
+                        pre_balances: vec![account.lamports.saturating_sub(lamports)],
+                        post_balances: vec![account.lamports],
+                        inner_instructions: None,
+                        log_messages: Some(tx_result.logs.clone()),
+                        pre_token_balances: None,
+                        post_token_balances: None,
+                        rewards: None,
+                        loaded_addresses: LoadedAddresses::default(),
+                        return_data: Some(tx_result.return_data.clone()),
+                        compute_units_consumed: Some(tx_result.compute_units_consumed),
+                    },
+                })),
             );
+            self.transactions_queued_for_confirmation
+                .push_back((tx, status_tx.clone()));
             let account = self.inner.get_account(pubkey).unwrap();
             let _ = self.set_account(pubkey, account);
         }

@@ -12,14 +12,15 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
 use solana_pubkey::Pubkey;
-use solana_sdk::transaction::VersionedTransaction;
 use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, TransactionStatus};
-use surfpool_types::TransactionMetadata;
 use svm::SurfnetSvm;
 
-use crate::error::{SurfpoolError, SurfpoolResult};
+use crate::{
+    error::{SurfpoolError, SurfpoolResult},
+    types::TransactionWithStatusMeta,
+};
 
 pub mod locker;
 pub mod remote;
@@ -33,7 +34,7 @@ pub const SLOTS_PER_EPOCH: u64 = 432000;
 pub type AccountFactory = Box<dyn Fn(SurfnetSvmLocker) -> GetAccountResult + Send + Sync>;
 
 pub enum GeyserEvent {
-    NotifyTransaction(VersionedTransaction, TransactionMetadata, Slot),
+    NotifyTransaction(TransactionWithStatusMeta),
     // todo: add more events
 }
 

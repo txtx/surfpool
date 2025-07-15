@@ -2262,7 +2262,7 @@ impl Full for SurfpoolFullRpc {
                 match tx {
                     SurfnetTransactionStatus::Received => {}
                     SurfnetTransactionStatus::Processed(status_meta) => {
-                        let tx = &status_meta.1;
+                        let tx = &status_meta.transaction;
 
                         // If the transaction has an ALT and includes a compute budget instruction,
                         // the ALT accounts are included in the recent prioritization fees,
