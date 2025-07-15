@@ -2366,7 +2366,7 @@ mod tests {
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
         UiRawMessage, UiTransaction,
     };
-    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus, TransactionMetadata};
+    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus};
     use test_case::test_case;
 
     use super::*;
@@ -2432,12 +2432,11 @@ mod tests {
                     .push_back((tx.clone(), status_tx.clone()));
                 writer.transactions.insert(
                     tx.signatures[0],
-                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta {
                         slot,
-                        tx,
-                        TransactionMetadata::default(),
-                        None,
-                    ))),
+                        transaction: tx,
+                        ..Default::default()
+                    })),
                 );
                 status_tx
                     .send(TransactionStatusEvent::Success(
@@ -3043,7 +3042,7 @@ mod tests {
         assert_eq!(
             res,
             EncodedConfirmedTransactionWithStatusMeta {
-                slot: 0,
+                slot: 123,
                 transaction: EncodedTransactionWithStatusMeta {
                     transaction: EncodedTransaction::Json(UiTransaction {
                         signatures: vec![tx.signatures[0].to_string()],
