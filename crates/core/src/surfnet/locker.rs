@@ -750,6 +750,42 @@ impl SurfnetSvmLocker {
                 .map(|p| svm_writer.inner.get_account(p))
                 .collect::<Vec<Option<Account>>>();
 
+            let token_accounts_before = pubkeys_from_message
+                .iter()
+                .enumerate()
+                .filter_map(|(i, p)| {
+                    svm_writer
+                        .token_accounts
+                        .get(&p)
+                        .cloned()
+                        .map(|a| (i, a))
+                        .clone()
+                })
+                .collect::<Vec<_>>();
+
+            let token_mints = token_accounts_before
+                .iter()
+                .map(|(_, a)| {
+                    svm_writer
+                        .token_mints
+                        .get(&a.mint)
+                        .ok_or(SurfpoolError::token_mint_not_found(a.mint))
+                        .cloned()
+                })
+                .collect::<Result<Vec<_>, SurfpoolError>>()
+                .unwrap();
+
+            let token_programs = token_accounts_before
+                .iter()
+                .map(|(i, _)| {
+                    svm_writer
+                        .accounts_registry
+                        .get(&pubkeys_from_message[*i])
+                        .unwrap()
+                        .owner
+                })
+                .collect::<Vec<_>>()
+                .clone();
             // if not skipping preflight, simulate the transaction
             if !skip_preflight {
                 match svm_writer.simulate_transaction(transaction.clone(), true) {
@@ -788,7 +824,7 @@ impl SurfnetSvmLocker {
 
                     for (pubkey, (before, after)) in pubkeys_from_message
                         .iter()
-                        .zip(accounts_before.iter().zip(accounts_after))
+                        .zip(accounts_before.clone().iter().zip(accounts_after.clone()))
                     {
                         if before.ne(&after) {
                             if let Some(after) = &after {
@@ -798,6 +834,14 @@ impl SurfnetSvmLocker {
                                 .notify_account_subscribers(pubkey, &after.unwrap_or_default());
                         }
                     }
+
+                    let token_accounts_after = pubkeys_from_message
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, p)| {
+                            svm_writer.token_accounts.get(&p).cloned().map(|a| (i, a))
+                        })
+                        .collect::<Vec<_>>();
 
                     let transaction_meta = convert_transaction_metadata_from_canonical(&res);
                     let _ = svm_writer

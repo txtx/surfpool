@@ -96,7 +96,8 @@ pub struct SurfnetSvm {
     pub accounts_registry: HashMap<Pubkey, Account>,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
-    pub token_accounts: HashMap<Pubkey, spl_token::state::Account>,
+    pub token_accounts: HashMap<Pubkey, TokenAccount>,
+    pub token_mints: HashMap<Pubkey, Mint>,
     pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_mint: HashMap<Pubkey, Vec<Pubkey>>,
@@ -427,6 +428,9 @@ impl SurfnetSvm {
                         delegate_accounts.push(*pubkey);
                     }
                 }
+            }
+            if let Ok(mint_account) = Mint::unpack(&account.data) {
+                self.token_mints.insert(*pubkey, mint_account);
             }
         }
 
