@@ -99,18 +99,21 @@
       "type": "object",
       "properties": {
         "data": {
+          "description": "The new account data, as a base-64 encoded string.",
           "type": [
             "string",
             "null"
           ]
         },
         "executable": {
+          "description": "Whether the account should be executable.",
           "type": [
             "boolean",
             "null"
           ]
         },
         "lamports": {
+          "description": "The new balance in lamports.",
           "type": [
             "integer",
             "null"
@@ -119,12 +122,14 @@
           "minimum": 0
         },
         "owner": {
+          "description": "The new owner program ID, as a base-58 encoded string.",
           "type": [
             "string",
             "null"
           ]
         },
         "rentEpoch": {
+          "description": "The new rent epoch.",
           "type": [
             "integer",
             "null"
@@ -138,6 +143,7 @@
       "type": "object",
       "properties": {
         "keypairFile": {
+          "description": "Path to the keypair file for the authorized voter.",
           "type": "string"
         }
       },
@@ -149,6 +155,7 @@
       "type": "object",
       "properties": {
         "keypair": {
+          "description": "Byte array representing the keypair for the authorized voter.",
           "type": "array",
           "items": {
             "type": "integer",
@@ -166,9 +173,11 @@
       "type": "object",
       "properties": {
         "destinationProgramId": {
+          "description": "The public key of the destination program, as a base-58 encoded string.",
           "type": "string"
         },
         "sourceProgramId": {
+          "description": "The public key of the source program to clone, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -181,6 +190,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "The commitment level.",
           "$ref": "#/$defs/CommitmentLevel"
         }
       },
@@ -212,6 +222,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcAccountInfoConfig"
@@ -222,6 +233,7 @@
           ]
         },
         "pubkey": {
+          "description": "The public key of the account to query, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -233,6 +245,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -243,6 +256,7 @@
           ]
         },
         "pubkey": {
+          "description": "The public key of the account to query, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -254,6 +268,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcBlockConfig"
@@ -264,6 +279,7 @@
           ]
         },
         "slot": {
+          "description": "The slot to query for the block.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
@@ -277,6 +293,7 @@
       "type": "object",
       "properties": {
         "block": {
+          "description": "The slot to query for block commitment.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
@@ -290,6 +307,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -305,6 +323,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcBlockProductionConfig"
@@ -320,6 +339,7 @@
       "type": "object",
       "properties": {
         "slot": {
+          "description": "The slot to query for the block time.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
@@ -333,6 +353,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -343,11 +364,13 @@
           ]
         },
         "startSlot": {
+          "description": "The starting slot to query for blocks.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
         },
         "wrapper": {
+          "description": "Wrapper for end slot or context configuration.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcBlocksConfigWrapper"
@@ -366,6 +389,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -376,11 +400,13 @@
           ]
         },
         "limit": {
+          "description": "The maximum number of blocks to return.",
           "type": "integer",
           "format": "uint",
           "minimum": 0
         },
         "startSlot": {
+          "description": "The starting slot to query for blocks.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
@@ -395,6 +421,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -410,6 +437,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -420,6 +448,7 @@
           ]
         },
         "message": {
+          "description": "The message to calculate the fee for, as a base-64 encoded string.",
           "type": "string"
         }
       },
@@ -431,6 +460,7 @@
       "type": "object",
       "properties": {
         "identity": {
+          "description": "The identity to query, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -442,6 +472,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "Commitment level for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/CommitmentConfig"
@@ -457,12 +488,14 @@
       "type": "object",
       "properties": {
         "addresses": {
+          "description": "An array of public keys to query, as base-58 encoded strings.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcEpochConfig"
@@ -481,6 +514,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcLargestAccountsConfig"
@@ -496,6 +530,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -511,6 +546,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcLeaderScheduleConfig"
@@ -521,6 +557,7 @@
           ]
         },
         "options": {
+          "description": "Wrapper for slot or configuration.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcLeaderScheduleConfigWrapper"
@@ -536,6 +573,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "Commitment level for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/CommitmentConfig"
@@ -546,6 +584,7 @@
           ]
         },
         "dataLen": {
+          "description": "The account data length in bytes.",
           "type": "integer",
           "format": "uint",
           "minimum": 0
@@ -559,6 +598,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcAccountInfoConfig"
@@ -569,6 +609,7 @@
           ]
         },
         "pubkeys": {
+          "description": "An array of public keys to query, as base-58 encoded strings.",
           "type": "array",
           "items": {
             "type": "string"
@@ -583,6 +624,7 @@
       "type": "object",
       "properties": {
         "tag": {
+          "description": "The tag to retrieve profiling results for.",
           "type": "string"
         }
       },
@@ -594,6 +636,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcProgramAccountsConfig"
@@ -604,6 +647,7 @@
           ]
         },
         "programId": {
+          "description": "The public key of the program, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -615,6 +659,7 @@
       "type": "object",
       "properties": {
         "limit": {
+          "description": "The maximum number of samples to return.",
           "type": [
             "integer",
             "null"
@@ -628,6 +673,7 @@
       "type": "object",
       "properties": {
         "pubkeys": {
+          "description": "An array of account public keys to query for prioritization fees, as base-58 encoded strings.",
           "type": [
             "array",
             "null"
@@ -642,6 +688,7 @@
       "type": "object",
       "properties": {
         "pubkeyStr": {
+          "description": "The public key of the account to get the secondary index key size for, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -653,6 +700,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcSignatureStatusConfig"
@@ -663,6 +711,7 @@
           ]
         },
         "signatures": {
+          "description": "An array of transaction signatures to query, as base-58 encoded strings.",
           "type": "array",
           "items": {
             "type": "string"
@@ -677,15 +726,18 @@
       "type": "object",
       "properties": {
         "address": {
+          "description": "The address to query for transaction signatures, as a base-58 encoded string.",
           "type": "string"
         },
         "before": {
+          "description": "Start searching backwards from this transaction signature.",
           "type": [
             "string",
             "null"
           ]
         },
         "limit": {
+          "description": "The maximum number of signatures to return.",
           "type": [
             "integer",
             "null"
@@ -694,6 +746,7 @@
           "minimum": 0
         },
         "until": {
+          "description": "Search until this transaction signature.",
           "type": [
             "string",
             "null"
@@ -708,6 +761,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -723,6 +777,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -738,11 +793,13 @@
       "type": "object",
       "properties": {
         "limit": {
+          "description": "The maximum number of leaders to return.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
         },
         "startSlot": {
+          "description": "The starting slot to query for leaders.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
@@ -757,6 +814,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -772,6 +830,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcSupplyConfig"
@@ -787,6 +846,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "Commitment level for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/CommitmentConfig"
@@ -797,6 +857,7 @@
           ]
         },
         "pubkey": {
+          "description": "The public key of the token account to query, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -808,6 +869,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcAccountInfoConfig"
@@ -818,6 +880,7 @@
           ]
         },
         "delegate": {
+          "description": "The public key of the delegate, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -855,6 +918,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcAccountInfoConfig"
@@ -865,6 +929,7 @@
           ]
         },
         "owner": {
+          "description": "The public key of the account owner, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -902,6 +967,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "Commitment level for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/CommitmentConfig"
@@ -912,6 +978,7 @@
           ]
         },
         "mint": {
+          "description": "The public key of the token mint, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -923,6 +990,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "Commitment level for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/CommitmentConfig"
@@ -933,6 +1001,7 @@
           ]
         },
         "mint": {
+          "description": "The public key of the token mint, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -944,6 +1013,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcTransactionConfig"
@@ -954,6 +1024,7 @@
           ]
         },
         "signature": {
+          "description": "The transaction signature to query, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -965,6 +1036,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -980,6 +1052,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcGetVoteAccountsConfig"
@@ -995,9 +1068,11 @@
       "type": "object",
       "properties": {
         "blockhash": {
+          "description": "The blockhash to check, as a base-58 encoded string.",
           "type": "string"
         },
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcContextConfig"
@@ -1016,6 +1091,7 @@
       "type": "object",
       "properties": {
         "configFile": {
+          "description": "The path to the configuration file for the new plugin.",
           "type": "string"
         }
       },
@@ -1035,6 +1111,7 @@
       },
       "oneOf": [
         {
+          "description": "Base-58 encoded bytes.",
           "type": "object",
           "properties": {
             "bytes": {
@@ -1051,6 +1128,7 @@
           ]
         },
         {
+          "description": "Base-64 encoded bytes.",
           "type": "object",
           "properties": {
             "bytes": {
@@ -1067,6 +1145,7 @@
           ]
         },
         {
+          "description": "Raw byte array.",
           "type": "object",
           "properties": {
             "bytes": {
@@ -1097,12 +1176,14 @@
       "type": "object",
       "properties": {
         "tag": {
+          "description": "An optional tag to identify the profiling results.",
           "type": [
             "string",
             "null"
           ]
         },
         "transactionData": {
+          "description": "The transaction data to profile, as a base-64 encoded string.",
           "type": "string"
         }
       },
@@ -1114,9 +1195,11 @@
       "type": "object",
       "properties": {
         "configFile": {
+          "description": "The path to the new configuration file for the plugin.",
           "type": "string"
         },
         "name": {
+          "description": "The name of the plugin to reload.",
           "type": "string"
         }
       },
@@ -1129,17 +1212,20 @@
       "type": "object",
       "properties": {
         "pubkey": {
+          "description": "The public key of the peer to repair from, as a base-58 encoded string.",
           "type": [
             "string",
             "null"
           ]
         },
         "shredIndex": {
+          "description": "The index of the shred to repair.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
         },
         "slot": {
+          "description": "The slot of the shred to repair.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
@@ -1154,6 +1240,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcRequestAirdropConfig"
@@ -1164,11 +1251,13 @@
           ]
         },
         "lamports": {
+          "description": "The amount of lamports to airdrop.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
         },
         "pubkey": {
+          "description": "The public key of the account to receive the airdrop, as a base-58 encoded string.",
           "type": "string"
         }
       },
@@ -1181,6 +1270,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "The commitment level.",
           "$ref": "#/$defs/CommitmentLevel"
         },
         "dataSlice": {
@@ -1220,6 +1310,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "Commitment level for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/CommitmentConfig"
@@ -1230,6 +1321,7 @@
           ]
         },
         "encoding": {
+          "description": "Encoding for transaction data.",
           "anyOf": [
             {
               "$ref": "#/$defs/UiTransactionEncoding"
@@ -1240,6 +1332,7 @@
           ]
         },
         "maxSupportedTransactionVersion": {
+          "description": "The maximum transaction version to support.",
           "type": [
             "integer",
             "null"
@@ -1249,12 +1342,14 @@
           "minimum": 0
         },
         "rewards": {
+          "description": "Whether to return rewards.",
           "type": [
             "boolean",
             "null"
           ]
         },
         "transactionDetails": {
+          "description": "Level of transaction detail to return.",
           "anyOf": [
             {
               "$ref": "#/$defs/TransactionDetails"
@@ -1270,6 +1365,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "Commitment level for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/CommitmentConfig"
@@ -1280,12 +1376,14 @@
           ]
         },
         "identity": {
+          "description": "Filter by validator identity, as a base-58 encoded string.",
           "type": [
             "string",
             "null"
           ]
         },
         "range": {
+          "description": "Slot range to query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcBlockProductionConfigRange"
@@ -1301,11 +1399,13 @@
       "type": "object",
       "properties": {
         "firstSlot": {
+          "description": "The first slot to include in the range.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
         },
         "lastSlot": {
+          "description": "The last slot to include in the range.",
           "type": [
             "integer",
             "null"
@@ -1321,6 +1421,7 @@
     "RpcBlocksConfigWrapper": {
       "anyOf": [
         {
+          "description": "Specify only the end slot.",
           "type": [
             "integer",
             "null"
@@ -1329,6 +1430,7 @@
           "minimum": 0
         },
         {
+          "description": "Specify only the configuration.",
           "$ref": "#/$defs/RpcContextConfig"
         }
       ]
@@ -1337,6 +1439,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "The commitment level.",
           "$ref": "#/$defs/CommitmentLevel"
         },
         "minContextSlot": {
@@ -1354,6 +1457,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "The commitment level.",
           "$ref": "#/$defs/CommitmentLevel"
         },
         "epoch": {
@@ -1430,6 +1534,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "Commitment level for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/CommitmentConfig"
@@ -1440,6 +1545,7 @@
           ]
         },
         "delinquentSlotDistance": {
+          "description": "The distance in slots to consider a vote account delinquent.",
           "type": [
             "integer",
             "null"
@@ -1448,9 +1554,11 @@
           "minimum": 0
         },
         "keepUnstakedDelinquents": {
+          "description": "Whether to keep unstaked delinquent vote accounts.",
           "type": "boolean"
         },
         "votePubkey": {
+          "description": "Filter by vote account public key.",
           "type": [
             "string",
             "null"
@@ -1462,6 +1570,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "The commitment level.",
           "$ref": "#/$defs/CommitmentLevel"
         },
         "filter": {
@@ -1478,16 +1587,24 @@
       }
     },
     "RpcLargestAccountsFilter": {
-      "type": "string",
-      "enum": [
-        "circulating",
-        "nonCirculating"
+      "oneOf": [
+        {
+          "description": "Filter for circulating accounts.",
+          "type": "string",
+          "const": "circulating"
+        },
+        {
+          "description": "Filter for non-circulating accounts.",
+          "type": "string",
+          "const": "nonCirculating"
+        }
       ]
     },
     "RpcLeaderScheduleConfig": {
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "Commitment level for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/CommitmentConfig"
@@ -1498,6 +1615,7 @@
           ]
         },
         "identity": {
+          "description": "Filter by validator identity.",
           "type": [
             "string",
             "null"
@@ -1508,6 +1626,7 @@
     "RpcLeaderScheduleConfigWrapper": {
       "anyOf": [
         {
+          "description": "Specify only the slot.",
           "type": [
             "integer",
             "null"
@@ -1516,6 +1635,7 @@
           "minimum": 0
         },
         {
+          "description": "Specify only the configuration.",
           "$ref": "#/$defs/RpcLeaderScheduleConfig"
         }
       ]
@@ -1524,6 +1644,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "The commitment level.",
           "$ref": "#/$defs/CommitmentLevel"
         },
         "dataSlice": {
@@ -1587,6 +1708,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "The commitment level.",
           "$ref": "#/$defs/CommitmentLevel"
         }
       }
@@ -1647,6 +1769,7 @@
       "type": "object",
       "properties": {
         "searchTransactionHistory": {
+          "description": "Whether to search the transaction history.",
           "type": "boolean"
         }
       },
@@ -1658,12 +1781,14 @@
       "type": "object",
       "properties": {
         "addresses": {
+          "description": "An array of account addresses to return, as base-58 encoded strings.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "encoding": {
+          "description": "Encoding for the account data.",
           "anyOf": [
             {
               "$ref": "#/$defs/UiAccountEncoding"
@@ -1682,6 +1807,7 @@
       "type": "object",
       "properties": {
         "accounts": {
+          "description": "Accounts to return in the simulation result.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcSimulateTransactionAccountsConfig"
@@ -1692,9 +1818,11 @@
           ]
         },
         "commitment": {
+          "description": "The commitment level.",
           "$ref": "#/$defs/CommitmentLevel"
         },
         "encoding": {
+          "description": "Encoding for the transaction data.",
           "anyOf": [
             {
               "$ref": "#/$defs/UiTransactionEncoding"
@@ -1705,6 +1833,7 @@
           ]
         },
         "innerInstructions": {
+          "description": "Whether to include inner instructions in the simulation result.",
           "type": "boolean"
         },
         "minContextSlot": {
@@ -1716,9 +1845,11 @@
           "minimum": 0
         },
         "replaceRecentBlockhash": {
+          "description": "Whether to replace the recent blockhash with a new one.",
           "type": "boolean"
         },
         "sigVerify": {
+          "description": "Whether to verify transaction signatures.",
           "type": "boolean"
         }
       },
@@ -1730,6 +1861,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "The commitment level.",
           "$ref": "#/$defs/CommitmentLevel"
         },
         "excludeNonCirculatingAccountsList": {
@@ -1745,6 +1877,7 @@
       "type": "object",
       "properties": {
         "commitment": {
+          "description": "Commitment level for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/CommitmentConfig"
@@ -1755,6 +1888,7 @@
           ]
         },
         "maxSupportedTransactionVersion": {
+          "description": "The maximum transaction version to support.",
           "type": [
             "integer",
             "null"
@@ -1769,6 +1903,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcSendTransactionConfig"
@@ -1779,6 +1914,7 @@
           ]
         },
         "transaction": {
+          "description": "The signed transaction, as a base-64 encoded string.",
           "type": "string"
         }
       },
@@ -1790,9 +1926,11 @@
       "type": "object",
       "properties": {
         "pubkey": {
+          "description": "The public key of the account to update, as a base-58 encoded string.",
           "type": "string"
         },
         "update": {
+          "description": "The account data to update.",
           "$ref": "#/$defs/AccountUpdate"
         }
       },
@@ -1805,9 +1943,11 @@
       "type": "object",
       "properties": {
         "keypairFile": {
+          "description": "Path to the keypair file to be used as the node's identity.",
           "type": "string"
         },
         "requireTower": {
+          "description": "Boolean indicating if a tower is required for this identity.",
           "type": "boolean"
         }
       },
@@ -1820,6 +1960,7 @@
       "type": "object",
       "properties": {
         "identityKeypair": {
+          "description": "Byte array representing the identity keypair.",
           "type": "array",
           "items": {
             "type": "integer",
@@ -1829,6 +1970,7 @@
           }
         },
         "requireTower": {
+          "description": "Boolean indicating if a tower is required for this identity.",
           "type": "boolean"
         }
       },
@@ -1841,6 +1983,7 @@
       "type": "object",
       "properties": {
         "filter": {
+          "description": "The log filter string to apply.",
           "type": "string"
         }
       },
@@ -1852,6 +1995,7 @@
       "type": "object",
       "properties": {
         "publicTpuAddr": {
+          "description": "The public TPU address as a string.",
           "type": "string"
         }
       },
@@ -1863,6 +2007,7 @@
       "type": "object",
       "properties": {
         "publicTpuForwardsAddr": {
+          "description": "The public TPU forwards address as a string.",
           "type": "string"
         }
       },
@@ -1874,6 +2019,7 @@
       "type": "object",
       "properties": {
         "whitelist": {
+          "description": "A list of public keys (base-58 encoded strings) to set as the repair whitelist.",
           "type": "array",
           "items": {
             "type": "string"
@@ -1887,12 +2033,7 @@
     "SetSomeAccount": {
       "oneOf": [
         {
-          "type": "string",
-          "enum": [
-            "noAccount"
-          ]
-        },
-        {
+          "description": "Specifies an account, as a base-58 encoded string.",
           "type": "object",
           "properties": {
             "account": {
@@ -1903,6 +2044,11 @@
           "required": [
             "account"
           ]
+        },
+        {
+          "description": "Specifies no account.",
+          "type": "string",
+          "const": "noAccount"
         }
       ]
     },
@@ -1910,6 +2056,7 @@
       "type": "object",
       "properties": {
         "path": {
+          "description": "Path to the file containing staked nodes overrides.",
           "type": "string"
         }
       },
@@ -1921,6 +2068,7 @@
       "type": "object",
       "properties": {
         "update": {
+          "description": "The supply data to update.",
           "$ref": "#/$defs/SupplyUpdate"
         }
       },
@@ -1932,18 +2080,22 @@
       "type": "object",
       "properties": {
         "mint": {
+          "description": "The public key of the token mint, as a base-58 encoded string.",
           "type": "string"
         },
         "owner": {
+          "description": "The public key of the token account owner, as a base-58 encoded string.",
           "type": "string"
         },
         "tokenProgram": {
+          "description": "The token program ID, as a base-58 encoded string.",
           "type": [
             "string",
             "null"
           ]
         },
         "update": {
+          "description": "The token account data to update.",
           "$ref": "#/$defs/TokenAccountUpdate"
         }
       },
@@ -1957,6 +2109,7 @@
       "type": "object",
       "properties": {
         "config": {
+          "description": "Configuration object for the query.",
           "anyOf": [
             {
               "$ref": "#/$defs/RpcSimulateTransactionConfig"
@@ -1967,6 +2120,7 @@
           ]
         },
         "transaction": {
+          "description": "The transaction to simulate, as a base-64 encoded string.",
           "type": "string"
         }
       },
@@ -1978,6 +2132,7 @@
       "type": "object",
       "properties": {
         "circulating": {
+          "description": "The new circulating supply.",
           "type": [
             "integer",
             "null"
@@ -1986,6 +2141,7 @@
           "minimum": 0
         },
         "nonCirculating": {
+          "description": "The new non-circulating supply.",
           "type": [
             "integer",
             "null"
@@ -1994,6 +2150,7 @@
           "minimum": 0
         },
         "nonCirculatingAccounts": {
+          "description": "The new list of non-circulating accounts.",
           "type": [
             "array",
             "null"
@@ -2003,6 +2160,7 @@
           }
         },
         "total": {
+          "description": "The new total supply.",
           "type": [
             "integer",
             "null"
@@ -2016,6 +2174,7 @@
       "type": "object",
       "properties": {
         "amount": {
+          "description": "The new token balance.",
           "type": [
             "integer",
             "null"
@@ -2024,6 +2183,7 @@
           "minimum": 0
         },
         "closeAuthority": {
+          "description": "The new close authority.",
           "anyOf": [
             {
               "$ref": "#/$defs/SetSomeAccount"
@@ -2034,6 +2194,7 @@
           ]
         },
         "delegate": {
+          "description": "The new delegate account.",
           "anyOf": [
             {
               "$ref": "#/$defs/SetSomeAccount"
@@ -2044,6 +2205,7 @@
           ]
         },
         "delegatedAmount": {
+          "description": "The new delegated amount.",
           "type": [
             "integer",
             "null"
@@ -2052,6 +2214,7 @@
           "minimum": 0
         },
         "state": {
+          "description": "The new account state (e.g., 'initialized').",
           "type": [
             "string",
             "null"
@@ -2060,33 +2223,69 @@
       }
     },
     "TransactionDetails": {
-      "type": "string",
-      "enum": [
-        "full",
-        "accounts",
-        "signatures",
-        "none"
+      "oneOf": [
+        {
+          "description": "Return full transaction details.",
+          "type": "string",
+          "const": "full"
+        },
+        {
+          "description": "Return only account details.",
+          "type": "string",
+          "const": "accounts"
+        },
+        {
+          "description": "Return only signature details.",
+          "type": "string",
+          "const": "signatures"
+        },
+        {
+          "description": "Return no transaction details.",
+          "type": "string",
+          "const": "none"
+        }
       ]
     },
     "UiAccountEncoding": {
-      "type": "string",
-      "enum": [
-        "binary",
-        "base58",
-        "base64",
-        "jsonParsed",
-        "base64+zstd"
+      "oneOf": [
+        {
+          "description": "Binary encoding (legacy).",
+          "type": "string",
+          "const": "binary"
+        },
+        {
+          "description": "Base-58 encoding.",
+          "type": "string",
+          "const": "base58"
+        },
+        {
+          "description": "Base-64 encoding.",
+          "type": "string",
+          "const": "base64"
+        },
+        {
+          "description": "JSON parsed encoding.",
+          "type": "string",
+          "const": "jsonParsed"
+        },
+        {
+          "description": "Base-64 encoded with Zstandard compression.",
+          "type": "string",
+          "const": "base64+zstd"
+        }
       ]
     },
     "UiDataSliceConfig": {
       "type": "object",
       "properties": {
         "length": {
+          "description": "The length of the data slice.",
           "type": "integer",
           "format": "uint",
           "minimum": 0
         },
         "offset": {
+          "description": "The offset of the data slice.",
           "type": "integer",
           "format": "uint",
           "minimum": 0
@@ -2098,20 +2297,44 @@
       ]
     },
     "UiTransactionEncoding": {
-      "type": "string",
-      "enum": [
-        "binary",
-        "base58",
-        "base64",
-        "json",
-        "jsonParsed",
-        "base64+zstd"
+      "oneOf": [
+        {
+          "description": "Binary encoding (legacy).",
+          "type": "string",
+          "const": "binary"
+        },
+        {
+          "description": "Base-58 encoding.",
+          "type": "string",
+          "const": "base58"
+        },
+        {
+          "description": "Base-64 encoding.",
+          "type": "string",
+          "const": "base64"
+        },
+        {
+          "description": "JSON encoding.",
+          "type": "string",
+          "const": "json"
+        },
+        {
+          "description": "JSON parsed encoding.",
+          "type": "string",
+          "const": "jsonParsed"
+        },
+        {
+          "description": "Base-64 encoded with Zstandard compression.",
+          "type": "string",
+          "const": "base64+zstd"
+        }
       ]
     },
     "UnloadPlugin": {
       "type": "object",
       "properties": {
         "name": {
+          "description": "The name of the plugin to unload.",
           "type": "string"
         }
       },

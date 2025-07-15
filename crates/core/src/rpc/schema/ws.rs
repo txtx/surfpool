@@ -9,8 +9,11 @@ use super::response::{
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Complete mapping of all Surfpool WebSocket RPC endpoints")]
 pub struct SurfpoolWebSocketEndpoints {
+    #[schemars(description = "Endpoints for subscribing to signature status notifications.")]
     pub signature_subscriptions: SignatureSubscriptionEndpoints,
+    #[schemars(description = "Endpoints for subscribing to account change notifications.")]
     pub account_subscriptions: AccountSubscriptionEndpoints,
+    #[schemars(description = "Endpoints for subscribing to slot change notifications.")]
     pub slot_subscriptions: SlotSubscriptionEndpoints,
 }
 

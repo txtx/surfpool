@@ -37,49 +37,61 @@ pub enum Minimal {
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetBalance {
+    #[schemars(
+        description = "The public key of the account to query, as a base-58 encoded string."
+    )]
     pub pubkey: String,
+    #[schemars(description = "Configuration object for the query.")]
     pub config: Option<RpcContextConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetEpochInfo {
+    #[schemars(description = "Configuration object for the query.")]
     pub config: Option<RpcContextConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetSlot {
+    #[schemars(description = "Configuration object for the query.")]
     pub config: Option<RpcContextConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetBlockHeight {
+    #[schemars(description = "Configuration object for the query.")]
     pub config: Option<RpcContextConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetTransactionCount {
+    #[schemars(description = "Configuration object for the query.")]
     pub config: Option<RpcContextConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetVoteAccounts {
+    #[schemars(description = "Configuration object for the query.")]
     pub config: Option<RpcGetVoteAccountsConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetLeaderSchedule {
+    #[schemars(description = "Wrapper for slot or configuration.")]
     pub options: Option<RpcLeaderScheduleConfigWrapper>,
+    #[schemars(description = "Configuration object for the query.")]
     pub config: Option<RpcLeaderScheduleConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetIdentity {
+    #[schemars(description = "The identity to query, as a base-58 encoded string.")]
     pub identity: String,
 }

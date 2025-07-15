@@ -24,33 +24,46 @@ pub enum AccountsData {
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetAccountInfo {
+    #[schemars(
+        description = "The public key of the account to query, as a base-58 encoded string."
+    )]
     pub pubkey: String,
+    #[schemars(description = "Configuration object for the query.")]
     pub config: Option<RpcAccountInfoConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetBlockCommitment {
+    #[schemars(description = "The slot to query for block commitment.")]
     pub block: Slot,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetMultipleAccounts {
+    #[schemars(description = "An array of public keys to query, as base-58 encoded strings.")]
     pub pubkeys: Vec<String>,
+    #[schemars(description = "Configuration object for the query.")]
     pub config: Option<RpcAccountInfoConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetTokenAccountBalance {
+    #[schemars(
+        description = "The public key of the token account to query, as a base-58 encoded string."
+    )]
     pub pubkey: String,
+    #[schemars(description = "Commitment level for the query.")]
     pub commitment: Option<CommitmentConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetTokenSupply {
+    #[schemars(description = "The public key of the token mint, as a base-58 encoded string.")]
     pub mint: String,
+    #[schemars(description = "Commitment level for the query.")]
     pub commitment: Option<CommitmentConfig>,
 }

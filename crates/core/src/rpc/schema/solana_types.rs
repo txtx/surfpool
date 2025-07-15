@@ -8,6 +8,7 @@ pub struct RpcProgramAccountsConfig {
     )]
     pub filters: Option<Vec<RpcFilterType>>,
     #[serde(flatten)]
+    #[schemars(description = "Configuration for the account info.")]
     pub account_config: RpcAccountInfoConfig,
     #[schemars(description = "Whether to include the context in the response.")]
     pub with_context: Option<bool>,
@@ -41,8 +42,11 @@ pub struct Memcmp {
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase", tag = "encoding", content = "bytes")]
 pub enum MemcmpEncodedBytes {
+    #[schemars(description = "Base-58 encoded bytes.")]
     Base58(String),
+    #[schemars(description = "Base-64 encoded bytes.")]
     Base64(String),
+    #[schemars(description = "Raw byte array.")]
     Bytes(Vec<u8>),
 }
 
@@ -62,23 +66,31 @@ pub struct RpcAccountInfoConfig {
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum UiAccountEncoding {
+    #[schemars(description = "Binary encoding (legacy).")]
     Binary, // Legacy. Retained for RPC backwards compatibility
+    #[schemars(description = "Base-58 encoding.")]
     Base58,
+    #[schemars(description = "Base-64 encoding.")]
     Base64,
+    #[schemars(description = "JSON parsed encoding.")]
     JsonParsed,
     #[serde(rename = "base64+zstd")]
+    #[schemars(description = "Base-64 encoded with Zstandard compression.")]
     Base64Zstd,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UiDataSliceConfig {
+    #[schemars(description = "The offset of the data slice.")]
     pub offset: usize,
+    #[schemars(description = "The length of the data slice.")]
     pub length: usize,
 }
 
 #[derive(JsonSchema)]
 pub struct CommitmentConfig {
+    #[schemars(description = "The commitment level.")]
     pub commitment: CommitmentLevel,
 }
 
@@ -119,7 +131,9 @@ pub struct RpcLargestAccountsConfig {
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum RpcLargestAccountsFilter {
+    #[schemars(description = "Filter for circulating accounts.")]
     Circulating,
+    #[schemars(description = "Filter for non-circulating accounts.")]
     NonCirculating,
 }
 
@@ -181,12 +195,18 @@ pub struct RpcSendTransactionConfig {
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum UiTransactionEncoding {
+    #[schemars(description = "Binary encoding (legacy).")]
     Binary, // Legacy. Retained for RPC backwards compatibility
+    #[schemars(description = "Base-58 encoding.")]
     Base58,
+    #[schemars(description = "Base-64 encoding.")]
     Base64,
+    #[schemars(description = "JSON encoding.")]
     Json,
+    #[schemars(description = "JSON parsed encoding.")]
     JsonParsed,
     #[serde(rename = "base64+zstd")]
+    #[schemars(description = "Base-64 encoded with Zstandard compression.")]
     Base64Zstd,
 }
 
@@ -194,24 +214,30 @@ pub enum UiTransactionEncoding {
 #[serde(rename_all = "camelCase")]
 pub struct RpcBlockProductionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Filter by validator identity, as a base-58 encoded string.")]
     pub identity: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Slot range to query.")]
     pub range: Option<RpcBlockProductionConfigRange>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Commitment level for the query.")]
     pub commitment: Option<CommitmentConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcBlockProductionConfigRange {
+    #[schemars(description = "The first slot to include in the range.")]
     pub first_slot: Slot,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "The last slot to include in the range.")]
     pub last_slot: Option<Slot>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcSignatureStatusConfig {
+    #[schemars(description = "Whether to search the transaction history.")]
     pub search_transaction_history: bool,
 }
 
@@ -225,51 +251,71 @@ pub struct RpcRequestAirdropConfig {
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcSimulateTransactionConfig {
+    #[schemars(description = "Whether to verify transaction signatures.")]
     pub sig_verify: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(description = "Whether to replace the recent blockhash with a new one.")]
     pub replace_recent_blockhash: bool,
     #[serde(flatten)]
     pub commitment: Option<CommitmentConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Encoding for the transaction data.")]
     pub encoding: Option<UiTransactionEncoding>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Accounts to return in the simulation result.")]
     pub accounts: Option<RpcSimulateTransactionAccountsConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_context_slot: Option<Slot>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(description = "Whether to include inner instructions in the simulation result.")]
     pub inner_instructions: bool,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcSimulateTransactionAccountsConfig {
+    #[schemars(description = "Encoding for the account data.")]
     pub encoding: Option<UiAccountEncoding>,
+    #[schemars(
+        description = "An array of account addresses to return, as base-58 encoded strings."
+    )]
     pub addresses: Vec<String>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum TransactionDetails {
+    #[schemars(description = "Return full transaction details.")]
     Full,
+    #[schemars(description = "Return only account details.")]
     Accounts,
+    #[schemars(description = "Return only signature details.")]
     Signatures,
+    #[schemars(description = "Return no transaction details.")]
     None,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcBlockConfig {
+    #[schemars(description = "Encoding for transaction data.")]
     pub encoding: Option<UiTransactionEncoding>,
+    #[schemars(description = "Level of transaction detail to return.")]
     pub transaction_details: Option<TransactionDetails>,
+    #[schemars(description = "Whether to return rewards.")]
     pub rewards: Option<bool>,
+    #[schemars(description = "Commitment level for the query.")]
     pub commitment: Option<CommitmentConfig>,
+    #[schemars(description = "The maximum transaction version to support.")]
     pub max_supported_transaction_version: Option<u8>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcTransactionConfig {
+    #[schemars(description = "Commitment level for the query.")]
     pub commitment: Option<CommitmentConfig>,
+    #[schemars(description = "The maximum transaction version to support.")]
     pub max_supported_transaction_version: Option<u8>,
 }
 
@@ -277,7 +323,9 @@ pub struct RpcTransactionConfig {
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
 pub enum RpcBlocksConfigWrapper {
+    #[schemars(description = "Specify only the end slot.")]
     EndSlotOnly(Option<Slot>),
+    #[schemars(description = "Specify only the configuration.")]
     ConfigOnly(RpcContextConfig),
 }
 
@@ -285,12 +333,16 @@ pub enum RpcBlocksConfigWrapper {
 #[serde(rename_all = "camelCase")]
 pub struct RpcGetVoteAccountsConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Filter by vote account public key.")]
     pub vote_pubkey: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Commitment level for the query.")]
     pub commitment: Option<CommitmentConfig>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(description = "Whether to keep unstaked delinquent vote accounts.")]
     pub keep_unstaked_delinquents: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "The distance in slots to consider a vote account delinquent.")]
     pub delinquent_slot_distance: Option<u64>,
 }
 
@@ -298,7 +350,9 @@ pub struct RpcGetVoteAccountsConfig {
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
 pub enum RpcLeaderScheduleConfigWrapper {
+    #[schemars(description = "Specify only the slot.")]
     SlotOnly(Option<Slot>),
+    #[schemars(description = "Specify only the configuration.")]
     ConfigOnly(RpcLeaderScheduleConfig),
 }
 
@@ -306,7 +360,9 @@ pub enum RpcLeaderScheduleConfigWrapper {
 #[serde(rename_all = "camelCase")]
 pub struct RpcLeaderScheduleConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Filter by validator identity.")]
     pub identity: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Commitment level for the query.")]
     pub commitment: Option<CommitmentConfig>,
 }

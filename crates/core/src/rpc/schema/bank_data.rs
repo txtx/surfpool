@@ -26,31 +26,38 @@ pub enum BankData {
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetMinimumBalanceForRentExemption {
+    #[schemars(description = "The account data length in bytes.")]
     pub data_len: usize,
+    #[schemars(description = "Commitment level for the query.")]
     pub commitment: Option<CommitmentConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetInflationGovernor {
+    #[schemars(description = "Commitment level for the query.")]
     pub commitment: Option<CommitmentConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetSlotLeader {
+    #[schemars(description = "Configuration object for the query.")]
     pub config: Option<RpcContextConfig>,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetSlotLeaders {
+    #[schemars(description = "The starting slot to query for leaders.")]
     pub start_slot: Slot,
+    #[schemars(description = "The maximum number of leaders to return.")]
     pub limit: u64,
 }
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetBlockProduction {
+    #[schemars(description = "Configuration object for the query.")]
     pub config: Option<RpcBlockProductionConfig>,
 }
