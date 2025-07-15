@@ -3711,12 +3711,6 @@ mod tests {
 
         assert!(result.is_err());
 
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-            svm_writer.latest_epoch_info.absolute_slot = 110;
-            drop(svm_writer);
-        }
-
         let result = setup
             .rpc
             .get_blocks(
