@@ -1862,7 +1862,7 @@ impl SurfnetSvmLocker {
                 None => return Err(SurfpoolError::slot_too_old(*slot)),
             }
         } else {
-            self.get_block_local(slot, config).inner
+            self.get_block_local(slot, config)?
         };
 
         Ok(SvmAccessContext {
@@ -1879,10 +1879,8 @@ impl SurfnetSvmLocker {
         &self,
         slot: &Slot,
         config: &RpcBlockConfig,
-    ) -> SvmAccessContext<Option<UiConfirmedBlock>> {
-        self.with_contextualized_svm_reader(|svm_reader| {
-            svm_reader.get_block_at_slot(*slot, config)
-        })
+    ) -> SurfpoolResult<Option<UiConfirmedBlock>> {
+        self.with_svm_reader(|svm_reader| svm_reader.get_block_at_slot(*slot, config))
     }
 
     pub fn get_genesis_hash_local(&self) -> SvmAccessContext<Hash> {

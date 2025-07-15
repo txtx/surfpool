@@ -956,8 +956,10 @@ impl SurfnetSvm {
         &self,
         slot: Slot,
         config: &RpcBlockConfig,
-    ) -> Option<UiConfirmedBlock> {
-        let block = self.blocks.get(&slot)?;
+    ) -> SurfpoolResult<Option<UiConfirmedBlock>> {
+        let Some(block) = self.blocks.get(&slot) else {
+            return Ok(None);
+        };
 
         let rewards = config.rewards.unwrap_or(false);
         let transaction_details = config
@@ -965,117 +967,62 @@ impl SurfnetSvm {
             .unwrap_or(TransactionDetails::Full);
 
         let transactions = match transaction_details {
-            TransactionDetails::Full => {
-                let mut txs = vec![];
-                for signature in &block.signatures {
-                    let Some(TransactionWithStatusMeta(_slot, tx, meta, err)) = self
-                        .transactions
-                        .get(signature)
-                        .map(|t| t.expect_processed().clone())
-                    else {
-                        continue;
-                    };
-
-                    let inner_instructions = to_ui_inner_instructions(&meta);
-
-                    let return_data = to_ui_return_data(&meta);
-
-                    let transaction = EncodedTransactionWithStatusMeta {
-                        transaction: EncodedTransaction::Json(UiTransaction {
-                            signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
-                            message: to_ui_message(&tx),
-                        }),
-
-                        meta: Some(UiTransactionStatusMeta {
-                            err: err.clone(),
-                            status: err.map(|e| Err(e)).unwrap_or(Ok(())),
-                            inner_instructions,
-                            log_messages: OptionSerializer::Some(meta.logs.clone()),
-                            return_data: if return_data.is_none() {
-                                OptionSerializer::None
-                            } else {
-                                OptionSerializer::Some(UiTransactionReturnData {
-                                    program_id: meta.return_data.program_id.to_string(),
-                                    data: (
-                                        base64::engine::general_purpose::STANDARD
-                                            .encode(&meta.return_data.data),
-                                        UiReturnDataEncoding::Base64,
-                                    ),
-                                })
-                            },
-                            compute_units_consumed: OptionSerializer::Some(
-                                meta.compute_units_consumed,
+            TransactionDetails::Full => Some(
+                block
+                    .signatures
+                    .iter()
+                    .filter_map(|sig| self.transactions.get(sig))
+                    .map(|tx_with_meta| {
+                        tx_with_meta.expect_processed().encode(
+                            config.encoding.unwrap_or(
+                                solana_transaction_status::UiTransactionEncoding::JsonParsed,
                             ),
-                            pre_token_balances: OptionSerializer::Some(vec![]),
-                            post_token_balances: OptionSerializer::Some(vec![]),
-                            rewards: OptionSerializer::Some(vec![]),
-                            loaded_addresses: OptionSerializer::None,
-                            pre_balances: vec![],  // TODO: track real balances
-                            post_balances: vec![], // TODO: track real balances
-                            fee: 0,
-                        }),
-                        version: Some(get_transaction_version(&tx)),
-                    };
-                    txs.push(transaction);
-                }
-                Some(txs)
-            }
-            TransactionDetails::Signatures => {
-                // Just the signatures as strings
-                Some(
-                    block
-                        .signatures
-                        .iter()
-                        .map(|t| EncodedTransactionWithStatusMeta {
-                            transaction: EncodedTransaction::LegacyBinary(t.to_string()),
-                            meta: None,
-                            version: None,
-                        })
-                        .collect(),
-                )
-            }
+                            config.max_supported_transaction_version,
+                            config.rewards.unwrap_or(false),
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(SurfpoolError::from)?,
+            ),
+            TransactionDetails::Signatures => None,
             TransactionDetails::None => None,
-            TransactionDetails::Accounts => {
-                let mut txs = vec![];
-                for signature in &block.signatures {
-                    if let Some(TransactionWithStatusMeta(_, tx, _meta, _err)) = self
-                        .transactions
-                        .get(signature)
-                        .map(|t| t.expect_processed().clone())
-                    {
-                        let transaction = EncodedTransactionWithStatusMeta {
-                            transaction: EncodedTransaction::Accounts(to_ui_accounts_list(&tx)),
-                            meta: None,
-                            version: Some(get_transaction_version(&tx)),
-                        };
-                        txs.push(transaction);
-                    }
-                }
-                Some(txs)
-            }
+            TransactionDetails::Accounts => Some(
+                block
+                    .signatures
+                    .iter()
+                    .filter_map(|sig| self.transactions.get(sig))
+                    .map(|tx_with_meta| {
+                        tx_with_meta.expect_processed().to_json_accounts(
+                            config.max_supported_transaction_version,
+                            config.rewards.unwrap_or(false),
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(SurfpoolError::from)?,
+            ),
         };
 
         let signatures = match transaction_details {
-            TransactionDetails::Full
-            | TransactionDetails::Signatures
-            | TransactionDetails::Accounts => {
+            TransactionDetails::Signatures => {
                 Some(block.signatures.iter().map(|t| t.to_string()).collect())
             }
-            TransactionDetails::None => None,
+            TransactionDetails::Full | TransactionDetails::Accounts | TransactionDetails::None => {
+                None
+            }
         };
 
         let block = UiConfirmedBlock {
-            blockhash: block.hash.clone(),
             previous_blockhash: block.previous_blockhash.clone(),
+            blockhash: block.hash.clone(),
+            parent_slot: block.parent_slot,
+            transactions,
+            signatures,
             rewards: if rewards { Some(vec![]) } else { None },
             num_reward_partitions: None,
             block_time: Some(block.block_time / 1000),
             block_height: Some(block.block_height),
-            parent_slot: block.parent_slot,
-            transactions,
-            signatures,
         };
-        Some(block)
+        Ok(Some(block))
     }
 
     /// Returns the blockhash for a given slot, if available.
@@ -1199,125 +1146,6 @@ impl SurfnetSvm {
         self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_subscriptions
             .retain(|tx| tx.send(SlotInfo { slot, parent, root }).is_ok());
-    }
-}
-
-fn to_ui_inner_instructions(
-    meta: &surfpool_types::TransactionMetadata,
-) -> solana_transaction_status::option_serializer::OptionSerializer<Vec<UiInnerInstructions>> {
-    solana_transaction_status::option_serializer::OptionSerializer::Some(
-        meta.inner_instructions
-            .iter()
-            .enumerate()
-            .filter_map(|(i, inner_ixs)| {
-                if inner_ixs.is_empty() {
-                    None
-                } else {
-                    Some(UiInnerInstructions {
-                        index: i as u8,
-                        instructions: inner_ixs
-                            .iter()
-                            .map(|ix| {
-                                UiInstruction::Compiled(UiCompiledInstruction::from(
-                                    &ix.instruction,
-                                    Some(ix.stack_height as u32),
-                                ))
-                            })
-                            .collect(),
-                    })
-                }
-            })
-            .collect(),
-    )
-}
-
-fn to_ui_return_data(
-    meta: &surfpool_types::TransactionMetadata,
-) -> solana_transaction_status::option_serializer::OptionSerializer<UiTransactionReturnData> {
-    match meta.return_data.data.is_empty() {
-        true => solana_transaction_status::option_serializer::OptionSerializer::None,
-        false => solana_transaction_status::option_serializer::OptionSerializer::Some(
-            UiTransactionReturnData {
-                program_id: meta.return_data.program_id.to_string(),
-                data: (
-                    base64::engine::general_purpose::STANDARD.encode(&meta.return_data.data),
-                    UiReturnDataEncoding::Base64,
-                ),
-            },
-        ),
-    }
-}
-
-fn to_ui_message(tx: &VersionedTransaction) -> UiMessage {
-    match &tx.message {
-        VersionedMessage::Legacy(legacy_msg) => UiMessage::Raw(UiRawMessage {
-            header: legacy_msg.header,
-            account_keys: legacy_msg
-                .account_keys
-                .iter()
-                .map(|k| k.to_string())
-                .collect(),
-            recent_blockhash: tx.get_recent_blockhash().to_string(),
-            instructions: legacy_msg
-                .instructions
-                .iter()
-                .map(|ix| UiCompiledInstruction::from(ix, None))
-                .collect(),
-            address_table_lookups: None,
-        }),
-        VersionedMessage::V0(v0_msg) => UiMessage::Raw(UiRawMessage {
-            header: v0_msg.header,
-            account_keys: v0_msg.account_keys.iter().map(|k| k.to_string()).collect(),
-            recent_blockhash: tx.get_recent_blockhash().to_string(),
-            instructions: v0_msg
-                .instructions
-                .iter()
-                .map(|ix| UiCompiledInstruction::from(ix, None))
-                .collect(),
-            address_table_lookups: Some(
-                v0_msg
-                    .address_table_lookups
-                    .iter()
-                    .map(UiAddressTableLookup::from)
-                    .collect(),
-            ),
-        }),
-    }
-}
-
-fn to_ui_accounts_list(tx: &VersionedTransaction) -> UiAccountsList {
-    let account_keys = match &tx.message {
-        VersionedMessage::Legacy(legacy_msg) => legacy_msg
-            .account_keys
-            .iter()
-            .map(|k| ParsedAccount {
-                pubkey: k.to_string(),
-                writable: true,
-                signer: false,
-                source: None,
-            })
-            .collect(),
-        VersionedMessage::V0(v0_msg) => v0_msg
-            .account_keys
-            .iter()
-            .map(|k| ParsedAccount {
-                pubkey: k.to_string(),
-                writable: true,
-                signer: false,
-                source: None,
-            })
-            .collect(),
-    };
-    UiAccountsList {
-        account_keys,
-        signatures: tx.signatures.iter().map(|s| s.to_string()).collect(),
-    }
-}
-
-fn get_transaction_version(tx: &VersionedTransaction) -> TransactionVersion {
-    match &tx.message {
-        VersionedMessage::Legacy(_) => TransactionVersion::Legacy(Legacy::Legacy),
-        VersionedMessage::V0(_) => TransactionVersion::Number(0),
     }
 }
 
