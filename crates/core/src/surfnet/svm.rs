@@ -989,16 +989,27 @@ impl SurfnetSvm {
                             status: err.map(|e| Err(e)).unwrap_or(Ok(())),
                             inner_instructions,
                             log_messages: OptionSerializer::Some(meta.logs.clone()),
-                            return_data,
+                            return_data: if return_data.is_none() {
+                                OptionSerializer::None
+                            } else {
+                                OptionSerializer::Some(UiTransactionReturnData {
+                                    program_id: meta.return_data.program_id.to_string(),
+                                    data: (
+                                        base64::engine::general_purpose::STANDARD
+                                            .encode(&meta.return_data.data),
+                                        UiReturnDataEncoding::Base64,
+                                    ),
+                                })
+                            },
                             compute_units_consumed: OptionSerializer::Some(
                                 meta.compute_units_consumed,
                             ),
-                            pre_token_balances: OptionSerializer::None, // todo
-                            post_token_balances: OptionSerializer::None, // todo
-                            rewards: OptionSerializer::None,            // todo
-                            loaded_addresses: OptionSerializer::None,   // todo
-                            pre_balances: vec![],
-                            post_balances: vec![],
+                            pre_token_balances: OptionSerializer::Some(vec![]),
+                            post_token_balances: OptionSerializer::Some(vec![]),
+                            rewards: OptionSerializer::Some(vec![]),
+                            loaded_addresses: OptionSerializer::None,
+                            pre_balances: vec![],  // TODO: track real balances
+                            post_balances: vec![], // TODO: track real balances
                             fee: 0,
                         }),
                         version: Some(get_transaction_version(&tx)),
@@ -1196,17 +1207,23 @@ fn to_ui_inner_instructions(
         meta.inner_instructions
             .iter()
             .enumerate()
-            .map(|(i, inner_ixs)| UiInnerInstructions {
-                index: i as u8,
-                instructions: inner_ixs
-                    .iter()
-                    .map(|ix| {
-                        UiInstruction::Compiled(UiCompiledInstruction::from(
-                            &ix.instruction,
-                            Some(ix.stack_height as u32),
-                        ))
+            .filter_map(|(i, inner_ixs)| {
+                if inner_ixs.is_empty() {
+                    None
+                } else {
+                    Some(UiInnerInstructions {
+                        index: i as u8,
+                        instructions: inner_ixs
+                            .iter()
+                            .map(|ix| {
+                                UiInstruction::Compiled(UiCompiledInstruction::from(
+                                    &ix.instruction,
+                                    Some(ix.stack_height as u32),
+                                ))
+                            })
+                            .collect(),
                     })
-                    .collect(),
+                }
             })
             .collect(),
     )
