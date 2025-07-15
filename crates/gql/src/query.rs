@@ -191,7 +191,7 @@ pub fn fetch_dynamic_entries_from_postres(
     pg_conn: &mut diesel::pg::PgConnection,
     schema: &DynamicSchemaSpec,
     dynamic_table_name: &str,
-    executor: &Executor<DataloaderContext>,
+    executor: Option<&Executor<DataloaderContext>>,
 ) -> Result<Vec<DynamicRow<NamedField<DynamicValue>>>, FieldError> {
     let dynamic_table = table(dynamic_table_name); // This is a DynamicTable<Sqlite>
     let uuid_col = dynamic_table.column::<Untyped, _>("uuid");
@@ -212,31 +212,33 @@ pub fn fetch_dynamic_entries_from_postres(
 
     // Isolate filters
     let mut filters_specs = vec![];
-    for arg in executor.look_ahead().arguments() {
-        if arg.name().eq("where") {
-            match arg.value() {
-                juniper::LookAheadValue::Object(obj) => {
-                    for (attribute, value) in obj.iter() {
-                        match value.item {
-                            juniper::LookAheadValue::Object(obj) => {
-                                for (predicate, predicate_value) in obj.iter() {
-                                    match predicate_value.item {
-                                        juniper::LookAheadValue::Scalar(value) => {
-                                            filters_specs.push((
-                                                attribute.item,
-                                                predicate.item,
-                                                value,
-                                            ));
+    if let Some(executor) = executor {
+        for arg in executor.look_ahead().arguments() {
+            if arg.name().eq("where") {
+                match arg.value() {
+                    juniper::LookAheadValue::Object(obj) => {
+                        for (attribute, value) in obj.iter() {
+                            match value.item {
+                                juniper::LookAheadValue::Object(obj) => {
+                                    for (predicate, predicate_value) in obj.iter() {
+                                        match predicate_value.item {
+                                            juniper::LookAheadValue::Scalar(value) => {
+                                                filters_specs.push((
+                                                    attribute.item,
+                                                    predicate.item,
+                                                    value,
+                                                ));
+                                            }
+                                            _ => {}
                                         }
-                                        _ => {}
                                     }
                                 }
+                                _ => unreachable!(),
                             }
-                            _ => unreachable!(),
                         }
                     }
+                    _ => unreachable!(),
                 }
-                _ => unreachable!(),
             }
         }
     }
@@ -293,7 +295,7 @@ pub fn fetch_dynamic_entries_from_sqlite(
     sqlite_conn: &mut diesel::sqlite::SqliteConnection,
     schema: &DynamicSchemaSpec,
     dynamic_table_name: &str,
-    executor: &Executor<DataloaderContext>,
+    executor: Option<&Executor<DataloaderContext>>,
 ) -> Result<Vec<DynamicRow<NamedField<DynamicValue>>>, FieldError> {
     let dynamic_table = table(dynamic_table_name); // This is a DynamicTable<Sqlite>
     let uuid_col = dynamic_table.column::<Untyped, _>("uuid");
@@ -314,31 +316,33 @@ pub fn fetch_dynamic_entries_from_sqlite(
 
     // Isolate filters
     let mut filters_specs = vec![];
-    for arg in executor.look_ahead().arguments() {
-        if arg.name().eq("where") {
-            match arg.value() {
-                juniper::LookAheadValue::Object(obj) => {
-                    for (attribute, value) in obj.iter() {
-                        match value.item {
-                            juniper::LookAheadValue::Object(obj) => {
-                                for (predicate, predicate_value) in obj.iter() {
-                                    match predicate_value.item {
-                                        juniper::LookAheadValue::Scalar(value) => {
-                                            filters_specs.push((
-                                                attribute.item,
-                                                predicate.item,
-                                                value,
-                                            ));
+    if let Some(executor) = executor {
+        for arg in executor.look_ahead().arguments() {
+            if arg.name().eq("where") {
+                match arg.value() {
+                    juniper::LookAheadValue::Object(obj) => {
+                        for (attribute, value) in obj.iter() {
+                            match value.item {
+                                juniper::LookAheadValue::Object(obj) => {
+                                    for (predicate, predicate_value) in obj.iter() {
+                                        match predicate_value.item {
+                                            juniper::LookAheadValue::Scalar(value) => {
+                                                filters_specs.push((
+                                                    attribute.item,
+                                                    predicate.item,
+                                                    value,
+                                                ));
+                                            }
+                                            _ => {}
                                         }
-                                        _ => {}
                                     }
                                 }
+                                _ => unreachable!(),
                             }
-                            _ => unreachable!(),
                         }
                     }
+                    _ => unreachable!(),
                 }
-                _ => unreachable!(),
             }
         }
     }
@@ -414,19 +418,13 @@ impl Dataloader for SqlStore {
 
         let entries = match &mut *conn {
             #[cfg(feature = "sqlite")]
-            DatabaseConnection::Sqlite(sqlite_conn) => fetch_dynamic_entries_from_sqlite(
-                sqlite_conn,
-                schema,
-                &entries_table,
-                executor.unwrap(),
-            ),
+            DatabaseConnection::Sqlite(sqlite_conn) => {
+                fetch_dynamic_entries_from_sqlite(sqlite_conn, schema, &entries_table, executor)
+            }
             #[cfg(feature = "postgres")]
-            DatabaseConnection::Postgresql(pg_conn) => fetch_dynamic_entries_from_postres(
-                pg_conn,
-                schema,
-                &entries_table,
-                executor.unwrap(),
-            ),
+            DatabaseConnection::Postgresql(pg_conn) => {
+                fetch_dynamic_entries_from_postres(pg_conn, schema, &entries_table, executor)
+            }
         }?;
 
         let mut results = Vec::new();

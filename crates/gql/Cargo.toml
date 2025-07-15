@@ -29,6 +29,6 @@ txtx-addon-network-svm-types = { workspace = true }
 uuid = { version = "1.6.1", features = ["serde", "v7"] }
 
 [features]
-default = []
+default = ["sqlite"]
 sqlite = ["surfpool-db/sqlite"]
 postgres = ["surfpool-db/postgres"]

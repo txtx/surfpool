@@ -34,7 +34,7 @@ hiro-system-kit = { version = "0.3.4" }
 ipc-channel = "0.19.0"
 surfpool-core = { path = "crates/core", default-features = false }
 surfpool-db = { path = "crates/db" }
-surfpool-gql = { path = "crates/gql", features = ["sqlite"] }
+surfpool-gql = { path = "crates/gql" }
 surfpool-mcp = { path = "crates/mcp", default-features = false }
 surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
