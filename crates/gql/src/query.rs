@@ -1,11 +1,7 @@
-use std::{
-    collections::HashMap,
-    pin::Pin,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, pin::Pin};
 
 use convert_case::{Case, Casing};
-use diesel::{expression::BoxableExpression, prelude::*};
+use diesel::prelude::*;
 use juniper::{
     Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
     GraphQLValueAsync, Registry, ScalarValue, meta::MetaType,
@@ -13,11 +9,13 @@ use juniper::{
 use surfpool_db::{
     DynamicValue,
     diesel::{
-        self, Connection, ExpressionMethods, QueryDsl, RunQueryDsl, sql_query,
+        self, Connection, ExpressionMethods, MultiConnection, QueryDsl, RunQueryDsl,
+        r2d2::{ConnectionManager, Pool, PooledConnection},
+        sql_query,
         sql_types::{Bool, Integer, Text, Untyped},
     },
     diesel_dynamic_schema::{
-        DynamicSelectClause, Table,
+        DynamicSelectClause,
         dynamic_value::{DynamicRow, NamedField},
         table,
     },
@@ -156,27 +154,239 @@ impl SchemaDataSource {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum DatabaseConfiguration {
-    Sqlite(String),
-    Postgres(String),
+#[derive(MultiConnection)]
+pub enum DatabaseConnection {
+    Sqlite(SqliteConnection),
+    #[cfg(feature = "postgres")]
+    Postgresql(PgConnection),
 }
 
-#[derive(Clone)]
 pub struct SqlStore {
-    pub db_conf: DatabaseConfiguration,
-    pub conn: Arc<Mutex<surfpool_db::diesel::sqlite::SqliteConnection>>,
+    pub connection_url: String,
+    pub pool: Pool<ConnectionManager<DatabaseConnection>>,
 }
 
 impl SqlStore {
     pub fn new_in_memory() -> SqlStore {
-        let conn = surfpool_db::diesel::sqlite::SqliteConnection::establish(":memory:")
-            .expect("Failed to create in-memory sqlite connection");
+        Self::new(":memory:")
+    }
+
+    pub fn new(connection_url: &str) -> SqlStore {
+        let manager = ConnectionManager::<DatabaseConnection>::new(connection_url);
+        let pool = Pool::new(manager).expect("unable to create connection pool");
         SqlStore {
-            db_conf: DatabaseConfiguration::Sqlite("surfpool.db".to_string()),
-            conn: Arc::new(Mutex::new(conn)),
+            connection_url: connection_url.to_string(),
+            pool,
         }
     }
+
+    pub fn get_conn(&self) -> PooledConnection<ConnectionManager<DatabaseConnection>> {
+        self.pool.get().unwrap()
+    }
+}
+
+#[cfg(feature = "postgres")]
+pub fn fetch_dynamic_entries_from_postres(
+    pg_conn: &mut diesel::pg::PgConnection,
+    schema: &DynamicSchemaSpec,
+    dynamic_table_name: &str,
+    executor: &Executor<DataloaderContext>,
+) -> Result<Vec<DynamicRow<NamedField<DynamicValue>>>, FieldError> {
+    let dynamic_table = table(dynamic_table_name); // This is a DynamicTable<Sqlite>
+    let uuid_col = dynamic_table.column::<Untyped, _>("uuid");
+    let slot_col = dynamic_table.column::<Untyped, _>("slot");
+
+    let mut select = DynamicSelectClause::new();
+    select.add_field(uuid_col);
+    select.add_field(slot_col);
+
+    // select.add_field(transaction_signature_col);
+    for field in schema.fields.iter() {
+        let col = field.data.display_name.to_case(Case::Snake);
+        select.add_field(dynamic_table.column::<Untyped, _>(col));
+    }
+
+    // Build the query and apply filters immediately to avoid borrow checker issues
+    let mut query = dynamic_table.clone().select(select).into_boxed();
+
+    // Isolate filters
+    let mut filters_specs = vec![];
+    for arg in executor.look_ahead().arguments() {
+        if arg.name().eq("where") {
+            match arg.value() {
+                juniper::LookAheadValue::Object(obj) => {
+                    for (attribute, value) in obj.iter() {
+                        match value.item {
+                            juniper::LookAheadValue::Object(obj) => {
+                                for (predicate, predicate_value) in obj.iter() {
+                                    match predicate_value.item {
+                                        juniper::LookAheadValue::Scalar(value) => {
+                                            filters_specs.push((
+                                                attribute.item,
+                                                predicate.item,
+                                                value,
+                                            ));
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    for (field, predicate, value) in filters_specs {
+        let value = juniper_scalar_to_value(value);
+        match value {
+            Value::String(s) => {
+                let col = dynamic_table.column::<Text, _>(field);
+                query = match predicate {
+                    "equals" => query.filter(col.eq(s)),
+                    "notEquals" => query.filter(col.ne(s)),
+                    "contains" => query.filter(col.like(format!("%{}%", s))),
+                    "notContains" => query.filter(col.not_like(format!("%{}%", s))),
+                    "endsWith" => query.filter(col.like(format!("%{}", s))),
+                    "startsWith" => query.filter(col.like(format!("{}%", s))),
+                    _ => panic!("Unsupported string predicate: {}", predicate),
+                };
+            }
+            Value::Integer(i) => {
+                let i: i64 = i.try_into().unwrap();
+                let col = dynamic_table.column::<Integer, _>(field);
+                query = match predicate {
+                    "equals" | "isEqual" => query.filter(col.eq(i as i32)),
+                    "notEquals" => query.filter(col.ne(i as i32)),
+                    "greaterThan" => query.filter(col.gt(i as i32)),
+                    "greaterOrEqual" => query.filter(col.ge(i as i32)),
+                    "lowerThan" => query.filter(col.lt(i as i32)),
+                    "lowerOrEqual" => query.filter(col.le(i as i32)),
+                    "between" => panic!("'between' requires a tuple/array value"),
+                    _ => panic!("Unsupported integer predicate: {}", predicate),
+                };
+            }
+            Value::Bool(_b) => {
+                let col = dynamic_table.column::<Bool, _>(field);
+                query = match predicate {
+                    "true" => query.filter(col.eq(true)),
+                    "false" => query.filter(col.eq(false)),
+                    _ => panic!("Unsupported boolean predicate: {}", predicate),
+                };
+            }
+            _ => panic!("Unsupported predicate or value type"),
+        };
+    }
+
+    let actual_data = query
+        .load::<DynamicRow<NamedField<DynamicValue>>>(&mut *pg_conn)
+        .unwrap();
+    Ok(actual_data)
+}
+
+pub fn fetch_dynamic_entries_from_sqlite(
+    sqlite_conn: &mut diesel::sqlite::SqliteConnection,
+    schema: &DynamicSchemaSpec,
+    dynamic_table_name: &str,
+    executor: &Executor<DataloaderContext>,
+) -> Result<Vec<DynamicRow<NamedField<DynamicValue>>>, FieldError> {
+    let dynamic_table = table(dynamic_table_name); // This is a DynamicTable<Sqlite>
+    let uuid_col = dynamic_table.column::<Untyped, _>("uuid");
+    let slot_col = dynamic_table.column::<Untyped, _>("slot");
+
+    let mut select = DynamicSelectClause::new();
+    select.add_field(uuid_col);
+    select.add_field(slot_col);
+
+    // select.add_field(transaction_signature_col);
+    for field in schema.fields.iter() {
+        let col = field.data.display_name.to_case(Case::Snake);
+        select.add_field(dynamic_table.column::<Untyped, _>(col));
+    }
+
+    // Build the query and apply filters immediately to avoid borrow checker issues
+    let mut query = dynamic_table.clone().select(select).into_boxed();
+
+    // Isolate filters
+    let mut filters_specs = vec![];
+    for arg in executor.look_ahead().arguments() {
+        if arg.name().eq("where") {
+            match arg.value() {
+                juniper::LookAheadValue::Object(obj) => {
+                    for (attribute, value) in obj.iter() {
+                        match value.item {
+                            juniper::LookAheadValue::Object(obj) => {
+                                for (predicate, predicate_value) in obj.iter() {
+                                    match predicate_value.item {
+                                        juniper::LookAheadValue::Scalar(value) => {
+                                            filters_specs.push((
+                                                attribute.item,
+                                                predicate.item,
+                                                value,
+                                            ));
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    for (field, predicate, value) in filters_specs {
+        let value = juniper_scalar_to_value(value);
+        match value {
+            Value::String(s) => {
+                let col = dynamic_table.column::<Text, _>(field);
+                query = match predicate {
+                    "equals" => query.filter(col.eq(s)),
+                    "notEquals" => query.filter(col.ne(s)),
+                    "contains" => query.filter(col.like(format!("%{}%", s))),
+                    "notContains" => query.filter(col.not_like(format!("%{}%", s))),
+                    "endsWith" => query.filter(col.like(format!("%{}", s))),
+                    "startsWith" => query.filter(col.like(format!("{}%", s))),
+                    _ => panic!("Unsupported string predicate: {}", predicate),
+                };
+            }
+            Value::Integer(i) => {
+                let i: i64 = i.try_into().unwrap();
+                let col = dynamic_table.column::<Integer, _>(field);
+                query = match predicate {
+                    "equals" | "isEqual" => query.filter(col.eq(i as i32)),
+                    "notEquals" => query.filter(col.ne(i as i32)),
+                    "greaterThan" => query.filter(col.gt(i as i32)),
+                    "greaterOrEqual" => query.filter(col.ge(i as i32)),
+                    "lowerThan" => query.filter(col.lt(i as i32)),
+                    "lowerOrEqual" => query.filter(col.le(i as i32)),
+                    "between" => panic!("'between' requires a tuple/array value"),
+                    _ => panic!("Unsupported integer predicate: {}", predicate),
+                };
+            }
+            Value::Bool(_b) => {
+                let col = dynamic_table.column::<Bool, _>(field);
+                query = match predicate {
+                    "true" => query.filter(col.eq(true)),
+                    "false" => query.filter(col.eq(false)),
+                    _ => panic!("Unsupported boolean predicate: {}", predicate),
+                };
+            }
+            _ => panic!("Unsupported predicate or value type"),
+        };
+    }
+
+    let actual_data = query
+        .load::<DynamicRow<NamedField<DynamicValue>>>(&mut *sqlite_conn)
+        .unwrap();
+
+    Ok(actual_data)
 }
 
 impl Dataloader for SqlStore {
@@ -186,7 +396,7 @@ impl Dataloader for SqlStore {
         executor: Option<&Executor<DataloaderContext>>,
         schema: &DynamicSchemaSpec,
     ) -> Result<Vec<SubgraphSpec>, FieldError> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.get_conn();
         // Use Diesel's query DSL to fetch the entries_table
 
         let entries_table: String = collections_dsl::collections
@@ -200,74 +410,24 @@ impl Dataloader for SqlStore {
                 )
             })?;
 
-        // Build dynamic select clause
-        let subgraph = table(entries_table.clone()); // This is a DynamicTable<Sqlite>
-        let uuid_col = subgraph.column::<Untyped, _>("uuid");
-        let slot_col = subgraph.column::<Untyped, _>("slot");
-        // let transaction_signature_col = users.column::<Untyped, _>("transaction_signature");
-
-        let mut select = DynamicSelectClause::new();
-        select.add_field(uuid_col);
-        select.add_field(slot_col);
-
-        // select.add_field(transaction_signature_col);
-        for field in schema.fields.iter() {
-            let col = field.data.display_name.to_case(Case::Snake);
-            select.add_field(subgraph.column::<Untyped, _>(col));
-        }
-
-        // Build the query and apply filters immediately to avoid borrow checker issues
-        let mut query = subgraph.clone().select(select).into_boxed();
-
-        if let Some(executor) = executor {
-            // Isolate filters
-            let mut filters_specs = vec![];
-            for arg in executor.look_ahead().arguments() {
-                if arg.name().eq("where") {
-                    match arg.value() {
-                        juniper::LookAheadValue::Object(obj) => {
-                            for (attribute, value) in obj.iter() {
-                                match value.item {
-                                    juniper::LookAheadValue::Object(obj) => {
-                                        for (predicate, predicate_value) in obj.iter() {
-                                            match predicate_value.item {
-                                                juniper::LookAheadValue::Scalar(value) => {
-                                                    filters_specs.push((
-                                                        attribute.item,
-                                                        predicate.item,
-                                                        value,
-                                                    ));
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                    }
-                                    _ => unreachable!(),
-                                }
-                            }
-                        }
-                        _ => unreachable!(),
-                    }
-                }
-            }
-
-            for (field, predicate, value) in &filters_specs {
-                let value = juniper_scalar_to_value(value);
-                let pred = build_predicate(&subgraph, field, predicate, value);
-                query = query.filter(pred);
-            }
-        }
-
-        let actual_data: Vec<DynamicRow<NamedField<DynamicValue>>> =
-            query.load(&mut *conn).map_err(|e| {
-                FieldError::new(
-                    format!("Failed to query entries: {e}"),
-                    juniper::Value::null(),
-                )
-            })?;
+        let entries = match &mut *conn {
+            DatabaseConnection::Sqlite(sqlite_conn) => fetch_dynamic_entries_from_sqlite(
+                sqlite_conn,
+                schema,
+                &entries_table,
+                executor.unwrap(),
+            ),
+            #[cfg(feature = "postgres")]
+            DatabaseConnection::Postgresql(pg_conn) => fetch_dynamic_entries_from_postres(
+                pg_conn,
+                schema,
+                &entries_table,
+                executor.unwrap(),
+            ),
+        }?;
 
         let mut results = Vec::new();
-        for row in actual_data {
+        for row in entries {
             let uuid = Uuid::parse_str(row[0].value.0.expect_string()).unwrap_or(Uuid::nil());
             let slot = row[1].value.0.expect_integer().try_into().unwrap_or(0);
             // let transaction_signature = row[2].value.as_str().and_then(|s| s.parse().ok()).unwrap_or_else(|| blake3::Hash::from([0u8; 32]));
@@ -322,7 +482,7 @@ impl Dataloader for SqlStore {
         subgraph_name: &str,
         schema: &DynamicSchemaSpec,
     ) -> Result<(), String> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.get_conn();
 
         // 1. Ensure subgraphs table exists
         sql_query(
@@ -396,7 +556,7 @@ impl Dataloader for SqlStore {
         subgraph_uuid: &Uuid,
         entry: SubgraphSpec,
     ) -> Result<(), String> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.get_conn();
 
         let (entries_table, schema_json): (String, String) = collections_dsl::collections
             .filter(collections_dsl::id.eq(subgraph_uuid.to_string()))
@@ -463,58 +623,6 @@ fn juniper_scalar_to_value(scalar: &DefaultScalarValue) -> Value {
     match scalar.as_string() {
         Some(s) => Value::String(s.to_string()),
         None => panic!("Only string scalars are supported in filters for now"),
-    }
-}
-
-fn build_predicate<'a>(
-    table: &'a Table<String, String>,
-    field: &'a str,
-    predicate: &str,
-    value: Value,
-) -> Box<
-    dyn BoxableExpression<
-            Table<String, String>,
-            diesel::sqlite::Sqlite,
-            SqlType = diesel::sql_types::Bool,
-        > + 'a,
-> {
-    // Try to infer column type from value
-    match value {
-        Value::String(s) => {
-            let col = table.column::<Text, _>(field);
-            match predicate {
-                "equals" => Box::new(col.eq(s)),
-                "notEquals" => Box::new(col.ne(s)),
-                "contains" => Box::new(col.like(format!("%{}%", s))),
-                "notContains" => Box::new(col.not_like(format!("%{}%", s))),
-                "endsWith" => Box::new(col.like(format!("%{}", s))),
-                "startsWith" => Box::new(col.like(format!("{}%", s))),
-                _ => panic!("Unsupported string predicate: {}", predicate),
-            }
-        }
-        Value::Integer(i) => {
-            let i: i64 = i.try_into().unwrap();
-            let col = table.column::<Integer, _>(field);
-            match predicate {
-                "equals" | "isEqual" => Box::new(col.eq(i as i32)),
-                "notEquals" => Box::new(col.ne(i as i32)),
-                "greaterThan" => Box::new(col.gt(i as i32)),
-                "greaterOrEqual" => Box::new(col.ge(i as i32)),
-                "lowerThan" => Box::new(col.lt(i as i32)),
-                "lowerOrEqual" => Box::new(col.le(i as i32)),
-                "between" => panic!("'between' requires a tuple/array value"),
-                _ => panic!("Unsupported integer predicate: {}", predicate),
-            }
-        }
-        Value::Bool(_b) => {
-            let col = table.column::<Bool, _>(field);
-            match predicate {
-                "true" => Box::new(col.eq(true)),
-                "false" => Box::new(col.eq(false)),
-                _ => panic!("Unsupported boolean predicate: {}", predicate),
-            }
-        }
-        _ => panic!("Unsupported predicate or value type"),
     }
 }
 

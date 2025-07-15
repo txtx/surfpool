@@ -1,3 +1,5 @@
+pub use txtx_addon_network_svm_types as txtx_svm_types;
+
 // pub mod subgraph;
 pub mod types;
 pub mod verified_tokens;

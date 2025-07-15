@@ -10,9 +10,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-diesel = { version = "2.2.11", features = ["extras", "i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
+diesel = { version = "2.2.11", features = ["extras"] }
 diesel_derives = { version = "2.2.6"}
-diesel-dynamic-schema = { version = "0.2.2" }
+diesel-dynamic-schema = { version = "0.2.3" }
 txtx-addon-kit = { workspace = true }
 
 [features]
