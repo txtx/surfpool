@@ -1630,9 +1630,11 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            let pubkeys = svm_locker
-                .get_pubkeys_from_message(&remote_ctx, &unsanitized_tx.message)
+            let loaded_addresses = svm_locker
+                .get_loaded_address_from_message(&remote_ctx, &unsanitized_tx.message)
                 .await?;
+            let pubkeys =
+                svm_locker.get_pubkeys_from_message(&unsanitized_tx.message, loaded_addresses);
 
             let SvmAccessContext {
                 slot,
@@ -2265,9 +2267,11 @@ impl Full for SurfpoolFullRpc {
                         // If the transaction has an ALT and includes a compute budget instruction,
                         // the ALT accounts are included in the recent prioritization fees,
                         // so we get _all_ the pubkeys from the message
-                        let account_keys = svm_locker
-                            .get_pubkeys_from_message(&remote_ctx, &tx.message)
+                        let loaded_addresses = svm_locker
+                            .get_loaded_address_from_message(&remote_ctx, &tx.message)
                             .await?;
+                        let account_keys =
+                            svm_locker.get_pubkeys_from_message(&tx.message, loaded_addresses);
 
                         let instructions = match &tx.message {
                             VersionedMessage::V0(msg) => &msg.instructions,

@@ -728,9 +728,12 @@ impl SurfnetSvmLocker {
 
         // find accounts that are needed for this transaction but are missing from the local
         // svm cache, fetch them from the RPC, and insert them locally
-        let pubkeys_from_message = self
-            .get_pubkeys_from_message(remote_ctx, &transaction.message)
+        let loaded_addresses = self
+            .get_loaded_address_from_message(remote_ctx, &transaction.message)
             .await?;
+        let pubkeys_from_message = self
+            .get_pubkeys_from_message(&transaction.message, loaded_addresses.clone())
+            .clone();
 
         let account_updates = self
             .get_multiple_accounts(remote_ctx, &pubkeys_from_message, None)
@@ -1221,37 +1224,52 @@ impl SurfnetSvmLocker {
 /// Address lookup table related functions
 impl SurfnetSvmLocker {
     /// Extracts pubkeys from a VersionedMessage, resolving address lookup tables as needed.
-    pub async fn get_pubkeys_from_message(
+    pub fn get_pubkeys_from_message(
         &self,
-        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
         message: &VersionedMessage,
-    ) -> SurfpoolResult<Vec<Pubkey>> {
+        loaded_addresses: Option<LoadedAddresses>,
+    ) -> Vec<Pubkey> {
         match message {
-            VersionedMessage::Legacy(message) => Ok(message.account_keys.clone()),
+            VersionedMessage::Legacy(message) => message.account_keys.clone(),
             VersionedMessage::V0(message) => {
                 let alts = message.address_table_lookups.clone();
                 let mut acc_keys = message.account_keys.clone();
                 let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
 
-                let mut table_entries = join_all(alts.iter().map(|msg| async {
-                    let loaded_addresses = self
-                        .get_lookup_table_addresses(remote_ctx, msg)
+                acc_keys.append(&mut alt_pubkeys);
+                if let Some(mut loaded_addresses) = loaded_addresses {
+                    acc_keys.append(&mut loaded_addresses.readonly);
+                    acc_keys.append(&mut loaded_addresses.writable);
+                }
+                acc_keys
+            }
+        }
+    }
+
+    /// Gets addresses loaded from on-chain lookup tables from a VersionedMessage.
+    pub async fn get_loaded_address_from_message(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+        message: &VersionedMessage,
+    ) -> SurfpoolResult<Option<LoadedAddresses>> {
+        match message {
+            VersionedMessage::Legacy(_) => Ok(None),
+            VersionedMessage::V0(message) => {
+                let alts = message.address_table_lookups.clone();
+                if alts.is_empty() {
+                    return Ok(None);
+                }
+                let mut combined = LoadedAddresses::default();
+                for alt in alts {
+                    let mut loaded_addresses = self
+                        .get_lookup_table_addresses(remote_ctx, &alt)
                         .await?
                         .inner;
-                    let mut combined = loaded_addresses.writable;
-                    combined.extend(loaded_addresses.readonly);
-                    Ok::<_, SurfpoolError>(combined)
-                }))
-                .await
-                .into_iter()
-                .collect::<Result<Vec<Vec<Pubkey>>, SurfpoolError>>()?
-                .into_iter()
-                .flatten()
-                .collect();
+                    combined.readonly.append(&mut loaded_addresses.readonly);
+                    combined.writable.append(&mut loaded_addresses.writable);
+                }
 
-                acc_keys.append(&mut alt_pubkeys);
-                acc_keys.append(&mut table_entries);
-                Ok(acc_keys)
+                Ok(Some(combined))
             }
         }
     }
@@ -1353,9 +1371,11 @@ impl SurfnetSvmLocker {
             .clone()
             .map(|client| (client, CommitmentConfig::confirmed()));
 
-        let account_keys = svm_locker
-            .get_pubkeys_from_message(&remote_ctx_with_config, &transaction.message)
+        let loaded_addresses = svm_locker
+            .get_loaded_address_from_message(&remote_ctx_with_config, &transaction.message)
             .await?;
+        let account_keys =
+            svm_locker.get_pubkeys_from_message(&transaction.message, loaded_addresses);
 
         let pre_execution_capture = {
             let mut capture = BTreeMap::new();
