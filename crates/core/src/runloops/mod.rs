@@ -234,13 +234,16 @@ pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<
 
 #[cfg(windows)]
 fn start_geyser_runloop(
-    plugin_config_paths: Vec<PathBuf>,
-    plugin_manager_commands_rx: Receiver<PluginManagerCommand>,
-    subgraph_commands_tx: Sender<SubgraphCommand>,
-    simnet_events_tx: Sender<SimnetEvent>,
-    geyser_events_rx: Receiver<GeyserEvent>,
+    _plugin_config_paths: Vec<PathBuf>,
+    _plugin_manager_commands_rx: Receiver<PluginManagerCommand>,
+    _subgraph_commands_tx: Sender<SubgraphCommand>,
+    _simnet_events_tx: Sender<SimnetEvent>,
+    _geyser_events_rx: Receiver<GeyserEvent>,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
-    Ok(())
+    let handle = hiro_system_kit::thread_named("Geyser Plugins Handler")
+        .spawn(move || Ok(()))
+        .map_err(|e| format!("Failed to spawn Geyser Plugins Handler thread: {:?}", e))?;
+    Ok(handle)
 }
 
 #[cfg(not(windows))]
