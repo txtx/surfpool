@@ -470,3 +470,177 @@ pub enum RemoteRpcResult<T> {
     Ok(T),
     MethodNotSupported,
 }
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum TokenAccount {
+    SplToken2022(spl_token_2022::state::Account),
+    SplToken(spl_token::state::Account),
+}
+
+impl TokenAccount {
+    pub fn unpack(bytes: &[u8]) -> SurfpoolResult<Self> {
+        if let Ok(account) = spl_token_2022::state::Account::unpack(bytes) {
+            Ok(Self::SplToken2022(account))
+        } else if let Ok(account) = spl_token::state::Account::unpack(bytes) {
+            Ok(Self::SplToken(account))
+        } else if let Ok(account) =
+            StateWithExtensions::<spl_token_2022::state::Account>::unpack(bytes)
+        {
+            Ok(Self::SplToken2022(account.base))
+        } else {
+            Err(SurfpoolError::unpack_token_account())
+        }
+    }
+
+    pub fn new(token_program_id: &Pubkey, owner: Pubkey, mint: Pubkey) -> Self {
+        if token_program_id == &spl_token_2022::id() {
+            Self::SplToken2022(spl_token_2022::state::Account {
+                mint,
+                owner,
+                state: spl_token_2022::state::AccountState::Initialized,
+                ..Default::default()
+            })
+        } else {
+            Self::SplToken(spl_token::state::Account {
+                mint,
+                owner,
+                state: spl_token::state::AccountState::Initialized,
+                ..Default::default()
+            })
+        }
+    }
+
+    pub fn pack_into_vec(&self) -> Vec<u8> {
+        match self {
+            Self::SplToken2022(account) => {
+                let mut dst = [0u8; spl_token_2022::state::Account::LEN];
+                account.pack_into_slice(&mut dst);
+                dst.to_vec()
+            }
+            Self::SplToken(account) => {
+                let mut dst = [0u8; spl_token::state::Account::LEN];
+                account.pack_into_slice(&mut dst);
+                dst.to_vec()
+            }
+        }
+    }
+
+    pub fn owner(&self) -> Pubkey {
+        match self {
+            Self::SplToken2022(account) => account.owner,
+            Self::SplToken(account) => account.owner,
+        }
+    }
+
+    pub fn mint(&self) -> Pubkey {
+        match self {
+            Self::SplToken2022(account) => account.mint,
+            Self::SplToken(account) => account.mint,
+        }
+    }
+
+    pub fn delegate(&self) -> COption<Pubkey> {
+        match self {
+            Self::SplToken2022(account) => account.delegate,
+            Self::SplToken(account) => account.delegate,
+        }
+    }
+
+    pub fn set_delegate(&mut self, delegate: COption<Pubkey>) {
+        match self {
+            Self::SplToken2022(account) => account.delegate = delegate,
+            Self::SplToken(account) => account.delegate = delegate,
+        }
+    }
+
+    pub fn set_delegated_amount(&mut self, delegated_amount: u64) {
+        match self {
+            Self::SplToken2022(account) => account.delegated_amount = delegated_amount,
+            Self::SplToken(account) => account.delegated_amount = delegated_amount,
+        }
+    }
+
+    pub fn set_close_authority(&mut self, close_authority: COption<Pubkey>) {
+        match self {
+            Self::SplToken2022(account) => account.close_authority = close_authority,
+            Self::SplToken(account) => account.close_authority = close_authority,
+        }
+    }
+
+    pub fn amount(&self) -> u64 {
+        match self {
+            Self::SplToken2022(account) => account.amount,
+            Self::SplToken(account) => account.amount,
+        }
+    }
+
+    pub fn set_amount(&mut self, amount: u64) {
+        match self {
+            Self::SplToken2022(account) => account.amount = amount,
+            Self::SplToken(account) => account.amount = amount,
+        }
+    }
+
+    pub fn get_packed_len_for_token_program_id(token_program_id: &Pubkey) -> usize {
+        if *token_program_id == spl_token::id() {
+            spl_token::state::Account::get_packed_len()
+        } else {
+            spl_token_2022::state::Account::get_packed_len()
+        }
+    }
+
+    pub fn set_state_from_str(&mut self, state: &str) -> SurfpoolResult<()> {
+        match self {
+            Self::SplToken2022(account) => {
+                account.state = match state {
+                    "uninitialized" => spl_token_2022::state::AccountState::Uninitialized,
+                    "frozen" => spl_token_2022::state::AccountState::Frozen,
+                    "initialized" => spl_token_2022::state::AccountState::Initialized,
+                    _ => {
+                        return Err(SurfpoolError::invalid_token_account_state(
+                            &state.to_string(),
+                        ));
+                    }
+                }
+            }
+            Self::SplToken(account) => {
+                account.state = match state {
+                    "uninitialized" => spl_token::state::AccountState::Uninitialized,
+                    "frozen" => spl_token::state::AccountState::Frozen,
+                    "initialized" => spl_token::state::AccountState::Initialized,
+                    _ => {
+                        return Err(SurfpoolError::invalid_token_account_state(
+                            &state.to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum MintAccount {
+    SplToken2022(spl_token_2022::state::Mint),
+    SplToken(spl_token::state::Mint),
+}
+
+impl MintAccount {
+    pub fn unpack(bytes: &[u8]) -> SurfpoolResult<Self> {
+        if let Ok(mint) = spl_token_2022::state::Mint::unpack(bytes) {
+            Ok(Self::SplToken2022(mint))
+        } else if let Ok(mint) = spl_token::state::Mint::unpack(bytes) {
+            Ok(Self::SplToken(mint))
+        } else {
+            Err(SurfpoolError::unpack_mint_account())
+        }
+    }
+
+    pub fn decimals(&self) -> u8 {
+        match self {
+            Self::SplToken2022(mint) => mint.decimals,
+            Self::SplToken(mint) => mint.decimals,
+        }
+    }
+}

@@ -400,4 +400,21 @@ impl SurfpoolError {
         error.message = format!("Token mint {mint} not found");
         Self(error)
     }
+
+    pub fn unpack_token_account() -> Self {
+        let mut error = Error::parse_error();
+        error.message = "Failed to unpack token account".to_string();
+        Self(error)
+    }
+
+    pub fn unpack_mint_account() -> Self {
+        let mut error = Error::parse_error();
+        error.message = "Failed to unpack mint account".to_string();
+        Self(error)
+    }
+
+    pub fn invalid_token_account_state(state: &str) -> Self {
+        let error = Error::invalid_params(format!("Invalid token account state {state}"));
+        Self(error)
+    }
 }
