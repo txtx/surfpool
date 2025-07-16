@@ -1631,7 +1631,7 @@ impl Full for SurfpoolFullRpc {
 
         Box::pin(async move {
             let loaded_addresses = svm_locker
-                .get_loaded_address_from_message(&remote_ctx, &unsanitized_tx.message)
+                .get_loaded_addresses(&remote_ctx, &unsanitized_tx.message)
                 .await?;
             let pubkeys =
                 svm_locker.get_pubkeys_from_message(&unsanitized_tx.message, loaded_addresses);
@@ -2268,7 +2268,7 @@ impl Full for SurfpoolFullRpc {
                         // the ALT accounts are included in the recent prioritization fees,
                         // so we get _all_ the pubkeys from the message
                         let loaded_addresses = svm_locker
-                            .get_loaded_address_from_message(&remote_ctx, &tx.message)
+                            .get_loaded_addresses(&remote_ctx, &tx.message)
                             .await?;
                         let account_keys =
                             svm_locker.get_pubkeys_from_message(&tx.message, loaded_addresses);

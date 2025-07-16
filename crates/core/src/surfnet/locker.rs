@@ -735,7 +735,7 @@ impl SurfnetSvmLocker {
         // find accounts that are needed for this transaction but are missing from the local
         // svm cache, fetch them from the RPC, and insert them locally
         let loaded_addresses = self
-            .get_loaded_address_from_message(remote_ctx, &transaction.message)
+            .get_loaded_addresses(remote_ctx, &transaction.message)
             .await?;
         let pubkeys_from_message = self
             .get_pubkeys_from_message(&transaction.message, loaded_addresses.clone())
@@ -1318,7 +1318,7 @@ impl SurfnetSvmLocker {
     }
 
     /// Gets addresses loaded from on-chain lookup tables from a VersionedMessage.
-    pub async fn get_loaded_address_from_message(
+    pub async fn get_loaded_addresses(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
         message: &VersionedMessage,
@@ -1443,7 +1443,7 @@ impl SurfnetSvmLocker {
             .map(|client| (client, CommitmentConfig::confirmed()));
 
         let loaded_addresses = svm_locker
-            .get_loaded_address_from_message(&remote_ctx_with_config, &transaction.message)
+            .get_loaded_addresses(&remote_ctx_with_config, &transaction.message)
             .await?;
         let account_keys =
             svm_locker.get_pubkeys_from_message(&transaction.message, loaded_addresses);
