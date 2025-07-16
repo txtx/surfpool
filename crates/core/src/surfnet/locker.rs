@@ -1421,7 +1421,7 @@ impl SurfnetSvmLocker {
     pub async fn profile_transaction(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
-        transaction: &VersionedTransaction,
+        transaction: VersionedTransaction,
         encoding: Option<UiAccountEncoding>,
     ) -> SurfpoolContextualizedResult<ProfileResult> {
         let SvmAccessContext {
@@ -1465,11 +1465,12 @@ impl SurfnetSvmLocker {
             capture
         };
 
-        let compute_units_estimation_result = svm_locker.estimate_compute_units(transaction).inner;
+        let compute_units_estimation_result = svm_locker.estimate_compute_units(&transaction).inner;
 
         let (status_tx, status_rx) = crossbeam_channel::unbounded();
+        let signature = transaction.signatures[0];
         let _ = svm_locker
-            .process_transaction(remote_ctx, transaction.clone(), status_tx, true)
+            .process_transaction(remote_ctx, transaction, status_tx, true)
             .await?;
 
         let simnet_events_tx = self.simnet_events_tx();
@@ -1482,12 +1483,12 @@ impl SurfnetSvmLocker {
                             chrono::Local::now(),
                             format!(
                                 "Transaction {} failed during snapshot simulation: {}",
-                                transaction.signatures[0], err
+                                signature, err
                             ),
                         ));
                         return Err(SurfpoolError::internal(format!(
                             "Transaction {} failed during snapshot simulation: {}",
-                            transaction.signatures[0], err
+                            signature, err
                         )));
                     }
                     TransactionStatusEvent::SimulationFailure(_) => unreachable!(),
@@ -1496,12 +1497,12 @@ impl SurfnetSvmLocker {
                             chrono::Local::now(),
                             format!(
                                 "Transaction {} verification failed during snapshot simulation",
-                                transaction.signatures[0]
+                                signature
                             ),
                         ));
                         return Err(SurfpoolError::internal(format!(
                             "Transaction {} verification failed during snapshot simulation",
-                            transaction.signatures[0]
+                            signature
                         )));
                     }
                 }
