@@ -1630,9 +1630,11 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            let pubkeys = svm_locker
-                .get_pubkeys_from_message(&remote_ctx, &unsanitized_tx.message)
+            let loaded_addresses = svm_locker
+                .get_loaded_addresses(&remote_ctx, &unsanitized_tx.message)
                 .await?;
+            let pubkeys =
+                svm_locker.get_pubkeys_from_message(&unsanitized_tx.message, loaded_addresses);
 
             let SvmAccessContext {
                 slot,
@@ -2260,14 +2262,16 @@ impl Full for SurfpoolFullRpc {
                 match tx {
                     SurfnetTransactionStatus::Received => {}
                     SurfnetTransactionStatus::Processed(status_meta) => {
-                        let tx = &status_meta.1;
+                        let tx = &status_meta.transaction;
 
                         // If the transaction has an ALT and includes a compute budget instruction,
                         // the ALT accounts are included in the recent prioritization fees,
                         // so we get _all_ the pubkeys from the message
-                        let account_keys = svm_locker
-                            .get_pubkeys_from_message(&remote_ctx, &tx.message)
+                        let loaded_addresses = svm_locker
+                            .get_loaded_addresses(&remote_ctx, &tx.message)
                             .await?;
+                        let account_keys =
+                            svm_locker.get_pubkeys_from_message(&tx.message, loaded_addresses);
 
                         let instructions = match &tx.message {
                             VersionedMessage::V0(msg) => &msg.instructions,
@@ -2362,7 +2366,7 @@ mod tests {
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
         UiRawMessage, UiTransaction,
     };
-    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus, TransactionMetadata};
+    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus};
     use test_case::test_case;
 
     use super::*;
@@ -2428,12 +2432,11 @@ mod tests {
                     .push_back((tx.clone(), status_tx.clone()));
                 writer.transactions.insert(
                     tx.signatures[0],
-                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta {
                         slot,
-                        tx,
-                        TransactionMetadata::default(),
-                        None,
-                    ))),
+                        transaction: tx,
+                        ..Default::default()
+                    })),
                 );
                 status_tx
                     .send(TransactionStatusEvent::Success(
@@ -3039,7 +3042,7 @@ mod tests {
         assert_eq!(
             res,
             EncodedConfirmedTransactionWithStatusMeta {
-                slot: 0,
+                slot: 123,
                 transaction: EncodedTransactionWithStatusMeta {
                     transaction: EncodedTransaction::Json(UiTransaction {
                         signatures: vec![tx.signatures[0].to_string()],

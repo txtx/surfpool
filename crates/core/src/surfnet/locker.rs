@@ -3,7 +3,6 @@ use std::{collections::BTreeMap, sync::Arc};
 use bincode::serialized_size;
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
-use jsonrpc_core::futures::future::join_all;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::Account;
 use solana_account_decoder::{
@@ -64,7 +63,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
     surfnet::FINALIZATION_SLOT_THRESHOLD,
-    types::{RemoteRpcResult, TransactionWithStatusMeta},
+    types::{RemoteRpcResult, SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 
 pub struct SvmAccessContext<T> {
@@ -527,7 +526,11 @@ impl SurfnetSvmLocker {
                 .transactions
                 .iter()
                 .filter_map(|(sig, status)| {
-                    let TransactionWithStatusMeta(slot, tx, _, err) = status.expect_processed();
+                    let TransactionWithStatusMeta {
+                        slot,
+                        transaction,
+                        meta,
+                    } = status.expect_processed();
 
                     if *slot < config.clone().min_context_slot.unwrap_or_default() {
                         return None;
@@ -542,12 +545,12 @@ impl SurfnetSvmLocker {
                     }
 
                     // Check if the pubkey is a signer
-                    let is_signer = tx
+                    let is_signer = transaction
                         .message
                         .static_account_keys()
                         .iter()
                         .position(|pk| pk == pubkey)
-                        .map(|i| tx.message.is_signer(i))
+                        .map(|i| transaction.message.is_signer(i))
                         .unwrap_or(false);
 
                     if !is_signer {
@@ -564,7 +567,10 @@ impl SurfnetSvmLocker {
                     };
 
                     Some(RpcConfirmedTransactionStatusWithSignature {
-                        err: err.clone(),
+                        err: match &meta.status {
+                            Ok(_) => None,
+                            Err(e) => Some(e.clone()),
+                        },
                         slot: *slot,
                         memo: None,
                         block_time: None,
@@ -728,9 +734,12 @@ impl SurfnetSvmLocker {
 
         // find accounts that are needed for this transaction but are missing from the local
         // svm cache, fetch them from the RPC, and insert them locally
-        let pubkeys_from_message = self
-            .get_pubkeys_from_message(remote_ctx, &transaction.message)
+        let loaded_addresses = self
+            .get_loaded_addresses(remote_ctx, &transaction.message)
             .await?;
+        let pubkeys_from_message = self
+            .get_pubkeys_from_message(&transaction.message, loaded_addresses.clone())
+            .clone();
 
         let account_updates = self
             .get_multiple_accounts(remote_ctx, &pubkeys_from_message, None)
@@ -747,6 +756,42 @@ impl SurfnetSvmLocker {
                 .map(|p| svm_writer.inner.get_account(p))
                 .collect::<Vec<Option<Account>>>();
 
+            let token_accounts_before = pubkeys_from_message
+                .iter()
+                .enumerate()
+                .filter_map(|(i, p)| {
+                    svm_writer
+                        .token_accounts
+                        .get(&p)
+                        .cloned()
+                        .map(|a| (i, a))
+                        .clone()
+                })
+                .collect::<Vec<_>>();
+
+            let token_mints = token_accounts_before
+                .iter()
+                .map(|(_, a)| {
+                    svm_writer
+                        .token_mints
+                        .get(&a.mint)
+                        .ok_or(SurfpoolError::token_mint_not_found(a.mint))
+                        .cloned()
+                })
+                .collect::<Result<Vec<_>, SurfpoolError>>()
+                .unwrap();
+
+            let token_programs = token_accounts_before
+                .iter()
+                .map(|(i, _)| {
+                    svm_writer
+                        .accounts_registry
+                        .get(&pubkeys_from_message[*i])
+                        .unwrap()
+                        .owner
+                })
+                .collect::<Vec<_>>()
+                .clone();
             // if not skipping preflight, simulate the transaction
             if !skip_preflight {
                 match svm_writer.simulate_transaction(transaction.clone(), true) {
@@ -785,7 +830,7 @@ impl SurfnetSvmLocker {
 
                     for (pubkey, (before, after)) in pubkeys_from_message
                         .iter()
-                        .zip(accounts_before.iter().zip(accounts_after))
+                        .zip(accounts_before.clone().iter().zip(accounts_after.clone()))
                     {
                         if before.ne(&after) {
                             if let Some(after) = &after {
@@ -796,14 +841,43 @@ impl SurfnetSvmLocker {
                         }
                     }
 
+                    let token_accounts_after = pubkeys_from_message
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, p)| {
+                            svm_writer.token_accounts.get(&p).cloned().map(|a| (i, a))
+                        })
+                        .collect::<Vec<_>>();
+
                     let transaction_meta = convert_transaction_metadata_from_canonical(&res);
+
+                    let transaction_with_status_meta = TransactionWithStatusMeta::new(
+                        svm_writer.get_latest_absolute_slot(),
+                        transaction.clone(),
+                        res,
+                        accounts_before,
+                        accounts_after,
+                        token_accounts_before,
+                        token_accounts_after,
+                        token_mints,
+                        token_programs,
+                        loaded_addresses.clone().unwrap_or_default(),
+                    );
+                    svm_writer.transactions.insert(
+                        transaction_meta.signature,
+                        SurfnetTransactionStatus::Processed(Box::new(
+                            transaction_with_status_meta.clone(),
+                        )),
+                    );
+
+                    let _ = svm_writer
+                        .simnet_events_tx
+                        .try_send(SimnetEvent::transaction_processed(transaction_meta, None));
+
                     let _ = svm_writer
                         .geyser_events_tx
-                        .send(GeyserEvent::NotifyTransaction(
-                            transaction.clone(),
-                            transaction_meta,
-                            latest_absolute_slot,
-                        ));
+                        .send(GeyserEvent::NotifyTransaction(transaction_with_status_meta));
+
                     let _ = status_tx.try_send(TransactionStatusEvent::Success(
                         TransactionConfirmationStatus::Processed,
                     ));
@@ -1107,34 +1181,17 @@ impl SurfnetSvmLocker {
             // convert to RpcTokenAccountBalance and sort by balance
             let mut balances: Vec<RpcTokenAccountBalance> = token_accounts
                 .into_iter()
-                .map(|(pubkey, token_account)| {
-                    let ui_amount = if mint_decimals > 0 {
-                        Some(
-                            token_account.amount as f64 / (10_u64.pow(mint_decimals as u32) as f64),
-                        )
-                    } else {
-                        Some(token_account.amount as f64)
-                    };
-
-                    let ui_amount_string = if mint_decimals > 0 {
-                        format!(
-                            "{:.precision$}",
-                            token_account.amount as f64 / (10_u64.pow(mint_decimals as u32) as f64),
-                            precision = mint_decimals as usize
-                        )
-                    } else {
-                        token_account.amount.to_string()
-                    };
-
-                    RpcTokenAccountBalance {
-                        address: pubkey.to_string(),
-                        amount: UiTokenAmount {
-                            amount: token_account.amount.to_string(),
-                            decimals: mint_decimals,
-                            ui_amount,
-                            ui_amount_string,
-                        },
-                    }
+                .map(|(pubkey, token_account)| RpcTokenAccountBalance {
+                    address: pubkey.to_string(),
+                    amount: UiTokenAmount {
+                        amount: token_account.amount.to_string(),
+                        decimals: mint_decimals,
+                        ui_amount: Some(format_ui_amount(token_account.amount, mint_decimals)),
+                        ui_amount_string: format_ui_amount_string(
+                            token_account.amount,
+                            mint_decimals,
+                        ),
+                    },
                 })
                 .collect();
 
@@ -1221,37 +1278,52 @@ impl SurfnetSvmLocker {
 /// Address lookup table related functions
 impl SurfnetSvmLocker {
     /// Extracts pubkeys from a VersionedMessage, resolving address lookup tables as needed.
-    pub async fn get_pubkeys_from_message(
+    pub fn get_pubkeys_from_message(
         &self,
-        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
         message: &VersionedMessage,
-    ) -> SurfpoolResult<Vec<Pubkey>> {
+        loaded_addresses: Option<LoadedAddresses>,
+    ) -> Vec<Pubkey> {
         match message {
-            VersionedMessage::Legacy(message) => Ok(message.account_keys.clone()),
+            VersionedMessage::Legacy(message) => message.account_keys.clone(),
             VersionedMessage::V0(message) => {
                 let alts = message.address_table_lookups.clone();
                 let mut acc_keys = message.account_keys.clone();
                 let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
 
-                let mut table_entries = join_all(alts.iter().map(|msg| async {
-                    let loaded_addresses = self
-                        .get_lookup_table_addresses(remote_ctx, msg)
+                acc_keys.append(&mut alt_pubkeys);
+                if let Some(mut loaded_addresses) = loaded_addresses {
+                    acc_keys.append(&mut loaded_addresses.readonly);
+                    acc_keys.append(&mut loaded_addresses.writable);
+                }
+                acc_keys
+            }
+        }
+    }
+
+    /// Gets addresses loaded from on-chain lookup tables from a VersionedMessage.
+    pub async fn get_loaded_addresses(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+        message: &VersionedMessage,
+    ) -> SurfpoolResult<Option<LoadedAddresses>> {
+        match message {
+            VersionedMessage::Legacy(_) => Ok(None),
+            VersionedMessage::V0(message) => {
+                let alts = message.address_table_lookups.clone();
+                if alts.is_empty() {
+                    return Ok(None);
+                }
+                let mut combined = LoadedAddresses::default();
+                for alt in alts {
+                    let mut loaded_addresses = self
+                        .get_lookup_table_addresses(remote_ctx, &alt)
                         .await?
                         .inner;
-                    let mut combined = loaded_addresses.writable;
-                    combined.extend(loaded_addresses.readonly);
-                    Ok::<_, SurfpoolError>(combined)
-                }))
-                .await
-                .into_iter()
-                .collect::<Result<Vec<Vec<Pubkey>>, SurfpoolError>>()?
-                .into_iter()
-                .flatten()
-                .collect();
+                    combined.readonly.append(&mut loaded_addresses.readonly);
+                    combined.writable.append(&mut loaded_addresses.writable);
+                }
 
-                acc_keys.append(&mut alt_pubkeys);
-                acc_keys.append(&mut table_entries);
-                Ok(acc_keys)
+                Ok(Some(combined))
             }
         }
     }
@@ -1332,7 +1404,7 @@ impl SurfnetSvmLocker {
     pub async fn profile_transaction(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
-        transaction: &VersionedTransaction,
+        transaction: VersionedTransaction,
         encoding: Option<UiAccountEncoding>,
     ) -> SurfpoolContextualizedResult<ProfileResult> {
         let SvmAccessContext {
@@ -1353,9 +1425,11 @@ impl SurfnetSvmLocker {
             .clone()
             .map(|client| (client, CommitmentConfig::confirmed()));
 
-        let account_keys = svm_locker
-            .get_pubkeys_from_message(&remote_ctx_with_config, &transaction.message)
+        let loaded_addresses = svm_locker
+            .get_loaded_addresses(&remote_ctx_with_config, &transaction.message)
             .await?;
+        let account_keys =
+            svm_locker.get_pubkeys_from_message(&transaction.message, loaded_addresses);
 
         let pre_execution_capture = {
             let mut capture = BTreeMap::new();
@@ -1374,11 +1448,12 @@ impl SurfnetSvmLocker {
             capture
         };
 
-        let compute_units_estimation_result = svm_locker.estimate_compute_units(transaction).inner;
+        let compute_units_estimation_result = svm_locker.estimate_compute_units(&transaction).inner;
 
         let (status_tx, status_rx) = crossbeam_channel::unbounded();
+        let signature = transaction.signatures[0];
         let _ = svm_locker
-            .process_transaction(remote_ctx, transaction.clone(), status_tx, true)
+            .process_transaction(remote_ctx, transaction, status_tx, true)
             .await?;
 
         let simnet_events_tx = self.simnet_events_tx();
@@ -1391,12 +1466,12 @@ impl SurfnetSvmLocker {
                             chrono::Local::now(),
                             format!(
                                 "Transaction {} failed during snapshot simulation: {}",
-                                transaction.signatures[0], err
+                                signature, err
                             ),
                         ));
                         return Err(SurfpoolError::internal(format!(
                             "Transaction {} failed during snapshot simulation: {}",
-                            transaction.signatures[0], err
+                            signature, err
                         )));
                     }
                     TransactionStatusEvent::SimulationFailure(_) => unreachable!(),
@@ -1405,12 +1480,12 @@ impl SurfnetSvmLocker {
                             chrono::Local::now(),
                             format!(
                                 "Transaction {} verification failed during snapshot simulation",
-                                transaction.signatures[0]
+                                signature
                             ),
                         ));
                         return Err(SurfpoolError::internal(format!(
                             "Transaction {} verification failed during snapshot simulation",
-                            transaction.signatures[0]
+                            signature
                         )));
                     }
                 }
@@ -1771,7 +1846,7 @@ impl SurfnetSvmLocker {
                 None => return Err(SurfpoolError::slot_too_old(*slot)),
             }
         } else {
-            self.get_block_local(slot, config).inner
+            self.get_block_local(slot, config)?
         };
 
         Ok(SvmAccessContext {
@@ -1788,10 +1863,8 @@ impl SurfnetSvmLocker {
         &self,
         slot: &Slot,
         config: &RpcBlockConfig,
-    ) -> SvmAccessContext<Option<UiConfirmedBlock>> {
-        self.with_contextualized_svm_reader(|svm_reader| {
-            svm_reader.get_block_at_slot(*slot, config)
-        })
+    ) -> SurfpoolResult<Option<UiConfirmedBlock>> {
+        self.with_svm_reader(|svm_reader| svm_reader.get_block_at_slot(*slot, config))
     }
 
     pub fn get_genesis_hash_local(&self) -> SvmAccessContext<Hash> {
@@ -2000,5 +2073,28 @@ fn update_programdata_account(
             &program_id,
             "Invalid program data account",
         ));
+    }
+}
+
+pub fn format_ui_amount_string(amount: u64, decimals: u8) -> String {
+    let formatted_amount = if decimals > 0 {
+        let divisor = 10u64.pow(decimals as u32);
+        format!(
+            "{:.decimals$}",
+            amount as f64 / divisor as f64,
+            decimals = decimals as usize
+        )
+    } else {
+        amount.to_string()
+    };
+    formatted_amount
+}
+
+pub fn format_ui_amount(amount: u64, decimals: u8) -> f64 {
+    if decimals > 0 {
+        let divisor = 10u64.pow(decimals as u32);
+        amount as f64 / divisor as f64
+    } else {
+        amount as f64
     }
 }

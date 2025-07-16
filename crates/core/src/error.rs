@@ -7,6 +7,7 @@ use serde_json::json;
 use solana_client::{client_error::ClientError, rpc_request::TokenAccountsFilter};
 use solana_pubkey::Pubkey;
 use solana_sdk::slot_history::Slot;
+use solana_transaction_status::EncodeError;
 
 pub type SurfpoolResult<T> = std::result::Result<T, SurfpoolError>;
 
@@ -22,6 +23,17 @@ impl From<SurfpoolError> for String {
 impl From<SurfpoolError> for Error {
     fn from(e: SurfpoolError) -> Self {
         e.0
+    }
+}
+
+impl From<EncodeError> for SurfpoolError {
+    fn from(e: EncodeError) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Transaction encoding error: {}",
+            e.to_string()
+        )));
+        Self(error)
     }
 }
 
@@ -380,6 +392,12 @@ impl SurfpoolError {
         error.data = Some(json!(format!(
             "Failed to get block {block} from remote: {e}"
         )));
+        Self(error)
+    }
+
+    pub fn token_mint_not_found(mint: Pubkey) -> Self {
+        let mut error = Error::internal_error();
+        error.message = format!("Token mint {mint} not found");
         Self(error)
     }
 }

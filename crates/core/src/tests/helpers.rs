@@ -9,9 +9,8 @@ use solana_sdk::transaction::VersionedTransaction;
 use surfpool_types::SimnetCommand;
 
 use crate::{
-    rpc::{RunloopContext, utils::convert_transaction_metadata_from_canonical},
+    rpc::RunloopContext,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
-    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
 };
 
 pub fn get_free_port() -> Result<u16, String> {
@@ -106,28 +105,14 @@ where
     }
 
     pub async fn process_txs(&mut self, txs: Vec<VersionedTransaction>) {
+        let (status_tx, _rx) = crossbeam_channel::unbounded();
         for tx in txs {
-            let mut state_writer = self.context.svm_locker.0.write().await;
-            match state_writer.send_transaction(tx.clone(), false) {
-                Ok(res) => state_writer.transactions.insert(
-                    tx.signatures[0],
-                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
-                        0,
-                        tx,
-                        convert_transaction_metadata_from_canonical(&res),
-                        None,
-                    ))),
-                ),
-                Err(e) => state_writer.transactions.insert(
-                    tx.signatures[0],
-                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
-                        0,
-                        tx,
-                        convert_transaction_metadata_from_canonical(&e.meta),
-                        Some(e.err),
-                    ))),
-                ),
-            };
+            let _ = self
+                .context
+                .svm_locker
+                .process_transaction(&None, tx.clone(), status_tx.clone(), true)
+                .await
+                .unwrap();
         }
     }
 }

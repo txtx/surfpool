@@ -634,7 +634,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 inner: profile_result,
                 ..
             } = svm_locker
-                .profile_transaction(&remote_ctx, &transaction, encoding)
+                .profile_transaction(&remote_ctx, transaction, encoding)
                 .await?;
 
             if let Some(tag_str) = tag {
