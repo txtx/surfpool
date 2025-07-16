@@ -4,10 +4,9 @@ use bincode::serialized_size;
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
-use solana_account::Account;
+use solana_account::{Account, ReadableAccount};
 use solana_account_decoder::{
-    UiAccount, UiAccountEncoding, encode_ui_account,
-    parse_account_data::AccountAdditionalDataV3,
+    UiAccount, UiAccountEncoding,
     parse_bpf_loader::{BpfUpgradeableLoaderAccountType, UiProgram, parse_bpf_upgradeable_loader},
     parse_token::UiTokenAmount,
 };
@@ -36,7 +35,6 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     bpf_loader_upgradeable::{UpgradeableLoaderState, get_program_data_address},
-    program_pack::Pack,
     transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
@@ -46,8 +44,6 @@ use solana_transaction_status::{
     TransactionConfirmationStatus as SolanaTransactionConfirmationStatus, UiConfirmedBlock,
     UiTransactionEncoding,
 };
-use spl_token::state::Mint;
-use spl_token_2022::extension::StateWithExtensions;
 use surfpool_types::{
     ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
     TransactionConfirmationStatus, TransactionStatusEvent,
@@ -117,7 +113,6 @@ impl SurfnetSvmLocker {
     pub fn with_svm_reader<T, F>(&self, reader: F) -> T
     where
         F: Fn(&SurfnetSvm) -> T + Send + Sync,
-        T: Send + 'static,
     {
         let read_lock = self.0.clone();
         tokio::task::block_in_place(move || {
@@ -252,36 +247,6 @@ impl SurfnetSvmLocker {
             }
             _ => Ok(result),
         }
-    }
-
-    /// Retrieves an account, using local or remote based on context, applying a default factory if provided.
-    pub fn get_local_account_associated_data(
-        &self,
-        account: &GetAccountResult,
-    ) -> SvmAccessContext<Option<AccountAdditionalDataV3>> {
-        self.with_contextualized_svm_reader(|svm_reader| {
-            let associated_data = match account {
-                GetAccountResult::FoundAccount(_, account, _) => {
-                    if !account.owner.eq(&spl_token_2022::id()) {
-                        return None;
-                    }
-
-                    let Ok(token_data) =
-                        StateWithExtensions::<spl_token_2022::state::Account>::unpack(
-                            &account.data,
-                        )
-                    else {
-                        return None;
-                    };
-                    svm_reader
-                        .account_associated_data
-                        .get(&token_data.base.mint)
-                        .copied()
-                }
-                _ => None,
-            };
-            associated_data
-        })
     }
 
     /// Retrieves multiple accounts from local cache, returning a contextualized result.
@@ -503,6 +468,18 @@ impl SurfnetSvmLocker {
         };
 
         Ok(results)
+    }
+
+    pub fn account_to_rpc_keyed_account<T: ReadableAccount + Send + Sync>(
+        &self,
+        pubkey: &Pubkey,
+        account: &T,
+        config: &RpcAccountInfoConfig,
+        token_mint: Option<Pubkey>,
+    ) -> RpcKeyedAccount {
+        self.with_svm_reader(|svm_reader| {
+            svm_reader.account_to_rpc_keyed_account(pubkey, account, config, token_mint)
+        })
     }
 }
 
@@ -774,8 +751,8 @@ impl SurfnetSvmLocker {
                 .map(|(_, a)| {
                     svm_writer
                         .token_mints
-                        .get(&a.mint)
-                        .ok_or(SurfpoolError::token_mint_not_found(a.mint))
+                        .get(&a.mint())
+                        .ok_or(SurfpoolError::token_mint_not_found(a.mint()))
                         .cloned()
                 })
                 .collect::<Result<Vec<_>, SurfpoolError>>()
@@ -980,20 +957,15 @@ impl SurfnetSvmLocker {
                 .filter_map(|(pubkey, token_account)| {
                     let account = svm_reader.accounts_registry.get(pubkey)?;
                     if match filter {
-                        TokenAccountsFilter::Mint(mint) => token_account.mint.eq(mint),
+                        TokenAccountsFilter::Mint(mint) => token_account.mint().eq(mint),
                         TokenAccountsFilter::ProgramId(program_id) => account.owner.eq(program_id),
                     } {
-                        let account_data = encode_ui_account(
+                        Some(svm_reader.account_to_rpc_keyed_account(
                             pubkey,
                             account,
-                            config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                            None,
-                            config.data_slice,
-                        );
-                        Some(RpcKeyedAccount {
-                            pubkey: pubkey.to_string(),
-                            account: account_data,
-                        })
+                            config,
+                            Some(token_account.mint()),
+                        ))
                     } else {
                         None
                     }
@@ -1082,32 +1054,21 @@ impl SurfnetSvmLocker {
                 .get_token_accounts_by_delegate(&delegate)
                 .iter()
                 .filter_map(|(pubkey, token_account)| {
+                    let account = svm_reader.accounts_registry.get(pubkey)?;
                     let include = match filter {
-                        TokenAccountsFilter::Mint(mint) => token_account.mint == *mint,
+                        TokenAccountsFilter::Mint(mint) => token_account.mint() == *mint,
                         TokenAccountsFilter::ProgramId(program_id) => {
-                            if let Some(account) = svm_reader.accounts_registry.get(pubkey) {
-                                account.owner == *program_id
-                                    && is_supported_token_program(program_id)
-                            } else {
-                                false
-                            }
+                            account.owner == *program_id && is_supported_token_program(program_id)
                         }
                     };
 
                     if include {
-                        svm_reader
-                            .accounts_registry
-                            .get(pubkey)
-                            .map(|account| RpcKeyedAccount {
-                                pubkey: pubkey.to_string(),
-                                account: encode_ui_account(
-                                    pubkey,
-                                    account,
-                                    config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                                    None,
-                                    config.data_slice,
-                                ),
-                            })
+                        Some(svm_reader.account_to_rpc_keyed_account(
+                            pubkey,
+                            account,
+                            config,
+                            Some(token_account.mint()),
+                        ))
                     } else {
                         None
                     }
@@ -1168,12 +1129,8 @@ impl SurfnetSvmLocker {
             let token_accounts = svm_reader.get_token_accounts_by_mint(mint);
 
             // get mint information to determine decimals
-            let mint_decimals = if let Some(mint_account) = svm_reader.accounts_registry.get(mint) {
-                if let Ok(mint_data) = Mint::unpack(&mint_account.data) {
-                    mint_data.decimals
-                } else {
-                    0
-                }
+            let mint_decimals = if let Some(mint_account) = svm_reader.token_mints.get(mint) {
+                mint_account.decimals()
             } else {
                 0
             };
@@ -1184,11 +1141,11 @@ impl SurfnetSvmLocker {
                 .map(|(pubkey, token_account)| RpcTokenAccountBalance {
                     address: pubkey.to_string(),
                     amount: UiTokenAmount {
-                        amount: token_account.amount.to_string(),
+                        amount: token_account.amount().to_string(),
                         decimals: mint_decimals,
-                        ui_amount: Some(format_ui_amount(token_account.amount, mint_decimals)),
+                        ui_amount: Some(format_ui_amount(token_account.amount(), mint_decimals)),
                         ui_amount_string: format_ui_amount_string(
-                            token_account.amount,
+                            token_account.amount(),
                             mint_decimals,
                         ),
                     },
@@ -1439,11 +1396,7 @@ impl SurfnetSvmLocker {
                     .await?
                     .inner;
 
-                snapshot_get_account_result(
-                    &mut capture,
-                    account,
-                    encoding.unwrap_or(UiAccountEncoding::Base64),
-                );
+                svm_locker.snapshot_get_account_result(&mut capture, account, encoding);
             }
             capture
         };
@@ -1499,11 +1452,7 @@ impl SurfnetSvmLocker {
                 // the remote if not found locally
                 let account = svm_locker.get_account_local(pubkey).inner;
 
-                snapshot_get_account_result(
-                    &mut capture,
-                    account,
-                    encoding.unwrap_or(UiAccountEncoding::Base64),
-                );
+                svm_locker.snapshot_get_account_result(&mut capture, account, encoding);
             }
             capture
         };
@@ -1655,7 +1604,8 @@ impl SurfnetSvmLocker {
 
                         original_authority
                     }
-                    GetAccountResult::FoundProgramAccount(_, _) => {
+                    GetAccountResult::FoundProgramAccount(_, _)
+                    | GetAccountResult::FoundTokenAccount(_, _) => {
                         return Err(SurfpoolError::invalid_program_account(
                             pubkey,
                             "Not a program account",
@@ -1671,6 +1621,12 @@ impl SurfnetSvmLocker {
             }
             GetAccountResult::FoundProgramAccount(_, (_, Some(programdata_account))) => {
                 update_programdata_account(&program_id, programdata_account, new_authority)?
+            }
+            GetAccountResult::FoundTokenAccount(_, _) => {
+                return Err(SurfpoolError::invalid_program_account(
+                    program_id,
+                    "Not a program account",
+                ));
             }
         };
 
@@ -1754,33 +1710,30 @@ impl SurfnetSvmLocker {
         account_config: RpcAccountInfoConfig,
         filters: Option<Vec<RpcFilterType>>,
     ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
-        let res = self.with_contextualized_svm_reader(|svm_reader| {
-            svm_reader.get_account_owned_by(*program_id)
-        });
+        let res = self.with_svm_reader(|svm_reader| {
+            let res = svm_reader.get_account_owned_by(*program_id);
 
-        let mut filtered = vec![];
-        for (pubkey, account) in &res.inner {
-            if let Some(ref active_filters) = filters {
-                match apply_rpc_filters(&account.data, active_filters) {
-                    Ok(true) => {}           // Account matches all filters
-                    Ok(false) => continue,   // Filtered out
-                    Err(e) => return Err(e), // Error applying filter, already JsonRpcError
+            let mut filtered = vec![];
+            for (pubkey, account) in &res {
+                if let Some(ref active_filters) = filters {
+                    match apply_rpc_filters(&account.data, active_filters) {
+                        Ok(true) => {}           // Account matches all filters
+                        Ok(false) => continue,   // Filtered out
+                        Err(e) => return Err(e), // Error applying filter, already JsonRpcError
+                    }
                 }
-            }
-            let data_slice = account_config.data_slice;
 
-            filtered.push(RpcKeyedAccount {
-                pubkey: pubkey.to_string(),
-                account: encode_ui_account(
+                filtered.push(svm_reader.account_to_rpc_keyed_account(
                     pubkey,
                     account,
-                    account_config.encoding.unwrap_or(UiAccountEncoding::Base64),
-                    None, // No additional data for now
-                    data_slice,
-                ),
-            });
-        }
-        Ok(res.with_new_value(filtered))
+                    &account_config,
+                    None,
+                ));
+            }
+            Ok(filtered)
+        })?;
+
+        Ok(self.with_contextualized_svm_reader(|_| res.clone()))
     }
 
     /// Retrieves program accounts from the local cache and remote client, combining results.
@@ -1960,39 +1913,68 @@ impl SurfnetSvmLocker {
     pub fn subscribe_for_slot_updates(&self) -> Receiver<SlotInfo> {
         self.with_svm_writer(|svm_writer| svm_writer.subscribe_for_slot_updates())
     }
-}
 
-fn snapshot_get_account_result(
-    capture: &mut BTreeMap<Pubkey, Option<UiAccount>>,
-    result: GetAccountResult,
-    encoding: UiAccountEncoding,
-) {
-    match result {
-        GetAccountResult::None(pubkey) => {
-            capture.insert(pubkey, None);
-        }
-        GetAccountResult::FoundAccount(pubkey, account, _) => {
-            capture.insert(
-                pubkey,
-                Some(encode_ui_account(&pubkey, &account, encoding, None, None)),
-            );
-        }
-        GetAccountResult::FoundProgramAccount((pubkey, account), (data_pubkey, data_account)) => {
-            capture.insert(
-                pubkey,
-                Some(encode_ui_account(&pubkey, &account, encoding, None, None)),
-            );
-            if let Some(data_account) = data_account {
-                capture.insert(
-                    data_pubkey,
-                    Some(encode_ui_account(
-                        &data_pubkey,
-                        &data_account,
-                        encoding,
-                        None,
-                        None,
-                    )),
-                );
+    fn snapshot_get_account_result(
+        &self,
+        capture: &mut BTreeMap<Pubkey, Option<UiAccount>>,
+        result: GetAccountResult,
+        encoding: Option<UiAccountEncoding>,
+    ) {
+        let config = RpcAccountInfoConfig {
+            encoding,
+            ..Default::default()
+        };
+        match result {
+            GetAccountResult::None(pubkey) => {
+                capture.insert(pubkey, None);
+            }
+            GetAccountResult::FoundAccount(pubkey, account, _) => {
+                let rpc_keyed_account = self.with_svm_reader(|svm_reader| {
+                    svm_reader.account_to_rpc_keyed_account(&pubkey, &account, &config, None)
+                });
+                capture.insert(pubkey, Some(rpc_keyed_account.account));
+            }
+            GetAccountResult::FoundTokenAccount((pubkey, account), (mint_pubkey, mint_account)) => {
+                let rpc_keyed_account = self.with_svm_reader(|svm_reader| {
+                    svm_reader.account_to_rpc_keyed_account(
+                        &pubkey,
+                        &account,
+                        &config,
+                        Some(mint_pubkey),
+                    )
+                });
+                capture.insert(pubkey, Some(rpc_keyed_account.account));
+                if let Some(mint_account) = mint_account {
+                    let rpc_keyed_account = self.with_svm_reader(|svm_reader| {
+                        svm_reader.account_to_rpc_keyed_account(
+                            &mint_pubkey,
+                            &mint_account,
+                            &config,
+                            None,
+                        )
+                    });
+                    capture.insert(mint_pubkey, Some(rpc_keyed_account.account));
+                }
+            }
+            GetAccountResult::FoundProgramAccount(
+                (pubkey, account),
+                (data_pubkey, data_account),
+            ) => {
+                let rpc_keyed_account = self.with_svm_reader(|svm_reader| {
+                    svm_reader.account_to_rpc_keyed_account(&pubkey, &account, &config, None)
+                });
+                capture.insert(pubkey, Some(rpc_keyed_account.account));
+                if let Some(data_account) = data_account {
+                    let rpc_keyed_account = self.with_svm_reader(|svm_reader| {
+                        svm_reader.account_to_rpc_keyed_account(
+                            &data_pubkey,
+                            &data_account,
+                            &config,
+                            None,
+                        )
+                    });
+                    capture.insert(data_pubkey, Some(rpc_keyed_account.account));
+                }
             }
         }
     }

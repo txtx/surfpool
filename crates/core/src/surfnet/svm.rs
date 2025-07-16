@@ -8,13 +8,15 @@ use litesvm::{
         FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
     },
 };
-use solana_account::Account;
+use solana_account::{Account, ReadableAccount};
 use solana_account_decoder::{
     UiAccount, UiAccountEncoding, encode_ui_account,
     parse_account_data::{AccountAdditionalDataV3, SplTokenAdditionalDataV2},
 };
 use solana_client::{
-    rpc_client::SerializableTransaction, rpc_config::RpcBlockConfig, rpc_response::RpcPerfSample,
+    rpc_client::SerializableTransaction,
+    rpc_config::{RpcAccountInfoConfig, RpcBlockConfig},
+    rpc_response::{RpcKeyedAccount, RpcPerfSample},
 };
 use solana_clock::{Clock, MAX_RECENT_BLOCKHASHES, Slot};
 use solana_epoch_info::EpochInfo;
@@ -26,13 +28,12 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
-    program_pack::Pack, system_instruction, transaction::VersionedTransaction,
+    system_instruction, transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{TransactionDetails, TransactionStatusMeta, UiConfirmedBlock};
-use spl_token::state::{Account as TokenAccount, Mint};
 use spl_token_2022::extension::{
     BaseStateWithExtensions, StateWithExtensions, interest_bearing_mint::InterestBearingConfig,
     scaled_ui_amount::ScaledUiAmountConfig,
@@ -50,7 +51,8 @@ use super::{
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
-    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
+    surfnet::locker::is_supported_token_program,
+    types::{MintAccount, SurfnetTransactionStatus, TokenAccount, TransactionWithStatusMeta},
 };
 
 pub type AccountOwner = Pubkey;
@@ -86,7 +88,7 @@ pub struct SurfnetSvm {
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: HashMap<Pubkey, TokenAccount>,
-    pub token_mints: HashMap<Pubkey, Mint>,
+    pub token_mints: HashMap<Pubkey, MintAccount>,
     pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_mint: HashMap<Pubkey, Vec<Pubkey>>,
@@ -245,11 +247,11 @@ impl SurfnetSvm {
                         fee: 5000,
                         pre_balances: vec![account.lamports.saturating_sub(lamports)],
                         post_balances: vec![account.lamports],
-                        inner_instructions: Some(vec![]),
+                        inner_instructions: None,
                         log_messages: Some(tx_result.logs.clone()),
-                        pre_token_balances: Some(vec![]),
-                        post_token_balances: Some(vec![]),
-                        rewards: Some(vec![]),
+                        pre_token_balances: None,
+                        post_token_balances: None,
+                        rewards: None,
                         loaded_addresses: LoadedAddresses::default(),
                         return_data: Some(tx_result.return_data.clone()),
                         compute_units_consumed: Some(tx_result.compute_units_consumed),
@@ -412,14 +414,12 @@ impl SurfnetSvm {
         }
 
         // if it's a token account, update token-specific indexes
-        if account.owner == spl_token::id() || account.owner == spl_token_2022::id() {
+        if is_supported_token_program(&account.owner) {
             if let Ok(token_account) = TokenAccount::unpack(&account.data) {
-                self.token_accounts.insert(*pubkey, token_account);
-
                 // index by owner -> check for duplicates
                 let token_owner_accounts = self
                     .token_accounts_by_owner
-                    .entry(token_account.owner)
+                    .entry(token_account.owner())
                     .or_default();
 
                 if !token_owner_accounts.contains(pubkey) {
@@ -429,27 +429,28 @@ impl SurfnetSvm {
                 // index by mint -> check for duplicates
                 let mint_accounts = self
                     .token_accounts_by_mint
-                    .entry(token_account.mint)
+                    .entry(token_account.mint())
                     .or_default();
 
                 if !mint_accounts.contains(pubkey) {
                     mint_accounts.push(*pubkey);
                 }
 
-                if let COption::Some(delegate) = token_account.delegate {
+                if let COption::Some(delegate) = token_account.delegate() {
                     let delegate_accounts =
                         self.token_accounts_by_delegate.entry(delegate).or_default();
                     if !delegate_accounts.contains(pubkey) {
                         delegate_accounts.push(*pubkey);
                     }
                 }
+
+                self.token_accounts.insert(*pubkey, token_account);
             }
-            if let Ok(mint_account) = Mint::unpack(&account.data) {
+
+            if let Ok(mint_account) = MintAccount::unpack(&account.data) {
                 self.token_mints.insert(*pubkey, mint_account);
             }
-        }
 
-        if account.owner == spl_token_2022::id() {
             if let Ok(mint) =
                 StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&account.data)
             {
@@ -485,28 +486,31 @@ impl SurfnetSvm {
         }
 
         // if it was a token account, remove from token indexes
-        if old_account.owner == spl_token::id() {
+        if is_supported_token_program(&old_account.owner) {
             if let Some(old_token_account) = self.token_accounts.remove(pubkey) {
                 if let Some(accounts) = self
                     .token_accounts_by_owner
-                    .get_mut(&old_token_account.owner)
+                    .get_mut(&old_token_account.owner())
                 {
                     accounts.retain(|pk| pk != pubkey);
                     if accounts.is_empty() {
                         self.token_accounts_by_owner
-                            .remove(&old_token_account.owner);
+                            .remove(&old_token_account.owner());
                     }
                 }
 
-                if let Some(accounts) = self.token_accounts_by_mint.get_mut(&old_token_account.mint)
+                if let Some(accounts) = self
+                    .token_accounts_by_mint
+                    .get_mut(&old_token_account.mint())
                 {
                     accounts.retain(|pk| pk != pubkey);
                     if accounts.is_empty() {
-                        self.token_accounts_by_mint.remove(&old_token_account.mint);
+                        self.token_accounts_by_mint
+                            .remove(&old_token_account.mint());
                     }
                 }
 
-                if let COption::Some(delegate) = old_token_account.delegate {
+                if let COption::Some(delegate) = old_token_account.delegate() {
                     if let Some(accounts) = self.token_accounts_by_delegate.get_mut(&delegate) {
                         accounts.retain(|pk| pk != pubkey);
                         if accounts.is_empty() {
@@ -757,7 +761,8 @@ impl SurfnetSvm {
                     }
                 }
             }
-            GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
+            GetAccountResult::FoundProgramAccount((pubkey, account), (_, None))
+            | GetAccountResult::FoundTokenAccount((pubkey, account), (_, None)) => {
                 if let Err(e) = self.set_account(&pubkey, account.clone()) {
                     let _ = self
                         .simnet_events_tx
@@ -766,10 +771,14 @@ impl SurfnetSvm {
             }
             GetAccountResult::FoundProgramAccount(
                 (pubkey, account),
-                (data_pubkey, Some(data_account)),
+                (coupled_pubkey, Some(coupled_account)),
+            )
+            | GetAccountResult::FoundTokenAccount(
+                (pubkey, account),
+                (coupled_pubkey, Some(coupled_account)),
             ) => {
                 // The data account _must_ be set first, as the program account depends on it.
-                if let Err(e) = self.set_account(&data_pubkey, data_account.clone()) {
+                if let Err(e) = self.set_account(&coupled_pubkey, coupled_account.clone()) {
                     let _ = self
                         .simnet_events_tx
                         .send(SimnetEvent::error(e.to_string()));
@@ -923,13 +932,13 @@ impl SurfnetSvm {
         let mut remaining = vec![];
         if let Some(subscriptions) = self.account_subscriptions.remove(account_updated_pubkey) {
             for (encoding, tx) in subscriptions {
-                let account = encode_ui_account(
-                    account_updated_pubkey,
-                    account,
-                    encoding.unwrap_or(UiAccountEncoding::Base64),
-                    None,
-                    None,
-                );
+                let config = RpcAccountInfoConfig {
+                    encoding,
+                    ..Default::default()
+                };
+                let account = self
+                    .account_to_rpc_keyed_account(account_updated_pubkey, account, &config, None)
+                    .account;
                 if tx.send(account).is_err() {
                     // The receiver has been dropped, so we can skip notifying
                     continue;
@@ -1053,6 +1062,33 @@ impl SurfnetSvm {
                 .collect()
         } else {
             Vec::new()
+        }
+    }
+
+    pub fn account_to_rpc_keyed_account<T: ReadableAccount>(
+        &self,
+        pubkey: &Pubkey,
+        account: &T,
+        config: &RpcAccountInfoConfig,
+        token_mint: Option<Pubkey>,
+    ) -> RpcKeyedAccount {
+        let token_mint = if let Some(mint) = token_mint {
+            Some(mint)
+        } else {
+            self.token_accounts.get(pubkey).map(|ta| ta.mint())
+        };
+        let additional_data =
+            token_mint.and_then(|mint| self.account_associated_data.get(&mint).cloned());
+
+        RpcKeyedAccount {
+            pubkey: pubkey.to_string(),
+            account: encode_ui_account(
+                pubkey,
+                account,
+                config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                additional_data,
+                config.data_slice,
+            ),
         }
     }
 

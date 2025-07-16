@@ -4,13 +4,13 @@ use itertools::Itertools;
 use jsonrpc_core::{BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
 use litesvm::types::TransactionMetadata;
-use solana_account_decoder::{UiAccount, UiAccountEncoding, encode_ui_account};
+use solana_account_decoder::UiAccount;
 use solana_client::{
     rpc_config::{
-        RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig, RpcEncodingConfigWrapper,
-        RpcEpochConfig, RpcRequestAirdropConfig, RpcSendTransactionConfig,
-        RpcSignatureStatusConfig, RpcSignaturesForAddressConfig, RpcSimulateTransactionConfig,
-        RpcTransactionConfig,
+        RpcAccountInfoConfig, RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig,
+        RpcEncodingConfigWrapper, RpcEpochConfig, RpcRequestAirdropConfig,
+        RpcSendTransactionConfig, RpcSignatureStatusConfig, RpcSignaturesForAddressConfig,
+        RpcSimulateTransactionConfig, RpcTransactionConfig,
     },
     rpc_custom_error::RpcCustomError,
     rpc_response::{
@@ -1671,13 +1671,16 @@ impl Full for SurfpoolFullRpc {
                             let mut ui_account = None;
                             for (updated_pubkey, account) in tx_info.post_accounts.iter() {
                                 if observed_pubkey.eq(&updated_pubkey.to_string()) {
-                                    ui_account = Some(encode_ui_account(
-                                        updated_pubkey,
-                                        account,
-                                        UiAccountEncoding::Base64,
-                                        None,
-                                        None,
-                                    ));
+                                    ui_account = Some(
+                                        svm_locker
+                                            .account_to_rpc_keyed_account(
+                                                &*updated_pubkey,
+                                                account,
+                                                &RpcAccountInfoConfig::default(),
+                                                None,
+                                            )
+                                            .account,
+                                    );
                                 }
                             }
                             ui_accounts.push(ui_account);
@@ -2344,7 +2347,7 @@ mod tests {
 
     use base64::{Engine, prelude::BASE64_STANDARD};
     use crossbeam_channel::Receiver;
-    use solana_account_decoder::{UiAccount, UiAccountData};
+    use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
     use solana_commitment_config::CommitmentConfig;
     use solana_hash::Hash;
