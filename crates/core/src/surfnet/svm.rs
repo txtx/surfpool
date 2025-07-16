@@ -970,7 +970,7 @@ impl SurfnetSvm {
             return Ok(None);
         };
 
-        let rewards = config.rewards.unwrap_or(false);
+        let show_rewards = config.rewards.unwrap_or(true);
         let transaction_details = config
             .transaction_details
             .unwrap_or(TransactionDetails::Full);
@@ -987,7 +987,7 @@ impl SurfnetSvm {
                                 solana_transaction_status::UiTransactionEncoding::JsonParsed,
                             ),
                             config.max_supported_transaction_version,
-                            config.rewards.unwrap_or(false),
+                            show_rewards,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()
@@ -1003,7 +1003,7 @@ impl SurfnetSvm {
                     .map(|tx_with_meta| {
                         tx_with_meta.expect_processed().to_json_accounts(
                             config.max_supported_transaction_version,
-                            config.rewards.unwrap_or(false),
+                            show_rewards,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()
@@ -1026,7 +1026,7 @@ impl SurfnetSvm {
             parent_slot: block.parent_slot,
             transactions,
             signatures,
-            rewards: if rewards { Some(vec![]) } else { None },
+            rewards: if show_rewards { Some(vec![]) } else { None },
             num_reward_partitions: None,
             block_time: Some(block.block_time / 1000),
             block_height: Some(block.block_height),

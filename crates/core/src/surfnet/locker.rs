@@ -14,7 +14,7 @@ use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
     rpc_config::{
         RpcAccountInfoConfig, RpcBlockConfig, RpcLargestAccountsConfig, RpcLargestAccountsFilter,
-        RpcSignaturesForAddressConfig,
+        RpcSignaturesForAddressConfig, RpcTransactionConfig,
     },
     rpc_filter::RpcFilterType,
     rpc_request::TokenAccountsFilter,
@@ -618,14 +618,15 @@ impl SurfnetSvmLocker {
     /// Retrieves a transaction by signature, using local or remote based on context.
     pub async fn get_transaction(
         &self,
-        remote_ctx: &Option<(SurfnetRemoteClient, Option<UiTransactionEncoding>)>,
+        remote_ctx: &Option<SurfnetRemoteClient>,
         signature: &Signature,
-    ) -> SvmAccessContext<GetTransactionResult> {
-        if let Some((remote_client, encoding)) = remote_ctx {
-            self.get_transaction_local_then_remote(remote_client, signature, *encoding)
+        config: RpcTransactionConfig,
+    ) -> SurfpoolResult<GetTransactionResult> {
+        if let Some(remote_client) = remote_ctx {
+            self.get_transaction_local_then_remote(remote_client, signature, config)
                 .await
         } else {
-            self.get_transaction_local(signature)
+            self.get_transaction_local(signature, &config)
         }
     }
 
@@ -633,20 +634,36 @@ impl SurfnetSvmLocker {
     pub fn get_transaction_local(
         &self,
         signature: &Signature,
-    ) -> SvmAccessContext<GetTransactionResult> {
-        self.with_contextualized_svm_reader(|svm_reader| {
+        config: &RpcTransactionConfig,
+    ) -> SurfpoolResult<GetTransactionResult> {
+        self.with_svm_reader(|svm_reader| {
             let latest_absolute_slot = svm_reader.get_latest_absolute_slot();
 
-            match svm_reader.transactions.get(signature).map(|entry| {
-                Into::<EncodedConfirmedTransactionWithStatusMeta>::into(
-                    entry.expect_processed().clone(),
-                )
-            }) {
-                Some(tx) => {
-                    GetTransactionResult::found_transaction(*signature, tx, latest_absolute_slot)
-                }
-                None => GetTransactionResult::None(*signature),
-            }
+            let Some(entry) = svm_reader.transactions.get(signature) else {
+                return Ok(GetTransactionResult::None(*signature));
+            };
+
+            let transaction_with_status_meta = entry.expect_processed();
+            let slot = transaction_with_status_meta.slot;
+            let block_time = svm_reader
+                .blocks
+                .get(&slot)
+                .map(|b| b.block_time)
+                .unwrap_or(0);
+            let encoded = transaction_with_status_meta.encode(
+                config.encoding.unwrap_or(UiTransactionEncoding::JsonParsed),
+                config.max_supported_transaction_version,
+                true,
+            )?;
+            Ok(GetTransactionResult::found_transaction(
+                *signature,
+                EncodedConfirmedTransactionWithStatusMeta {
+                    slot,
+                    transaction: encoded,
+                    block_time: Some(block_time),
+                },
+                latest_absolute_slot,
+            ))
         })
     }
 
@@ -655,16 +672,16 @@ impl SurfnetSvmLocker {
         &self,
         client: &SurfnetRemoteClient,
         signature: &Signature,
-        encoding: Option<UiTransactionEncoding>,
-    ) -> SvmAccessContext<GetTransactionResult> {
-        let local_result = self.get_transaction_local(signature);
-        if local_result.inner.is_none() {
-            let remote_result = client
-                .get_transaction(*signature, encoding, local_result.slot)
-                .await;
-            local_result.with_new_value(remote_result)
+        config: RpcTransactionConfig,
+    ) -> SurfpoolResult<GetTransactionResult> {
+        let local_result = self.get_transaction_local(signature, &config)?;
+        let latest_absolute_slot = self.get_latest_absolute_slot();
+        if local_result.is_none() {
+            Ok(client
+                .get_transaction(*signature, config, latest_absolute_slot)
+                .await)
         } else {
-            local_result
+            Ok(local_result)
         }
     }
 }

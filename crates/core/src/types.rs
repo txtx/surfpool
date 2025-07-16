@@ -1,10 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use base64::{Engine, prelude::BASE64_STANDARD};
 use litesvm::types::TransactionMetadata;
 use solana_account::Account;
 use solana_account_decoder::parse_token::UiTokenAmount;
-use solana_client::rpc_client::SerializableTransaction;
 use solana_message::{
     AccountKeys, VersionedMessage,
     v0::{LoadedAddresses, LoadedMessage},
@@ -17,12 +14,11 @@ use solana_sdk::{
     transaction::{TransactionVersion, VersionedTransaction},
 };
 use solana_transaction_status::{
-    Encodable, EncodableWithMeta, EncodeError, EncodedConfirmedTransactionWithStatusMeta,
-    EncodedTransaction, EncodedTransactionWithStatusMeta, InnerInstruction, InnerInstructions,
+    Encodable, EncodableWithMeta, EncodeError, EncodedTransaction,
+    EncodedTransactionWithStatusMeta, InnerInstruction, InnerInstructions,
     TransactionBinaryEncoding, TransactionConfirmationStatus, TransactionStatus,
-    TransactionStatusMeta, TransactionTokenBalance, UiAccountsList, UiAddressTableLookup,
-    UiCompiledInstruction, UiLoadedAddresses, UiMessage, UiRawMessage, UiTransaction,
-    UiTransactionEncoding, UiTransactionStatusMeta,
+    TransactionStatusMeta, TransactionTokenBalance, UiAccountsList, UiLoadedAddresses,
+    UiTransaction, UiTransactionEncoding, UiTransactionStatusMeta,
     option_serializer::OptionSerializer,
     parse_accounts::{parse_legacy_message_accounts, parse_v0_message_accounts},
     parse_ui_inner_instructions,
@@ -395,73 +391,6 @@ fn build_simple_ui_transaction_status_meta(
         loaded_addresses: OptionSerializer::Skip,
         return_data: OptionSerializer::Skip,
         compute_units_consumed: OptionSerializer::Skip,
-    }
-}
-
-impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMeta {
-    fn from(val: TransactionWithStatusMeta) -> Self {
-        let TransactionWithStatusMeta {
-            slot,
-            transaction,
-            meta,
-        } = val;
-
-        let (header, account_keys, instructions) = match &transaction.message {
-            VersionedMessage::Legacy(message) => (
-                message.header,
-                message.account_keys.iter().map(|k| k.to_string()).collect(),
-                message
-                    .instructions
-                    .iter()
-                    // TODO: use stack height
-                    .map(|ix| UiCompiledInstruction::from(ix, None))
-                    .collect(),
-            ),
-            VersionedMessage::V0(message) => (
-                message.header,
-                message.account_keys.iter().map(|k| k.to_string()).collect(),
-                message
-                    .instructions
-                    .iter()
-                    // TODO: use stack height
-                    .map(|ix| UiCompiledInstruction::from(ix, None))
-                    .collect(),
-            ),
-        };
-
-        EncodedConfirmedTransactionWithStatusMeta {
-            slot,
-            transaction: EncodedTransactionWithStatusMeta {
-                transaction: EncodedTransaction::Json(UiTransaction {
-                    signatures: transaction
-                        .signatures
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect(),
-                    message: UiMessage::Raw(UiRawMessage {
-                        header,
-                        account_keys,
-                        recent_blockhash: transaction.get_recent_blockhash().to_string(),
-                        instructions,
-                        address_table_lookups: match transaction.message {
-                            VersionedMessage::Legacy(_) => None,
-                            VersionedMessage::V0(ref msg) => Some(
-                                msg.address_table_lookups
-                                    .iter()
-                                    .map(UiAddressTableLookup::from)
-                                    .collect::<Vec<UiAddressTableLookup>>(),
-                            ),
-                        },
-                    }),
-                }),
-                meta: Some(meta.into()),
-                version: Some(transaction.version()),
-            },
-            block_time: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() as i64)
-                .ok(),
-        }
     }
 }
 

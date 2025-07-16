@@ -1444,19 +1444,22 @@ impl Full for SurfpoolFullRpc {
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context::<Option<UiTransactionEncoding>>(None) {
+        } = match meta.get_rpc_context(()) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
+        let remote_client = remote_ctx.map(|(r, _)| r);
 
         Box::pin(async move {
             let mut responses = Vec::with_capacity(signatures.len());
             let mut last_latest_absolute_slot = 0;
             for signature in signatures.into_iter() {
-                let res = svm_locker.get_transaction(&remote_ctx, &signature).await;
+                let res = svm_locker
+                    .get_transaction(&remote_client, &signature, RpcTransactionConfig::default())
+                    .await?;
 
-                last_latest_absolute_slot = res.slot;
-                responses.push(res.inner.map_some_transaction_status());
+                last_latest_absolute_slot = svm_locker.get_latest_absolute_slot();
+                responses.push(res.map_some_transaction_status());
             }
             Ok(RpcResponse {
                 context: RpcResponseContext::new(last_latest_absolute_slot),
@@ -2027,28 +2030,20 @@ impl Full for SurfpoolFullRpc {
     ) -> BoxFuture<Result<Option<EncodedConfirmedTransactionWithStatusMeta>>> {
         let config = config.map(|c| c.convert_to_current()).unwrap_or_default();
 
-        let signature = match Signature::from_str(&signature_str)
-            .map_err(|e| SurfpoolError::invalid_signature(&signature_str, e.to_string()))
-        {
-            Ok(s) => s,
-            Err(e) => return e.into(),
-        };
-
-        let SurfnetRpcContext {
-            svm_locker,
-            remote_ctx,
-        } = match meta.get_rpc_context(config.encoding) {
-            Ok(res) => res,
-            Err(e) => return e.into(),
-        };
-
         Box::pin(async move {
+            let signature = Signature::from_str(&signature_str)
+                .map_err(|e| SurfpoolError::invalid_signature(&signature_str, e.to_string()))?;
+
+            let SurfnetRpcContext {
+                svm_locker,
+                remote_ctx,
+            } = meta.get_rpc_context(())?;
+
             // TODO: implement new interfaces in LiteSVM to get all the relevant info
             // needed to return the actual tx, not just some metadata
             match svm_locker
-                .get_transaction(&remote_ctx, &signature)
-                .await
-                .inner
+                .get_transaction(&remote_ctx.map(|(r, _)| r), &signature, config)
+                .await?
             {
                 GetTransactionResult::None(_) => Ok(None),
                 GetTransactionResult::FoundTransaction(_, meta, _) => Ok(Some(meta)),

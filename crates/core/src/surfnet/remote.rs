@@ -7,7 +7,7 @@ use solana_client::{
     rpc_client::GetConfirmedSignaturesForAddress2Config,
     rpc_config::{
         RpcAccountInfoConfig, RpcBlockConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig,
-        RpcSignaturesForAddressConfig, RpcTokenAccountsFilter,
+        RpcSignaturesForAddressConfig, RpcTokenAccountsFilter, RpcTransactionConfig,
     },
     rpc_filter::RpcFilterType,
     rpc_request::{RpcRequest, TokenAccountsFilter},
@@ -23,7 +23,7 @@ use solana_hash::Hash;
 use solana_pubkey::Pubkey;
 use solana_sdk::bpf_loader_upgradeable::get_program_data_address;
 use solana_signature::Signature;
-use solana_transaction_status::{UiConfirmedBlock, UiTransactionEncoding};
+use solana_transaction_status::UiConfirmedBlock;
 
 use super::GetTransactionResult;
 use crate::{
@@ -165,15 +165,12 @@ impl SurfnetRemoteClient {
     pub async fn get_transaction(
         &self,
         signature: Signature,
-        encoding: Option<UiTransactionEncoding>,
+        config: RpcTransactionConfig,
         latest_absolute_slot: u64,
     ) -> GetTransactionResult {
         match self
             .client
-            .get_transaction(
-                &signature,
-                encoding.unwrap_or(UiTransactionEncoding::Base64),
-            )
+            .get_transaction_with_config(&signature, config)
             .await
         {
             Ok(tx) => GetTransactionResult::found_transaction(signature, tx, latest_absolute_slot),
