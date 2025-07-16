@@ -21,7 +21,7 @@ use juniper_graphql_ws::ConnectionConfig;
 use rust_embed::RustEmbed;
 use surfpool_gql::{
     DynamicSchema, new_dynamic_schema,
-    query::{DataloaderContext, SchemaDataSource, SqlStore},
+    query::{Dataloader, DataloaderContext, SchemaDataSource, SqlStore},
     types::{SubgraphSpec, schema::DynamicSchemaSpec},
 };
 use surfpool_types::{
@@ -43,7 +43,10 @@ pub async fn start_subgraph_and_explorer_server(
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     _ctx: &Context,
 ) -> Result<(ServerHandle, JoinHandle<Result<(), String>>), Box<dyn StdError>> {
-    let context: DataloaderContext = Box::new(SqlStore::new_in_memory());
+    let store = SqlStore::new_in_memory();
+    let context = DataloaderContext {
+        pool: store.pool.clone(),
+    };
     let schema_datasource = SchemaDataSource::new();
     let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
     let schema_wrapped = Data::new(schema);
@@ -218,7 +221,7 @@ fn start_subgraph_runloop(
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql context")
                                 })?;
-                                gql_context.register_collection(&subgraph_uuid, &subgraph_name, &schema)?;
+                                gql_context.pool.register_collection(&subgraph_uuid, &subgraph_name, &schema)?;
                                 schema_datasource.add_entry(schema);
                                 gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
 
@@ -249,7 +252,7 @@ fn start_subgraph_runloop(
                                     format!("{err_ctx}: Failed to deserialize new database entry for subgraph {}: {}", uuid, e)
                                 })?;
                                 for entry in entries.into_iter() {
-                                    gql_context.insert_entry_to_subgraph(&uuid, SubgraphSpec(SubgraphDataEntry::new(entry, slot, tx_hash)))?;
+                                    gql_context.pool.insert_entry_to_subgraph(&uuid, SubgraphSpec(SubgraphDataEntry::new(entry, slot, tx_hash)))?;
                                 }
                             }
                             SchemaDataSourcingEvent::Rountrip(_uuid) => {}

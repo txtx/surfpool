@@ -83,7 +83,9 @@ pub trait Dataloader {
     ) -> Result<(), String>;
 }
 
-pub type DataloaderContext = Box<dyn Dataloader + Sync + Send>;
+pub struct DataloaderContext {
+    pub pool: Pool<ConnectionManager<DatabaseConnection>>,
+}
 
 impl juniper::Context for DataloaderContext {}
 
@@ -109,9 +111,9 @@ impl GraphQLValueAsync<DefaultScalarValue> for DynamicQuery {
         let res = match field_name {
             "apiVersion" => executor.resolve_with_ctx(&(), "1.0"),
             subgraph_name => {
-                let database = executor.context();
+                let ctx = executor.context();
                 if let Some(schema) = info.entries.get(subgraph_name) {
-                    match database.fetch_entries_from_subgraph(
+                    match ctx.pool.fetch_entries_from_subgraph(
                         subgraph_name,
                         Some(executor),
                         schema,
@@ -395,14 +397,14 @@ pub fn fetch_dynamic_entries_from_sqlite(
     Ok(actual_data)
 }
 
-impl Dataloader for SqlStore {
+impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
     fn fetch_entries_from_subgraph(
         &self,
         subgraph_name: &str,
         executor: Option<&Executor<DataloaderContext>>,
         schema: &DynamicSchemaSpec,
     ) -> Result<Vec<SubgraphSpec>, FieldError> {
-        let mut conn = self.get_conn();
+        let mut conn = self.get().unwrap();
         // Use Diesel's query DSL to fetch the entries_table
 
         let entries_table: String = collections_dsl::collections
@@ -483,7 +485,7 @@ impl Dataloader for SqlStore {
         subgraph_name: &str,
         schema: &DynamicSchemaSpec,
     ) -> Result<(), String> {
-        let mut conn = self.get_conn();
+        let mut conn = self.get().unwrap();
 
         // 1. Ensure subgraphs table exists
         sql_query(
@@ -557,7 +559,7 @@ impl Dataloader for SqlStore {
         subgraph_uuid: &Uuid,
         entry: SubgraphSpec,
     ) -> Result<(), String> {
-        let mut conn = self.get_conn();
+        let mut conn = self.get().unwrap();
 
         let (entries_table, schema_json): (String, String) = collections_dsl::collections
             .filter(collections_dsl::id.eq(subgraph_uuid.to_string()))
@@ -677,15 +679,18 @@ mod tests {
         let name = schema.name.clone();
         // Register subgraph
         store
+            .pool
             .register_collection(&uuid, &name, &schema)
             .expect("register_collection");
         // Insert entry
         let entry = test_entry(&schema);
         store
+            .pool
             .insert_entry_to_subgraph(&uuid, entry.clone())
             .expect("insert_entry_to_subgraph");
         // Fetch entries
         let fetched = store
+            .pool
             .fetch_entries_from_subgraph(&name, None, &schema)
             .expect("fetch_entries_from_subgraph");
         assert_eq!(fetched.len(), 1);
