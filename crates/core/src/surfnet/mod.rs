@@ -4,10 +4,7 @@ use crossbeam_channel::Sender;
 use jsonrpc_core::Result as RpcError;
 use locker::SurfnetSvmLocker;
 use solana_account::Account;
-use solana_account_decoder::{
-    UiAccount, UiAccountEncoding, UiDataSliceConfig, encode_ui_account,
-    parse_account_data::AccountAdditionalDataV3,
-};
+use solana_account_decoder::{UiAccount, UiAccountEncoding};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
@@ -105,25 +102,6 @@ pub enum GetAccountResult {
 }
 
 impl GetAccountResult {
-    pub fn try_into_ui_account(
-        &self,
-        encoding: Option<UiAccountEncoding>,
-        data_slice: Option<UiDataSliceConfig>,
-        associated_data: Option<AccountAdditionalDataV3>,
-    ) -> Option<UiAccount> {
-        match &self {
-            Self::None(_) => None,
-            Self::FoundAccount(pubkey, account, _)
-            | Self::FoundProgramAccount((pubkey, account), _) => Some(encode_ui_account(
-                pubkey,
-                account,
-                encoding.unwrap_or(UiAccountEncoding::Base64),
-                associated_data,
-                data_slice,
-            )),
-        }
-    }
-
     pub fn expected_data(&self) -> &Vec<u8> {
         match &self {
             Self::None(_) => unreachable!(),

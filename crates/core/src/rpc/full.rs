@@ -1671,13 +1671,16 @@ impl Full for SurfpoolFullRpc {
                             let mut ui_account = None;
                             for (updated_pubkey, account) in tx_info.post_accounts.iter() {
                                 if observed_pubkey.eq(&updated_pubkey.to_string()) {
-                                    ui_account = Some(encode_ui_account(
-                                        updated_pubkey,
-                                        account,
-                                        UiAccountEncoding::Base64,
-                                        None,
-                                        None,
-                                    ));
+                                    ui_account = Some(
+                                        svm_locker
+                                            .account_to_rpc_keyed_account(
+                                                &*updated_pubkey,
+                                                account,
+                                                &RpcAccountInfoConfig::default(),
+                                                None,
+                                            )
+                                            .account,
+                                    );
                                 }
                             }
                             ui_accounts.push(ui_account);

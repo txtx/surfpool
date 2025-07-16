@@ -379,18 +379,26 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
             svm_locker.write_account_update(account_update.clone());
 
-            let SvmAccessContext {
-                inner: associated_data,
-                ..
-            } = svm_locker.get_local_account_associated_data(&account_update);
+            let ui_account = if let Some(((pubkey, account), token_data)) =
+                account_update.map_account_with_token_data()
+            {
+                Some(
+                    svm_locker
+                        .account_to_rpc_keyed_account(
+                            &pubkey,
+                            &account,
+                            &config,
+                            token_data.map(|(mint, _)| mint),
+                        )
+                        .account,
+                )
+            } else {
+                None
+            };
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
-                value: account_update.try_into_ui_account(
-                    config.encoding,
-                    config.data_slice,
-                    associated_data,
-                ),
+                value: ui_account,
             })
         })
     }
@@ -431,14 +439,24 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             svm_locker.write_multiple_account_updates(&account_updates);
 
             let mut ui_accounts = vec![];
-            {
-                for account_update in account_updates.into_iter() {
-                    ui_accounts.push(account_update.try_into_ui_account(
-                        config.encoding,
-                        config.data_slice,
-                        None,
+
+            for account_update in account_updates.into_iter() {
+                if let Some(((pubkey, account), token_data)) =
+                    account_update.map_account_with_token_data()
+                {
+                    ui_accounts.push(Some(
+                        svm_locker
+                            .account_to_rpc_keyed_account(
+                                &pubkey,
+                                &account,
+                                &config,
+                                token_data.map(|(mint, _)| mint),
+                            )
+                            .account,
                     ));
-                }
+                } else {
+                    ui_accounts.push(None);
+                };
             }
 
             Ok(RpcResponse {

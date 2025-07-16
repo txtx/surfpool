@@ -1056,6 +1056,33 @@ impl SurfnetSvm {
         }
     }
 
+    pub fn account_to_rpc_keyed_account<T: ReadableAccount>(
+        &self,
+        pubkey: &Pubkey,
+        account: &T,
+        config: &RpcAccountInfoConfig,
+        token_mint: Option<Pubkey>,
+    ) -> RpcKeyedAccount {
+        let token_mint = if let Some(mint) = token_mint {
+            Some(mint)
+        } else {
+            self.token_accounts.get(pubkey).map(|ta| ta.mint())
+        };
+        let additional_data =
+            token_mint.and_then(|mint| self.account_associated_data.get(&mint).cloned());
+
+        RpcKeyedAccount {
+            pubkey: pubkey.to_string(),
+            account: encode_ui_account(
+                pubkey,
+                account,
+                config.encoding.unwrap_or(UiAccountEncoding::Base64),
+                additional_data,
+                config.data_slice,
+            ),
+        }
+    }
+
     /// Gets all token accounts that have delegated authority to a specific delegate.
     ///
     /// # Arguments
