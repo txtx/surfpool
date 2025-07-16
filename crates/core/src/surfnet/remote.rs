@@ -30,7 +30,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::is_method_not_supported_error,
     surfnet::{GetAccountResult, locker::is_supported_token_program},
-    types::RemoteRpcResult,
+    types::{RemoteRpcResult, TokenAccount},
 };
 
 pub struct SurfnetRemoteClient {

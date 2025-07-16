@@ -4,10 +4,9 @@ use bincode::serialized_size;
 use crossbeam_channel::{Receiver, Sender};
 use itertools::Itertools;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
-use solana_account::Account;
+use solana_account::{Account, ReadableAccount};
 use solana_account_decoder::{
-    UiAccount, UiAccountEncoding, encode_ui_account,
-    parse_account_data::AccountAdditionalDataV3,
+    UiAccount, UiAccountEncoding,
     parse_bpf_loader::{BpfUpgradeableLoaderAccountType, UiProgram, parse_bpf_upgradeable_loader},
     parse_token::UiTokenAmount,
 };
@@ -36,7 +35,6 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     bpf_loader_upgradeable::{UpgradeableLoaderState, get_program_data_address},
-    program_pack::Pack,
     transaction::VersionedTransaction,
 };
 use solana_signature::Signature;
@@ -46,8 +44,6 @@ use solana_transaction_status::{
     TransactionConfirmationStatus as SolanaTransactionConfirmationStatus, UiConfirmedBlock,
     UiTransactionEncoding,
 };
-use spl_token::state::Mint;
-use spl_token_2022::extension::StateWithExtensions;
 use surfpool_types::{
     ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
     TransactionConfirmationStatus, TransactionStatusEvent,
@@ -117,7 +113,6 @@ impl SurfnetSvmLocker {
     pub fn with_svm_reader<T, F>(&self, reader: F) -> T
     where
         F: Fn(&SurfnetSvm) -> T + Send + Sync,
-        T: Send + 'static,
     {
         let read_lock = self.0.clone();
         tokio::task::block_in_place(move || {
@@ -1134,12 +1129,8 @@ impl SurfnetSvmLocker {
             let token_accounts = svm_reader.get_token_accounts_by_mint(mint);
 
             // get mint information to determine decimals
-            let mint_decimals = if let Some(mint_account) = svm_reader.accounts_registry.get(mint) {
-                if let Ok(mint_data) = Mint::unpack(&mint_account.data) {
-                    mint_data.decimals
-                } else {
-                    0
-                }
+            let mint_decimals = if let Some(mint_account) = svm_reader.token_mints.get(mint) {
+                mint_account.decimals()
             } else {
                 0
             };
@@ -1150,11 +1141,11 @@ impl SurfnetSvmLocker {
                 .map(|(pubkey, token_account)| RpcTokenAccountBalance {
                     address: pubkey.to_string(),
                     amount: UiTokenAmount {
-                        amount: token_account.amount.to_string(),
+                        amount: token_account.amount().to_string(),
                         decimals: mint_decimals,
-                        ui_amount: Some(format_ui_amount(token_account.amount, mint_decimals)),
+                        ui_amount: Some(format_ui_amount(token_account.amount(), mint_decimals)),
                         ui_amount_string: format_ui_amount_string(
-                            token_account.amount,
+                            token_account.amount(),
                             mint_decimals,
                         ),
                     },

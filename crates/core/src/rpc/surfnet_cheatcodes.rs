@@ -6,11 +6,8 @@ use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{
-    program_option::COption, program_pack::Pack, system_program, transaction::VersionedTransaction,
-};
+use solana_sdk::{program_option::COption, system_program, transaction::VersionedTransaction};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
-use spl_token::state::{Account as TokenAccount, AccountState};
 use surfpool_types::{
     SimnetEvent,
     types::{AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate},
@@ -24,6 +21,7 @@ use crate::{
         utils::{verify_pubkey, verify_pubkeys},
     },
     surfnet::{GetAccountResult, locker::SvmAccessContext},
+    types::TokenAccount,
 };
 
 pub trait AccountUpdateExt {
@@ -93,41 +91,31 @@ impl TokenAccountUpdateExt for TokenAccountUpdate {
     /// Apply the update to the account
     fn apply(self, token_account: &mut TokenAccount) -> Result<()> {
         if let Some(amount) = self.amount {
-            token_account.amount = amount;
+            token_account.set_amount(amount);
         }
         if let Some(delegate) = self.delegate {
             match delegate {
                 SetSomeAccount::Account(pubkey) => {
-                    token_account.delegate = COption::Some(verify_pubkey(&pubkey)?);
+                    token_account.set_delegate(COption::Some(verify_pubkey(&pubkey)?));
                 }
                 SetSomeAccount::NoAccount => {
-                    token_account.delegate = COption::None;
+                    token_account.set_delegate(COption::None);
                 }
             }
         }
         if let Some(state) = self.state {
-            token_account.state = match state.as_str() {
-                "uninitialized" => AccountState::Uninitialized,
-                "frozen" => AccountState::Frozen,
-                "initialized" => AccountState::Initialized,
-                _ => {
-                    return Err(Error::invalid_params(format!(
-                        "Invalid token account state: {}",
-                        state
-                    )));
-                }
-            };
+            token_account.set_state_from_str(state.as_str())?;
         }
         if let Some(delegated_amount) = self.delegated_amount {
-            token_account.delegated_amount = delegated_amount;
+            token_account.set_delegated_amount(delegated_amount);
         }
         if let Some(close_authority) = self.close_authority {
             match close_authority {
                 SetSomeAccount::Account(pubkey) => {
-                    token_account.close_authority = COption::Some(verify_pubkey(&pubkey)?);
+                    token_account.set_close_authority(COption::Some(verify_pubkey(&pubkey)?));
                 }
                 SetSomeAccount::NoAccount => {
-                    token_account.close_authority = COption::None;
+                    token_account.set_close_authority(COption::None);
                 }
             }
         }
@@ -497,6 +485,12 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         };
 
         Box::pin(async move {
+            let get_mint_result = svm_locker
+                .get_account(&remote_ctx, &mint, None)
+                .await?
+                .inner;
+            svm_locker.write_account_update(get_mint_result);
+
             let SvmAccessContext {
                 slot,
                 inner: mut token_account,
@@ -507,19 +501,15 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                     &associated_token_account,
                     Some(Box::new(move |svm_locker| {
                         let minimum_rent = svm_locker.with_svm_reader(|svm_reader| {
-                            svm_reader
-                                .inner
-                                .minimum_balance_for_rent_exemption(TokenAccount::LEN)
+                            svm_reader.inner.minimum_balance_for_rent_exemption(
+                                TokenAccount::get_packed_len_for_token_program_id(
+                                    &token_program_id,
+                                ),
+                            )
                         });
 
-                        let mut data = [0; TokenAccount::LEN];
-                        let default = TokenAccount {
-                            mint,
-                            owner,
-                            state: AccountState::Initialized,
-                            ..Default::default()
-                        };
-                        default.pack_into_slice(&mut data);
+                        let default = TokenAccount::new(&token_program_id, owner, mint);
+                        let data = default.pack_into_vec();
                         GetAccountResult::FoundAccount(
                             associated_token_account,
                             Account {
@@ -527,7 +517,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                                 owner: token_program_id,
                                 executable: false,
                                 rent_epoch: 0,
-                                data: data.to_vec(),
+                                data,
                             },
                             true, // indicate that the account should be updated in the SVM, since it's new
                         )
@@ -542,10 +532,9 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
             update.apply(&mut token_account_data)?;
 
-            let mut final_account_bytes = [0; TokenAccount::LEN];
-            token_account_data.pack_into_slice(&mut final_account_bytes);
+            let final_account_bytes = token_account_data.pack_into_vec();
             token_account.apply_update(|account| {
-                account.data = final_account_bytes.to_vec();
+                account.data = final_account_bytes.clone();
                 Ok(())
             })?;
             svm_locker.write_account_update(token_account);

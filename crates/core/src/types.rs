@@ -11,6 +11,8 @@ use solana_message::{
 };
 use solana_pubkey::Pubkey;
 use solana_sdk::{
+    program_option::COption,
+    program_pack::Pack,
     reserved_account_keys::ReservedAccountKeys,
     transaction::{TransactionVersion, VersionedTransaction},
 };
@@ -25,8 +27,12 @@ use solana_transaction_status::{
     parse_accounts::{parse_legacy_message_accounts, parse_v0_message_accounts},
     parse_ui_inner_instructions,
 };
+use spl_token_2022::extension::StateWithExtensions;
 
-use crate::surfnet::locker::{format_ui_amount, format_ui_amount_string};
+use crate::{
+    error::{SurfpoolError, SurfpoolResult},
+    surfnet::locker::{format_ui_amount, format_ui_amount_string},
+};
 
 #[derive(Debug, Clone)]
 pub enum SurfnetTransactionStatus {
@@ -69,9 +75,9 @@ impl TransactionWithStatusMeta {
         transaction_meta: TransactionMetadata,
         accounts_before: Vec<Option<Account>>,
         accounts_after: Vec<Option<Account>>,
-        pre_token_accounts_with_indexes: Vec<(usize, spl_token::state::Account)>,
-        post_token_accounts_with_indexes: Vec<(usize, spl_token::state::Account)>,
-        token_mints: Vec<spl_token::state::Mint>,
+        pre_token_accounts_with_indexes: Vec<(usize, TokenAccount)>,
+        post_token_accounts_with_indexes: Vec<(usize, TokenAccount)>,
+        token_mints: Vec<MintAccount>,
         token_program_ids: Vec<Pubkey>,
         loaded_addresses: LoadedAddresses,
     ) -> Self {
@@ -115,14 +121,17 @@ impl TransactionWithStatusMeta {
                         .zip(token_program_ids.clone())
                         .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
                             account_index: *i as u8,
-                            mint: a.mint.to_string(),
+                            mint: a.mint().to_string(),
                             ui_token_amount: UiTokenAmount {
-                                ui_amount: Some(format_ui_amount(a.amount, mint.decimals)),
-                                decimals: mint.decimals,
-                                amount: a.amount.to_string(),
-                                ui_amount_string: format_ui_amount_string(a.amount, mint.decimals),
+                                ui_amount: Some(format_ui_amount(a.amount(), mint.decimals())),
+                                decimals: mint.decimals(),
+                                amount: a.amount().to_string(),
+                                ui_amount_string: format_ui_amount_string(
+                                    a.amount(),
+                                    mint.decimals(),
+                                ),
                             },
-                            owner: a.owner.to_string(),
+                            owner: a.owner().to_string(),
                             program_id: token_program.to_string(),
                         })
                         .collect(),
@@ -134,14 +143,17 @@ impl TransactionWithStatusMeta {
                         .zip(token_program_ids)
                         .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
                             account_index: *i as u8,
-                            mint: a.mint.to_string(),
+                            mint: a.mint().to_string(),
                             ui_token_amount: UiTokenAmount {
-                                ui_amount: Some(format_ui_amount(a.amount, mint.decimals)),
-                                decimals: mint.decimals,
-                                amount: a.amount.to_string(),
-                                ui_amount_string: format_ui_amount_string(a.amount, mint.decimals),
+                                ui_amount: Some(format_ui_amount(a.amount(), mint.decimals())),
+                                decimals: mint.decimals(),
+                                amount: a.amount().to_string(),
+                                ui_amount_string: format_ui_amount_string(
+                                    a.amount(),
+                                    mint.decimals(),
+                                ),
                             },
-                            owner: a.owner.to_string(),
+                            owner: a.owner().to_string(),
                             program_id: token_program.to_string(),
                         })
                         .collect(),

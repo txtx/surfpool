@@ -4,13 +4,13 @@ use itertools::Itertools;
 use jsonrpc_core::{BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
 use litesvm::types::TransactionMetadata;
-use solana_account_decoder::{UiAccount, UiAccountEncoding, encode_ui_account};
+use solana_account_decoder::UiAccount;
 use solana_client::{
     rpc_config::{
-        RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig, RpcEncodingConfigWrapper,
-        RpcEpochConfig, RpcRequestAirdropConfig, RpcSendTransactionConfig,
-        RpcSignatureStatusConfig, RpcSignaturesForAddressConfig, RpcSimulateTransactionConfig,
-        RpcTransactionConfig,
+        RpcAccountInfoConfig, RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig,
+        RpcEncodingConfigWrapper, RpcEpochConfig, RpcRequestAirdropConfig,
+        RpcSendTransactionConfig, RpcSignatureStatusConfig, RpcSignaturesForAddressConfig,
+        RpcSimulateTransactionConfig, RpcTransactionConfig,
     },
     rpc_custom_error::RpcCustomError,
     rpc_response::{
@@ -2347,7 +2347,7 @@ mod tests {
 
     use base64::{Engine, prelude::BASE64_STANDARD};
     use crossbeam_channel::Receiver;
-    use solana_account_decoder::{UiAccount, UiAccountData};
+    use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
     use solana_commitment_config::CommitmentConfig;
     use solana_hash::Hash;
