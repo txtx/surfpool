@@ -22,6 +22,7 @@ use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
 use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
 use libloading::{Library, Symbol};
+#[cfg(not(windows))]
 use solana_geyser_plugin_manager::geyser_plugin_manager::{
     GeyserPluginManager, LoadedGeyserPlugin,
 };
@@ -231,6 +232,18 @@ pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<
     (clock_event_rx, clock_command_tx)
 }
 
+#[cfg(windows)]
+fn start_geyser_runloop(
+    plugin_config_paths: Vec<PathBuf>,
+    plugin_manager_commands_rx: Receiver<PluginManagerCommand>,
+    subgraph_commands_tx: Sender<SubgraphCommand>,
+    simnet_events_tx: Sender<SimnetEvent>,
+    geyser_events_rx: Receiver<GeyserEvent>,
+) -> Result<JoinHandle<Result<(), String>>, String> {
+    Ok(())
+}
+
+#[cfg(not(windows))]
 fn start_geyser_runloop(
     plugin_config_paths: Vec<PathBuf>,
     plugin_manager_commands_rx: Receiver<PluginManagerCommand>,
