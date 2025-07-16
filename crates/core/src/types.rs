@@ -26,6 +26,8 @@ use solana_transaction_status::{
     parse_ui_inner_instructions,
 };
 
+use crate::surfnet::locker::{format_ui_amount, format_ui_amount_string};
+
 #[derive(Debug, Clone)]
 pub enum SurfnetTransactionStatus {
     Received,
@@ -115,13 +117,10 @@ impl TransactionWithStatusMeta {
                             account_index: *i as u8,
                             mint: a.mint.to_string(),
                             ui_token_amount: UiTokenAmount {
-                                ui_amount: Some(a.amount as f64 / 10f64.powi(mint.decimals as i32)),
+                                ui_amount: Some(format_ui_amount(a.amount, mint.decimals)),
                                 decimals: mint.decimals,
                                 amount: a.amount.to_string(),
-                                ui_amount_string: format!(
-                                    "{:.2}",
-                                    a.amount as f64 / 10f64.powi(mint.decimals as i32)
-                                ),
+                                ui_amount_string: format_ui_amount_string(a.amount, mint.decimals),
                             },
                             owner: a.owner.to_string(),
                             program_id: token_program.to_string(),
@@ -137,13 +136,10 @@ impl TransactionWithStatusMeta {
                             account_index: *i as u8,
                             mint: a.mint.to_string(),
                             ui_token_amount: UiTokenAmount {
-                                ui_amount: Some(a.amount as f64 / 10f64.powi(mint.decimals as i32)),
+                                ui_amount: Some(format_ui_amount(a.amount, mint.decimals)),
                                 decimals: mint.decimals,
                                 amount: a.amount.to_string(),
-                                ui_amount_string: format!(
-                                    "{:.2}",
-                                    a.amount as f64 / 10f64.powi(mint.decimals as i32)
-                                ),
+                                ui_amount_string: format_ui_amount_string(a.amount, mint.decimals),
                             },
                             owner: a.owner.to_string(),
                             program_id: token_program.to_string(),

@@ -1181,34 +1181,17 @@ impl SurfnetSvmLocker {
             // convert to RpcTokenAccountBalance and sort by balance
             let mut balances: Vec<RpcTokenAccountBalance> = token_accounts
                 .into_iter()
-                .map(|(pubkey, token_account)| {
-                    let ui_amount = if mint_decimals > 0 {
-                        Some(
-                            token_account.amount as f64 / (10_u64.pow(mint_decimals as u32) as f64),
-                        )
-                    } else {
-                        Some(token_account.amount as f64)
-                    };
-
-                    let ui_amount_string = if mint_decimals > 0 {
-                        format!(
-                            "{:.precision$}",
-                            token_account.amount as f64 / (10_u64.pow(mint_decimals as u32) as f64),
-                            precision = mint_decimals as usize
-                        )
-                    } else {
-                        token_account.amount.to_string()
-                    };
-
-                    RpcTokenAccountBalance {
-                        address: pubkey.to_string(),
-                        amount: UiTokenAmount {
-                            amount: token_account.amount.to_string(),
-                            decimals: mint_decimals,
-                            ui_amount,
-                            ui_amount_string,
-                        },
-                    }
+                .map(|(pubkey, token_account)| RpcTokenAccountBalance {
+                    address: pubkey.to_string(),
+                    amount: UiTokenAmount {
+                        amount: token_account.amount.to_string(),
+                        decimals: mint_decimals,
+                        ui_amount: Some(format_ui_amount(token_account.amount, mint_decimals)),
+                        ui_amount_string: format_ui_amount_string(
+                            token_account.amount,
+                            mint_decimals,
+                        ),
+                    },
                 })
                 .collect();
 
@@ -2090,5 +2073,28 @@ fn update_programdata_account(
             &program_id,
             "Invalid program data account",
         ));
+    }
+}
+
+pub fn format_ui_amount_string(amount: u64, decimals: u8) -> String {
+    let formatted_amount = if decimals > 0 {
+        let divisor = 10u64.pow(decimals as u32);
+        format!(
+            "{:.decimals$}",
+            amount as f64 / divisor as f64,
+            decimals = decimals as usize
+        )
+    } else {
+        amount.to_string()
+    };
+    formatted_amount
+}
+
+pub fn format_ui_amount(amount: u64, decimals: u8) -> f64 {
+    if decimals > 0 {
+        let divisor = 10u64.pow(decimals as u32);
+        amount as f64 / divisor as f64
+    } else {
+        amount as f64
     }
 }
