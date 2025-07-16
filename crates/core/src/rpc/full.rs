@@ -3018,7 +3018,13 @@ mod tests {
             .get_transaction(
                 Some(setup.context.clone()),
                 tx.signatures[0].to_string(),
-                None,
+                Some(RpcEncodingConfigWrapper::Current(Some(
+                    RpcTransactionConfig {
+                        max_supported_transaction_version: Some(0),
+                        encoding: Some(UiTransactionEncoding::Json),
+                        ..Default::default()
+                    },
+                ))),
             )
             .await
             .unwrap()
