@@ -113,21 +113,25 @@ impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMe
                     post_balances: vec![],
                     inner_instructions: OptionSerializer::Some(
                         transform_tx_metadata_to_ui_accounts(
-                            &surfpool_tx_metadata_to_litesvm_tx_metadata(&meta),
+                            surfpool_tx_metadata_to_litesvm_tx_metadata(&meta),
                         ),
                     ),
                     log_messages: OptionSerializer::Some(meta.logs),
-                    pre_token_balances: OptionSerializer::None,
-                    post_token_balances: OptionSerializer::None,
-                    rewards: OptionSerializer::None,
+                    pre_token_balances: OptionSerializer::Some(vec![]),
+                    post_token_balances: OptionSerializer::Some(vec![]),
+                    rewards: OptionSerializer::Some(vec![]),
                     loaded_addresses: OptionSerializer::None,
-                    return_data: OptionSerializer::Some(UiTransactionReturnData {
-                        program_id: meta.return_data.program_id.to_string(),
-                        data: (
-                            BASE64_STANDARD.encode(meta.return_data.data),
-                            UiReturnDataEncoding::Base64,
-                        ),
-                    }),
+                    return_data: if meta.return_data.data.is_empty() {
+                        OptionSerializer::None
+                    } else {
+                        OptionSerializer::Some(UiTransactionReturnData {
+                            program_id: meta.return_data.program_id.to_string(),
+                            data: (
+                                BASE64_STANDARD.encode(meta.return_data.data),
+                                UiReturnDataEncoding::Base64,
+                            ),
+                        })
+                    },
                     compute_units_consumed: OptionSerializer::Some(meta.compute_units_consumed),
                 }),
                 version: Some(tx.version()),
