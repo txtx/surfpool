@@ -1655,7 +1655,8 @@ impl SurfnetSvmLocker {
 
                         original_authority
                     }
-                    GetAccountResult::FoundProgramAccount(_, _) => {
+                    GetAccountResult::FoundProgramAccount(_, _)
+                    | GetAccountResult::FoundTokenAccount(_, _) => {
                         return Err(SurfpoolError::invalid_program_account(
                             pubkey,
                             "Not a program account",
@@ -1671,6 +1672,12 @@ impl SurfnetSvmLocker {
             }
             GetAccountResult::FoundProgramAccount(_, (_, Some(programdata_account))) => {
                 update_programdata_account(&program_id, programdata_account, new_authority)?
+            }
+            GetAccountResult::FoundTokenAccount(_, _) => {
+                return Err(SurfpoolError::invalid_program_account(
+                    program_id,
+                    "Not a program account",
+                ));
             }
         };
 
@@ -1960,39 +1967,68 @@ impl SurfnetSvmLocker {
     pub fn subscribe_for_slot_updates(&self) -> Receiver<SlotInfo> {
         self.with_svm_writer(|svm_writer| svm_writer.subscribe_for_slot_updates())
     }
-}
 
-fn snapshot_get_account_result(
-    capture: &mut BTreeMap<Pubkey, Option<UiAccount>>,
-    result: GetAccountResult,
-    encoding: UiAccountEncoding,
-) {
-    match result {
-        GetAccountResult::None(pubkey) => {
-            capture.insert(pubkey, None);
-        }
-        GetAccountResult::FoundAccount(pubkey, account, _) => {
-            capture.insert(
-                pubkey,
-                Some(encode_ui_account(&pubkey, &account, encoding, None, None)),
-            );
-        }
-        GetAccountResult::FoundProgramAccount((pubkey, account), (data_pubkey, data_account)) => {
-            capture.insert(
-                pubkey,
-                Some(encode_ui_account(&pubkey, &account, encoding, None, None)),
-            );
-            if let Some(data_account) = data_account {
-                capture.insert(
-                    data_pubkey,
-                    Some(encode_ui_account(
-                        &data_pubkey,
-                        &data_account,
-                        encoding,
-                        None,
-                        None,
-                    )),
-                );
+    fn snapshot_get_account_result(
+        &self,
+        capture: &mut BTreeMap<Pubkey, Option<UiAccount>>,
+        result: GetAccountResult,
+        encoding: Option<UiAccountEncoding>,
+    ) {
+        let config = RpcAccountInfoConfig {
+            encoding,
+            ..Default::default()
+        };
+        match result {
+            GetAccountResult::None(pubkey) => {
+                capture.insert(pubkey, None);
+            }
+            GetAccountResult::FoundAccount(pubkey, account, _) => {
+                let rpc_keyed_account = self.with_svm_reader(|svm_reader| {
+                    svm_reader.account_to_rpc_keyed_account(&pubkey, &account, &config, None)
+                });
+                capture.insert(pubkey, Some(rpc_keyed_account.account));
+            }
+            GetAccountResult::FoundTokenAccount((pubkey, account), (mint_pubkey, mint_account)) => {
+                let rpc_keyed_account = self.with_svm_reader(|svm_reader| {
+                    svm_reader.account_to_rpc_keyed_account(
+                        &pubkey,
+                        &account,
+                        &config,
+                        Some(mint_pubkey),
+                    )
+                });
+                capture.insert(pubkey, Some(rpc_keyed_account.account));
+                if let Some(mint_account) = mint_account {
+                    let rpc_keyed_account = self.with_svm_reader(|svm_reader| {
+                        svm_reader.account_to_rpc_keyed_account(
+                            &mint_pubkey,
+                            &mint_account,
+                            &config,
+                            None,
+                        )
+                    });
+                    capture.insert(mint_pubkey, Some(rpc_keyed_account.account));
+                }
+            }
+            GetAccountResult::FoundProgramAccount(
+                (pubkey, account),
+                (data_pubkey, data_account),
+            ) => {
+                let rpc_keyed_account = self.with_svm_reader(|svm_reader| {
+                    svm_reader.account_to_rpc_keyed_account(&pubkey, &account, &config, None)
+                });
+                capture.insert(pubkey, Some(rpc_keyed_account.account));
+                if let Some(data_account) = data_account {
+                    let rpc_keyed_account = self.with_svm_reader(|svm_reader| {
+                        svm_reader.account_to_rpc_keyed_account(
+                            &data_pubkey,
+                            &data_account,
+                            &config,
+                            None,
+                        )
+                    });
+                    capture.insert(data_pubkey, Some(rpc_keyed_account.account));
+                }
             }
         }
     }

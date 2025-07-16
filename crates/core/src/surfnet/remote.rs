@@ -80,13 +80,21 @@ impl SurfnetRemoteClient {
 
         let result = match res.value {
             Some(account) => {
-                if !account.executable {
-                    GetAccountResult::FoundAccount(
-                        *pubkey, account,
-                        // Mark this account as needing to be updated in the SVM, since we fetched it
-                        true,
-                    )
-                } else {
+                let mut result = None;
+                if is_supported_token_program(&account.owner) {
+                    if let Some(token_account) = TokenAccount::unpack(&account.data).ok() {
+                        let mint = self
+                            .client
+                            .get_account_with_commitment(&token_account.mint(), commitment_config)
+                            .await
+                            .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
+
+                        result = Some(GetAccountResult::FoundTokenAccount(
+                            (*pubkey, account.clone()),
+                            (token_account.mint(), mint.value),
+                        ));
+                    };
+                } else if account.executable {
                     let program_data_address = get_program_data_address(pubkey);
 
                     let program_data = self
@@ -95,11 +103,17 @@ impl SurfnetRemoteClient {
                         .await
                         .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
 
-                    GetAccountResult::FoundProgramAccount(
-                        (*pubkey, account),
+                    result = Some(GetAccountResult::FoundProgramAccount(
+                        (*pubkey, account.clone()),
                         (program_data_address, program_data.value),
-                    )
+                    ));
                 }
+
+                result.unwrap_or(GetAccountResult::FoundAccount(
+                    *pubkey, account,
+                    // Mark this account as needing to be updated in the SVM, since we fetched it
+                    true,
+                ))
             }
             None => GetAccountResult::None(*pubkey),
         };

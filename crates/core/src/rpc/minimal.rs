@@ -612,7 +612,8 @@ impl Minimal for SurfpoolMinimalRpc {
 
             let balance = match &account_update {
                 GetAccountResult::FoundAccount(_, account, _)
-                | GetAccountResult::FoundProgramAccount((_, account), _) => account.lamports,
+                | GetAccountResult::FoundProgramAccount((_, account), _)
+                | GetAccountResult::FoundTokenAccount((_, account), _) => account.lamports,
                 GetAccountResult::None(_) => 0,
             };
 

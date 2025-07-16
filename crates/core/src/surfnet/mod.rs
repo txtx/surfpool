@@ -101,6 +101,7 @@ pub enum GetAccountResult {
     /// it likely does not need to be updated in the SVM.
     FoundAccount(Pubkey, Account, DoUpdateSvm),
     FoundProgramAccount((Pubkey, Account), (Pubkey, Option<Account>)),
+    FoundTokenAccount((Pubkey, Account), (Pubkey, Option<Account>)),
 }
 
 impl GetAccountResult {
@@ -126,9 +127,9 @@ impl GetAccountResult {
     pub fn expected_data(&self) -> &Vec<u8> {
         match &self {
             Self::None(_) => unreachable!(),
-            Self::FoundAccount(_, account, _) | Self::FoundProgramAccount((_, account), _) => {
-                &account.data
-            }
+            Self::FoundAccount(_, account, _)
+            | Self::FoundProgramAccount((_, account), _)
+            | Self::FoundTokenAccount((_, account), _) => &account.data,
         }
     }
 
@@ -145,27 +146,31 @@ impl GetAccountResult {
             Self::FoundProgramAccount((_, account), _) => {
                 update(account)?;
             }
+            Self::FoundTokenAccount((_, account), _) => {
+                update(account)?;
+            }
         }
         Ok(())
-    }
-
-    pub fn map_found_account(self) -> Result<Account, SurfpoolError> {
-        match self {
-            Self::None(pubkey) => Err(SurfpoolError::account_not_found(pubkey)),
-            Self::FoundAccount(_, account, _) => Ok(account),
-            Self::FoundProgramAccount((pubkey, _), _) => Err(SurfpoolError::invalid_account_data(
-                pubkey,
-                "account should not be executable",
-                None::<String>,
-            )),
-        }
     }
 
     pub fn map_account(self) -> SurfpoolResult<Account> {
         match self {
             Self::None(pubkey) => Err(SurfpoolError::account_not_found(pubkey)),
-            Self::FoundAccount(_, account, _) | Self::FoundProgramAccount((_, account), _) => {
-                Ok(account)
+            Self::FoundAccount(_, account, _)
+            | Self::FoundProgramAccount((_, account), _)
+            | Self::FoundTokenAccount((_, account), _) => Ok(account),
+        }
+    }
+
+    pub fn map_account_with_token_data(
+        self,
+    ) -> Option<((Pubkey, Account), Option<(Pubkey, Option<Account>)>)> {
+        match self {
+            Self::None(_) => None,
+            Self::FoundAccount(pubkey, account, _) => Some(((pubkey, account), None)),
+            Self::FoundProgramAccount((pubkey, account), _) => Some(((pubkey, account), None)),
+            Self::FoundTokenAccount((pubkey, account), token_data) => {
+                Some(((pubkey, account), Some(token_data)))
             }
         }
     }
@@ -179,6 +184,7 @@ impl GetAccountResult {
             Self::None(_) => false,
             Self::FoundAccount(_, _, do_update) => *do_update,
             Self::FoundProgramAccount(_, _) => true,
+            Self::FoundTokenAccount(_, _) => true,
         }
     }
 }
