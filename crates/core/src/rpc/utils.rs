@@ -200,9 +200,7 @@ where
         .map(|output| (wire_output, output))
 }
 
-pub fn transform_tx_metadata_to_ui_accounts(
-    meta: TransactionMetadata,
-) -> Vec<UiInnerInstructions> {
+pub fn transform_tx_metadata_to_ui_accounts(meta: TransactionMetadata) -> Vec<UiInnerInstructions> {
     meta.inner_instructions
         .into_iter()
         .enumerate()
