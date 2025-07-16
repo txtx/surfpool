@@ -1531,7 +1531,7 @@ impl Full for SurfpoolFullRpc {
                 return Err(Error {
                     data: Some(
                         serde_json::to_value(get_simulate_transaction_result(
-                            &surfpool_tx_metadata_to_litesvm_tx_metadata(&metadata),
+                            surfpool_tx_metadata_to_litesvm_tx_metadata(&metadata),
                             None,
                             Some(error.clone()),
                             None,
@@ -1683,7 +1683,7 @@ impl Full for SurfpoolFullRpc {
                         accounts = Some(ui_accounts);
                     }
                     get_simulate_transaction_result(
-                        &tx_info.meta,
+                        tx_info.meta,
                         accounts,
                         None,
                         replacement_blockhash,
@@ -1691,7 +1691,7 @@ impl Full for SurfpoolFullRpc {
                     )
                 }
                 Err(tx_info) => get_simulate_transaction_result(
-                    &tx_info.meta,
+                    tx_info.meta,
                     None,
                     Some(tx_info.err),
                     replacement_blockhash,
@@ -2306,7 +2306,7 @@ impl Full for SurfpoolFullRpc {
 }
 
 fn get_simulate_transaction_result(
-    metadata: &TransactionMetadata,
+    metadata: TransactionMetadata,
     accounts: Option<Vec<Option<UiAccount>>>,
     error: Option<TransactionError>,
     replacement_blockhash: Option<RpcBlockhash>,
@@ -2316,7 +2316,7 @@ fn get_simulate_transaction_result(
         accounts,
         err: error,
         inner_instructions: if include_inner_instructions {
-            Some(transform_tx_metadata_to_ui_accounts(&metadata))
+            Some(transform_tx_metadata_to_ui_accounts(metadata.clone()))
         } else {
             None
         },

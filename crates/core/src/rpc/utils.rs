@@ -201,10 +201,10 @@ where
 }
 
 pub fn transform_tx_metadata_to_ui_accounts(
-    meta: &TransactionMetadata,
+    meta: TransactionMetadata,
 ) -> Vec<UiInnerInstructions> {
     meta.inner_instructions
-        .iter()
+        .into_iter()
         .enumerate()
         .filter_map(|(i, ixs)| {
             let instructions: Vec<InnerInstruction> = ixs

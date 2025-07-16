@@ -113,7 +113,7 @@ impl From<TransactionWithStatusMeta> for EncodedConfirmedTransactionWithStatusMe
                     post_balances: vec![],
                     inner_instructions: OptionSerializer::Some(
                         transform_tx_metadata_to_ui_accounts(
-                            &surfpool_tx_metadata_to_litesvm_tx_metadata(&meta),
+                            surfpool_tx_metadata_to_litesvm_tx_metadata(&meta),
                         ),
                     ),
                     log_messages: OptionSerializer::Some(meta.logs),
