@@ -252,7 +252,7 @@ impl SurfnetSvm {
                         status: Ok(()),
                         fee: 5000,
                         pre_balances: vec![
-                            account.lamports - lamports,
+                            account.lamports.saturating_sub(lamports),
                             0,
                             system_lamports,
                         ],
