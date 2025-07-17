@@ -1173,12 +1173,13 @@ mod tests {
             recent_blockhash,
         );
 
-        // Send and confirm transaction
-        client.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer
-                .send_transaction(transaction.clone().into(), false)
-                .unwrap();
-        });
+        let (status_tx, _status_rx) = crossbeam_channel::unbounded();
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.into(), status_tx.clone(), false)
+            .await
+            .unwrap();
 
         println!("Mint Address: {}", mint.pubkey());
         println!("Recipient Address: {}", recipient.pubkey());
@@ -1219,12 +1220,12 @@ mod tests {
             recent_blockhash,
         );
 
-        // Send and confirm transaction
-        client.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer
-                .send_transaction(transaction.clone().into(), false)
-                .unwrap();
-        });
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.clone().into(), status_tx, true)
+            .await
+            .unwrap();
 
         println!("Successfully transferred 0.50 tokens from sender to recipient");
 
