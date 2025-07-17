@@ -27,7 +27,7 @@ pub struct Context {
 }
 
 pub const DEFAULT_SLOT_TIME_MS: &str = "400";
-pub const DEFAULT_TXTX_PORT: &str = "8488";
+pub const DEFAULT_STUDIO_PORT: &str = "8488";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
 pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
@@ -181,6 +181,9 @@ pub struct StartSimnet {
     /// List of geyser plugins to load
     #[arg(long = "geyser-plugin-config", short = 'g')]
     pub plugin_config_path: Vec<String>,
+    /// Path to subgraph's sqlite database (default: :memory:)
+    #[arg(long = "subgraph-database-path", short = 'd')]
+    pub subgraph_database_path: Option<String>,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -462,7 +465,7 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
             txtx_cloud::login::handle_login_command(
                 &cmd,
                 DEFAULT_CLOUD_URL,
-                DEFAULT_TXTX_PORT,
+                DEFAULT_STUDIO_PORT,
                 DEFAULT_ID_SVC_URL,
             )
             .await
@@ -470,7 +473,7 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
         CloudCommand::Start(cmd) => {
             cmd.start(
                 DEFAULT_CLOUD_URL,
-                DEFAULT_TXTX_PORT,
+                DEFAULT_STUDIO_PORT,
                 DEFAULT_ID_SVC_URL,
                 DEFAULT_SVM_GQL_URL,
                 DEFAULT_SVM_CLOUD_API_URL,

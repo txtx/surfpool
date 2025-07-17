@@ -29,7 +29,7 @@ use surfpool_types::{
 };
 use txtx_core::kit::types::types::Value;
 
-use crate::cli::{Context, DEFAULT_TXTX_PORT};
+use crate::cli::{Context, DEFAULT_STUDIO_PORT};
 
 #[cfg(feature = "explorer")]
 #[derive(RustEmbed)]
@@ -38,14 +38,14 @@ pub struct Asset;
 
 pub async fn start_subgraph_and_explorer_server(
     network_binding: String,
+    subgraph_database_path: &str,
     _config: SurfpoolConfig,
     subgraph_events_tx: Sender<SubgraphEvent>,
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     _ctx: &Context,
 ) -> Result<(ServerHandle, JoinHandle<Result<(), String>>), Box<dyn StdError>> {
-    let store = SqlStore::new_in_memory();
     let context = DataloaderContext {
-        pool: store.pool.clone(),
+        pool: SqlStore::new(subgraph_database_path).pool,
     };
     let schema_datasource = SchemaDataSource::new();
     let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
@@ -225,7 +225,7 @@ fn start_subgraph_runloop(
                                 schema_datasource.add_entry(schema);
                                 gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
 
-                                let console_url = format!("http://127.0.0.1:{}/gql/console", DEFAULT_TXTX_PORT);
+                                let console_url = format!("http://127.0.0.1:{}/gql/console", DEFAULT_STUDIO_PORT);
                                 let _ = sender.send(console_url);
                             }
                             SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
