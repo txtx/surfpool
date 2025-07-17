@@ -256,11 +256,7 @@ impl SurfnetSvm {
                             0,
                             system_lamports,
                         ],
-                        post_balances: vec![
-                            account.lamports,
-                            lamports,
-                            system_lamports,
-                        ],
+                        post_balances: vec![account.lamports, lamports, system_lamports],
                         inner_instructions: Some(vec![]),
                         log_messages: Some(tx_result.logs.clone()),
                         pre_token_balances: Some(vec![]),
