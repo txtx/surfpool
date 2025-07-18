@@ -4,8 +4,10 @@ use crossbeam_channel::TrySendError;
 use jsonrpc_core::{Error, Result};
 use serde::Serialize;
 use serde_json::json;
-use solana_client::rpc_request::TokenAccountsFilter;
+use solana_client::{client_error::ClientError, rpc_request::TokenAccountsFilter};
 use solana_pubkey::Pubkey;
+use solana_sdk::slot_history::Slot;
+use solana_transaction_status::EncodeError;
 
 pub type SurfpoolResult<T> = std::result::Result<T, SurfpoolError>;
 
@@ -21,6 +23,17 @@ impl From<SurfpoolError> for String {
 impl From<SurfpoolError> for Error {
     fn from(e: SurfpoolError) -> Self {
         e.0
+    }
+}
+
+impl From<EncodeError> for SurfpoolError {
+    fn from(e: EncodeError) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Transaction encoding error: {}",
+            e.to_string()
+        )));
+        Self(error)
     }
 }
 
@@ -366,5 +379,42 @@ impl SurfpoolError {
         Self(Error::invalid_params(
             "sigVerify may not be used with replaceRecentBlockhash",
         ))
+    }
+
+    pub fn slot_too_old(slot: Slot) -> Self {
+        Self(Error::invalid_params(format!(
+            "Requested {slot} is before the first local slot, and no remote RPC was provided."
+        )))
+    }
+
+    pub fn get_block(e: ClientError, block: Slot) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to get block {block} from remote: {e}"
+        )));
+        Self(error)
+    }
+
+    pub fn token_mint_not_found(mint: Pubkey) -> Self {
+        let mut error = Error::internal_error();
+        error.message = format!("Token mint {mint} not found");
+        Self(error)
+    }
+
+    pub fn unpack_token_account() -> Self {
+        let mut error = Error::parse_error();
+        error.message = "Failed to unpack token account".to_string();
+        Self(error)
+    }
+
+    pub fn unpack_mint_account() -> Self {
+        let mut error = Error::parse_error();
+        error.message = "Failed to unpack mint account".to_string();
+        Self(error)
+    }
+
+    pub fn invalid_token_account_state(state: &str) -> Self {
+        let error = Error::invalid_params(format!("Invalid token account state {state}"));
+        Self(error)
     }
 }

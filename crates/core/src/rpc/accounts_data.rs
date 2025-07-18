@@ -13,14 +13,13 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_runtime::commitment::BlockCommitmentArray;
-use solana_sdk::program_pack::Pack;
-use spl_token::state::{Account as TokenAccount, Mint};
 
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::{State, utils::verify_pubkey},
-    surfnet::locker::SvmAccessContext,
+    surfnet::locker::{SvmAccessContext, is_supported_token_program},
+    types::{MintAccount, TokenAccount},
 };
 
 #[rpc]
@@ -379,18 +378,26 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
             svm_locker.write_account_update(account_update.clone());
 
-            let SvmAccessContext {
-                inner: associated_data,
-                ..
-            } = svm_locker.get_local_account_associated_data(&account_update);
+            let ui_account = if let Some(((pubkey, account), token_data)) =
+                account_update.map_account_with_token_data()
+            {
+                Some(
+                    svm_locker
+                        .account_to_rpc_keyed_account(
+                            &pubkey,
+                            &account,
+                            &config,
+                            token_data.map(|(mint, _)| mint),
+                        )
+                        .account,
+                )
+            } else {
+                None
+            };
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
-                value: account_update.try_into_ui_account(
-                    config.encoding,
-                    config.data_slice,
-                    associated_data,
-                ),
+                value: ui_account,
             })
         })
     }
@@ -431,14 +438,24 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             svm_locker.write_multiple_account_updates(&account_updates);
 
             let mut ui_accounts = vec![];
-            {
-                for account_update in account_updates.into_iter() {
-                    ui_accounts.push(account_update.try_into_ui_account(
-                        config.encoding,
-                        config.data_slice,
-                        None,
+
+            for account_update in account_updates.into_iter() {
+                if let Some(((pubkey, account), token_data)) =
+                    account_update.map_account_with_token_data()
+                {
+                    ui_accounts.push(Some(
+                        svm_locker
+                            .account_to_rpc_keyed_account(
+                                &pubkey,
+                                &account,
+                                &config,
+                                token_data.map(|(mint, _)| mint),
+                            )
+                            .account,
                     ));
-                }
+                } else {
+                    ui_accounts.push(None);
+                };
             }
 
             Ok(RpcResponse {
@@ -512,34 +529,11 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
             let token_account = token_account_result.map_account()?;
 
-            let (mint_pubkey, _amount) = if token_account.owner == spl_token::id() {
-                let unpacked_token_account =
-                    TokenAccount::unpack(&token_account.data).map_err(|e| {
-                        SurfpoolError::invalid_account_data(
-                            pubkey,
-                            "Invalid token account data",
-                            Some(e.to_string()),
-                        )
-                    })?;
-                (unpacked_token_account.mint, unpacked_token_account.amount)
-            } else if token_account.owner == spl_token_2022::id() {
-                use spl_token_2022::{
-                    extension::StateWithExtensions, state::Account as Token2022Account,
-                };
-
-                let unpacked_token_account = StateWithExtensions::<Token2022Account>::unpack(
-                    &token_account.data,
-                )
-                .map_err(|e| {
-                    SurfpoolError::invalid_account_data(
-                        pubkey,
-                        "Invalid token-2022 account data",
-                        Some(e.to_string()),
-                    )
-                })?;
+            let (mint_pubkey, _amount) = if is_supported_token_program(&token_account.owner) {
+                let unpacked_token_account = TokenAccount::unpack(&token_account.data)?;
                 (
-                    unpacked_token_account.base.mint,
-                    unpacked_token_account.base.amount,
+                    unpacked_token_account.mint(),
+                    unpacked_token_account.amount(),
                 )
             } else {
                 return Err(SurfpoolError::invalid_account_data(
@@ -562,31 +556,9 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
             let mint_account = mint_account_result.map_account()?;
 
-            let token_decimals = if mint_account.owner == spl_token::id() {
-                let unpacked_mint_account = Mint::unpack(&mint_account.data).map_err(|e| {
-                    SurfpoolError::invalid_account_data(
-                        mint_pubkey,
-                        "Invalid token mint account data",
-                        Some(e.to_string()),
-                    )
-                })?;
-                unpacked_mint_account.decimals
-            } else if mint_account.owner == spl_token_2022::id() {
-                use spl_token_2022::{
-                    extension::StateWithExtensions, state::Mint as Token2022Mint,
-                };
-
-                let unpacked_mint_account = StateWithExtensions::<Token2022Mint>::unpack(
-                    &mint_account.data,
-                )
-                .map_err(|e| {
-                    SurfpoolError::invalid_account_data(
-                        mint_pubkey,
-                        "Invalid token-2022 mint account data",
-                        Some(e.to_string()),
-                    )
-                })?;
-                unpacked_mint_account.base.decimals
+            let token_decimals = if is_supported_token_program(&mint_account.owner) {
+                let unpacked_mint_account = MintAccount::unpack(&mint_account.data)?;
+                unpacked_mint_account.decimals()
             } else {
                 return Err(SurfpoolError::invalid_account_data(
                     mint_pubkey,
@@ -648,8 +620,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
             let mint_account = mint_account_result.map_account()?;
 
-            if !matches!(mint_account.owner, owner if owner == spl_token::id() || owner == spl_token_2022::id())
-            {
+            if !is_supported_token_program(&mint_account.owner) {
                 return Err(SurfpoolError::invalid_account_data(
                     mint_pubkey,
                     "Account is not a token mint account",
@@ -658,13 +629,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                 .into());
             }
 
-            let mint_data = Mint::unpack(&mint_account.data).map_err(|e| {
-                SurfpoolError::invalid_account_data(
-                    mint_pubkey,
-                    "Invalid token mint account data",
-                    Some(e.to_string()),
-                )
-            })?;
+            let mint_data = MintAccount::unpack(&mint_account.data)?;
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
@@ -672,7 +637,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                     parse_token_v3(
                         &mint_account.data,
                         Some(&SplTokenAdditionalDataV2 {
-                            decimals: mint_data.decimals,
+                            decimals: mint_data.decimals(),
                             ..Default::default()
                         }),
                     )
@@ -1057,10 +1022,8 @@ mod tests {
 
         let error_msg = res.unwrap_err().to_string();
         assert!(
-            error_msg.contains("deserialize")
-                || error_msg.contains("Invalid")
-                || error_msg.contains("parse"),
-            "Error should mention deserialization failure: {}",
+            error_msg.eq("Parse error: Failed to unpack mint account"),
+            "Incorrect error received: {}",
             error_msg
         );
 
@@ -1210,12 +1173,13 @@ mod tests {
             recent_blockhash,
         );
 
-        // Send and confirm transaction
-        client.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer
-                .send_transaction(transaction.clone().into(), false)
-                .unwrap();
-        });
+        let (status_tx, _status_rx) = crossbeam_channel::unbounded();
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.into(), status_tx.clone(), false)
+            .await
+            .unwrap();
 
         println!("Mint Address: {}", mint.pubkey());
         println!("Recipient Address: {}", recipient.pubkey());
@@ -1256,12 +1220,12 @@ mod tests {
             recent_blockhash,
         );
 
-        // Send and confirm transaction
-        client.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer
-                .send_transaction(transaction.clone().into(), false)
-                .unwrap();
-        });
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.clone().into(), status_tx, true)
+            .await
+            .unwrap();
 
         println!("Successfully transferred 0.50 tokens from sender to recipient");
 

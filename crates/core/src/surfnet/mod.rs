@@ -4,22 +4,20 @@ use crossbeam_channel::Sender;
 use jsonrpc_core::Result as RpcError;
 use locker::SurfnetSvmLocker;
 use solana_account::Account;
-use solana_account_decoder::{
-    UiAccount, UiAccountEncoding, UiDataSliceConfig, encode_ui_account,
-    parse_account_data::AccountAdditionalDataV3,
-};
+use solana_account_decoder::{UiAccount, UiAccountEncoding};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
 use solana_pubkey::Pubkey;
-use solana_sdk::transaction::VersionedTransaction;
 use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, TransactionStatus};
-use surfpool_types::TransactionMetadata;
 use svm::SurfnetSvm;
 
-use crate::error::{SurfpoolError, SurfpoolResult};
+use crate::{
+    error::{SurfpoolError, SurfpoolResult},
+    types::TransactionWithStatusMeta,
+};
 
 pub mod locker;
 pub mod remote;
@@ -33,7 +31,7 @@ pub const SLOTS_PER_EPOCH: u64 = 432000;
 pub type AccountFactory = Box<dyn Fn(SurfnetSvmLocker) -> GetAccountResult + Send + Sync>;
 
 pub enum GeyserEvent {
-    NotifyTransaction(VersionedTransaction, TransactionMetadata, Slot),
+    NotifyTransaction(TransactionWithStatusMeta),
     // todo: add more events
 }
 
@@ -100,34 +98,16 @@ pub enum GetAccountResult {
     /// it likely does not need to be updated in the SVM.
     FoundAccount(Pubkey, Account, DoUpdateSvm),
     FoundProgramAccount((Pubkey, Account), (Pubkey, Option<Account>)),
+    FoundTokenAccount((Pubkey, Account), (Pubkey, Option<Account>)),
 }
 
 impl GetAccountResult {
-    pub fn try_into_ui_account(
-        &self,
-        encoding: Option<UiAccountEncoding>,
-        data_slice: Option<UiDataSliceConfig>,
-        associated_data: Option<AccountAdditionalDataV3>,
-    ) -> Option<UiAccount> {
-        match &self {
-            Self::None(_) => None,
-            Self::FoundAccount(pubkey, account, _)
-            | Self::FoundProgramAccount((pubkey, account), _) => Some(encode_ui_account(
-                pubkey,
-                account,
-                encoding.unwrap_or(UiAccountEncoding::Base64),
-                associated_data,
-                data_slice,
-            )),
-        }
-    }
-
     pub fn expected_data(&self) -> &Vec<u8> {
         match &self {
             Self::None(_) => unreachable!(),
-            Self::FoundAccount(_, account, _) | Self::FoundProgramAccount((_, account), _) => {
-                &account.data
-            }
+            Self::FoundAccount(_, account, _)
+            | Self::FoundProgramAccount((_, account), _)
+            | Self::FoundTokenAccount((_, account), _) => &account.data,
         }
     }
 
@@ -144,27 +124,31 @@ impl GetAccountResult {
             Self::FoundProgramAccount((_, account), _) => {
                 update(account)?;
             }
+            Self::FoundTokenAccount((_, account), _) => {
+                update(account)?;
+            }
         }
         Ok(())
-    }
-
-    pub fn map_found_account(self) -> Result<Account, SurfpoolError> {
-        match self {
-            Self::None(pubkey) => Err(SurfpoolError::account_not_found(pubkey)),
-            Self::FoundAccount(_, account, _) => Ok(account),
-            Self::FoundProgramAccount((pubkey, _), _) => Err(SurfpoolError::invalid_account_data(
-                pubkey,
-                "account should not be executable",
-                None::<String>,
-            )),
-        }
     }
 
     pub fn map_account(self) -> SurfpoolResult<Account> {
         match self {
             Self::None(pubkey) => Err(SurfpoolError::account_not_found(pubkey)),
-            Self::FoundAccount(_, account, _) | Self::FoundProgramAccount((_, account), _) => {
-                Ok(account)
+            Self::FoundAccount(_, account, _)
+            | Self::FoundProgramAccount((_, account), _)
+            | Self::FoundTokenAccount((_, account), _) => Ok(account),
+        }
+    }
+
+    pub fn map_account_with_token_data(
+        self,
+    ) -> Option<((Pubkey, Account), Option<(Pubkey, Option<Account>)>)> {
+        match self {
+            Self::None(_) => None,
+            Self::FoundAccount(pubkey, account, _) => Some(((pubkey, account), None)),
+            Self::FoundProgramAccount((pubkey, account), _) => Some(((pubkey, account), None)),
+            Self::FoundTokenAccount((pubkey, account), token_data) => {
+                Some(((pubkey, account), Some(token_data)))
             }
         }
     }
@@ -178,6 +162,7 @@ impl GetAccountResult {
             Self::None(_) => false,
             Self::FoundAccount(_, _, do_update) => *do_update,
             Self::FoundProgramAccount(_, _) => true,
+            Self::FoundTokenAccount(_, _) => true,
         }
     }
 }
@@ -221,14 +206,24 @@ impl GetTransactionResult {
         tx: EncodedConfirmedTransactionWithStatusMeta,
         latest_absolute_slot: u64,
     ) -> Self {
+        let is_finalized = latest_absolute_slot >= tx.slot + FINALIZATION_SLOT_THRESHOLD;
+        let (confirmation_status, confirmations) = if is_finalized {
+            (
+                Some(solana_transaction_status::TransactionConfirmationStatus::Finalized),
+                None,
+            )
+        } else {
+            (
+                Some(solana_transaction_status::TransactionConfirmationStatus::Confirmed),
+                Some((latest_absolute_slot - tx.slot) as usize),
+            )
+        };
         let status = TransactionStatus {
             slot: tx.slot,
-            confirmations: Some((latest_absolute_slot - tx.slot) as usize),
+            confirmations,
             status: tx.transaction.clone().meta.map_or(Ok(()), |m| m.status),
             err: tx.transaction.clone().meta.and_then(|m| m.err),
-            confirmation_status: Some(
-                solana_transaction_status::TransactionConfirmationStatus::Confirmed,
-            ),
+            confirmation_status,
         };
 
         Self::FoundTransaction(signature, tx, status)

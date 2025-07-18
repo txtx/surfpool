@@ -4,13 +4,13 @@ use itertools::Itertools;
 use jsonrpc_core::{BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
 use litesvm::types::TransactionMetadata;
-use solana_account_decoder::{UiAccount, UiAccountEncoding, encode_ui_account};
+use solana_account_decoder::UiAccount;
 use solana_client::{
     rpc_config::{
-        RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig, RpcEncodingConfigWrapper,
-        RpcEpochConfig, RpcRequestAirdropConfig, RpcSendTransactionConfig,
-        RpcSignatureStatusConfig, RpcSignaturesForAddressConfig, RpcSimulateTransactionConfig,
-        RpcTransactionConfig,
+        RpcAccountInfoConfig, RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig,
+        RpcEncodingConfigWrapper, RpcEpochConfig, RpcRequestAirdropConfig,
+        RpcSendTransactionConfig, RpcSignatureStatusConfig, RpcSignaturesForAddressConfig,
+        RpcSimulateTransactionConfig, RpcTransactionConfig,
     },
     rpc_custom_error::RpcCustomError,
     rpc_response::{
@@ -720,7 +720,7 @@ pub trait Full {
     /// {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
-    ///   "result": 1620000000
+    ///   "result": 1752080472
     /// }
     /// ```
     ///
@@ -1444,19 +1444,22 @@ impl Full for SurfpoolFullRpc {
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context::<Option<UiTransactionEncoding>>(None) {
+        } = match meta.get_rpc_context(()) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
+        let remote_client = remote_ctx.map(|(r, _)| r);
 
         Box::pin(async move {
             let mut responses = Vec::with_capacity(signatures.len());
             let mut last_latest_absolute_slot = 0;
             for signature in signatures.into_iter() {
-                let res = svm_locker.get_transaction(&remote_ctx, &signature).await;
+                let res = svm_locker
+                    .get_transaction(&remote_client, &signature, RpcTransactionConfig::default())
+                    .await?;
 
-                last_latest_absolute_slot = res.slot;
-                responses.push(res.inner.map_some_transaction_status());
+                last_latest_absolute_slot = svm_locker.get_latest_absolute_slot();
+                responses.push(res.map_some_transaction_status());
             }
             Ok(RpcResponse {
                 context: RpcResponseContext::new(last_latest_absolute_slot),
@@ -1531,7 +1534,7 @@ impl Full for SurfpoolFullRpc {
                 return Err(Error {
                     data: Some(
                         serde_json::to_value(get_simulate_transaction_result(
-                            &surfpool_tx_metadata_to_litesvm_tx_metadata(&metadata),
+                            surfpool_tx_metadata_to_litesvm_tx_metadata(&metadata),
                             None,
                             Some(error.clone()),
                             None,
@@ -1630,9 +1633,11 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            let pubkeys = svm_locker
-                .get_pubkeys_from_message(&remote_ctx, &unsanitized_tx.message)
+            let loaded_addresses = svm_locker
+                .get_loaded_addresses(&remote_ctx, &unsanitized_tx.message)
                 .await?;
+            let pubkeys =
+                svm_locker.get_pubkeys_from_message(&unsanitized_tx.message, loaded_addresses);
 
             let SvmAccessContext {
                 slot,
@@ -1669,13 +1674,16 @@ impl Full for SurfpoolFullRpc {
                             let mut ui_account = None;
                             for (updated_pubkey, account) in tx_info.post_accounts.iter() {
                                 if observed_pubkey.eq(&updated_pubkey.to_string()) {
-                                    ui_account = Some(encode_ui_account(
-                                        updated_pubkey,
-                                        account,
-                                        UiAccountEncoding::Base64,
-                                        None,
-                                        None,
-                                    ));
+                                    ui_account = Some(
+                                        svm_locker
+                                            .account_to_rpc_keyed_account(
+                                                &*updated_pubkey,
+                                                account,
+                                                &RpcAccountInfoConfig::default(),
+                                                None,
+                                            )
+                                            .account,
+                                    );
                                 }
                             }
                             ui_accounts.push(ui_account);
@@ -1683,7 +1691,7 @@ impl Full for SurfpoolFullRpc {
                         accounts = Some(ui_accounts);
                     }
                     get_simulate_transaction_result(
-                        &tx_info.meta,
+                        tx_info.meta,
                         accounts,
                         None,
                         replacement_blockhash,
@@ -1691,7 +1699,7 @@ impl Full for SurfpoolFullRpc {
                     )
                 }
                 Err(tx_info) => get_simulate_transaction_result(
-                    &tx_info.meta,
+                    tx_info.meta,
                     None,
                     Some(tx_info.err),
                     replacement_blockhash,
@@ -1737,24 +1745,44 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         slot: Slot,
-        _config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
+        config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
+        let config = config.map(|c| c.convert_to_current()).unwrap_or_default();
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let remote_client = remote_ctx.as_ref().map(|(client, _)| client.clone());
+            let result = svm_locker.get_block(&remote_client, &slot, &config).await;
+            Ok(result?.inner)
+        })
+    }
+
+    fn get_block_time(
+        &self,
+        meta: Self::Metadata,
+        slot: Slot,
+    ) -> BoxFuture<Result<Option<UnixTimestamp>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            Ok(svm_locker.with_svm_reader(|svm_reader| svm_reader.get_block_at_slot(slot)))
+            let block_time = svm_locker.with_svm_reader(|svm_reader| {
+                svm_reader
+                    .blocks
+                    .get(&slot)
+                    .map(|block| (block.block_time / 1000) as UnixTimestamp)
+            });
+            Ok(block_time)
         })
-    }
-
-    fn get_block_time(
-        &self,
-        _meta: Self::Metadata,
-        _slot: Slot,
-    ) -> BoxFuture<Result<Option<UnixTimestamp>>> {
-        Box::pin(async { Ok(None) })
     }
 
     fn get_blocks(
@@ -1771,7 +1799,10 @@ impl Full for SurfpoolFullRpc {
         };
 
         let config = config.unwrap_or_default();
-        let commitment = config.commitment.unwrap_or_default();
+        // get blocks should default to processed rather than finalized to default to the most recent
+        let commitment = config.commitment.unwrap_or(CommitmentConfig {
+            commitment: CommitmentLevel::Processed,
+        });
 
         const MAX_SLOT_RANGE: u64 = 500_000;
         if let Some(end) = end_slot {
@@ -1999,28 +2030,20 @@ impl Full for SurfpoolFullRpc {
     ) -> BoxFuture<Result<Option<EncodedConfirmedTransactionWithStatusMeta>>> {
         let config = config.map(|c| c.convert_to_current()).unwrap_or_default();
 
-        let signature = match Signature::from_str(&signature_str)
-            .map_err(|e| SurfpoolError::invalid_signature(&signature_str, e.to_string()))
-        {
-            Ok(s) => s,
-            Err(e) => return e.into(),
-        };
-
-        let SurfnetRpcContext {
-            svm_locker,
-            remote_ctx,
-        } = match meta.get_rpc_context(config.encoding) {
-            Ok(res) => res,
-            Err(e) => return e.into(),
-        };
-
         Box::pin(async move {
+            let signature = Signature::from_str(&signature_str)
+                .map_err(|e| SurfpoolError::invalid_signature(&signature_str, e.to_string()))?;
+
+            let SurfnetRpcContext {
+                svm_locker,
+                remote_ctx,
+            } = meta.get_rpc_context(())?;
+
             // TODO: implement new interfaces in LiteSVM to get all the relevant info
             // needed to return the actual tx, not just some metadata
             match svm_locker
-                .get_transaction(&remote_ctx, &signature)
-                .await
-                .inner
+                .get_transaction(&remote_ctx.map(|(r, _)| r), &signature, config)
+                .await?
             {
                 GetTransactionResult::None(_) => Ok(None),
                 GetTransactionResult::FoundTransaction(_, meta, _) => Ok(Some(meta)),
@@ -2237,14 +2260,16 @@ impl Full for SurfpoolFullRpc {
                 match tx {
                     SurfnetTransactionStatus::Received => {}
                     SurfnetTransactionStatus::Processed(status_meta) => {
-                        let tx = &status_meta.1;
+                        let tx = &status_meta.transaction;
 
                         // If the transaction has an ALT and includes a compute budget instruction,
                         // the ALT accounts are included in the recent prioritization fees,
                         // so we get _all_ the pubkeys from the message
-                        let account_keys = svm_locker
-                            .get_pubkeys_from_message(&remote_ctx, &tx.message)
+                        let loaded_addresses = svm_locker
+                            .get_loaded_addresses(&remote_ctx, &tx.message)
                             .await?;
+                        let account_keys =
+                            svm_locker.get_pubkeys_from_message(&tx.message, loaded_addresses);
 
                         let instructions = match &tx.message {
                             VersionedMessage::V0(msg) => &msg.instructions,
@@ -2283,7 +2308,7 @@ impl Full for SurfpoolFullRpc {
 }
 
 fn get_simulate_transaction_result(
-    metadata: &TransactionMetadata,
+    metadata: TransactionMetadata,
     accounts: Option<Vec<Option<UiAccount>>>,
     error: Option<TransactionError>,
     replacement_blockhash: Option<RpcBlockhash>,
@@ -2293,7 +2318,7 @@ fn get_simulate_transaction_result(
         accounts,
         err: error,
         inner_instructions: if include_inner_instructions {
-            Some(transform_tx_metadata_to_ui_accounts(&metadata))
+            Some(transform_tx_metadata_to_ui_accounts(metadata.clone()))
         } else {
             None
         },
@@ -2317,7 +2342,7 @@ mod tests {
 
     use base64::{Engine, prelude::BASE64_STANDARD};
     use crossbeam_channel::Receiver;
-    use solana_account_decoder::{UiAccount, UiAccountData};
+    use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
     use solana_commitment_config::CommitmentConfig;
     use solana_hash::Hash;
@@ -2339,7 +2364,7 @@ mod tests {
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
         UiRawMessage, UiTransaction,
     };
-    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus, TransactionMetadata};
+    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus};
     use test_case::test_case;
 
     use super::*;
@@ -2405,12 +2430,11 @@ mod tests {
                     .push_back((tx.clone(), status_tx.clone()));
                 writer.transactions.insert(
                     tx.signatures[0],
-                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta {
                         slot,
-                        tx,
-                        TransactionMetadata::default(),
-                        None,
-                    ))),
+                        transaction: tx,
+                        ..Default::default()
+                    })),
                 );
                 status_tx
                     .send(TransactionStatusEvent::Success(
@@ -2936,7 +2960,7 @@ mod tests {
         assert_eq!(res, None);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_block_time() {
         let setup = TestSetup::new(SurfpoolFullRpc);
         let res = setup
@@ -2994,7 +3018,13 @@ mod tests {
             .get_transaction(
                 Some(setup.context.clone()),
                 tx.signatures[0].to_string(),
-                None,
+                Some(RpcEncodingConfigWrapper::Current(Some(
+                    RpcTransactionConfig {
+                        max_supported_transaction_version: Some(0),
+                        encoding: Some(UiTransactionEncoding::Json),
+                        ..Default::default()
+                    },
+                ))),
             )
             .await
             .unwrap()
@@ -3016,7 +3046,7 @@ mod tests {
         assert_eq!(
             res,
             EncodedConfirmedTransactionWithStatusMeta {
-                slot: 0,
+                slot: 123,
                 transaction: EncodedTransactionWithStatusMeta {
                     transaction: EncodedTransaction::Json(UiTransaction {
                         signatures: vec![tx.signatures[0].to_string()],
@@ -3656,7 +3686,6 @@ mod tests {
 
         {
             let mut svm_writer = setup.context.svm_locker.0.write().await;
-
             for slot in 100..=110 {
                 svm_writer.blocks.insert(
                     slot,
@@ -3670,7 +3699,6 @@ mod tests {
                     },
                 );
             }
-
             svm_writer.latest_epoch_info.absolute_slot = 110;
         }
 
@@ -3682,7 +3710,7 @@ mod tests {
                 100,
                 Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(105))),
                 Some(RpcContextConfig {
-                    commitment: None,
+                    commitment: Some(CommitmentConfig::finalized()),
                     min_context_slot: Some(105),
                 }),
             )
