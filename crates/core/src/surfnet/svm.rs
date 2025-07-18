@@ -30,6 +30,7 @@ use solana_sdk::{
     genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
     system_instruction, transaction::VersionedTransaction,
 };
+use solana_sdk_ids::system_program;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
@@ -237,6 +238,11 @@ impl SurfnetSvm {
             // the actual underlying transaction
             tx.signatures[0] = tx_result.signature.clone();
 
+            let system_lamports = self
+                .inner
+                .get_account(&system_program::id())
+                .map(|a| a.lamports())
+                .unwrap_or(1);
             self.transactions.insert(
                 tx.get_signature().clone(),
                 SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta {
@@ -245,13 +251,21 @@ impl SurfnetSvm {
                     meta: TransactionStatusMeta {
                         status: Ok(()),
                         fee: 5000,
-                        pre_balances: vec![account.lamports.saturating_sub(lamports)],
-                        post_balances: vec![account.lamports],
-                        inner_instructions: None,
+                        pre_balances: vec![
+                            account.lamports,
+                            account.lamports.saturating_sub(lamports),
+                            system_lamports,
+                        ],
+                        post_balances: vec![
+                            account.lamports.saturating_sub(lamports + 5000),
+                            account.lamports,
+                            system_lamports,
+                        ],
+                        inner_instructions: Some(vec![]),
                         log_messages: Some(tx_result.logs.clone()),
-                        pre_token_balances: None,
-                        post_token_balances: None,
-                        rewards: None,
+                        pre_token_balances: Some(vec![]),
+                        post_token_balances: Some(vec![]),
+                        rewards: Some(vec![]),
                         loaded_addresses: LoadedAddresses::default(),
                         return_data: Some(tx_result.return_data.clone()),
                         compute_units_consumed: Some(tx_result.compute_units_consumed),
