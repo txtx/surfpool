@@ -190,7 +190,7 @@ jobs:
           echo "PRE_GYP_TARGET_NAME=${{ matrix.platform }}-${{ matrix.architecture }}-unknown" >> $GITHUB_ENV
 
       - name: Install dependencies
-        runs-on: ubuntu-latest
+        if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
 
       - name: Build - Cargo

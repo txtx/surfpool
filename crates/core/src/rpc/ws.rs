@@ -12,7 +12,7 @@ use jsonrpc_pubsub::{
 };
 use solana_account_decoder::{UiAccount, UiAccountEncoding};
 use solana_client::{
-    rpc_config::RpcSignatureSubscribeConfig,
+    rpc_config::{RpcSignatureSubscribeConfig, RpcTransactionConfig},
     rpc_response::{
         ProcessedSignatureResult, ReceivedSignatureResult, RpcResponseContext, RpcSignatureResult,
     },
@@ -24,7 +24,7 @@ use solana_signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
 
 use super::{State, SurfnetRpcContext, SurfpoolWebsocketMeta};
-use crate::surfnet::{GetTransactionResult, SignatureSubscriptionType, locker::SvmAccessContext};
+use crate::surfnet::{GetTransactionResult, SignatureSubscriptionType};
 
 /// Configuration for account subscription requests.
 ///
@@ -567,7 +567,7 @@ impl Rpc for SurfpoolWsRpc {
             let SurfnetRpcContext {
                 svm_locker,
                 remote_ctx,
-            } = match meta.get_rpc_context(None) {
+            } = match meta.get_rpc_context(()) {
                 Ok(res) => res,
                 Err(e) => {
                     log::error!("Failed to get RPC context: {:?}", e);
@@ -582,9 +582,24 @@ impl Rpc for SurfpoolWsRpc {
                 }
             };
             // get the signature from the SVM to see if it's already been processed
-            let SvmAccessContext {
-                inner: tx_result, ..
-            } = svm_locker.get_transaction(&remote_ctx, &signature).await;
+            let tx_result = match svm_locker
+                .get_transaction(
+                    &remote_ctx.map(|(r, _)| r),
+                    &signature,
+                    RpcTransactionConfig::default(),
+                )
+                .await
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    if let Ok(mut guard) = active.write() {
+                        if let Some(sink) = guard.remove(&sub_id) {
+                            let _ = sink.notify(Err(e.into()));
+                        }
+                    }
+                    return;
+                }
+            };
 
             // if we already had the transaction, check if its confirmation status matches the desired status set by the subscription
             // if so, notify the user and complete the subscription

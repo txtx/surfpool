@@ -6,8 +6,8 @@ use solana_client::{
     nonblocking::rpc_client::RpcClient,
     rpc_client::GetConfirmedSignaturesForAddress2Config,
     rpc_config::{
-        RpcAccountInfoConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig,
-        RpcSignaturesForAddressConfig, RpcTokenAccountsFilter,
+        RpcAccountInfoConfig, RpcBlockConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig,
+        RpcSignaturesForAddressConfig, RpcTokenAccountsFilter, RpcTransactionConfig,
     },
     rpc_filter::RpcFilterType,
     rpc_request::{RpcRequest, TokenAccountsFilter},
@@ -16,20 +16,21 @@ use solana_client::{
         RpcTokenAccountBalance,
     },
 };
+use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_pubkey::Pubkey;
 use solana_sdk::bpf_loader_upgradeable::get_program_data_address;
 use solana_signature::Signature;
-use solana_transaction_status::UiTransactionEncoding;
+use solana_transaction_status::UiConfirmedBlock;
 
 use super::GetTransactionResult;
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::is_method_not_supported_error,
     surfnet::{GetAccountResult, locker::is_supported_token_program},
-    types::RemoteRpcResult,
+    types::{RemoteRpcResult, TokenAccount},
 };
 
 pub struct SurfnetRemoteClient {
@@ -79,13 +80,21 @@ impl SurfnetRemoteClient {
 
         let result = match res.value {
             Some(account) => {
-                if !account.executable {
-                    GetAccountResult::FoundAccount(
-                        *pubkey, account,
-                        // Mark this account as needing to be updated in the SVM, since we fetched it
-                        true,
-                    )
-                } else {
+                let mut result = None;
+                if is_supported_token_program(&account.owner) {
+                    if let Some(token_account) = TokenAccount::unpack(&account.data).ok() {
+                        let mint = self
+                            .client
+                            .get_account_with_commitment(&token_account.mint(), commitment_config)
+                            .await
+                            .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
+
+                        result = Some(GetAccountResult::FoundTokenAccount(
+                            (*pubkey, account.clone()),
+                            (token_account.mint(), mint.value),
+                        ));
+                    };
+                } else if account.executable {
                     let program_data_address = get_program_data_address(pubkey);
 
                     let program_data = self
@@ -94,11 +103,17 @@ impl SurfnetRemoteClient {
                         .await
                         .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
 
-                    GetAccountResult::FoundProgramAccount(
-                        (*pubkey, account),
+                    result = Some(GetAccountResult::FoundProgramAccount(
+                        (*pubkey, account.clone()),
                         (program_data_address, program_data.value),
-                    )
+                    ));
                 }
+
+                result.unwrap_or(GetAccountResult::FoundAccount(
+                    *pubkey, account,
+                    // Mark this account as needing to be updated in the SVM, since we fetched it
+                    true,
+                ))
             }
             None => GetAccountResult::None(*pubkey),
         };
@@ -150,15 +165,12 @@ impl SurfnetRemoteClient {
     pub async fn get_transaction(
         &self,
         signature: Signature,
-        encoding: Option<UiTransactionEncoding>,
+        config: RpcTransactionConfig,
         latest_absolute_slot: u64,
     ) -> GetTransactionResult {
         match self
             .client
-            .get_transaction(
-                &signature,
-                encoding.unwrap_or(UiTransactionEncoding::Base64),
-            )
+            .get_transaction_with_config(&signature, config)
             .await
         {
             Ok(tx) => GetTransactionResult::found_transaction(signature, tx, latest_absolute_slot),
@@ -303,6 +315,17 @@ impl SurfnetRemoteClient {
             .get_signatures_for_address_with_config(pubkey, c)
             .await
             .map_err(SurfpoolError::get_signatures_for_address)
+    }
+
+    pub async fn get_block(
+        &self,
+        slot: &Slot,
+        config: RpcBlockConfig,
+    ) -> SurfpoolResult<UiConfirmedBlock> {
+        self.client
+            .get_block_with_config(*slot, config)
+            .await
+            .map_err(|e| SurfpoolError::get_block(e, *slot))
     }
 }
 
