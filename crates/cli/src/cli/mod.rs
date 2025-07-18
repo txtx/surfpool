@@ -28,6 +28,7 @@ pub struct Context {
 
 pub const DEFAULT_SLOT_TIME_MS: &str = "400";
 pub const DEFAULT_STUDIO_PORT: u16 = 8488;
+pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
 pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
@@ -188,7 +189,7 @@ pub struct StartSimnet {
     #[clap(long = "no-studio")]
     pub no_studio: bool,
     /// Set the Studio port
-    #[arg(long = "studio-port", short = 's', default_value_t = DEFAULT_STUDIO_PORT)]
+    #[arg(long = "studio-port", short = 's', default_value_t = CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED)]
     pub studio_port: u16,
 }
 
@@ -471,7 +472,7 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
             txtx_cloud::login::handle_login_command(
                 &cmd,
                 DEFAULT_CLOUD_URL,
-                &DEFAULT_STUDIO_PORT.to_string(),
+                &CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED.to_string(),
                 DEFAULT_ID_SVC_URL,
             )
             .await
@@ -479,7 +480,7 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
         CloudCommand::Start(cmd) => {
             cmd.start(
                 DEFAULT_CLOUD_URL,
-                &DEFAULT_STUDIO_PORT.to_string(),
+                &CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED.to_string(),
                 DEFAULT_ID_SVC_URL,
                 DEFAULT_SVM_GQL_URL,
                 DEFAULT_SVM_CLOUD_API_URL,

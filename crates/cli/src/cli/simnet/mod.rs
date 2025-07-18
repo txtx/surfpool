@@ -27,7 +27,7 @@ use txtx_gql::kit::reqwest;
 
 use super::{Context, DEFAULT_CLOUD_URL, ExecuteRunbook, StartSimnet};
 use crate::{
-    cli::DEFAULT_STUDIO_PORT,
+    cli::CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
@@ -67,7 +67,7 @@ pub async fn handle_start_local_surfnet_command(
     let remote_rpc_url = config.simnets[0].remote_rpc_url.clone();
     let local_rpc_url = config.rpc.get_socket_address();
 
-    let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_STUDIO_PORT);
+    let network_binding = format!("{}:{}", cmd.network_host, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED);
     let subgraph_database_path = cmd
         .subgraph_database_path
         .as_ref()

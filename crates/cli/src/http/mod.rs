@@ -29,7 +29,7 @@ use surfpool_types::{
 };
 use txtx_core::kit::types::types::Value;
 
-use crate::cli::{Context, DEFAULT_STUDIO_PORT};
+use crate::cli::{Context, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED};
 
 #[cfg(feature = "explorer")]
 #[derive(RustEmbed)]
@@ -225,7 +225,7 @@ fn start_subgraph_runloop(
                                 schema_datasource.add_entry(schema);
                                 gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
 
-                                let console_url = format!("http://127.0.0.1:{}/gql/console", DEFAULT_STUDIO_PORT);
+                                let console_url = format!("http://127.0.0.1:{}/gql/console", CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED);
                                 let _ = sender.send(console_url);
                             }
                             SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
