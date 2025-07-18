@@ -11218,12 +11218,12 @@ dependencies = [
 
 [[package]]
 name = "surfpool-db"
-version = "0.9.1"
+version = "0.9.5"
 dependencies = [
  "diesel",
  "diesel-dynamic-schema",
  "diesel_derives",
- "txtx-addon-kit 0.4.0",
+ "txtx-addon-kit",
 ]
 
 [[package]]
