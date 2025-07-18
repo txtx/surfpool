@@ -252,11 +252,15 @@ impl SurfnetSvm {
                         status: Ok(()),
                         fee: 5000,
                         pre_balances: vec![
+                            account.lamports,
                             account.lamports.saturating_sub(lamports),
-                            0,
                             system_lamports,
                         ],
-                        post_balances: vec![account.lamports, lamports, system_lamports],
+                        post_balances: vec![
+                            account.lamports.saturating_sub(lamports + 5000),
+                            account.lamports,
+                            system_lamports,
+                        ],
                         inner_instructions: Some(vec![]),
                         log_messages: Some(tx_result.logs.clone()),
                         pre_token_balances: Some(vec![]),
