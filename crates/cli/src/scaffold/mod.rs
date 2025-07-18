@@ -4,6 +4,7 @@ use std::{
 };
 
 use dialoguer::{Confirm, Input, MultiSelect, console::Style, theme::ColorfulTheme};
+use surfpool_types::{DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT};
 use txtx_addon_network_svm::templates::{
     get_interpolated_addon_template, get_interpolated_devnet_signer_template,
     get_interpolated_header_template, get_interpolated_localnet_signer_template,
@@ -232,7 +233,7 @@ pub fn scaffold_iac_layout(
         "localnet".into(),
         indexmap! {
             "network_id".to_string() => "localnet".to_string(),
-            "rpc_api_url".to_string() => "http://127.0.0.1:8899".to_string(),
+            "rpc_api_url".to_string() => format!("http://{}:{}", DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT),
             "payer_keypair_json".to_string() => DEFAULT_SOLANA_KEYPAIR_PATH.clone(),
             "authority_keypair_json".to_string() => DEFAULT_SOLANA_KEYPAIR_PATH.clone(),
         },

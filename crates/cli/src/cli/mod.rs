@@ -7,7 +7,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
-use surfpool_types::{RpcConfig, SimnetConfig, SubgraphConfig, SurfpoolConfig};
+use surfpool_types::{
+    DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT, DEFAULT_WS_PORT, RpcConfig, SimnetConfig,
+    SubgraphConfig, SurfpoolConfig,
+};
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
 use txtx_gql::kit::helpers::fs::FileLocation;
@@ -24,11 +27,8 @@ pub struct Context {
 }
 
 pub const DEFAULT_SLOT_TIME_MS: &str = "400";
-pub const DEFAULT_EXPLORER_PORT: &str = "8901";
-pub const DEFAULT_SIMNET_PORT: &str = "8899";
-pub const DEFAULT_WS_PORT: &str = "8900";
-pub const DEFAULT_TXTX_PORT: &str = "8488";
-pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
+pub const DEFAULT_STUDIO_PORT: u16 = 8488;
+pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
 pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
@@ -135,16 +135,16 @@ pub struct StartSimnet {
     )]
     pub manifest_path: String,
     /// Set the Simnet RPC port
-    #[arg(long = "port", short = 'p', default_value = DEFAULT_SIMNET_PORT)]
+    #[arg(long = "port", short = 'p', default_value_t = DEFAULT_RPC_PORT)]
     pub simnet_port: u16,
     /// Set the Simnet WS port
-    #[arg(long = "ws-port", short = 'w', default_value = DEFAULT_WS_PORT)]
+    #[arg(long = "ws-port", short = 'w', default_value_t = DEFAULT_WS_PORT)]
     pub ws_port: u16,
     /// Set the Simnet host address
     #[arg(long = "host", short = 'o', default_value = DEFAULT_NETWORK_HOST)]
     pub network_host: String,
     /// Set the slot time
-    #[arg(long = "slot-time", short = 's', default_value = DEFAULT_SLOT_TIME_MS)]
+    #[arg(long = "slot-time", short = 't', default_value = DEFAULT_SLOT_TIME_MS)]
     pub slot_time: u64,
     /// Set a datasource RPC URL (cannot be used with --network). Can also be set via SURFPOOL_DATASOURCE_RPC_URL.
     #[arg(long = "rpc-url", short = 'u', conflicts_with = "network")]
@@ -182,6 +182,15 @@ pub struct StartSimnet {
     /// List of geyser plugins to load
     #[arg(long = "geyser-plugin-config", short = 'g')]
     pub plugin_config_path: Vec<String>,
+    /// Path to subgraph's sqlite database (default: :memory:)
+    #[arg(long = "subgraph-database-path", short = 'd')]
+    pub subgraph_database_path: Option<String>,
+    /// Disable Studio (default: false)
+    #[clap(long = "no-studio")]
+    pub no_studio: bool,
+    /// Set the Studio port
+    #[arg(long = "studio-port", short = 's', default_value_t = CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED)]
+    pub studio_port: u16,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -268,15 +277,12 @@ impl StartSimnet {
     }
 
     pub fn surfpool_config(&self, airdrop_addresses: Vec<Pubkey>) -> SurfpoolConfig {
-        let mut plugin_config_path = self
+        let plugin_config_path = self
             .plugin_config_path
             .iter()
             .map(PathBuf::from)
             .collect::<Vec<_>>();
 
-        if plugin_config_path.is_empty() {
-            plugin_config_path.push(PathBuf::from("plugins"));
-        }
         SurfpoolConfig {
             simnets: vec![self.simnet_config(airdrop_addresses)],
             rpc: self.rpc_config(),
@@ -466,7 +472,7 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
             txtx_cloud::login::handle_login_command(
                 &cmd,
                 DEFAULT_CLOUD_URL,
-                DEFAULT_TXTX_PORT,
+                &CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED.to_string(),
                 DEFAULT_ID_SVC_URL,
             )
             .await
@@ -474,7 +480,7 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
         CloudCommand::Start(cmd) => {
             cmd.start(
                 DEFAULT_CLOUD_URL,
-                DEFAULT_TXTX_PORT,
+                &CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED.to_string(),
                 DEFAULT_ID_SVC_URL,
                 DEFAULT_SVM_GQL_URL,
                 DEFAULT_SVM_CLOUD_API_URL,

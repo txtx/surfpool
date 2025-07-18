@@ -24,6 +24,9 @@ use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
 
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
+pub const DEFAULT_RPC_PORT: u16 = 8899;
+pub const DEFAULT_WS_PORT: u16 = 8900;
+pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionMetadata {
@@ -64,18 +67,18 @@ pub struct SubgraphDataEntry {
     // A map of field names and their values
     pub values: HashMap<String, Value>,
     // The slot that the transaction that created this entry was processed in
-    pub block_height: u64,
+    pub slot: u64,
     // The transaction hash that created this entry
-    pub transaction_hash: Hash,
+    pub transaction_signature: Hash,
 }
 
 impl SubgraphDataEntry {
-    pub fn new(values: HashMap<String, Value>, block_height: u64, tx_hash: [u8; 32]) -> Self {
+    pub fn new(values: HashMap<String, Value>, slot: u64, tx_hash: [u8; 32]) -> Self {
         Self {
             uuid: Uuid::new_v4(),
             values,
-            block_height,
-            transaction_hash: Hash::from_bytes(tx_hash),
+            slot,
+            transaction_signature: Hash::from_bytes(tx_hash),
         }
     }
 }
@@ -383,9 +386,9 @@ pub struct SubgraphPluginConfig {
 impl Default for RpcConfig {
     fn default() -> Self {
         Self {
-            bind_host: "127.0.0.1".to_string(),
-            bind_port: 8899,
-            ws_port: 8900,
+            bind_host: DEFAULT_NETWORK_HOST.to_string(),
+            bind_port: DEFAULT_RPC_PORT,
+            ws_port: DEFAULT_WS_PORT,
         }
     }
 }

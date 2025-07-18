@@ -25,12 +25,13 @@ use txtx_core::kit::{
 };
 use txtx_gql::kit::reqwest;
 
-use super::{Context, DEFAULT_CLOUD_URL, DEFAULT_EXPLORER_PORT, ExecuteRunbook, StartSimnet};
+use super::{Context, DEFAULT_CLOUD_URL, ExecuteRunbook, StartSimnet};
 use crate::{
+    cli::CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
-    tui,
+    tui::{self, simnet::DisplayedUrl},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,10 +67,15 @@ pub async fn handle_start_local_surfnet_command(
     let remote_rpc_url = config.simnets[0].remote_rpc_url.clone();
     let local_rpc_url = config.rpc.get_socket_address();
 
-    let network_binding = format!("{}:{}", cmd.network_host, DEFAULT_EXPLORER_PORT);
-
+    let network_binding = format!("{}:{}", cmd.network_host, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED);
+    let subgraph_database_path = cmd
+        .subgraph_database_path
+        .as_ref()
+        .map(|p| p.as_str())
+        .unwrap_or(":memory:");
     let explorer_handle = match start_subgraph_and_explorer_server(
         network_binding,
+        subgraph_database_path,
         config.clone(),
         subgraph_events_tx.clone(),
         subgraph_commands_rx,
@@ -156,6 +162,19 @@ pub async fn handle_start_local_surfnet_command(
         }
     }
 
+    let displayed_url = if cmd.no_studio {
+        let datasource_base_url = remote_rpc_url
+            .split("?")
+            .map(|e| e.to_string())
+            .collect::<Vec<String>>()
+            .first()
+            .expect("datasource url invalid")
+            .to_string();
+        DisplayedUrl::Datasource(datasource_base_url)
+    } else {
+        DisplayedUrl::Studio(format!("http://127.0.0.1:{}", cmd.studio_port))
+    };
+
     // Start frontend - kept on main thread
     if cmd.no_tui {
         log_events(
@@ -171,8 +190,8 @@ pub async fn handle_start_local_surfnet_command(
             simnet_commands_tx,
             cmd.debug,
             deploy_progress_rx,
-            &remote_rpc_url,
-            &local_rpc_url,
+            displayed_url,
+            local_rpc_url,
             breaker,
         )
         .map_err(|e| format!("{}", e))?;

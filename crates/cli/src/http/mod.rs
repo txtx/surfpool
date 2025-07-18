@@ -13,6 +13,7 @@ use actix_web::{
     middleware,
     web::{self, Data},
 };
+use convert_case::{Case, Casing};
 use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
@@ -20,7 +21,7 @@ use juniper_graphql_ws::ConnectionConfig;
 use rust_embed::RustEmbed;
 use surfpool_gql::{
     DynamicSchema, new_dynamic_schema,
-    query::{DataloaderContext, MemoryStore, SchemaDataSource},
+    query::{Dataloader, DataloaderContext, SchemaDataSource, SqlStore},
     types::{SubgraphSpec, schema::DynamicSchemaSpec},
 };
 use surfpool_types::{
@@ -28,7 +29,7 @@ use surfpool_types::{
 };
 use txtx_core::kit::types::types::Value;
 
-use crate::cli::{Context, DEFAULT_EXPLORER_PORT};
+use crate::cli::{Context, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED};
 
 #[cfg(feature = "explorer")]
 #[derive(RustEmbed)]
@@ -37,12 +38,15 @@ pub struct Asset;
 
 pub async fn start_subgraph_and_explorer_server(
     network_binding: String,
+    subgraph_database_path: &str,
     _config: SurfpoolConfig,
     subgraph_events_tx: Sender<SubgraphEvent>,
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     _ctx: &Context,
 ) -> Result<(ServerHandle, JoinHandle<Result<(), String>>), Box<dyn StdError>> {
-    let context: DataloaderContext = Box::new(MemoryStore::new());
+    let context = DataloaderContext {
+        pool: SqlStore::new(subgraph_database_path).pool,
+    };
     let schema_datasource = SchemaDataSource::new();
     let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
     let schema_wrapped = Data::new(schema);
@@ -72,12 +76,12 @@ pub async fn start_subgraph_and_explorer_server(
             .wrap(middleware::Compress::default())
             .wrap(middleware::Logger::default())
             .service(
-                web::scope("/gql/v1")
-                    .route("/graphql?<request..>", web::get().to(get_graphql))
-                    .route("/graphql", web::post().to(post_graphql))
-                    .route("/subscriptions", web::get().to(subscriptions)),
+                web::scope("/gql")
+                    .route("/v1/graphql?<request..>", web::get().to(get_graphql))
+                    .route("/v1/graphql", web::post().to(post_graphql))
+                    .route("/v1/subscriptions", web::get().to(subscriptions))
+                    .route("/console", web::get().to(graphiql)),
             )
-            .service(web::resource("/gql/console").route(web::get().to(graphiql)))
             .service(dist)
     })
     .workers(5)
@@ -177,7 +181,7 @@ async fn subscriptions(
 }
 
 async fn graphiql() -> Result<HttpResponse, Error> {
-    graphiql_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
+    graphiql_handler("/gql/v1/graphql", None).await
 }
 
 fn start_subgraph_runloop(
@@ -202,6 +206,7 @@ fn start_subgraph_runloop(
                     0 => match oper.recv(&subgraph_commands_rx) {
                         Err(_e) => {
                             // todo
+                            std::process::exit(1);
                         }
                         Ok(cmd) => match cmd {
                             SubgraphCommand::CreateSubgraph(uuid, request, sender) => {
@@ -211,14 +216,17 @@ fn start_subgraph_runloop(
                                 })?;
 
                                 let subgraph_uuid = uuid;
-                                schema_datasource.add_entry(DynamicSchemaSpec::from_request(&uuid, &request));
-                                gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
-
+                                let subgraph_name = request.subgraph_name.to_case(Case::Camel);
+                                let schema = DynamicSchemaSpec::from_request(&uuid, &request);
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql context")
                                 })?;
-                                gql_context.register_subgraph(&request.subgraph_name, subgraph_uuid)?;
-                                let _ = sender.send(format!("http://127.0.0.1:{}/gql/console", DEFAULT_EXPLORER_PORT));
+                                gql_context.pool.register_collection(&subgraph_uuid, &subgraph_name, &schema)?;
+                                schema_datasource.add_entry(schema);
+                                gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
+
+                                let console_url = format!("http://127.0.0.1:{}/gql/console", CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED);
+                                let _ = sender.send(console_url);
                             }
                             SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
                                 observers.push(subgraph_observer_rx);
@@ -240,19 +248,18 @@ fn start_subgraph_runloop(
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql context")
                                 })?;
-                                let subgraph_name = gql_context.get_subgraph_name(&uuid).ok_or_else(|| {
-                                    format!("{err_ctx}: Subgraph name not found for uuid: {}", uuid)
-                                })?;
                                 let entries: Vec<HashMap<String, Value>> = serde_json::from_slice(values.as_slice()).map_err(|e| {
-                                    format!("{err_ctx}: Failed to deserialize new database entry for subgraph {}: {}", subgraph_name, e)
+                                    format!("{err_ctx}: Failed to deserialize new database entry for subgraph {}: {}", uuid, e)
                                 })?;
                                 for entry in entries.into_iter() {
-                                    gql_context.insert_entry_to_subgraph(&subgraph_name, SubgraphSpec(SubgraphDataEntry::new(entry, slot, tx_hash)))?;
+                                    gql_context.pool.insert_entry_to_subgraph(&uuid, SubgraphSpec(SubgraphDataEntry::new(entry, slot, tx_hash)))?;
                                 }
                             }
                             SchemaDataSourcingEvent::Rountrip(_uuid) => {}
                         },
-                        Err(_e) => {}
+                        Err(_e) => {
+                            std::process::exit(1);
+                        }
                     },
                 }
             }

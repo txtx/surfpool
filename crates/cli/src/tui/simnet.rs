@@ -49,12 +49,12 @@ struct ColorTheme {
 impl ColorTheme {
     fn new(color: &tailwind::Palette) -> Self {
         Self {
-            background: tailwind::SLATE.c950,
+            background: tailwind::ZINC.c900,
             accent: color.c400,
             primary: color.c500,
             secondary: color.c300,
             white: tailwind::SLATE.c200,
-            gray: tailwind::SLATE.c500,
+            gray: tailwind::ZINC.c800,
             error: tailwind::RED.c400,
             warning: tailwind::YELLOW.c500,
             info: tailwind::BLUE.c500,
@@ -84,8 +84,8 @@ struct App {
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     status_bar_message: Option<String>,
-    remote_rpc_url: String,
-    local_rpc_url: String,
+    displayed_url: DisplayedUrl,
+    rpc_url: String,
     breaker: Option<Keypair>,
     paused: bool,
 }
@@ -96,22 +96,12 @@ impl App {
         simnet_commands_tx: Sender<SimnetCommand>,
         include_debug_logs: bool,
         deploy_progress_rx: Vec<Receiver<BlockEvent>>,
-        remote_rpc_url: &str,
-        local_rpc_url: &str,
+        displayed_url: DisplayedUrl,
+        rpc_url: String,
         breaker: Option<Keypair>,
     ) -> App {
-        let palette = if remote_rpc_url.contains("helius") {
-            palette::tailwind::RED
-        } else {
-            palette::tailwind::EMERALD
-        };
-        let remote_rpc_host = {
-            let comps = remote_rpc_url
-                .split("?")
-                .map(|e| e.to_string())
-                .collect::<Vec<String>>();
-            comps.first().unwrap().to_string()
-        };
+        let palette = palette::tailwind::EMERALD;
+
         App {
             state: TableState::default().with_selected(0),
             scroll_state: ScrollbarState::new(5 * ITEM_HEIGHT),
@@ -132,8 +122,8 @@ impl App {
             include_debug_logs,
             deploy_progress_rx,
             status_bar_message: None,
-            remote_rpc_url: remote_rpc_host.to_string(),
-            local_rpc_url: format!("http://{}", local_rpc_url),
+            displayed_url,
+            rpc_url,
             breaker,
             paused: false,
         }
@@ -173,13 +163,18 @@ impl App {
     // }
 }
 
+pub enum DisplayedUrl {
+    Studio(String),
+    Datasource(String),
+}
+
 pub fn start_app(
     simnet_events_rx: Receiver<SimnetEvent>,
     simnet_commands_tx: Sender<SimnetCommand>,
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
-    remote_rpc_url: &str,
-    local_rpc_url: &str,
+    displayed_url: DisplayedUrl,
+    rpc_url: String,
     breaker: Option<Keypair>,
 ) -> Result<(), Box<dyn Error>> {
     // setup terminal
@@ -195,8 +190,8 @@ pub fn start_app(
         simnet_commands_tx,
         include_debug_logs,
         deploy_progress_rx,
-        remote_rpc_url,
-        local_rpc_url,
+        displayed_url,
+        rpc_url,
         breaker,
     );
     let res = run_app(&mut terminal, app);
@@ -215,7 +210,7 @@ pub fn start_app(
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
     let (tx, rx) = unbounded();
-    let rpc_api_url = app.local_rpc_url.clone();
+    let rpc_api_url = app.rpc_url.clone();
     let _ = hiro_system_kit::thread_named("break solana").spawn(move || {
         while let Ok((message, keypair)) = rx.recv() {
             let client =
@@ -506,46 +501,76 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
-    let infos = vec![
-        Line::from(vec![
-            Span::styled("۬", app.colors.white),
-            Span::styled("Surfnet   ", app.colors.gray),
-            Span::styled(&app.local_rpc_url, app.colors.white),
-        ]),
-        Line::from(vec![
-            Span::styled("۬", app.colors.white),
-            Span::styled("Provider  ", app.colors.gray),
-            Span::styled(&app.remote_rpc_url, app.colors.white),
-        ]),
-        Line::from(vec![Span::styled("۬-", app.colors.gray)]),
-        Line::from(vec![
-            Span::styled("۬", app.colors.white),
-            Span::styled(
-                format!("{} ", app.successful_transactions),
-                app.colors.accent,
-            ),
-            Span::styled("transactions processed", app.colors.white),
-        ]),
-    ];
+    let infos = match app.displayed_url {
+        DisplayedUrl::Datasource(ref datasource_url) => {
+            vec![
+                Line::from(vec![
+                    Span::styled("۬", app.colors.white),
+                    Span::styled("Surfnet   ", app.colors.gray),
+                    Span::styled(&app.rpc_url, app.colors.white),
+                ]),
+                Line::from(vec![
+                    Span::styled("۬", app.colors.white),
+                    Span::styled("Provider  ", app.colors.gray),
+                    Span::styled(datasource_url, app.colors.white),
+                ]),
+                Line::from(vec![Span::styled("۬-", app.colors.gray)]),
+                Line::from(vec![
+                    Span::styled("۬", app.colors.white),
+                    Span::styled(
+                        format!("{} ", app.successful_transactions),
+                        app.colors.accent,
+                    ),
+                    Span::styled("transactions processed", app.colors.white),
+                ]),
+            ]
+        }
+        DisplayedUrl::Studio(ref studio_url) => {
+            vec![
+                Line::from(vec![
+                    Span::styled("۬", app.colors.white),
+                    Span::styled("Dashboard  ", app.colors.gray),
+                    Span::styled(studio_url, app.colors.white),
+                ]),
+                Line::from(vec![Span::styled("۬-", app.colors.gray)]),
+                Line::from(vec![
+                    Span::styled("۬", app.colors.white),
+                    Span::styled(
+                        format!("{} ", app.successful_transactions),
+                        app.colors.accent,
+                    ),
+                    Span::styled("transactions processed", app.colors.white),
+                ]),
+            ]
+        }
+    };
     let title = Paragraph::new(infos);
     f.render_widget(title.style(app.colors.white), area);
 }
 
 fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
-    let line_len = area.width.max(1) as usize;
+    if area.height == 0 {
+        return
+    }
+    let line_len = area.width.max(1) as usize / 2;
     let total_chars = line_len * 3;
     let cursor = app.slot() % total_chars;
-    let sequence: Vec<char> = (0..total_chars)
-        .map(|i| if i < cursor { '▮' } else { '▯' })
-        .collect();
 
-    let text: String = sequence
-        .chunks(line_len)
-        .map(|line| line.iter().collect::<String>())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut lines = Vec::new();
+    for chunk in (0..total_chars).collect::<Vec<_>>().chunks(line_len) {
+        let mut spans = Vec::new();
+        for &i in chunk {
+            let color = if i < cursor {
+                app.colors.accent
+            } else {
+                app.colors.gray
+            };
+            spans.push(Span::styled("● ", color));
+        }
+        lines.push(Line::from(spans));
+    }
 
-    let title = Paragraph::new(text);
+    let title = Paragraph::new(lines);
     f.render_widget(title.style(app.colors.accent), area);
 }
 
