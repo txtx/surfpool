@@ -10983,7 +10983,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "surfpool-cli"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -11035,7 +11035,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-core"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -11114,7 +11114,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-gql"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "blake3",
  "convert_case 0.8.0",
@@ -11132,7 +11132,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-mcp"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "axum 0.8.4",
  "bs58",
@@ -11153,7 +11153,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-subgraph"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "agave-geyser-plugin-interface",
  "ipc-channel",
@@ -11167,7 +11167,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-types"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "blake3",
  "chrono",
@@ -12119,9 +12119,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e148762c3b978920cecf5ec4fce0f0029bf0fbd00954514a96c34bb85236389e"
+checksum = "c8e5142fbbc04dc3e3262a656b20e8e6a976443ee31e08fbc5f33cd262af6101"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
