@@ -549,6 +549,9 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
+    if area.height == 0 {
+        return
+    }
     let line_len = area.width.max(1) as usize / 2;
     let total_chars = line_len * 3;
     let cursor = app.slot() % total_chars;
