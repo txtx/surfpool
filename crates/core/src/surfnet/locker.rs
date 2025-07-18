@@ -763,18 +763,6 @@ impl SurfnetSvmLocker {
                 })
                 .collect::<Vec<_>>();
 
-            let token_mints = token_accounts_before
-                .iter()
-                .map(|(_, a)| {
-                    svm_writer
-                        .token_mints
-                        .get(&a.mint())
-                        .ok_or(SurfpoolError::token_mint_not_found(a.mint()))
-                        .cloned()
-                })
-                .collect::<Result<Vec<_>, SurfpoolError>>()
-                .unwrap();
-
             let token_programs = token_accounts_before
                 .iter()
                 .map(|(i, _)| {
@@ -786,6 +774,7 @@ impl SurfnetSvmLocker {
                 })
                 .collect::<Vec<_>>()
                 .clone();
+
             // if not skipping preflight, simulate the transaction
             if !skip_preflight {
                 match svm_writer.simulate_transaction(transaction.clone(), true) {
@@ -808,7 +797,7 @@ impl SurfnetSvmLocker {
                             latest_absolute_slot,
                             Some(res.err),
                         );
-                        return;
+                        return Ok::<(), SurfpoolError>(());
                     }
                 }
             }
@@ -842,6 +831,17 @@ impl SurfnetSvmLocker {
                             svm_writer.token_accounts.get(&p).cloned().map(|a| (i, a))
                         })
                         .collect::<Vec<_>>();
+
+                    let token_mints = token_accounts_after
+                        .iter()
+                        .map(|(_, a)| {
+                            svm_writer
+                                .token_mints
+                                .get(&a.mint())
+                                .ok_or(SurfpoolError::token_mint_not_found(a.mint()))
+                                .cloned()
+                        })
+                        .collect::<Result<Vec<_>, SurfpoolError>>()?;
 
                     let transaction_meta = convert_transaction_metadata_from_canonical(&res);
 
@@ -902,7 +902,8 @@ impl SurfnetSvmLocker {
                 latest_absolute_slot,
                 err,
             );
-        });
+            Ok(())
+        })?;
 
         Ok(SvmAccessContext::new(
             latest_absolute_slot,
