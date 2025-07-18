@@ -31,7 +31,7 @@ use crate::{
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
-    tui,
+    tui::{self, simnet::DisplayedUrl},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -162,6 +162,19 @@ pub async fn handle_start_local_surfnet_command(
         }
     }
 
+    let displayed_url = if cmd.no_studio {
+        let datasource_base_url = remote_rpc_url
+            .split("?")
+            .map(|e| e.to_string())
+            .collect::<Vec<String>>()
+            .first()
+            .expect("datasource url invalid")
+            .to_string();
+        DisplayedUrl::Datasource(datasource_base_url)
+    } else {
+        DisplayedUrl::Studio(format!("http://127.0.0.1:{}", cmd.studio_port))
+    };
+
     // Start frontend - kept on main thread
     if cmd.no_tui {
         log_events(
@@ -177,8 +190,8 @@ pub async fn handle_start_local_surfnet_command(
             simnet_commands_tx,
             cmd.debug,
             deploy_progress_rx,
-            &remote_rpc_url,
-            &local_rpc_url,
+            displayed_url,
+            local_rpc_url,
             breaker,
         )
         .map_err(|e| format!("{}", e))?;

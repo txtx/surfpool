@@ -27,7 +27,7 @@ pub struct Context {
 }
 
 pub const DEFAULT_SLOT_TIME_MS: &str = "400";
-pub const DEFAULT_STUDIO_PORT: &str = "8488";
+pub const DEFAULT_STUDIO_PORT: u16 = 8488;
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
 pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
@@ -143,7 +143,7 @@ pub struct StartSimnet {
     #[arg(long = "host", short = 'o', default_value = DEFAULT_NETWORK_HOST)]
     pub network_host: String,
     /// Set the slot time
-    #[arg(long = "slot-time", short = 's', default_value = DEFAULT_SLOT_TIME_MS)]
+    #[arg(long = "slot-time", short = 't', default_value = DEFAULT_SLOT_TIME_MS)]
     pub slot_time: u64,
     /// Set a datasource RPC URL (cannot be used with --network). Can also be set via SURFPOOL_DATASOURCE_RPC_URL.
     #[arg(long = "rpc-url", short = 'u', conflicts_with = "network")]
@@ -184,6 +184,12 @@ pub struct StartSimnet {
     /// Path to subgraph's sqlite database (default: :memory:)
     #[arg(long = "subgraph-database-path", short = 'd')]
     pub subgraph_database_path: Option<String>,
+    /// Disable Studio (default: false)
+    #[clap(long = "no-studio")]
+    pub no_studio: bool,
+    /// Set the Studio port
+    #[arg(long = "studio-port", short = 's', default_value_t = DEFAULT_STUDIO_PORT)]
+    pub studio_port: u16,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -465,7 +471,7 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
             txtx_cloud::login::handle_login_command(
                 &cmd,
                 DEFAULT_CLOUD_URL,
-                DEFAULT_STUDIO_PORT,
+                &DEFAULT_STUDIO_PORT.to_string(),
                 DEFAULT_ID_SVC_URL,
             )
             .await
@@ -473,7 +479,7 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
         CloudCommand::Start(cmd) => {
             cmd.start(
                 DEFAULT_CLOUD_URL,
-                DEFAULT_STUDIO_PORT,
+                &DEFAULT_STUDIO_PORT.to_string(),
                 DEFAULT_ID_SVC_URL,
                 DEFAULT_SVM_GQL_URL,
                 DEFAULT_SVM_CLOUD_API_URL,

@@ -84,8 +84,8 @@ struct App {
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     status_bar_message: Option<String>,
-    remote_rpc_url: String,
-    local_rpc_url: String,
+    displayed_url: DisplayedUrl,
+    rpc_url: String,
     breaker: Option<Keypair>,
     paused: bool,
 }
@@ -96,19 +96,12 @@ impl App {
         simnet_commands_tx: Sender<SimnetCommand>,
         include_debug_logs: bool,
         deploy_progress_rx: Vec<Receiver<BlockEvent>>,
-        remote_rpc_url: &str,
-        local_rpc_url: &str,
+        displayed_url: DisplayedUrl,
+        rpc_url: String,
         breaker: Option<Keypair>,
     ) -> App {
         let palette = palette::tailwind::EMERALD;
 
-        let remote_rpc_host = {
-            let comps = remote_rpc_url
-                .split("?")
-                .map(|e| e.to_string())
-                .collect::<Vec<String>>();
-            comps.first().unwrap().to_string()
-        };
         App {
             state: TableState::default().with_selected(0),
             scroll_state: ScrollbarState::new(5 * ITEM_HEIGHT),
@@ -129,8 +122,8 @@ impl App {
             include_debug_logs,
             deploy_progress_rx,
             status_bar_message: None,
-            remote_rpc_url: remote_rpc_host.to_string(),
-            local_rpc_url: format!("http://{}", local_rpc_url),
+            displayed_url,
+            rpc_url,
             breaker,
             paused: false,
         }
@@ -170,13 +163,18 @@ impl App {
     // }
 }
 
+pub enum DisplayedUrl {
+    Studio(String),
+    Datasource(String),
+}
+
 pub fn start_app(
     simnet_events_rx: Receiver<SimnetEvent>,
     simnet_commands_tx: Sender<SimnetCommand>,
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
-    remote_rpc_url: &str,
-    local_rpc_url: &str,
+    displayed_url: DisplayedUrl,
+    rpc_url: String,
     breaker: Option<Keypair>,
 ) -> Result<(), Box<dyn Error>> {
     // setup terminal
@@ -192,8 +190,8 @@ pub fn start_app(
         simnet_commands_tx,
         include_debug_logs,
         deploy_progress_rx,
-        remote_rpc_url,
-        local_rpc_url,
+        displayed_url,
+        rpc_url,
         breaker,
     );
     let res = run_app(&mut terminal, app);
@@ -212,7 +210,7 @@ pub fn start_app(
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
     let (tx, rx) = unbounded();
-    let rpc_api_url = app.local_rpc_url.clone();
+    let rpc_api_url = app.rpc_url.clone();
     let _ = hiro_system_kit::thread_named("break solana").spawn(move || {
         while let Ok((message, keypair)) = rx.recv() {
             let client =
@@ -503,27 +501,49 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
-    let infos = vec![
-        Line::from(vec![
-            Span::styled("۬", app.colors.white),
-            Span::styled("Surfnet   ", app.colors.gray),
-            Span::styled(&app.local_rpc_url, app.colors.white),
-        ]),
-        Line::from(vec![
-            Span::styled("۬", app.colors.white),
-            Span::styled("Provider  ", app.colors.gray),
-            Span::styled(&app.remote_rpc_url, app.colors.white),
-        ]),
-        Line::from(vec![Span::styled("۬-", app.colors.gray)]),
-        Line::from(vec![
-            Span::styled("۬", app.colors.white),
-            Span::styled(
-                format!("{} ", app.successful_transactions),
-                app.colors.accent,
-            ),
-            Span::styled("transactions processed", app.colors.white),
-        ]),
-    ];
+    let infos = match app.displayed_url {
+        DisplayedUrl::Datasource(ref datasource_url) => {
+            vec![
+                Line::from(vec![
+                    Span::styled("۬", app.colors.white),
+                    Span::styled("Surfnet   ", app.colors.gray),
+                    Span::styled(&app.rpc_url, app.colors.white),
+                ]),
+                Line::from(vec![
+                    Span::styled("۬", app.colors.white),
+                    Span::styled("Provider  ", app.colors.gray),
+                    Span::styled(datasource_url, app.colors.white),
+                ]),
+                Line::from(vec![Span::styled("۬-", app.colors.gray)]),
+                Line::from(vec![
+                    Span::styled("۬", app.colors.white),
+                    Span::styled(
+                        format!("{} ", app.successful_transactions),
+                        app.colors.accent,
+                    ),
+                    Span::styled("transactions processed", app.colors.white),
+                ]),
+            ]
+        }
+        DisplayedUrl::Studio(ref studio_url) => {
+            vec![
+                Line::from(vec![
+                    Span::styled("۬", app.colors.white),
+                    Span::styled("Dashboard  ", app.colors.gray),
+                    Span::styled(studio_url, app.colors.white),
+                ]),
+                Line::from(vec![Span::styled("۬-", app.colors.gray)]),
+                Line::from(vec![
+                    Span::styled("۬", app.colors.white),
+                    Span::styled(
+                        format!("{} ", app.successful_transactions),
+                        app.colors.accent,
+                    ),
+                    Span::styled("transactions processed", app.colors.white),
+                ]),
+            ]
+        }
+    };
     let title = Paragraph::new(infos);
     f.render_widget(title.style(app.colors.white), area);
 }
