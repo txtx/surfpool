@@ -283,10 +283,7 @@ fn log_events(
                                 "Transaction processed {}", meta.signature
                             );
                             for log in meta.logs {
-                                info!(
-                                    ctx.expect_logger(),
-                                    "Transaction logs {}: {}", meta.signature, log
-                                );
+                                info!(ctx.expect_logger(), "{}", log);
                             }
                         }
                     }
