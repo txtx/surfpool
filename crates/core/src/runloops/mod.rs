@@ -1,3 +1,5 @@
+#![allow(unused_imports, dead_code, unused_mut, unused_variables)]
+
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -22,7 +24,7 @@ use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
 use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
 use libloading::{Library, Symbol};
-#[cfg(not(windows))]
+#[cfg(feature = "geyser-plugin")]
 use solana_geyser_plugin_manager::geyser_plugin_manager::{
     GeyserPluginManager, LoadedGeyserPlugin,
 };
@@ -35,7 +37,6 @@ use surfpool_types::{
     SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
 };
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
-
 use txtx_addon_kit::helpers::fs::FileLocation;
 
 use crate::{
@@ -232,21 +233,6 @@ pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<
     (clock_event_rx, clock_command_tx)
 }
 
-#[cfg(windows)]
-fn start_geyser_runloop(
-    _plugin_config_paths: Vec<PathBuf>,
-    _plugin_manager_commands_rx: Receiver<PluginManagerCommand>,
-    _subgraph_commands_tx: Sender<SubgraphCommand>,
-    _simnet_events_tx: Sender<SimnetEvent>,
-    _geyser_events_rx: Receiver<GeyserEvent>,
-) -> Result<JoinHandle<Result<(), String>>, String> {
-    let handle = hiro_system_kit::thread_named("Geyser Plugins Handler")
-        .spawn(move || Ok(()))
-        .map_err(|e| format!("Failed to spawn Geyser Plugins Handler thread: {:?}", e))?;
-    Ok(handle)
-}
-
-#[cfg(not(windows))]
 fn start_geyser_runloop(
     plugin_config_paths: Vec<PathBuf>,
     plugin_manager_commands_rx: Receiver<PluginManagerCommand>,
@@ -254,10 +240,15 @@ fn start_geyser_runloop(
     simnet_events_tx: Sender<SimnetEvent>,
     geyser_events_rx: Receiver<GeyserEvent>,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
-    let handle = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
+    let handle: JoinHandle<Result<(), String>> = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
+        #[cfg(feature = "geyser-plugin")]
         let mut plugin_manager = GeyserPluginManager::new();
+        #[cfg(not(feature = "geyser-plugin"))]
+        let mut plugin_manager = ();
+
         let mut surfpool_plugin_manager = vec![];
 
+        #[cfg(feature = "geyser-plugin")]
         for plugin_config_path in plugin_config_paths.into_iter() {
             let plugin_manifest_location = FileLocation::from_path(plugin_config_path);
             let contents = plugin_manifest_location.read_content_as_utf8()?;
@@ -299,7 +290,6 @@ fn start_geyser_runloop(
         }
 
         let ipc_router = RouterProxy::new();
-        //
 
         let err = loop {
             select! {
@@ -378,6 +368,7 @@ fn start_geyser_runloop(
                             };
                         }
 
+                        #[cfg(feature = "geyser-plugin")]
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), transaction_with_status_meta.slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));

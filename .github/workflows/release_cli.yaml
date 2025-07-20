@@ -193,9 +193,15 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
 
-      - name: Build - Cargo
+      - name: Build - Cargo (Windows)
+        if: matrix.os == 'windows-latest'
         run: 
           cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui
+
+      - name: Build - Cargo (Unix)
+        if: matrix.os != 'windows-latest'
+        run: 
+          cargo build --release --locked --target ${{ matrix.target }} --features "supervisor_ui geyser-plugin"
 
       # Don't compress for Windows because winget can't yet unzip files
       - name: Compress cargo artifact (not windows)
