@@ -33,6 +33,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - uses: actions/checkout@v4
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --verbose --features geyser-plugin
       - name: Run tests
-        run: cargo test --all --verbose --features ignore_tests_ci
+        run: cargo test --all --verbose --features "ignore_tests_ci geyser-plugin"

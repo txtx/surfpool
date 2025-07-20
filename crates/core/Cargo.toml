@@ -85,9 +85,7 @@ txtx-addon-network-svm-types = { workspace = true }
 uuid = "1.7.0"
 blake3 = "1.8.2"
 anyhow = "1.0.98"
-
-[target.'cfg(not(windows))'.dependencies]
-solana-geyser-plugin-manager = { workspace = true }
+solana-geyser-plugin-manager = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-case = "^3.3.1"
@@ -95,3 +93,4 @@ test-log = "0.2.18"
 
 [features]
 ignore_tests_ci = []
+geyser-plugin = ["solana-geyser-plugin-manager"]
