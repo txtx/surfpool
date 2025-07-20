@@ -223,11 +223,7 @@ fn start_subgraph_runloop(
                                         "{err_ctx}: Failed to acquire write lock on gql context"
                                     )
                                 })?;
-                                gql_context.pool.register_collection(
-                                    &subgraph_uuid,
-                                    &subgraph_name,
-                                    &schema,
-                                )?;
+                                gql_context.pool.register_collection(&subgraph_uuid, &request)?;
                                 schema_datasource.add_entry(schema);
                                 gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
 

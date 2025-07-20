@@ -7,25 +7,18 @@ use juniper::{
     GraphQLValueAsync, Registry, ScalarValue, meta::MetaType,
 };
 use surfpool_db::{
-    DynamicValue,
     diesel::{
-        self, Connection, ExpressionMethods, MultiConnection, QueryDsl, RunQueryDsl,
-        r2d2::{ConnectionManager, Pool, PooledConnection},
-        sql_query,
-        sql_types::{Bool, Integer, Text, Untyped},
-    },
-    diesel_dynamic_schema::{
-        DynamicSelectClause,
-        dynamic_value::{DynamicRow, NamedField},
-        table,
-    },
-    schema::collections::dsl as collections_dsl,
+        self, associations::HasTable, r2d2::{ConnectionManager, Pool, PooledConnection}, sql_query, sql_types::{Bool, Integer, Text, Untyped}, Connection, ExpressionMethods, MultiConnection, QueryDsl, RunQueryDsl
+    }, diesel_dynamic_schema::{
+        dynamic_value::{DynamicRow, NamedField}, table, DynamicSelectClause
+    }, schema::collections::dsl as collections_dsl, DynamicValue
 };
 use surfpool_types::subgraphs::SubgraphDataEntry;
 use txtx_addon_kit::{
     hex, serde_json,
     types::types::{Type, Value},
 };
+use txtx_addon_network_svm_types::subgraph::{IndexedSubgraphSourceTypeName, SubgraphRequest};
 use uuid::Uuid;
 
 use crate::types::{
@@ -73,8 +66,7 @@ pub trait Dataloader {
     fn register_collection(
         &self,
         subgraph_uuid: &Uuid,
-        subgraph_name: &str,
-        schema: &DynamicSchemaSpec,
+        schema: &SubgraphRequest,
     ) -> Result<(), String>;
     fn insert_entry_to_subgraph(
         &self,
@@ -406,7 +398,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         let mut conn = self.get().unwrap();
         // Use Diesel's query DSL to fetch the entries_table
         let entries_table: String = collections_dsl::collections
-            .filter(collections_dsl::name.eq(subgraph_name))
+            .filter(collections_dsl::subgraph_id.eq(schema.subgraph_uuid.to_string()))
             .select(collections_dsl::entries_table)
             .first(&mut *conn)
             .map_err(|e| {
@@ -479,18 +471,18 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
     fn register_collection(
         &self,
         subgraph_uuid: &Uuid,
-        subgraph_name: &str,
-        schema: &DynamicSchemaSpec,
+        request: &SubgraphRequest,
     ) -> Result<(), String> {
         let mut conn = self.get().unwrap();
 
         // 1. Ensure subgraphs table exists
+        let cols = collections_dsl::collections::all_columns();
         sql_query(
             "CREATE TABLE IF NOT EXISTS collections (
                 id TEXT PRIMARY KEY,
                 created_at TIMESTAMP NOT NULL,
                 updated_at TIMESTAMP NOT NULL,
-                name TEXT NOT NULL,
+                subgraph_id TEXT NOT NULL,
                 entries_table TEXT NOT NULL,
                 schema TEXT NOT NULL
             )",
@@ -500,12 +492,13 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
 
         // 2. Create a new entries table for this subgraph, using the schema to determine the fields
         let uuid = subgraph_uuid;
-        let entries_table = format!("subgraph_entries_{}", uuid.simple().to_string());
+        let entries_table = format!("entries_{}", uuid.simple().to_string());
         // Build the SQL for the entries table using the schema fields
-        let mut columns = SubgraphDataEntry::column_metadata(&schema.source_type);
-        for field in &schema.fields {
+        let data_source_type = IndexedSubgraphSourceTypeName::from(&request.data_source);
+        let mut columns = SubgraphDataEntry::column_metadata(&data_source_type);
+        for field in &request.fields {
             // Map field types to SQLite types (expand as needed)
-            let sql_type = match &field.data.expected_type {
+            let sql_type = match &field.expected_type {
                 Type::String => "TEXT",
                 Type::Integer => "INTEGER",
                 Type::Float => "REAL",
@@ -514,7 +507,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             };
             let col = format!(
                 "{} {}",
-                field.data.display_name.to_case(Case::Snake),
+                field.display_name.to_case(Case::Snake),
                 sql_type
             );
             columns.push(col);
@@ -527,21 +520,23 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         sql_query(&create_entries_sql)
             .execute(&mut *conn)
             .map_err(|e| format!("Failed to create entries table: {e}"))?;
-        let schema_json = serde_json::to_string(schema)
+        let schema_json = serde_json::to_string(request)
             .map_err(|e| format!("Failed to serialize schema: {e}"))?;
         let now = chrono::Utc::now().naive_utc();
 
-        sql_query(
-            "INSERT INTO collections (id, created_at, updated_at, name, entries_table, schema) VALUES (?, ?, ?, ?, ?, ?)"
-        )
-        .bind::<diesel::sql_types::Text, _>(uuid.to_string())
-        .bind::<diesel::sql_types::Timestamp, _>(now)
-        .bind::<diesel::sql_types::Timestamp, _>(now)
-        .bind::<diesel::sql_types::Text, _>(subgraph_name)
-        .bind::<diesel::sql_types::Text, _>(&entries_table)
-        .bind::<diesel::sql_types::Text, _>(schema_json)
-        .execute(&mut *conn)
-        .map_err(|e| format!("Failed to insert subgraph: {e}"))?;
+        let sql = format!(
+            "INSERT INTO collections (id, created_at, updated_at, subgraph_id, entries_table, schema) VALUES ('{}', '{}', '{}', '{}', '{}', X'{}')",
+            uuid.to_string(),
+            now,
+            now,
+            subgraph_uuid,
+            &entries_table,
+            hex::encode(schema_json.as_bytes())
+        );
+        
+        sql_query(&sql)
+            .execute(&mut *conn)
+            .map_err(|e| format!("Failed to insert subgraph: {e}"))?;
 
         Ok(())
     }
@@ -553,13 +548,13 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
     ) -> Result<(), String> {
         let mut conn = self.get().unwrap();
 
-        let (entries_table, schema_json): (String, String) = collections_dsl::collections
+        let (entries_table, request_src): (String, String) = collections_dsl::collections
             .filter(collections_dsl::id.eq(subgraph_uuid.to_string()))
             .select((collections_dsl::entries_table, collections_dsl::schema))
             .first(&mut *conn)
             .map_err(|e| format!("No subgraph found for uuid {}: {e}", subgraph_uuid))?;
 
-        let schema: DynamicSchemaSpec = serde_json::from_str(&schema_json)
+        let request: SubgraphRequest = serde_json::from_str(&request_src)
             .map_err(|e| format!("Failed to parse schema: {e}"))?;
 
         // 2. Prepare the insert statement using the schema for column order
@@ -570,10 +565,10 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
 
         // Use the schema to determine the order and names of dynamic fields
         // Insert null if the value is missing
-        for field in &schema.fields {
-            let col = field.data.display_name.to_case(Case::Snake);
+        for field in &request.fields {
+            let col = field.display_name.to_case(Case::Snake);
             columns.push(col.clone());
-            if let Some(val) = dynamic_values.get(&field.data.display_name) {
+            if let Some(val) = dynamic_values.get(&field.display_name) {
                 let val_str = match val {
                     Value::Bool(b) => b.to_string(),
                     Value::String(s) => format!("'{}'", s.replace("'", "''")),
@@ -620,30 +615,50 @@ mod tests {
     use solana_sdk::signature::Signature;
     use surfpool_types::subgraphs::SubgraphDataEntryTableDefaults;
     use txtx_addon_kit::types::types::{Type, Value};
-    use txtx_addon_network_svm_types::subgraph::IndexedSubgraphSourceTypeName;
+    use solana_pubkey::Pubkey;
+    use txtx_addon_kit::types::{ConstructDid, Did};
+    use txtx_addon_network_svm_types::{anchor::types::{Idl, IdlMetadata}, subgraph::{EventSubgraphSource, IndexedSubgraphField, IndexedSubgraphSourceType}};
     use uuid::Uuid;
 
     use super::*;
-    use crate::types::schema::{DynamicSchemaSpec, FieldMetadata};
+    use crate::types::schema::DynamicSchemaSpec;
 
-    fn test_schema() -> DynamicSchemaSpec {
-        DynamicSchemaSpec {
-            name: "TestSubgraph".to_string(),
-            filter: SubgraphFilterSpec {
-                name: "TestSubgraphFilter".to_string(),
-                fields: vec![],
+    fn test_request() -> SubgraphRequest {
+        let program_id = Pubkey::new_unique();
+        let idl: Idl = Idl {
+            address: program_id.clone().to_string(),
+            metadata: IdlMetadata {
+                name: "TestProgram".to_string(),
+                version: "1.0.0".to_string(),
+                spec: "1.0.0".to_string(),
+                description: None,
+                repository: None,
+                deployments: None,
+                dependencies: vec![],
+                contact: None,
             },
-            subgraph_uuid: Uuid::new_v4(),
-            description: None,
-            fields: vec![FieldMetadata {
-                data: txtx_addon_network_svm_types::subgraph::IndexedSubgraphField {
-                    display_name: "test_field".to_string(),
-                    source_key: "test_field".to_string(),
-                    expected_type: Type::String,
-                    description: None,
-                },
-            }],
-            source_type: IndexedSubgraphSourceTypeName::Event,
+            docs: vec![],
+            types: vec![],
+            constants: vec![],
+            instructions: vec![],
+            accounts: vec![],
+            events: vec![],
+            errors: vec![],
+        };
+        SubgraphRequest {
+            program_id: program_id.clone(),
+            block_height: 0,
+            subgraph_name: "TestSubgraph".to_string(),
+            subgraph_description: None,
+            data_source: IndexedSubgraphSourceType::Event(EventSubgraphSource::new("TestEvent", &idl).unwrap()),
+            construct_did: ConstructDid(Did::zero()),
+            network: "localnet".into(),
+            fields: vec![IndexedSubgraphField {
+                display_name: "test_field".to_string(),
+                source_key: "test_field".to_string(),
+                expected_type: Type::String,
+                description: None,
+        }],
         }
     }
 
@@ -661,13 +676,14 @@ mod tests {
     #[test]
     fn test_register_insert_fetch() {
         let store = SqlStore::new_in_memory();
-        let schema = test_schema();
-        let uuid = schema.subgraph_uuid;
+        let request = test_request();
+        let uuid = Uuid::now_v7();
+        let schema = DynamicSchemaSpec::from_request(&uuid, &request);
         let name = schema.name.clone();
         // Register subgraph
         store
             .pool
-            .register_collection(&uuid, &name, &schema)
+            .register_collection(&uuid, &request)
             .expect("register_collection");
         // Insert entry
         let entry = test_entry(&schema);

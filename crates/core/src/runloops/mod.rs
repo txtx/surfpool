@@ -408,6 +408,7 @@ fn start_geyser_runloop(
                             }
                         }
 
+                        #[cfg(feature = "geyser-plugin")]
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update account in Geyser plugin: {:?}", e)));
