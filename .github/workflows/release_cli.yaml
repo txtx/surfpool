@@ -5,6 +5,7 @@ on:
       - main
       - ci
       - supervised
+      - feat/surfpool-studio
   workflow_dispatch:
 
 concurrency:
