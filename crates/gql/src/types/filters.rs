@@ -248,7 +248,7 @@ pub fn build_number_filter_argument<'r>(
 ) -> Argument<'r, DefaultScalarValue> {
     Argument::new(
         filter,
-        juniper::Type::Named(std::borrow::Cow::Borrowed("i128")),
+        juniper::Type::Named(std::borrow::Cow::Borrowed("Int")),
     )
     .description(&format!(
         "Keep entries with a value {} to another value",
