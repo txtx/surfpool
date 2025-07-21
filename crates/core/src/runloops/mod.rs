@@ -33,7 +33,7 @@ use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
-    BlockProductionMode, ClockCommand, ClockEvent, SchemaDataSourcingEvent, SimnetCommand,
+    BlockProductionMode, ClockCommand, ClockEvent,  SimnetCommand,
     SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
 };
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
@@ -294,6 +294,11 @@ fn start_geyser_runloop(
         let ipc_router = RouterProxy::new();
 
         let err = loop {
+            use agave_geyser_plugin_interface::geyser_plugin_interface::{ReplicaAccountInfoV3, ReplicaAccountInfoVersions};
+            use surfpool_types::subgraphs::SchemaDataSourcingEvent;
+
+            use crate::types::GeyserAccountUpdate;
+
             select! {
                 recv(plugin_manager_commands_rx) -> msg => {
                     match msg {
@@ -375,6 +380,38 @@ fn start_geyser_runloop(
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), transaction_with_status_meta.slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
                             };
+                        }
+                    }
+                    Ok(GeyserEvent::UpdateAccount(account_update)) => {
+                        let GeyserAccountUpdate {
+                            pubkey,
+                            account,
+                            slot,
+                            sanitized_transaction,
+                            write_version,
+                        } = account_update;
+
+                        let account_replica = ReplicaAccountInfoV3 {
+                            pubkey: pubkey.as_ref(),
+                            lamports: account.lamports,
+                            owner: account.owner.as_ref(),
+                            executable: account.executable,
+                            rent_epoch: account.rent_epoch, 
+                            data: account.data.as_ref(),
+                            write_version,
+                            txn: Some(&sanitized_transaction),
+                        };
+
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update account in Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update account in Geyser plugin: {:?}", e)));
+                            }
                         }
                     }
                 }

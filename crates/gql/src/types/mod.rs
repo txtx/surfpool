@@ -3,13 +3,16 @@ use juniper::{
     graphql_object,
     meta::{Field, MetaType},
 };
-use scalars::{bigint::BigInt, hash::Hash, pubkey::PublicKey, slot::Slot};
-use surfpool_types::SubgraphDataEntry;
+use scalars::{bigint::BigInt, pubkey::PublicKey, slot::Slot};
+use surfpool_types::subgraphs::SubgraphDataEntry;
 use txtx_addon_kit::{hex, types::types::Value};
 use txtx_addon_network_svm_types::{SVM_PUBKEY, SvmValue};
 use uuid::Uuid;
 
-use crate::{query::DataloaderContext, types::schema::DynamicSchemaSpec};
+use crate::{
+    query::DataloaderContext,
+    types::{scalars::signature::Signature, schema::DynamicSchemaSpec},
+};
 
 pub mod filters;
 pub mod scalars;
@@ -28,9 +31,45 @@ impl GraphQLType<DefaultScalarValue> for SubgraphSpec {
         DefaultScalarValue: 'r,
     {
         let mut fields: Vec<Field<'r, DefaultScalarValue>> = vec![];
-        fields.push(registry.field::<&Uuid>("uuid", &()));
-        fields.push(registry.field::<i32>("slot", &()));
-        fields.push(registry.field::<&String>("transactionSignature", &()));
+        let cols = SubgraphDataEntry::default_columns_with_descriptions(&spec.source_type);
+        for (col, description) in cols {
+            if col == "pubkey" || col == "owner" {
+                fields.push(
+                    registry
+                        .field::<&PublicKey>(&col, &())
+                        .description(&description),
+                );
+            } else if col == "lamports" || col == "writeVersion" {
+                fields.push(
+                    registry
+                        .field::<&BigInt>(&col, &())
+                        .description(&description),
+                );
+            } else if col == "slot" {
+                fields.push(registry.field::<&Slot>(&col, &()).description(&description));
+            } else if col == "data" {
+                fields.push(
+                    registry
+                        .field::<&String>(&col, &())
+                        .description(&description),
+                );
+            } else if col == "transactionSignature" {
+                fields.push(
+                    registry
+                        .field::<&Signature>(&col, &())
+                        .description(&description),
+                );
+            } else if col == "uuid" {
+                fields.push(registry.field::<&Uuid>(&col, &()).description(&description));
+            } else {
+                fields.push(
+                    registry
+                        .field::<&String>(&col, &())
+                        .description(&description),
+                );
+            }
+        }
+
         for field_metadata in spec.fields.iter() {
             let field = field_metadata.register_as_scalar(registry);
             fields.push(field);
@@ -59,11 +98,35 @@ impl GraphQLValue<DefaultScalarValue> for SubgraphSpec {
         let entry = &self.0;
         match field_name {
             "uuid" => executor.resolve_with_ctx(&(), &entry.uuid.to_string()),
-            "slot" => executor.resolve_with_ctx(&(), &Slot(entry.slot)),
-            "transactionSignature" => {
-                executor.resolve_with_ctx(&(), &Hash(entry.transaction_signature))
-            }
+            "slot" => executor.resolve_with_ctx(&(), &Slot(entry.table_defaults.slot())),
+            "transactionSignature" => executor.resolve_with_ctx(
+                &(),
+                &Signature(entry.table_defaults.transaction_signature()),
+            ),
             field_name => {
+                match field_name {
+                    "pubkey" => {
+                        if let Some(pubkey) = entry.table_defaults.pubkey() {
+                            return executor.resolve_with_ctx(&(), &PublicKey(pubkey));
+                        }
+                    }
+                    "owner" => {
+                        if let Some(owner) = entry.table_defaults.owner() {
+                            return executor.resolve_with_ctx(&(), &PublicKey(owner));
+                        }
+                    }
+                    "lamports" => {
+                        if let Some(lamports) = entry.table_defaults.lamports() {
+                            return executor.resolve_with_ctx(&(), &BigInt(lamports as i128));
+                        }
+                    }
+                    "writeVersion" => {
+                        if let Some(write_version) = entry.table_defaults.write_version() {
+                            return executor.resolve_with_ctx(&(), &BigInt(write_version as i128));
+                        }
+                    }
+                    _ => {}
+                }
                 let value = entry.values.get(field_name).unwrap();
                 match value {
                     Value::Bool(b) => executor.resolve_with_ctx(&(), b),

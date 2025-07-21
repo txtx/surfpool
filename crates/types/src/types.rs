@@ -1,8 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    fmt,
-    path::PathBuf,
-};
+use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
@@ -19,9 +15,10 @@ use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_context::TransactionReturnData;
 use solana_transaction_error::TransactionError;
-use txtx_addon_kit::types::types::Value;
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
+
+use crate::subgraphs::SchemaDataSourcingEvent;
 
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEFAULT_RPC_PORT: u16 = 8899;
@@ -51,36 +48,6 @@ pub enum BlockProductionMode {
     Clock,
     Transaction,
     Manual,
-}
-
-#[derive(Debug, Clone)]
-pub struct Collection {
-    pub uuid: Uuid,
-    pub name: String,
-    pub entries: Vec<SubgraphDataEntry>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SubgraphDataEntry {
-    // The UUID of the entry
-    pub uuid: Uuid,
-    // A map of field names and their values
-    pub values: HashMap<String, Value>,
-    // The slot that the transaction that created this entry was processed in
-    pub slot: u64,
-    // The transaction hash that created this entry
-    pub transaction_signature: Hash,
-}
-
-impl SubgraphDataEntry {
-    pub fn new(values: HashMap<String, Value>, slot: u64, tx_hash: [u8; 32]) -> Self {
-        Self {
-            uuid: Uuid::new_v4(),
-            values,
-            slot,
-            transaction_signature: Hash::from_bytes(tx_hash),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -158,12 +125,6 @@ impl ProfileState {
             post_execution,
         }
     }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub enum SchemaDataSourcingEvent {
-    Rountrip(Uuid),
-    ApplyEntry(Uuid, Vec<u8>, u64, [u8; 32]),
 }
 
 #[derive(Debug, Clone)]

@@ -2106,9 +2106,9 @@ dependencies = [
 
 [[package]]
 name = "diesel"
-version = "2.2.11"
+version = "2.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a917a9209950404d5be011c81d081a2692a822f73c3d6af586f0cab5ff50f614"
+checksum = "229850a212cd9b84d4f0290ad9d294afc0ae70fccaa8949dbe8b43ffafa1e20c"
 dependencies = [
  "bitflags 2.8.0",
  "byteorder",
@@ -4490,10 +4490,11 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.33.0"
+version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "947e6816f7825b2b45027c2c32e7085da9934defa535de4a6a46b10a4d5257fa"
+checksum = "133c182a6a2c87864fe97778797e46c7e999672690dc9fa3ee8e241aa4a9c13f"
 dependencies = [
+ "cc",
  "pkg-config",
  "vcpkg",
 ]
@@ -11223,6 +11224,7 @@ dependencies = [
  "diesel",
  "diesel-dynamic-schema",
  "diesel_derives",
+ "libsqlite3-sys",
  "txtx-addon-kit",
 ]
 
@@ -11275,7 +11277,9 @@ dependencies = [
  "ipc-channel",
  "serde_json",
  "solana-program",
+ "solana-signature",
  "surfpool-types",
+ "txtx-addon-kit",
  "txtx-addon-network-svm",
  "txtx-addon-network-svm-types",
  "uuid",
@@ -12119,8 +12123,6 @@ dependencies = [
 [[package]]
 name = "txtx-addon-kit"
 version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e146cc18d090fec778b00596b0a9c062262043b40d0b811ebe146e13e79f7bcf"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -12154,8 +12156,6 @@ dependencies = [
 [[package]]
 name = "txtx-addon-network-svm"
 version = "0.1.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6474e1456dcc61e83848ef3e4a34d523e25e6e8e008560929b76a87928c54af"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -12182,8 +12182,6 @@ dependencies = [
 [[package]]
 name = "txtx-addon-network-svm-types"
 version = "0.1.22"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "913d761e2bb85b01de3b4b71e7a242a96d85a0d7aa4b65bcbfb052e129111146"
 dependencies = [
  "anchor-lang-idl",
  "lazy_static",
@@ -12206,8 +12204,6 @@ dependencies = [
 [[package]]
 name = "txtx-cloud"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d5cc6ce265357db0420be1187393c5791a637109b43320de4e3b95fddc048aa"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -12236,8 +12232,6 @@ dependencies = [
 [[package]]
 name = "txtx-core"
 version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8e5142fbbc04dc3e3262a656b20e8e6a976443ee31e08fbc5f33cd262af6101"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
@@ -12265,8 +12259,6 @@ dependencies = [
 [[package]]
 name = "txtx-gql"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "538d284bf31b45935ace2d920cf251ddaf5e1de9a671eacb581f5661dedb3e83"
 dependencies = [
  "async-stream",
  "futures 0.3.31",
@@ -12280,8 +12272,6 @@ dependencies = [
 [[package]]
 name = "txtx-supervisor-ui"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9609122b906ad5cff2618591d7d245ba819e95b15cff6ca83308ae6fafb84dc"
 dependencies = [
  "actix-cors",
  "actix-web",

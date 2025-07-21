@@ -21,7 +21,7 @@ use surfpool_db::{
     },
     schema::collections::dsl as collections_dsl,
 };
-use surfpool_types::SubgraphDataEntry;
+use surfpool_types::subgraphs::SubgraphDataEntry;
 use txtx_addon_kit::{
     hex, serde_json,
     types::types::{Type, Value},
@@ -196,12 +196,12 @@ pub fn fetch_dynamic_entries_from_postres(
     executor: Option<&Executor<DataloaderContext>>,
 ) -> Result<Vec<DynamicRow<NamedField<DynamicValue>>>, FieldError> {
     let dynamic_table = table(dynamic_table_name); // This is a DynamicTable<Sqlite>
-    let uuid_col = dynamic_table.column::<Untyped, _>("uuid");
-    let slot_col = dynamic_table.column::<Untyped, _>("slot");
 
     let mut select = DynamicSelectClause::new();
-    select.add_field(uuid_col);
-    select.add_field(slot_col);
+    let cols = SubgraphDataEntry::default_columns_from_source_type(&schema.source_type);
+    for col in cols {
+        select.add_field(dynamic_table.column::<Untyped, _>(col));
+    }
 
     // select.add_field(transaction_signature_col);
     for field in schema.fields.iter() {
@@ -300,14 +300,13 @@ pub fn fetch_dynamic_entries_from_sqlite(
     executor: Option<&Executor<DataloaderContext>>,
 ) -> Result<Vec<DynamicRow<NamedField<DynamicValue>>>, FieldError> {
     let dynamic_table = table(dynamic_table_name); // This is a DynamicTable<Sqlite>
-    let uuid_col = dynamic_table.column::<Untyped, _>("uuid");
-    let slot_col = dynamic_table.column::<Untyped, _>("slot");
 
     let mut select = DynamicSelectClause::new();
-    select.add_field(uuid_col);
-    select.add_field(slot_col);
+    let cols = SubgraphDataEntry::default_columns_with_descriptions(&schema.source_type);
+    for (col, _) in cols {
+        select.add_field(dynamic_table.column::<Untyped, _>(col));
+    }
 
-    // select.add_field(transaction_signature_col);
     for field in schema.fields.iter() {
         let col = field.data.display_name.to_case(Case::Snake);
         select.add_field(dynamic_table.column::<Untyped, _>(col));
@@ -406,7 +405,6 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
     ) -> Result<Vec<SubgraphSpec>, FieldError> {
         let mut conn = self.get().unwrap();
         // Use Diesel's query DSL to fetch the entries_table
-
         let entries_table: String = collections_dsl::collections
             .filter(collections_dsl::name.eq(subgraph_name))
             .select(collections_dsl::entries_table)
@@ -431,12 +429,16 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
 
         let mut results = Vec::new();
         for row in entries {
-            let uuid = Uuid::parse_str(row[0].value.0.expect_string()).unwrap_or(Uuid::nil());
-            let slot = row[1].value.0.expect_integer().try_into().unwrap_or(0);
-            // let transaction_signature = row[2].value.as_str().and_then(|s| s.parse().ok()).unwrap_or_else(|| blake3::Hash::from([0u8; 32]));
+            // We have a dynamic number of "default columns" for a row, depending on how the data is sourced
+            let num_default_fields = SubgraphDataEntry::default_column_numbers(&schema.source_type);
+            // We can extract those default fields from our row
+            let default_values = (0..num_default_fields)
+                .map(|i| row[i].value.0.clone())
+                .collect::<Vec<_>>();
+
             let mut values = HashMap::new();
             for (i, field) in schema.fields.iter().enumerate() {
-                let val = &row[2 + i].value;
+                let val = &row[num_default_fields + i].value;
                 let value = match &field.data.expected_type {
                     Type::String => val
                         .0
@@ -445,8 +447,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
                         .unwrap_or(Value::String(String::new())),
                     Type::Integer => val
                         .0
-                        .as_string()
-                        .and_then(|s| s.parse().ok())
+                        .as_integer()
                         .map(Value::Integer)
                         .unwrap_or(Value::Integer(0)),
                     Type::Float => val
@@ -468,12 +469,8 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
                 };
                 values.insert(field.data.display_name.clone(), value);
             }
-            let entry = SubgraphDataEntry {
-                uuid,
-                values,
-                slot,
-                transaction_signature: blake3::Hash::from([0u8; 32]),
-            };
+            let entry =
+                SubgraphDataEntry::from_data_row(values, default_values, &schema.source_type);
             results.push(SubgraphSpec(entry));
         }
         Ok(results)
@@ -505,12 +502,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         let uuid = subgraph_uuid;
         let entries_table = format!("subgraph_entries_{}", uuid.simple().to_string());
         // Build the SQL for the entries table using the schema fields
-        let mut columns = vec![
-            "id INTEGER PRIMARY KEY AUTOINCREMENT".to_string(),
-            "uuid TEXT".to_string(),
-            "slot INTEGER".to_string(),
-            "transaction_signature TEXT".to_string(),
-        ];
+        let mut columns = SubgraphDataEntry::column_metadata(&schema.source_type);
         for field in &schema.fields {
             // Map field types to SQLite types (expand as needed)
             let sql_type = match &field.data.expected_type {
@@ -572,24 +564,16 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
 
         // 2. Prepare the insert statement using the schema for column order
         let SubgraphSpec(data_entry) = entry;
-        let mut columns = vec![
-            "uuid".to_string(),
-            "slot".to_string(),
-            "transaction_signature".to_string(),
-        ];
-        let mut values: Vec<String> = vec![
-            format!("'{}'", data_entry.uuid),
-            format!("{}", data_entry.slot),
-            format!("'{}'", data_entry.transaction_signature),
-        ];
+        let mut columns = data_entry.default_columns();
+
+        let (mut values, dynamic_values) = data_entry.values();
 
         // Use the schema to determine the order and names of dynamic fields
         // Insert null if the value is missing
-
         for field in &schema.fields {
             let col = field.data.display_name.to_case(Case::Snake);
             columns.push(col.clone());
-            if let Some(val) = data_entry.values.get(&field.data.display_name) {
+            if let Some(val) = dynamic_values.get(&field.data.display_name) {
                 let val_str = match val {
                     Value::Bool(b) => b.to_string(),
                     Value::String(s) => format!("'{}'", s.replace("'", "''")),
@@ -633,8 +617,10 @@ fn juniper_scalar_to_value(scalar: &DefaultScalarValue) -> Value {
 mod tests {
     use std::collections::HashMap;
 
-    use blake3::Hash as Blake3Hash;
+    use solana_sdk::signature::Signature;
+    use surfpool_types::subgraphs::SubgraphDataEntryTableDefaults;
     use txtx_addon_kit::types::types::{Type, Value};
+    use txtx_addon_network_svm_types::subgraph::IndexedSubgraphSourceTypeName;
     use uuid::Uuid;
 
     use super::*;
@@ -657,18 +643,19 @@ mod tests {
                     description: None,
                 },
             }],
+            source_type: IndexedSubgraphSourceTypeName::Event,
         }
     }
 
     fn test_entry(_schema: &DynamicSchemaSpec) -> SubgraphSpec {
         let mut values = HashMap::new();
         values.insert("test_field".to_string(), Value::String("hello".to_string()));
-        SubgraphSpec(surfpool_types::SubgraphDataEntry {
-            uuid: Uuid::new_v4(),
+        SubgraphSpec(surfpool_types::subgraphs::SubgraphDataEntry::cpi_event(
+            Uuid::new_v4(),
             values,
-            slot: 42,
-            transaction_signature: Blake3Hash::from([1u8; 32]),
-        })
+            42,
+            Signature::from([1u8; 64]),
+        ))
     }
 
     #[test]
@@ -697,7 +684,11 @@ mod tests {
         // Check field value
         println!("Fetched entry: {:?}", fetched);
         let fetched_entry = &fetched[0].0;
-        assert_eq!(fetched_entry.slot, 42);
+        let SubgraphDataEntryTableDefaults::CpiEvent(ref default) = fetched_entry.table_defaults
+        else {
+            panic!("Unexpected subgraph data entry type");
+        };
+        assert_eq!(default.slot, 42);
         assert_eq!(
             fetched_entry.values.get("test_field"),
             Some(&Value::String("hello".to_string()))

@@ -32,6 +32,7 @@ crossbeam-channel = "0.5.15"
 hex = "0.4.3"
 hiro-system-kit = { version = "0.3.4" }
 ipc-channel = "0.19.0"
+itertools = "0.14.0"
 surfpool-core = { path = "crates/core", default-features = false }
 surfpool-db = { path = "crates/db" }
 surfpool-gql = { path = "crates/gql" }
@@ -93,11 +94,11 @@ tokio = "1.43.0"
 reqwest = { version = "0.12.18", features = ["blocking", "json"] }
 
 
-# [patch.crates-io]
-# txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
-# txtx-core = { path = "../txtx/crates/txtx-core" }
-# txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
-# txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
-# txtx-gql = { path = "../txtx/crates/txtx-gql" }
-# txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
-# txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
+[patch.crates-io]
+txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
+txtx-core = { path = "../txtx/crates/txtx-core" }
+txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
+txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
+txtx-gql = { path = "../txtx/crates/txtx-gql" }
+txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
+txtx-cloud = { path = "../txtx/crates/txtx-cloud" }

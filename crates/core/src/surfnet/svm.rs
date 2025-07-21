@@ -99,6 +99,10 @@ pub struct SurfnetSvm {
     pub non_circulating_accounts: Vec<String>,
     pub genesis_config: GenesisConfig,
     pub inflation: Inflation,
+    /// A global monotonically increasing atomic number, which can be used to tell the order of the account update.
+    /// For example, when an account is updated in the same slot multiple times,
+    /// the update with higher write_version should supersede the one with lower write_version.
+    pub write_version: u64,
 }
 
 impl SurfnetSvm {
@@ -165,10 +169,16 @@ impl SurfnetSvm {
                 non_circulating_accounts: Vec::new(),
                 genesis_config: GenesisConfig::default(),
                 inflation: Inflation::default(),
+                write_version: 0,
             },
             simnet_events_rx,
             geyser_events_rx,
         )
+    }
+
+    pub fn increment_write_version(&mut self) -> u64 {
+        self.write_version += 1;
+        self.write_version
     }
 
     /// Initializes the SVM with the provided epoch info and optionally notifies about remote connection.

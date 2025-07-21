@@ -4,10 +4,11 @@ use juniper::{
     meta::{Field, MetaType},
 };
 use serde::{Deserialize, Serialize};
+use surfpool_types::subgraphs::SubgraphDataEntry;
 use txtx_addon_kit::types::types::Type;
 use txtx_addon_network_svm_types::{
     SVM_PUBKEY,
-    subgraph::{IndexedSubgraphField, SubgraphRequest},
+    subgraph::{IndexedSubgraphField, IndexedSubgraphSourceTypeName, SubgraphRequest},
 };
 use uuid::Uuid;
 
@@ -15,15 +16,10 @@ use super::{
     filters::SubgraphFilterSpec,
     scalars::{bigint::BigInt, pubkey::PublicKey},
 };
-use crate::query::DataloaderContext;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DynamicSchemaPayload {
-    pub name: String,
-    pub subgraph_uuid: Uuid,
-    pub description: Option<String>,
-    pub fields: Vec<FieldMetadata>,
-}
+use crate::{
+    query::DataloaderContext,
+    types::scalars::{signature::Signature, slot::Slot},
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DynamicSchemaSpec {
@@ -32,6 +28,7 @@ pub struct DynamicSchemaSpec {
     pub subgraph_uuid: Uuid,
     pub description: Option<String>,
     pub fields: Vec<FieldMetadata>,
+    pub source_type: IndexedSubgraphSourceTypeName,
 }
 
 impl DynamicSchemaSpec {
@@ -47,20 +44,7 @@ impl DynamicSchemaSpec {
             subgraph_uuid: *uuid,
             description: request.subgraph_description.clone(),
             fields,
-        }
-    }
-
-    pub fn from_payload(payload: &DynamicSchemaPayload) -> Self {
-        let name = payload.name.to_case(Case::Pascal);
-        Self {
-            name: name.clone(),
-            filter: SubgraphFilterSpec {
-                name: format!("{}Filter", name),
-                fields: payload.fields.clone(),
-            },
-            subgraph_uuid: payload.subgraph_uuid,
-            description: payload.description.clone(),
-            fields: payload.fields.clone(),
+            source_type: (&request.data_source).into(),
         }
     }
 
@@ -80,21 +64,45 @@ impl GraphQLType<DefaultScalarValue> for DynamicSchemaSpec {
     {
         let mut fields: Vec<Field<'r, DefaultScalarValue>> = vec![];
 
-        fields.push(
-            registry
-                .field::<&Uuid>("uuid", &())
-                .description("The entry's UUID"),
-        );
-        fields.push(
-            registry
-                .field::<i32>("slot", &())
-                .description("The block height that the entry was processed in"),
-        );
-        fields.push(
-            registry
-                .field::<&String>("transactionSignature", &())
-                .description("The hash of the transaction that created this entry"),
-        );
+        let cols = SubgraphDataEntry::default_columns_with_descriptions(&spec.source_type);
+
+        for (col, description) in cols {
+            if col == "pubkey" || col == "owner" {
+                fields.push(
+                    registry
+                        .field::<&PublicKey>(&col, &())
+                        .description(&description),
+                );
+            } else if col == "lamports" || col == "writeVersion" {
+                fields.push(
+                    registry
+                        .field::<&BigInt>(&col, &())
+                        .description(&description),
+                );
+            } else if col == "slot" {
+                fields.push(registry.field::<&Slot>(&col, &()).description(&description));
+            } else if col == "data" {
+                fields.push(
+                    registry
+                        .field::<&String>(&col, &())
+                        .description(&description),
+                );
+            } else if col == "transactionSignature" {
+                fields.push(
+                    registry
+                        .field::<&Signature>(&col, &())
+                        .description(&description),
+                );
+            } else if col == "uuid" {
+                fields.push(registry.field::<&Uuid>(&col, &()).description(&description));
+            } else {
+                fields.push(
+                    registry
+                        .field::<&String>(&col, &())
+                        .description(&description),
+                );
+            }
+        }
 
         for field_metadata in spec.fields.iter() {
             let field = field_metadata.register_as_scalar(registry);

@@ -16,7 +16,7 @@ use svm::SurfnetSvm;
 
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    types::TransactionWithStatusMeta,
+    types::{GeyserAccountUpdate, TransactionWithStatusMeta},
 };
 
 pub mod locker;
@@ -32,6 +32,7 @@ pub type AccountFactory = Box<dyn Fn(SurfnetSvmLocker) -> GetAccountResult + Sen
 
 pub enum GeyserEvent {
     NotifyTransaction(TransactionWithStatusMeta),
+    UpdateAccount(GeyserAccountUpdate),
     // todo: add more events
 }
 

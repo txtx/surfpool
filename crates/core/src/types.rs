@@ -11,7 +11,7 @@ use solana_sdk::{
     program_option::COption,
     program_pack::Pack,
     reserved_account_keys::ReservedAccountKeys,
-    transaction::{TransactionVersion, VersionedTransaction},
+    transaction::{SanitizedTransaction, TransactionVersion, VersionedTransaction},
 };
 use solana_transaction_status::{
     Encodable, EncodableWithMeta, EncodeError, EncodedTransaction,
@@ -582,6 +582,31 @@ impl MintAccount {
         match self {
             Self::SplToken2022(mint) => mint.decimals,
             Self::SplToken(mint) => mint.decimals,
+        }
+    }
+}
+
+pub struct GeyserAccountUpdate {
+    pub pubkey: Pubkey,
+    pub account: Account,
+    pub slot: u64,
+    pub sanitized_transaction: SanitizedTransaction,
+    pub write_version: u64,
+}
+impl GeyserAccountUpdate {
+    pub fn new(
+        pubkey: Pubkey,
+        account: Account,
+        slot: u64,
+        sanitized_transaction: SanitizedTransaction,
+        write_version: u64,
+    ) -> Self {
+        Self {
+            pubkey,
+            account,
+            slot,
+            sanitized_transaction,
+            write_version,
         }
     }
 }
