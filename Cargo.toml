@@ -16,7 +16,8 @@ members = [
     "crates/gql",
     "crates/mcp",
     "crates/subgraph",
-    "crates/types"
+    "crates/types",
+    "crates/studio"
 ]
 exclude = ["examples/hello-geyser"]
 default-members = ["crates/cli"]
@@ -42,6 +43,7 @@ surfpool-gql = { path = "crates/gql" }
 surfpool-mcp = { path = "crates/mcp", default-features = false }
 surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
+surfpool-studio-ui = { path = "crates/studio", default-features = false }
 # litesvm = { path = "../litesvm/crates/litesvm", features = ["nodejs-internal"] }
 litesvm = { version = "0.6.1", features = ["nodejs-internal"] }
 serde = "1.0.217"

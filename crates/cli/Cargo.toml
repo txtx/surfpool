@@ -52,6 +52,7 @@ surfpool-core = { workspace = true }
 surfpool-gql = { workspace = true }
 surfpool-types = { workspace = true }
 surfpool-mcp = { workspace = true }
+surfpool-studio-ui = { workspace = true }
 tokio = { workspace = true }
 toml = { version = "0.8.2", features = ["preserve_order"], optional = true }
 txtx-addon-network-svm = { workspace = true }
