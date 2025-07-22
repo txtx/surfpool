@@ -39,7 +39,8 @@ struct ColorTheme {
     primary: Color,
     secondary: Color,
     white: Color,
-    gray: Color,
+    dark_gray: Color,
+    light_gray: Color,
     error: Color,
     warning: Color,
     info: Color,
@@ -53,8 +54,9 @@ impl ColorTheme {
             accent: color.c400,
             primary: color.c500,
             secondary: color.c300,
-            white: tailwind::SLATE.c200,
-            gray: tailwind::ZINC.c800,
+            white: tailwind::SLATE.c100,
+            dark_gray: tailwind::ZINC.c800,
+            light_gray: tailwind::ZINC.c400,
             error: tailwind::RED.c400,
             warning: tailwind::YELLOW.c500,
             info: tailwind::BLUE.c500,
@@ -394,7 +396,6 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     }
                                 };
                             }
-                        }
                             _ => {}
                         },
                         Err(_) => {
@@ -536,11 +537,11 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
 
     let epoch_progress = Gauge::default()
         .gauge_style(app.colors.primary)
-        .bg(app.colors.gray)
+        .bg(app.colors.dark_gray)
         .percent(app.epoch_progress());
     f.render_widget(epoch_progress, widgets[2].inner(Margin::new(1, 0)));
 
-    let default_style = Style::new().fg(app.colors.gray);
+    let default_style = Style::new().fg(app.colors.dark_gray);
 
     let separator = Block::default()
         .style(default_style)
@@ -558,15 +559,15 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
             vec![
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
-                    Span::styled("Surfnet   ", app.colors.gray),
+                    Span::styled("Surfnet   ", app.colors.light_gray),
                     Span::styled(&app.rpc_url, app.colors.white),
                 ]),
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
-                    Span::styled("Provider  ", app.colors.gray),
+                    Span::styled("Provider  ", app.colors.light_gray),
                     Span::styled(datasource_url, app.colors.white),
                 ]),
-                Line::from(vec![Span::styled("۬-", app.colors.gray)]),
+                Line::from(vec![Span::styled("۬-", app.colors.light_gray)]),
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
                     Span::styled(
@@ -581,10 +582,10 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
             vec![
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
-                    Span::styled("Explorer  ", app.colors.gray),
+                    Span::styled("Explorer  ", app.colors.light_gray),
                     Span::styled(studio_url, app.colors.white),
                 ]),
-                Line::from(vec![Span::styled("۬-", app.colors.gray)]),
+                Line::from(vec![Span::styled("۬-", app.colors.light_gray)]),
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
                     Span::styled(
@@ -615,7 +616,7 @@ fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
             let color = if i < cursor {
                 app.colors.accent
             } else {
-                app.colors.gray
+                app.colors.dark_gray
             };
             spans.push(Span::styled("● ", color));
         }
@@ -664,7 +665,7 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
             EventType::Info => app.colors.info,
             EventType::Success => app.colors.success,
             EventType::Warning => app.colors.warning,
-            EventType::Debug => app.colors.gray,
+            EventType::Debug => app.colors.light_gray,
         };
 
         // Smart word wrapping
@@ -678,7 +679,7 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
                 let row = if first {
                     vec![
                         Cell::new("⏐").style(color),
-                        Cell::new(dt.format("%H:%M:%S.%3f").to_string()).style(app.colors.gray),
+                        Cell::new(dt.format("%H:%M:%S.%3f").to_string()).style(app.colors.light_gray),
                         Cell::new(current_line.clone()),
                     ]
                 } else {
@@ -706,7 +707,7 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
             let row = if first {
                 vec![
                     Cell::new("⏐").style(color),
-                    Cell::new(dt.format("%H:%M:%S.%3f").to_string()).style(app.colors.gray),
+                    Cell::new(dt.format("%H:%M:%S.%3f").to_string()).style(app.colors.light_gray),
                     Cell::new(current_line.clone()),
                 ]
             } else {
@@ -760,9 +761,9 @@ fn render_footer(f: &mut Frame, app: &mut App, area: Rect) {
 
     let status = match app.status_bar_message {
         Some(ref message) => {
-            title_block(message.as_str(), Alignment::Left).style(Style::new().fg(app.colors.gray))
+            title_block(message.as_str(), Alignment::Left).style(Style::new().fg(app.colors.light_gray))
         }
-        None => title_block(HELP_TEXT, Alignment::Left).style(Style::new().fg(app.colors.gray)),
+        None => title_block(HELP_TEXT, Alignment::Left).style(Style::new().fg(app.colors.light_gray)),
     };
     f.render_widget(status, rects[0]);
 
