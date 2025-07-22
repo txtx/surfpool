@@ -6,7 +6,7 @@ use juniper::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::schema::FieldMetadata;
+use super::collections::FieldMetadata;
 use crate::query::DataloaderContext;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -24,9 +24,11 @@ impl GraphQLType<DefaultScalarValue> for SubgraphFilterSpec {
     where
         DefaultScalarValue: 'r,
     {
-        let mut args = vec![registry.arg::<Option<NumericFilter>>("slot", &FieldInfo::new("slot"))];
-
+        let mut args = vec![];
         for field in spec.fields.iter() {
+            if !field.data.is_indexed {
+                continue;
+            }
             if field.is_bool() {
                 args.push(registry.arg::<Option<BooleanFilter>>(&field.data.display_name, spec));
             } else if field.is_string() {

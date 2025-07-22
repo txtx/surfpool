@@ -1,5 +1,5 @@
 use juniper::{DefaultScalarValue, EmptyMutation, EmptySubscription, RootNode};
-use query::{DynamicQuery, SchemaDataSource};
+use query::{CollectionMetadataMap, DynamicQuery};
 
 use crate::query::DataloaderContext;
 
@@ -18,7 +18,7 @@ pub type DynamicSchema = RootNode<
     DefaultScalarValue,
 >;
 
-pub fn new_dynamic_schema(subgraph_spec: SchemaDataSource) -> DynamicSchema {
+pub fn new_dynamic_schema(subgraph_spec: CollectionMetadataMap) -> DynamicSchema {
     let schema = DynamicSchema::new_with_info(
         DynamicQuery,
         EmptyMutation::<DataloaderContext>::new(),

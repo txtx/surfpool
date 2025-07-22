@@ -20,12 +20,13 @@ use juniper_graphql_ws::ConnectionConfig;
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
 use surfpool_gql::{
-    new_dynamic_schema, query::{Dataloader, DataloaderContext, SchemaDataSource, SqlStore}, types::{schema::CollectionMetadata, CollectionEntry, CollectionEntryData}, DynamicSchema
+    DynamicSchema,
+    db::schema::collections,
+    new_dynamic_schema,
+    query::{CollectionMetadataMap, Dataloader, DataloaderContext, SqlStore},
+    types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata},
 };
-use surfpool_types::{
-    DataIndexingCommand, SubgraphCommand, SubgraphEvent, SurfpoolConfig
-};
-use surfpool_gql::db::schema::collections;
+use surfpool_types::{DataIndexingCommand, SubgraphCommand, SubgraphEvent, SurfpoolConfig};
 use txtx_core::kit::types::types::Value;
 
 use crate::cli::{CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED, Context};
@@ -46,7 +47,7 @@ pub async fn start_subgraph_and_explorer_server(
     let context = DataloaderContext {
         pool: SqlStore::new(subgraph_database_path).pool,
     };
-    let schema_datasource = SchemaDataSource::new();
+    let schema_datasource = CollectionMetadataMap::new();
     let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
     let schema_wrapped = Data::new(schema);
     let context_wrapped = Data::new(RwLock::new(context));
@@ -189,7 +190,7 @@ fn start_subgraph_runloop(
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     gql_context: Data<RwLock<DataloaderContext>>,
     gql_schema: Data<RwLock<Option<DynamicSchema>>>,
-    mut schema_datasource: SchemaDataSource,
+    mut collections_map: CollectionMetadataMap,
     ctx: &Context,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let ctx = ctx.clone();
@@ -228,9 +229,11 @@ fn start_subgraph_runloop(
                                         "{err_ctx}: Failed to acquire write lock on gql context"
                                     )
                                 })?;
-                                gql_context.pool.register_collection(&metadata)?;
-                                schema_datasource.add_entry(metadata);
-                                gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
+                                if let Err(e) = gql_context.pool.register_collection(&metadata) {
+                                    error!(ctx.expect_logger(), "{}", e);
+                                }
+                                collections_map.add_collection(metadata);
+                                gql_schema.replace(new_dynamic_schema(collections_map.clone()));
 
                                 let console_url = format!(
                                     "http://127.0.0.1:{}/gql/console",
@@ -248,7 +251,10 @@ fn start_subgraph_runloop(
                     },
                     i => match oper.recv(&observers[i - 1]) {
                         Ok(cmd) => match cmd {
-                            DataIndexingCommand::ProcessCollectionEntriesPack(uuid, entries_pack) => {
+                            DataIndexingCommand::ProcessCollectionEntriesPack(
+                                uuid,
+                                entries_pack,
+                            ) => {
                                 let err_ctx = "Failed to apply new database entry to subgraph";
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!(
@@ -261,9 +267,12 @@ fn start_subgraph_runloop(
 
                                 let metadata = cached_metadata.get(&uuid).unwrap();
 
-                                gql_context
+                                if let Err(e) = gql_context
                                     .pool
-                                    .insert_entries_into_collection(entries, &metadata)?;
+                                    .insert_entries_into_collection(entries, &metadata)
+                                {
+                                    error!(ctx.expect_logger(), "{}", e);
+                                }
                             }
                             DataIndexingCommand::ProcessCollection(_uuid) => {}
                         },
