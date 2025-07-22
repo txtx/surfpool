@@ -7,10 +7,7 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
 use ipc_channel::ipc::IpcSender;
 use solana_program::clock::Slot;
 use solana_signature::Signature;
-use surfpool_types::{
-    SubgraphPluginConfig,
-    subgraphs::{SchemaDataSourcingEvent, SchemaDataSourcingEventEntry},
-};
+use surfpool_types::{DataIndexingCommand, CollectionEntriesPack, SubgraphPluginConfig};
 use txtx_addon_kit::types::types::Value as TxtxValue;
 use txtx_addon_network_svm::{
     Pubkey, codec::idl::parse_bytes_to_value_with_expected_idl_type_def_ty,
@@ -27,7 +24,7 @@ use uuid::Uuid;
 #[derive(Default, Debug)]
 pub struct SurfpoolSubgraphPlugin {
     pub uuid: Uuid,
-    subgraph_indexing_event_tx: Mutex<Option<IpcSender<SchemaDataSourcingEvent>>>,
+    subgraph_indexing_event_tx: Mutex<Option<IpcSender<DataIndexingCommand>>>,
     subgraph_request: Option<SubgraphRequest>,
     pda_mappings: Mutex<HashMap<Pubkey, ParsablePdaData>>,
     account_update_purgatory: Mutex<HashMap<Pubkey, AccountPurgatoryData>>,
@@ -70,7 +67,7 @@ impl SurfpoolSubgraphPlugin {
         parsable_data: ParsablePdaData,
         subgraph_request: &SubgraphRequest,
         tx_signature: Signature,
-        tx: &IpcSender<SchemaDataSourcingEvent>,
+        tx: &IpcSender<DataIndexingCommand>,
     ) -> Result<(), String> {
         self.pda_mappings
             .lock()
@@ -101,9 +98,9 @@ impl SurfpoolSubgraphPlugin {
             return Ok(());
         };
         let data = serde_json::to_vec(&vec![entry]).unwrap();
-        let _ = tx.send(SchemaDataSourcingEvent::ApplyEntry(
+        let _ = tx.send(DataIndexingCommand::ProcessCollectionEntriesPack(
             self.uuid,
-            SchemaDataSourcingEventEntry::pda(
+            CollectionEntriesPack::pda(
                 data,
                 slot,
                 tx_signature,
@@ -150,7 +147,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
         let config = serde_json::from_str::<SubgraphPluginConfig>(config_file).unwrap();
         let oneshot_tx = IpcSender::connect(config.ipc_token).unwrap();
         let (tx, rx) = ipc_channel::ipc::channel().unwrap();
-        let _ = tx.send(SchemaDataSourcingEvent::Rountrip(config.uuid));
+        let _ = tx.send(DataIndexingCommand::ProcessCollection(config.uuid));
         let _ = oneshot_tx.send(rx);
         self.uuid = config.uuid;
         self.subgraph_indexing_event_tx = Mutex::new(Some(tx));
@@ -232,9 +229,9 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
 
         if !entries.is_empty() {
             let data = serde_json::to_vec(&entries).unwrap();
-            let _ = tx.send(SchemaDataSourcingEvent::ApplyEntry(
+            let _ = tx.send(DataIndexingCommand::ProcessCollectionEntriesPack(
                 self.uuid,
-                SchemaDataSourcingEventEntry::pda(
+                CollectionEntriesPack::pda(
                     data,
                     slot,
                     tx_signature,
@@ -370,8 +367,9 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                                         let obj = parsed_value.as_object().unwrap().clone();
                                         let mut entry = HashMap::new();
                                         for field in subgraph_request.fields.iter() {
-                                            let v = obj.get(&field.source_key).unwrap().clone();
-                                            entry.insert(field.display_name.clone(), v);
+                                            if let Some(v) = obj.get(&field.source_key) {
+                                                entry.insert(field.display_name.clone(), v.clone());
+                                            }
                                         }
                                         entries.push(entry);
                                     }
@@ -392,9 +390,9 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
         };
         if !entries.is_empty() {
             let data = serde_json::to_vec(&entries).unwrap();
-            let _ = tx.send(SchemaDataSourcingEvent::ApplyEntry(
+            let _ = tx.send(DataIndexingCommand::ProcessCollectionEntriesPack(
                 self.uuid,
-                SchemaDataSourcingEventEntry::cpi_event(data, slot, tx_signature),
+                CollectionEntriesPack::cpi_event(data, slot, tx_signature),
             ));
         }
         Ok(())

@@ -4,7 +4,6 @@ use juniper::{
     meta::{Field, MetaType},
 };
 use serde::{Deserialize, Serialize};
-use surfpool_types::subgraphs::SubgraphDataEntry;
 use txtx_addon_kit::types::types::Type;
 use txtx_addon_network_svm_types::{
     SVM_PUBKEY,
@@ -18,30 +17,35 @@ use super::{
 };
 use crate::{
     query::DataloaderContext,
-    types::scalars::{signature::Signature, slot::Slot},
+    types::{
+        CollectionEntryData,
+        scalars::{signature::Signature, slot::Slot},
+    },
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DynamicSchemaSpec {
+pub struct CollectionMetadata {
+    pub id: Uuid,
     pub name: String,
-    pub filter: SubgraphFilterSpec,
-    pub subgraph_uuid: Uuid,
     pub description: Option<String>,
+    pub table_name: String,
+    pub filter: SubgraphFilterSpec,
     pub fields: Vec<FieldMetadata>,
     pub source_type: IndexedSubgraphSourceTypeName,
 }
 
-impl DynamicSchemaSpec {
+impl CollectionMetadata {
     pub fn from_request(uuid: &Uuid, request: &SubgraphRequest) -> Self {
         let name = request.subgraph_name.to_case(Case::Pascal);
         let fields: Vec<_> = request.fields.iter().map(FieldMetadata::new).collect();
         Self {
+            id: *uuid,
             name: name.clone(),
+            table_name: format!("entries_{}", uuid.simple().to_string()),
             filter: SubgraphFilterSpec {
                 name: format!("{}Filter", name),
                 fields: fields.clone(),
             },
-            subgraph_uuid: *uuid,
             description: request.subgraph_description.clone(),
             fields,
             source_type: (&request.data_source).into(),
@@ -53,18 +57,18 @@ impl DynamicSchemaSpec {
     }
 }
 
-impl GraphQLType<DefaultScalarValue> for DynamicSchemaSpec {
-    fn name(spec: &DynamicSchemaSpec) -> Option<&str> {
+impl GraphQLType<DefaultScalarValue> for CollectionMetadata {
+    fn name(spec: &CollectionMetadata) -> Option<&str> {
         Some(spec.get_name())
     }
 
-    fn meta<'r>(spec: &DynamicSchemaSpec, registry: &mut Registry<'r>) -> MetaType<'r>
+    fn meta<'r>(spec: &CollectionMetadata, registry: &mut Registry<'r>) -> MetaType<'r>
     where
         DefaultScalarValue: 'r,
     {
         let mut fields: Vec<Field<'r, DefaultScalarValue>> = vec![];
 
-        let cols = SubgraphDataEntry::default_columns_with_descriptions(&spec.source_type);
+        let cols = CollectionEntryData::default_columns_with_descriptions(&spec.source_type);
 
         for (col, description) in cols {
             if col == "pubkey" || col == "owner" {
@@ -118,12 +122,12 @@ impl GraphQLType<DefaultScalarValue> for DynamicSchemaSpec {
     }
 }
 
-impl GraphQLValue<DefaultScalarValue> for DynamicSchemaSpec {
+impl GraphQLValue<DefaultScalarValue> for CollectionMetadata {
     type Context = DataloaderContext;
-    type TypeInfo = DynamicSchemaSpec;
+    type TypeInfo = CollectionMetadata;
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
-        <DynamicSchemaSpec as GraphQLType<DefaultScalarValue>>::name(info)
+        <CollectionMetadata as GraphQLType<DefaultScalarValue>>::name(info)
     }
 }
 
@@ -159,7 +163,7 @@ impl FieldMetadata {
         let mut field = match &self.data.expected_type {
             Type::Bool => registry.field::<&bool>(field_name, &()),
             Type::String => registry.field::<&String>(field_name, &()),
-            Type::Integer => registry.field::<&BigInt>(field_name, &()),
+            Type::Integer => registry.field::<&i32>(field_name, &()),
             Type::Float => registry.field::<&f64>(field_name, &()),
             Type::Buffer => registry.field::<&String>(field_name, &()),
             Type::Addon(addon_id) => {

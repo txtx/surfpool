@@ -8,6 +8,8 @@ pub mod query;
 pub mod subscription;
 pub mod types;
 
+pub use surfpool_db as db;
+
 pub type DynamicSchema = RootNode<
     'static,
     DynamicQuery,

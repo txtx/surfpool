@@ -33,8 +33,8 @@ use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
-    BlockProductionMode, ClockCommand, ClockEvent,  SimnetCommand,
-    SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
+    BlockProductionMode, ClockCommand, ClockEvent, DataIndexingCommand, SimnetCommand, SimnetEvent,
+    SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
 };
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use txtx_addon_kit::helpers::fs::FileLocation;
@@ -295,7 +295,6 @@ fn start_geyser_runloop(
 
         let err = loop {
             use agave_geyser_plugin_interface::geyser_plugin_interface::{ReplicaAccountInfoV3, ReplicaAccountInfoVersions};
-            use surfpool_types::subgraphs::SchemaDataSourcingEvent;
 
             use crate::types::GeyserAccountUpdate;
 
@@ -305,10 +304,10 @@ fn start_geyser_runloop(
                         Ok(event) => {
                             match event {
                                 PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
-                                    let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(uuid, config.data.clone(), notifier));
+                                    let _ = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(uuid, config.data.clone(), notifier));
                                     let mut plugin = SurfpoolSubgraphPlugin::default();
 
-                                    let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SchemaDataSourcingEvent>>::new().expect("Failed to create IPC one-shot server.");
+                                    let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<DataIndexingCommand>>::new().expect("Failed to create IPC one-shot server.");
                                     let subgraph_plugin_config = SubgraphPluginConfig {
                                         uuid,
                                         ipc_token,
@@ -327,8 +326,8 @@ fn start_geyser_runloop(
                                         let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to load Geyser plugin: {:?}", e)));
                                     };
                                     if let Ok((_, rx)) = server.accept() {
-                                        let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver::<SchemaDataSourcingEvent>(rx);
-                                        let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveSubgraph(subgraph_rx));
+                                        let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver::<DataIndexingCommand>(rx);
+                                        let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveCollection(subgraph_rx));
                                     };
                                     let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
                                     surfpool_plugin_manager.push(plugin);
@@ -396,7 +395,7 @@ fn start_geyser_runloop(
                             lamports: account.lamports,
                             owner: account.owner.as_ref(),
                             executable: account.executable,
-                            rent_epoch: account.rent_epoch, 
+                            rent_epoch: account.rent_epoch,
                             data: account.data.as_ref(),
                             write_version,
                             txn: Some(&sanitized_transaction),

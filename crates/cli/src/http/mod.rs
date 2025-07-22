@@ -20,13 +20,12 @@ use juniper_graphql_ws::ConnectionConfig;
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
 use surfpool_gql::{
-    DynamicSchema, new_dynamic_schema,
-    query::{Dataloader, DataloaderContext, SchemaDataSource, SqlStore},
-    types::{SubgraphSpec, schema::DynamicSchemaSpec},
+    new_dynamic_schema, query::{Dataloader, DataloaderContext, SchemaDataSource, SqlStore}, types::{schema::CollectionMetadata, CollectionEntry, CollectionEntryData}, DynamicSchema
 };
-use surfpool_types::subgraphs::SchemaDataSourcingEvent;
-use surfpool_types::subgraphs::SubgraphDataEntry;
-use surfpool_types::{SubgraphCommand, SubgraphEvent, SurfpoolConfig};
+use surfpool_types::{
+    DataIndexingCommand, SubgraphCommand, SubgraphEvent, SurfpoolConfig
+};
+use surfpool_gql::db::schema::collections;
 use txtx_core::kit::types::types::Value;
 
 use crate::cli::{CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED, Context};
@@ -42,7 +41,7 @@ pub async fn start_subgraph_and_explorer_server(
     _config: SurfpoolConfig,
     subgraph_events_tx: Sender<SubgraphEvent>,
     subgraph_commands_rx: Receiver<SubgraphCommand>,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Result<(ServerHandle, JoinHandle<Result<(), String>>), Box<dyn StdError>> {
     let context = DataloaderContext {
         pool: SqlStore::new(subgraph_database_path).pool,
@@ -58,6 +57,7 @@ pub async fn start_subgraph_and_explorer_server(
         context_wrapped.clone(),
         schema_wrapped.clone(),
         schema_datasource,
+        ctx,
     )?;
 
     let server = HttpServer::new(move || {
@@ -190,10 +190,13 @@ fn start_subgraph_runloop(
     gql_context: Data<RwLock<DataloaderContext>>,
     gql_schema: Data<RwLock<Option<DynamicSchema>>>,
     mut schema_datasource: SchemaDataSource,
+    ctx: &Context,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
+    let ctx = ctx.clone();
     let handle = hiro_system_kit::thread_named("Subgraph")
         .spawn(move || {
             let mut observers = vec![];
+            let mut cached_metadata = HashMap::new();
             loop {
                 let mut selector = Select::new();
                 let mut handles = vec![];
@@ -209,22 +212,24 @@ fn start_subgraph_runloop(
                             std::process::exit(1);
                         }
                         Ok(cmd) => match cmd {
-                            SubgraphCommand::CreateSubgraph(uuid, request, sender) => {
+                            SubgraphCommand::CreateCollection(uuid, request, sender) => {
                                 let err_ctx = "Failed to create new subgraph";
                                 let mut gql_schema = gql_schema.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql schema")
                                 })?;
 
-                                let subgraph_uuid = uuid;
-                                let subgraph_name = request.subgraph_name.to_case(Case::Camel);
-                                let schema = DynamicSchemaSpec::from_request(&uuid, &request);
+                                info!(ctx.expect_logger(), "{:?}", request);
+                                let metadata = CollectionMetadata::from_request(&uuid, &request);
+
+                                cached_metadata.insert(uuid.clone(), metadata.clone());
+
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!(
                                         "{err_ctx}: Failed to acquire write lock on gql context"
                                     )
                                 })?;
-                                gql_context.pool.register_collection(&subgraph_uuid, &request)?;
-                                schema_datasource.add_entry(schema);
+                                gql_context.pool.register_collection(&metadata)?;
+                                schema_datasource.add_entry(metadata);
                                 gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
 
                                 let console_url = format!(
@@ -233,7 +238,7 @@ fn start_subgraph_runloop(
                                 );
                                 let _ = sender.send(console_url);
                             }
-                            SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
+                            SubgraphCommand::ObserveCollection(subgraph_observer_rx) => {
                                 observers.push(subgraph_observer_rx);
                             }
                             SubgraphCommand::Shutdown => {
@@ -243,7 +248,7 @@ fn start_subgraph_runloop(
                     },
                     i => match oper.recv(&observers[i - 1]) {
                         Ok(cmd) => match cmd {
-                            SchemaDataSourcingEvent::ApplyEntry(uuid, entry) => {
+                            DataIndexingCommand::ProcessCollectionEntriesPack(uuid, entries_pack) => {
                                 let err_ctx = "Failed to apply new database entry to subgraph";
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!(
@@ -252,15 +257,15 @@ fn start_subgraph_runloop(
                                 })?;
 
                                 let entries =
-                                    SubgraphDataEntry::from_data_sourcing_entry(&uuid, entry)?;
+                                    CollectionEntryData::from_entries_pack(&uuid, entries_pack)?;
 
-                                for entry in entries.into_iter() {
-                                    gql_context
-                                        .pool
-                                        .insert_entry_to_subgraph(&uuid, SubgraphSpec(entry))?;
-                                }
+                                let metadata = cached_metadata.get(&uuid).unwrap();
+
+                                gql_context
+                                    .pool
+                                    .insert_entries_into_collection(entries, &metadata)?;
                             }
-                            SchemaDataSourcingEvent::Rountrip(_uuid) => {}
+                            DataIndexingCommand::ProcessCollection(_uuid) => {}
                         },
                         Err(_e) => {
                             std::process::exit(1);

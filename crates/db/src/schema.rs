@@ -3,8 +3,7 @@ diesel::table! {
         id -> Text,
         created_at -> Date,
         updated_at -> Date,
-        subgraph_id -> Text,
-        entries_table -> Text,
+        table_name -> Text,
         schema -> Text,
     }
 }

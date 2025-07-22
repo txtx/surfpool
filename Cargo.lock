@@ -11239,8 +11239,10 @@ dependencies = [
  "juniper",
  "juniper_codegen",
  "serde",
+ "serde_json",
  "solana-pubkey",
  "solana-sdk",
+ "solana-signature",
  "surfpool-db",
  "surfpool-types",
  "txtx-addon-kit",
@@ -12149,8 +12151,6 @@ dependencies = [
  "tiny-hderive",
  "url 2.5.4",
  "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
 ]
 
 [[package]]
