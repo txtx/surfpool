@@ -355,6 +355,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     Local::now(),
                                     format!("Runbook '{}' execution completed", runbook_id),
                                 ));
+                                app.status_bar_message = None;
                             }
                         },
                         Err(_) => break,
