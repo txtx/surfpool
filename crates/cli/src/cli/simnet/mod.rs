@@ -310,6 +310,20 @@ fn log_events(
                             result.compute_units.compute_units_consumed
                         );
                     }
+                    SimnetEvent::RunbookStarted(runbook_id) => {
+                        deployment_completed = false;
+                        info!(
+                            ctx.expect_logger(),
+                            "Runbook '{}' execution started", runbook_id
+                        );
+                    }
+                    SimnetEvent::RunbookCompleted(runbook_id) => {
+                        deployment_completed = true;
+                        info!(
+                            ctx.expect_logger(),
+                            "Runbook '{}' execution completed", runbook_id
+                        );
+                    }
                 },
                 Err(_e) => {
                     break;

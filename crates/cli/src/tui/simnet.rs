@@ -291,13 +291,32 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 new_events.push((EventType::Warning, *dt, log.clone()));
                             }
                             SimnetEvent::TransactionReceived(_dt, _transaction) => {}
-                            SimnetEvent::TransactionProcessed(dt, meta, _err) => {
-                                if deployment_completed {
-                                    for log in meta.logs.iter() {
-                                        new_events.push((EventType::Debug, *dt, log.clone()));
+                            SimnetEvent::TransactionProcessed(dt, meta, err) => {
+                                if let Some(err) = err {
+                                    new_events.push((
+                                        EventType::Failure,
+                                        *dt,
+                                        format!("Failed processing tx {}: {}", meta.signature, err),
+                                    ));
+                                } else {
+                                    if deployment_completed {
+                                        new_events.push((
+                                            EventType::Success,
+                                            *dt,
+                                            format!("Processed tx {}", meta.signature),
+                                        ));
+                                        if app.include_debug_logs {
+                                            for log in meta.logs.iter() {
+                                                new_events.push((
+                                                    EventType::Debug,
+                                                    *dt,
+                                                    log.clone(),
+                                                ));
+                                            }
+                                        }
                                     }
+                                    app.successful_transactions += 1;
                                 }
-                                app.successful_transactions += 1;
                             }
                             SimnetEvent::BlockHashExpired => {}
                             SimnetEvent::Aborted(_error) => {
@@ -319,12 +338,29 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 );
                                 new_events.push((EventType::Info, *timestamp, msg));
                             }
+                            SimnetEvent::RunbookStarted(runbook_id) => {
+                                deployment_completed = false;
+                                new_events.push((
+                                    EventType::Success,
+                                    Local::now(),
+                                    format!("Runbook '{}' execution started", runbook_id),
+                                ));
+                            }
+                            SimnetEvent::RunbookCompleted(runbook_id) => {
+                                deployment_completed = true;
+                                new_events.push((
+                                    EventType::Success,
+                                    Local::now(),
+                                    format!("Runbook '{}' execution completed", runbook_id),
+                                ));
+                            }
                         },
                         Err(_) => break,
                     },
                     i => match oper.recv(&app.deploy_progress_rx[i - 1]) {
-                        Ok(event) => {
-                            if let BlockEvent::UpdateProgressBarStatus(update) = event {
+                        Ok(event) => match event {
+                            BlockEvent::UpdateProgressBarStatus(update) => {
+                                deployment_completed = false;
                                 match update.new_status.status_color {
                                     ProgressBarStatusColor::Yellow => {
                                         app.status_bar_message = Some(format!(
@@ -359,13 +395,14 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 };
                             }
                         }
+                            _ => {}
+                        },
                         Err(_) => {
                             deployment_completed = true;
                         }
                     },
                 }
             };
-            
         }
 
         for event in new_events {
@@ -634,7 +671,9 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
         let mut current_line = String::new();
         let mut first = true;
         for word in log.split_whitespace() {
-            if current_line.len() + word.len() + 1 > log_col_width as usize && !current_line.is_empty() {
+            if current_line.len() + word.len() + 1 > log_col_width as usize
+                && !current_line.is_empty()
+            {
                 // Push the current line
                 let row = if first {
                     vec![
@@ -649,7 +688,11 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
                         Cell::new(current_line.clone()),
                     ]
                 };
-                rows.push(Row::new(row).style(Style::new().fg(app.colors.white)).height(1));
+                rows.push(
+                    Row::new(row)
+                        .style(Style::new().fg(app.colors.white))
+                        .height(1),
+                );
                 current_line.clear();
                 first = false;
             }
@@ -673,7 +716,11 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
                     Cell::new(current_line.clone()),
                 ]
             };
-            rows.push(Row::new(row).style(Style::new().fg(app.colors.white)).height(1));
+            rows.push(
+                Row::new(row)
+                    .style(Style::new().fg(app.colors.white))
+                    .height(1),
+            );
         }
     }
 
