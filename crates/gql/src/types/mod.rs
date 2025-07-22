@@ -11,10 +11,7 @@ use txtx_addon_kit::types::types::{AddonData, Value as TxtxValue};
 use txtx_addon_network_svm_types::SVM_SIGNATURE;
 use uuid::Uuid;
 
-use crate::{
-    query::DataloaderContext,
-    types::collections::CollectionMetadata,
-};
+use crate::{query::DataloaderContext, types::collections::CollectionMetadata};
 
 pub mod collections;
 pub mod filters;

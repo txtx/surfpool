@@ -21,9 +21,7 @@ use uuid::Uuid;
 
 use crate::{
     query::{DatabaseConnection, Dataloader, DataloaderContext, extract_graphql_features},
-    types::{
-        CollectionEntry, CollectionEntryData, collections::CollectionMetadata,
-    },
+    types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata},
 };
 
 #[derive(PartialEq, Debug)]
