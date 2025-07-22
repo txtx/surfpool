@@ -7,7 +7,7 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
 use ipc_channel::ipc::IpcSender;
 use solana_program::clock::Slot;
 use solana_signature::Signature;
-use surfpool_types::{DataIndexingCommand, CollectionEntriesPack, SubgraphPluginConfig};
+use surfpool_types::{CollectionEntriesPack, DataIndexingCommand, SubgraphPluginConfig};
 use txtx_addon_kit::types::types::Value as TxtxValue;
 use txtx_addon_network_svm::{
     Pubkey, codec::idl::parse_bytes_to_value_with_expected_idl_type_def_ty,
@@ -89,14 +89,29 @@ impl SurfpoolSubgraphPlugin {
             &account_data,
             &parsable_data.account.discriminator,
             &parsable_data.account_type.ty,
-            &subgraph_request.fields,
+            &subgraph_request.defined_fields,
         ) {
             Ok(entry) => entry,
             Err(_) => None,
         };
-        let Some(entry) = entry else {
+        let Some(mut entry) = entry else {
             return Ok(());
         };
+
+        for field in subgraph_request.intrinsic_fields.iter() {
+            let Some((entry_key, entry_value)) = field.extract_intrinsic(
+                Some(slot),
+                Some(tx_signature),
+                Some(*pubkey),
+                Some(Pubkey::new_from_array(owner)),
+                Some(lamports),
+                Some(write_version),
+            ) else {
+                continue;
+            };
+            entry.insert(entry_key, entry_value);
+        }
+
         let data = serde_json::to_vec(&vec![entry]).unwrap();
         let _ = tx.send(DataIndexingCommand::ProcessCollectionEntriesPack(
             self.uuid,
@@ -117,7 +132,7 @@ impl SurfpoolSubgraphPlugin {
         data: &[u8],
         account_discriminator: &[u8],
         account_type_def_ty: &IdlTypeDefTy,
-        fields: &Vec<IndexedSubgraphField>,
+        defined_fields: &Vec<IndexedSubgraphField>,
     ) -> Result<Option<HashMap<String, TxtxValue>>, String> {
         let actual_account_discriminator = data[0..8].to_vec();
         if actual_account_discriminator != account_discriminator {
@@ -130,7 +145,7 @@ impl SurfpoolSubgraphPlugin {
 
         let obj = parsed_value.as_object().unwrap().clone();
         let mut entry = HashMap::new();
-        for field in fields.iter() {
+        for field in defined_fields.iter() {
             let v = obj.get(&field.source_key).unwrap().clone();
             entry.insert(field.display_name.clone(), v);
         }
@@ -190,28 +205,43 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                 let pubkey_bytes: [u8; 32] =
                     info.pubkey.try_into().expect("pubkey must be 32 bytes");
                 let pubkey = Pubkey::new_from_array(pubkey_bytes);
-                let owner: [u8; 32] = info
+                let owner_bytes: [u8; 32] = info
                     .owner
                     .try_into()
                     .expect("owner pubkey must be 32 bytes");
+                let owner = Pubkey::new_from_array(owner_bytes);
 
                 if let Some(parsable_data) = self.pda_mappings.lock().unwrap().get(&pubkey) {
-                    let Some(entry) = SurfpoolSubgraphPlugin::parse_account_data(
+                    let Some(mut entry) = SurfpoolSubgraphPlugin::parse_account_data(
                         info.data,
                         &parsable_data.account.discriminator,
                         &parsable_data.account_type.ty,
-                        &subgraph_request.fields,
+                        &subgraph_request.defined_fields,
                     )
                     .unwrap() else {
                         return Ok(());
                     };
+
+                    for field in subgraph_request.intrinsic_fields.iter() {
+                        let Some((entry_key, entry_value)) = field.extract_intrinsic(
+                            Some(slot),
+                            Some(txn.signature().clone()),
+                            Some(pubkey),
+                            Some(owner),
+                            Some(info.lamports),
+                            Some(info.write_version),
+                        ) else {
+                            continue;
+                        };
+                        entry.insert(entry_key, entry_value);
+                    }
                     entries.push(entry);
                 } else {
                     self.send_to_purgatory(
                         &pubkey,
                         slot,
                         info.data.to_vec(),
-                        owner,
+                        owner_bytes,
                         info.lamports,
                         info.write_version,
                     );
@@ -220,7 +250,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                 (
                     txn.signature().clone(),
                     pubkey_bytes,
-                    owner,
+                    owner_bytes,
                     info.lamports,
                     info.write_version,
                 )
@@ -366,11 +396,28 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
 
                                         let obj = parsed_value.as_object().unwrap().clone();
                                         let mut entry = HashMap::new();
-                                        for field in subgraph_request.fields.iter() {
+                                        for field in subgraph_request.defined_fields.iter() {
                                             if let Some(v) = obj.get(&field.source_key) {
                                                 entry.insert(field.display_name.clone(), v.clone());
                                             }
                                         }
+
+                                        for field in subgraph_request.intrinsic_fields.iter() {
+                                            let Some((entry_key, entry_value)) = field
+                                                .extract_intrinsic(
+                                                    Some(slot),
+                                                    Some(transaction.signature().clone()),
+                                                    None,
+                                                    None,
+                                                    None,
+                                                    None,
+                                                )
+                                            else {
+                                                continue;
+                                            };
+                                            entry.insert(entry_key, entry_value);
+                                        }
+
                                         entries.push(entry);
                                     }
                                 }
