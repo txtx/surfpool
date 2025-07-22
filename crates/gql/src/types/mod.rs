@@ -36,7 +36,7 @@ impl GraphQLType<DefaultScalarValue> for CollectionEntry {
         DefaultScalarValue: 'r,
     {
         let mut fields: Vec<Field<'r, DefaultScalarValue>> = vec![];
-        fields.push(registry.field::<&Uuid>("uuid", &()));
+        fields.push(registry.field::<&Uuid>("id", &()));
         fields.push(registry.field::<i32>("slot", &()));
         fields.push(registry.field::<&String>("transactionSignature", &()));
         for field_metadata in spec.fields.iter() {
@@ -66,7 +66,7 @@ impl GraphQLValue<DefaultScalarValue> for CollectionEntry {
     ) -> Result<juniper::Value, FieldError> {
         let entry = &self.0;
         match field_name {
-            "uuid" => executor.resolve_with_ctx(&(), &entry.uuid.to_string()),
+            "id" => executor.resolve_with_ctx(&(), &entry.id.to_string()),
             "slot" => executor.resolve_with_ctx(&(), &Slot(entry.slot)),
             "transactionSignature" => executor.resolve_with_ctx(&(), &entry.transaction_signature),
             field_name => {
@@ -103,7 +103,7 @@ impl CollectionEntryDataUpdate {
 #[graphql_object(context = DataloaderContext)]
 impl CollectionEntryDataUpdate {
     pub fn uuid(&self) -> String {
-        self.entry.uuid.to_string()
+        self.entry.id.to_string()
     }
 }
 
@@ -113,7 +113,7 @@ use txtx_addon_network_svm_types::subgraph::IndexedSubgraphSourceTypeName;
 #[derive(Debug, Clone)]
 pub struct CollectionEntryData {
     // The UUID of the entry
-    pub uuid: Uuid,
+    pub id: Uuid,
     // A map of field names and their values
     pub values: HashMap<String, Value>,
     // The slot that the transaction that created this entry was processed in
@@ -165,8 +165,7 @@ impl CollectionEntryData {
                         cpi.transaction_signature.into(),
                     ));
                 }
-                println!("{:?}", result);
-            }
+             }
             CollectionEntriesPack::Pda(pda_entry) => {
                 // let entries: Vec<HashMap<String, Value>> = serde_json::from_slice(&pda_entry.data).map_err(|e| {
                 //     format!("{err_ctx}: Failed to deserialize new pda database entry for subgraph {}: {}", subgraph_uuid, e)
@@ -230,13 +229,13 @@ impl CollectionEntryData {
     // }
 
     pub fn cpi_event(
-        uuid: Uuid,
+        id: Uuid,
         values: HashMap<String, Value>,
         slot: u64,
         transaction_signature: solana_signature::Signature,
     ) -> Self {
         Self {
-            uuid,
+            id,
             slot,
             transaction_signature: Hash(blake3::Hash::from_bytes([1u8; 32])),
             values,

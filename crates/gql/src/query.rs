@@ -377,7 +377,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
                 values.insert(field.clone(), row[i].value.0.clone()); // FIXME
             }
             results.push(CollectionEntry(CollectionEntryData {
-                uuid: Uuid::new_v4(),
+                id: Uuid::new_v4(),
                 slot: 0,
                 transaction_signature: Hash(blake3::Hash::from_bytes([0u8; 32])),
                 values,
