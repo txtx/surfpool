@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     query::DataloaderContext,
-    types::{collections::CollectionMetadata, scalars::hash::Hash},
+    types::collections::CollectionMetadata,
 };
 
 pub mod collections;

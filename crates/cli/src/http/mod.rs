@@ -219,7 +219,6 @@ fn start_subgraph_runloop(
                                     format!("{err_ctx}: Failed to acquire write lock on gql schema")
                                 })?;
 
-                                info!(ctx.expect_logger(), "{:?}", request);
                                 let metadata = CollectionMetadata::from_request(&uuid, &request);
 
                                 cached_metadata.insert(uuid.clone(), metadata.clone());

@@ -13,11 +13,10 @@ use uuid::Uuid;
 
 use super::{
     filters::SubgraphFilterSpec,
-    scalars::{bigint::BigInt, pubkey::PublicKey},
+    scalars::pubkey::PublicKey,
 };
 use crate::{
     query::DataloaderContext,
-    types::scalars::{signature::Signature, slot::Slot},
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
