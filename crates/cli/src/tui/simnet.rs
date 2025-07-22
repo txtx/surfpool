@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, error::Error, io, time::Duration};
+use std::{error::Error, io, time::Duration};
 
 use chrono::{DateTime, Local};
 use crossbeam::channel::{Select, Sender, unbounded};
@@ -80,7 +80,7 @@ struct App {
     clock: Clock,
     epoch_info: EpochInfo,
     successful_transactions: u32,
-    events: VecDeque<(EventType, DateTime<Local>, String)>,
+    events: Vec<(EventType, DateTime<Local>, String)>,
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     status_bar_message: Option<String>,
@@ -118,7 +118,7 @@ impl App {
                 transaction_count: None,
             },
             successful_transactions: 0,
-            events: VecDeque::new(),
+            events: vec![],
             include_debug_logs,
             deploy_progress_rx,
             status_bar_message: None,
@@ -142,8 +142,7 @@ impl App {
     pub fn next(&mut self) {
         self.state.select_next();
         self.scroll_state.next();
-        let new_offset = self.state.offset() + ITEM_HEIGHT;
-        *self.state.offset_mut() = new_offset;
+        *self.state.offset_mut() = ITEM_HEIGHT;
     }
 
     pub fn previous(&mut self) {
@@ -215,9 +214,15 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
         while let Ok((message, keypair)) = rx.recv() {
             let client =
                 RpcClient::new_with_commitment(&rpc_api_url, CommitmentConfig::processed());
-            let blockhash = client.get_latest_blockhash().unwrap();
-            let transaction = Transaction::new(&[keypair], message, blockhash);
-            let _ = client.send_transaction(&transaction).unwrap();
+            match client.get_latest_blockhash() {
+                Ok(blockhash) => {
+                    let transaction = Transaction::new(&[keypair], message, blockhash);
+                    let _ = client.send_transaction(&transaction).unwrap();
+                }
+                Err(_e) => {
+                    // print error
+                }
+            }
         }
     });
 
@@ -225,6 +230,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
     loop {
         let mut selector = Select::new();
         let mut handles = vec![];
+        let mut new_events = vec![];
 
         {
             selector.recv(&app.simnet_events_rx);
@@ -233,21 +239,20 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     handles.push(selector.recv(rx));
                 }
             }
-
             let oper = selector.try_select();
             if let Ok(oper) = oper {
                 match oper.index() {
                     0 => match oper.recv(&app.simnet_events_rx) {
                         Ok(event) => match &event {
                             SimnetEvent::AccountUpdate(dt, _account) => {
-                                app.events.push_front((
+                                new_events.push((
                                     EventType::Success,
                                     *dt,
                                     event.account_update_msg(),
                                 ));
                             }
                             SimnetEvent::PluginLoaded(_) => {
-                                app.events.push_front((
+                                new_events.push((
                                     EventType::Success,
                                     Local::now(),
                                     event.plugin_loaded_msg(),
@@ -255,7 +260,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             }
                             SimnetEvent::EpochInfoUpdate(epoch_info) => {
                                 app.epoch_info = epoch_info.clone();
-                                app.events.push_front((
+                                new_events.push((
                                     EventType::Success,
                                     Local::now(),
                                     event.epoch_info_update_msg(),
@@ -264,7 +269,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             SimnetEvent::ClockUpdate(clock) => {
                                 app.clock = clock.clone();
                                 if app.include_debug_logs {
-                                    app.events.push_front((
+                                    new_events.push((
                                         EventType::Debug,
                                         Local::now(),
                                         event.clock_update_msg(),
@@ -272,26 +277,24 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 }
                             }
                             SimnetEvent::ErrorLog(dt, log) => {
-                                app.events
-                                    .push_front((EventType::Failure, *dt, log.clone()));
+                                new_events.push((EventType::Failure, *dt, log.clone()));
                             }
                             SimnetEvent::InfoLog(dt, log) => {
-                                app.events.push_front((EventType::Info, *dt, log.clone()));
+                                new_events.push((EventType::Info, *dt, log.clone()));
                             }
                             SimnetEvent::DebugLog(dt, log) => {
                                 if app.include_debug_logs {
-                                    app.events.push_front((EventType::Debug, *dt, log.clone()));
+                                    new_events.push((EventType::Debug, *dt, log.clone()));
                                 }
                             }
                             SimnetEvent::WarnLog(dt, log) => {
-                                app.events
-                                    .push_front((EventType::Warning, *dt, log.clone()));
+                                new_events.push((EventType::Warning, *dt, log.clone()));
                             }
                             SimnetEvent::TransactionReceived(_dt, _transaction) => {}
                             SimnetEvent::TransactionProcessed(dt, meta, _err) => {
                                 if deployment_completed {
                                     for log in meta.logs.iter() {
-                                        app.events.push_front((EventType::Debug, *dt, log.clone()));
+                                        new_events.push((EventType::Debug, *dt, log.clone()));
                                     }
                                 }
                                 app.successful_transactions += 1;
@@ -314,7 +317,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     "Profiled [{}]: {} CUs",
                                     tag, result.compute_units.compute_units_consumed
                                 );
-                                app.events.push_front((EventType::Info, *timestamp, msg));
+                                new_events.push((EventType::Info, *timestamp, msg));
                             }
                         },
                         Err(_) => break,
@@ -331,7 +334,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     }
                                     ProgressBarStatusColor::Green => {
                                         app.status_bar_message = None;
-                                        app.events.push_front((
+                                        new_events.push((
                                             EventType::Info,
                                             Local::now(),
                                             update.new_status.message,
@@ -339,7 +342,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     }
                                     ProgressBarStatusColor::Red => {
                                         app.status_bar_message = None;
-                                        app.events.push_front((
+                                        new_events.push((
                                             EventType::Failure,
                                             Local::now(),
                                             update.new_status.message,
@@ -347,7 +350,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     }
                                     ProgressBarStatusColor::Purple => {
                                         app.status_bar_message = None;
-                                        app.events.push_front((
+                                        new_events.push((
                                             EventType::Info,
                                             Local::now(),
                                             update.new_status.message,
@@ -361,7 +364,13 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         }
                     },
                 }
-            }
+            };
+            
+        }
+
+        for event in new_events {
+            app.events.push(event);
+            app.next();
         }
 
         if event::poll(Duration::from_millis(5))? {
@@ -421,6 +430,12 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
     }
     Ok(())
 }
+
+// fn add_event(app: &mut App, event: (EventType, DateTime<Local>, String)) {
+//     app.events
+//         .push_back(event);
+//     app.scroll_state.position(app.events.len() + 1)
+// }
 
 fn ui(f: &mut Frame, app: &mut App) {
     let rects = Layout::vertical([
@@ -602,7 +617,11 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
         .title(Line::from(title));
     f.render_widget(title, rects[0]);
 
-    let rows = app.events.iter().map(|(event_type, dt, log)| {
+    // Estimate available width for the log column
+    let log_col_width = area.width.saturating_sub(1 + 12 + 2); // event + timestamp + padding
+
+    let mut rows = Vec::new();
+    for (event_type, dt, log) in &app.events {
         let color = match event_type {
             EventType::Failure => app.colors.error,
             EventType::Info => app.colors.info,
@@ -610,15 +629,53 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
             EventType::Warning => app.colors.warning,
             EventType::Debug => app.colors.gray,
         };
-        let row = vec![
-            Cell::new("⏐").style(color),
-            Cell::new(dt.format("%H:%M:%S.%3f").to_string()).style(app.colors.gray),
-            Cell::new(log.to_string()),
-        ];
-        Row::new(row)
-            .style(Style::new().fg(app.colors.white))
-            .height(1)
-    });
+
+        // Smart word wrapping
+        let mut current_line = String::new();
+        let mut first = true;
+        for word in log.split_whitespace() {
+            if current_line.len() + word.len() + 1 > log_col_width as usize && !current_line.is_empty() {
+                // Push the current line
+                let row = if first {
+                    vec![
+                        Cell::new("⏐").style(color),
+                        Cell::new(dt.format("%H:%M:%S.%3f").to_string()).style(app.colors.gray),
+                        Cell::new(current_line.clone()),
+                    ]
+                } else {
+                    vec![
+                        Cell::new(" "),
+                        Cell::new(" "),
+                        Cell::new(current_line.clone()),
+                    ]
+                };
+                rows.push(Row::new(row).style(Style::new().fg(app.colors.white)).height(1));
+                current_line.clear();
+                first = false;
+            }
+            if !current_line.is_empty() {
+                current_line.push(' ');
+            }
+            current_line.push_str(word);
+        }
+        // Push any remaining text
+        if !current_line.is_empty() {
+            let row = if first {
+                vec![
+                    Cell::new("⏐").style(color),
+                    Cell::new(dt.format("%H:%M:%S.%3f").to_string()).style(app.colors.gray),
+                    Cell::new(current_line.clone()),
+                ]
+            } else {
+                vec![
+                    Cell::new(" "),
+                    Cell::new(" "),
+                    Cell::new(current_line.clone()),
+                ]
+            };
+            rows.push(Row::new(row).style(Style::new().fg(app.colors.white)).height(1));
+        }
+    }
 
     let table = Table::new(
         rows,
