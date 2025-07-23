@@ -6,18 +6,16 @@ use juniper::{
 use serde::{Deserialize, Serialize};
 use txtx_addon_kit::types::types::Type;
 use txtx_addon_network_svm_types::{
-    SVM_PUBKEY,
+    SVM_PUBKEY, SVM_SIGNATURE,
     subgraph::{IndexedSubgraphField, IndexedSubgraphSourceType, SubgraphRequest},
 };
 use uuid::Uuid;
 
 use super::{
     filters::SubgraphFilterSpec,
-    scalars::pubkey::PublicKey,
+    scalars::{bigint::BigInt, pubkey::PublicKey, signature::Signature},
 };
-use crate::{
-    query::DataloaderContext,
-};
+use crate::query::DataloaderContext;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CollectionMetadata {
@@ -86,7 +84,7 @@ impl GraphQLType<DefaultScalarValue> for CollectionMetadata {
                             .unwrap_or(""),
                     ),
                 Type::Integer => registry
-                    .field::<&i32>(&field.data.display_name, &())
+                    .field::<&BigInt>(&field.data.display_name, &())
                     .description(
                         &field
                             .data
@@ -145,16 +143,38 @@ impl GraphQLType<DefaultScalarValue> for CollectionMetadata {
                             .map(|d| d.as_str())
                             .unwrap_or(""),
                     ),
-                Type::Addon(_addon) => registry
-                    .field::<&String>(&field.data.display_name, &())
-                    .description(
-                        &field
-                            .data
-                            .description
-                            .as_ref()
-                            .map(|d| d.as_str())
-                            .unwrap_or(""),
-                    ),
+                Type::Addon(addon_id) => match addon_id.as_str() {
+                    SVM_PUBKEY => registry
+                        .field::<&PublicKey>(&field.data.display_name, &())
+                        .description(
+                            &field
+                                .data
+                                .description
+                                .as_ref()
+                                .map(|d| d.as_str())
+                                .unwrap_or(""),
+                        ),
+                    SVM_SIGNATURE => registry
+                        .field::<&Signature>(&field.data.display_name, &())
+                        .description(
+                            &field
+                                .data
+                                .description
+                                .as_ref()
+                                .map(|d| d.as_str())
+                                .unwrap_or(""),
+                        ),
+                    _ => registry
+                        .field::<&String>(&field.data.display_name, &())
+                        .description(
+                            &field
+                                .data
+                                .description
+                                .as_ref()
+                                .map(|d| d.as_str())
+                                .unwrap_or(""),
+                        ),
+                },
                 Type::Object(_object) => registry
                     .field::<&String>(&field.data.display_name, &())
                     .description(
@@ -228,12 +248,14 @@ impl FieldMetadata {
         let mut field = match &self.data.expected_type {
             Type::Bool => registry.field::<&bool>(field_name, &()),
             Type::String => registry.field::<&String>(field_name, &()),
-            Type::Integer => registry.field::<&i32>(field_name, &()),
+            Type::Integer => registry.field::<&BigInt>(field_name, &()),
             Type::Float => registry.field::<&f64>(field_name, &()),
             Type::Buffer => registry.field::<&String>(field_name, &()),
             Type::Addon(addon_id) => {
                 if addon_id == SVM_PUBKEY {
                     registry.field::<&PublicKey>(field_name, &())
+                } else if addon_id == SVM_SIGNATURE {
+                    registry.field::<&Signature>(field_name, &())
                 } else {
                     registry.field::<&String>(field_name, &())
                 }

@@ -21,9 +21,7 @@ use uuid::Uuid;
 
 use crate::{
     query::{DatabaseConnection, Dataloader, DataloaderContext, extract_graphql_features},
-    types::{
-        CollectionEntry, CollectionEntryData, collections::CollectionMetadata,
-    },
+    types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata},
 };
 
 #[derive(PartialEq, Debug)]
@@ -341,8 +339,6 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
 #[cfg(test)]
 mod tests {
     use solana_pubkey::Pubkey;
-    use solana_sdk::signature::Signature;
-    use surfpool_types::CollectionEntriesPack;
     use txtx_addon_kit::types::{
         ConstructDid, Did,
         types::{Type, Value},
@@ -412,11 +408,11 @@ mod tests {
         }
     }
 
-    fn test_entry(_schema: &CollectionMetadata) -> CollectionEntriesPack {
+    fn test_entry(_schema: &CollectionMetadata) -> Vec<u8> {
         let mut values = HashMap::new();
         values.insert("test_field".to_string(), Value::String("hello".to_string()));
         let bytes = serde_json::to_vec(&vec![values]).unwrap();
-        CollectionEntriesPack::cpi_event(bytes, 42, Signature::from([1u8; 64]))
+        bytes
     }
 
     #[test]
@@ -435,7 +431,7 @@ mod tests {
 
         // Insert entry
         let entries_pack = test_entry(&metadata);
-        let entries = CollectionEntryData::from_entries_pack(&uuid, entries_pack).unwrap();
+        let entries = CollectionEntryData::from_entries_bytes(&uuid, entries_pack).unwrap();
 
         store
             .pool
@@ -451,7 +447,7 @@ mod tests {
 
         // Check field value
         println!("Fetched entry: {:?}", fetched);
-        let fetched_entry = &fetched[0].0;
+        let _fetched_entry = &fetched[0].0;
         // let CollectionEntryDataTableDefaults::CpiEvent(ref default) = fetched_entry.table_defaults
         // else {
         //     panic!("Unexpected subgraph data entry type");

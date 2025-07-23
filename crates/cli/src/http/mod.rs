@@ -252,7 +252,7 @@ fn start_subgraph_runloop(
                         Ok(cmd) => match cmd {
                             DataIndexingCommand::ProcessCollectionEntriesPack(
                                 uuid,
-                                entries_pack,
+                                entry_bytes,
                             ) => {
                                 let err_ctx = "Failed to apply new database entry to subgraph";
                                 let gql_context = gql_context.write().map_err(|_| {
@@ -262,7 +262,7 @@ fn start_subgraph_runloop(
                                 })?;
 
                                 let entries =
-                                    CollectionEntryData::from_entries_pack(&uuid, entries_pack)?;
+                                    CollectionEntryData::from_entries_bytes(&uuid, entry_bytes)?;
 
                                 let metadata = cached_metadata.get(&uuid).unwrap();
 

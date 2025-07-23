@@ -12184,6 +12184,7 @@ name = "txtx-addon-network-svm-types"
 version = "0.1.22"
 dependencies = [
  "anchor-lang-idl",
+ "convert_case 0.6.0",
  "lazy_static",
  "serde",
  "serde_derive",
