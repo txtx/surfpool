@@ -5,8 +5,14 @@ use juniper::{
     Value, graphql_object,
     meta::{Field, MetaType},
 };
-use txtx_addon_kit::types::types::{AddonData, Value as TxtxValue};
-use txtx_addon_network_svm_types::{SVM_PUBKEY, SVM_SIGNATURE};
+use txtx_addon_kit::{
+    hex,
+    types::types::{AddonData, Value as TxtxValue},
+};
+use txtx_addon_network_svm_types::{
+    SVM_F32, SVM_F64, SVM_I8, SVM_I16, SVM_I32, SVM_I64, SVM_I128, SVM_I256, SVM_PUBKEY,
+    SVM_SIGNATURE, SVM_U8, SVM_U16, SVM_U32, SVM_U64, SVM_U128, SVM_U256, SvmValue, U256,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -116,11 +122,11 @@ fn convert_txtx_values_to_juniper_values(
     let mut dst = HashMap::new();
 
     for (k, old) in src.into_iter() {
-        let new = match old {
-            TxtxValue::Bool(b) => Value::scalar(b),
-            TxtxValue::String(s) => Value::scalar(s),
-            TxtxValue::Integer(n) => BigInt(n).to_output(),
-            TxtxValue::Float(f) => Value::scalar(f),
+        let new = match &old {
+            TxtxValue::Bool(b) => Value::scalar(*b),
+            TxtxValue::String(s) => Value::scalar(s.to_owned()),
+            TxtxValue::Integer(n) => BigInt(*n).to_output(),
+            TxtxValue::Float(f) => Value::scalar(*f),
             TxtxValue::Buffer(_bytes) => unimplemented!(),
             TxtxValue::Addon(AddonData { bytes, id }) => match id.as_str() {
                 SVM_SIGNATURE => {
@@ -136,6 +142,79 @@ fn convert_txtx_values_to_juniper_values(
                         .expect("could not convert value to pubkey");
                     let pubkey = solana_pubkey::Pubkey::new_from_array(bytes);
                     PublicKey(pubkey).to_output()
+                }
+                SVM_U8 => {
+                    let num =
+                        SvmValue::to_number::<u8>(&old).expect("could not convert value to u8");
+                    Value::scalar(num as i32)
+                }
+                SVM_U16 => {
+                    let num =
+                        SvmValue::to_number::<u16>(&old).expect("could not convert value to u16");
+                    Value::scalar(num as i32)
+                }
+                SVM_U32 => {
+                    let num =
+                        SvmValue::to_number::<u32>(&old).expect("could not convert value to u32");
+                    BigInt(num as i128).to_output()
+                }
+                SVM_U64 => {
+                    let num =
+                        SvmValue::to_number::<u64>(&old).expect("could not convert value to u64");
+                    BigInt(num as i128).to_output()
+                }
+                SVM_U128 => {
+                    let num =
+                        SvmValue::to_number::<u128>(&old).expect("could not convert value to u128");
+                    let bytes = num.to_le_bytes();
+                    Value::scalar(hex::encode(bytes))
+                }
+                SVM_U256 => {
+                    let num =
+                        SvmValue::to_number::<U256>(&old).expect("could not convert value to u256");
+                    let bytes = num.0;
+                    Value::scalar(hex::encode(bytes))
+                }
+                SVM_I8 => {
+                    let num =
+                        SvmValue::to_number::<i8>(&old).expect("could not convert value to i8");
+                    Value::scalar(num as i32)
+                }
+                SVM_I16 => {
+                    let num =
+                        SvmValue::to_number::<i16>(&old).expect("could not convert value to i16");
+                    Value::scalar(num as i32)
+                }
+                SVM_I32 => {
+                    let num =
+                        SvmValue::to_number::<i32>(&old).expect("could not convert value to i32");
+                    Value::scalar(num as i32)
+                }
+                SVM_I64 => {
+                    let num =
+                        SvmValue::to_number::<i64>(&old).expect("could not convert value to i64");
+                    BigInt(num as i128).to_output()
+                }
+                SVM_I128 => {
+                    let num =
+                        SvmValue::to_number::<i128>(&old).expect("could not convert value to i128");
+                    BigInt(num as i128).to_output()
+                }
+                SVM_I256 => {
+                    let num =
+                        SvmValue::to_number::<U256>(&old).expect("could not convert value to i256");
+                    let bytes = num.0;
+                    Value::scalar(hex::encode(bytes))
+                }
+                SVM_F32 => {
+                    let num =
+                        SvmValue::to_number::<f32>(&old).expect("could not convert value to f32");
+                    Value::scalar(num as f64)
+                }
+                SVM_F64 => {
+                    let num =
+                        SvmValue::to_number::<f64>(&old).expect("could not convert value to f64");
+                    Value::scalar(num)
                 }
                 _ => {
                     Value::scalar(String::from_utf8(bytes.to_vec()).expect("addon data not utf-8"))

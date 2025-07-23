@@ -6,7 +6,8 @@ use juniper::{
 use serde::{Deserialize, Serialize};
 use txtx_addon_kit::types::types::Type;
 use txtx_addon_network_svm_types::{
-    SVM_PUBKEY, SVM_SIGNATURE,
+    SVM_F32, SVM_F64, SVM_I8, SVM_I16, SVM_I32, SVM_I64, SVM_I128, SVM_I256, SVM_PUBKEY,
+    SVM_SIGNATURE, SVM_U8, SVM_U16, SVM_U32, SVM_U64, SVM_U128, SVM_U256,
     subgraph::{IndexedSubgraphField, IndexedSubgraphSourceType, SubgraphRequest},
 };
 use uuid::Uuid;
@@ -108,6 +109,18 @@ impl GraphQLType<DefaultScalarValue> for CollectionMetadata {
                         SVM_SIGNATURE => registry
                             .field::<&Signature>(&field.data.display_name, &())
                             .description(description),
+                        SVM_U8 | SVM_U16 | SVM_I8 | SVM_I16 | SVM_I32 => registry
+                            .field::<&i32>(&field.data.display_name, &())
+                            .description(description),
+                        SVM_U32 | SVM_U64 | SVM_I64 | SVM_I128 => registry
+                            .field::<&BigInt>(&field.data.display_name, &())
+                            .description(description),
+                        SVM_U128 | SVM_U256 | SVM_I256 => registry
+                            .field::<&String>(&field.data.display_name, &())
+                            .description(description),
+                        SVM_F32 | SVM_F64 => registry
+                            .field::<&f64>(&field.data.display_name, &())
+                            .description(description),
                         _ => registry
                             .field::<&String>(&field.data.display_name, &())
                             .description(description),
@@ -175,15 +188,19 @@ impl FieldMetadata {
             Type::Integer => registry.field::<&BigInt>(field_name, &()),
             Type::Float => registry.field::<&f64>(field_name, &()),
             Type::Buffer => registry.field::<&String>(field_name, &()),
-            Type::Addon(addon_id) => {
-                if addon_id == SVM_PUBKEY {
-                    registry.field::<&PublicKey>(field_name, &())
-                } else if addon_id == SVM_SIGNATURE {
-                    registry.field::<&Signature>(field_name, &())
-                } else {
-                    registry.field::<&String>(field_name, &())
+            Type::Addon(addon_id) => match addon_id.as_str() {
+                SVM_PUBKEY => registry.field::<&PublicKey>(field_name, &()),
+                SVM_SIGNATURE => registry.field::<&Signature>(field_name, &()),
+                SVM_U8 | SVM_U16 | SVM_I8 | SVM_I16 | SVM_I32 => {
+                    registry.field::<&i32>(field_name, &())
                 }
-            }
+                SVM_U32 | SVM_U64 | SVM_I64 | SVM_I128 => {
+                    registry.field::<&BigInt>(field_name, &())
+                }
+                SVM_U128 | SVM_U256 | SVM_I256 => registry.field::<&String>(field_name, &()),
+                SVM_F32 | SVM_F64 => registry.field::<&f64>(field_name, &()),
+                _ => registry.field::<&String>(field_name, &()),
+            },
             unsupported => unimplemented!("unsupported type: {:?}", unsupported),
         };
         if let Some(description) = &self.data.description {

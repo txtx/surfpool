@@ -111,10 +111,12 @@ impl SurfpoolSubgraphPlugin {
             }
         });
 
-        let data = serde_json::to_vec(&vec![entry]).unwrap();
-        let _ = tx.send(DataIndexingCommand::ProcessCollectionEntriesPack(
-            self.uuid, data,
-        ));
+        if !entry.is_empty() {
+            let data = serde_json::to_vec(&vec![entry]).unwrap();
+            let _ = tx.send(DataIndexingCommand::ProcessCollectionEntriesPack(
+                self.uuid, data,
+            ));
+        }
         Ok(())
     }
 
