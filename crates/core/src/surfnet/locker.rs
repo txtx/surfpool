@@ -836,7 +836,7 @@ impl SurfnetSvmLocker {
                         if before.ne(&after) {
                             if let Some(after) = &after {
                                 svm_writer.update_account_registries(pubkey, after);
-                                svm_writer.increment_write_version();
+                                let write_version = svm_writer.increment_write_version();
 
                                 if let Some(sanitized_transaction) = sanitized_transaction.clone() {
                                     let _ = svm_writer.geyser_events_tx.send(
@@ -845,7 +845,7 @@ impl SurfnetSvmLocker {
                                             after.clone(),
                                             svm_writer.get_latest_absolute_slot(),
                                             sanitized_transaction.clone(),
-                                            svm_writer.write_version,
+                                            write_version,
                                         )),
                                     );
                                 }
