@@ -265,8 +265,7 @@ fn start_subgraph_runloop(
                                     }
                                 };
 
-                                let entries = match 
-                                    CollectionEntryData::from_entries_bytes(&uuid, entry_bytes) {
+                                let entries = match CollectionEntryData::from_entries_bytes(&uuid, entry_bytes) {
                                     Ok(entries) => entries,
                                     Err(e) => {
                                         let _ = subgraph_events_tx.send(SubgraphEvent::error(format!(

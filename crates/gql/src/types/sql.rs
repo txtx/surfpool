@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use diesel::prelude::*;
-use juniper::graphql_value;
-use juniper::{DefaultScalarValue, Executor, FieldError, Value};
+use juniper::{DefaultScalarValue, Executor, FieldError, Value, graphql_value};
 use surfpool_db::{
     diesel::{
         self, ExpressionMethods, QueryDsl, RunQueryDsl,
