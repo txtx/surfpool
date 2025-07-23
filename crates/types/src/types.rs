@@ -505,11 +505,11 @@ pub struct SupplyUpdate {
     pub non_circulating_accounts: Option<Vec<String>>,
 }
 
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum UuidOrSignature {
     Uuid(Uuid),
     Signature(Signature),
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum DataIndexingCommand {
