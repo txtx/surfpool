@@ -33,8 +33,8 @@ use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
-    BlockProductionMode, ClockCommand, ClockEvent, SchemaDataSourcingEvent, SimnetCommand,
-    SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
+    BlockProductionMode, ClockCommand, ClockEvent, DataIndexingCommand, SimnetCommand, SimnetEvent,
+    SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
 };
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use txtx_addon_kit::helpers::fs::FileLocation;
@@ -294,16 +294,20 @@ fn start_geyser_runloop(
         let ipc_router = RouterProxy::new();
 
         let err = loop {
+            use agave_geyser_plugin_interface::geyser_plugin_interface::{ReplicaAccountInfoV3, ReplicaAccountInfoVersions};
+
+            use crate::types::GeyserAccountUpdate;
+
             select! {
                 recv(plugin_manager_commands_rx) -> msg => {
                     match msg {
                         Ok(event) => {
                             match event {
                                 PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
-                                    let _ = subgraph_commands_tx.send(SubgraphCommand::CreateSubgraph(uuid, config.data.clone(), notifier));
+                                    let _ = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(uuid, config.data.clone(), notifier));
                                     let mut plugin = SurfpoolSubgraphPlugin::default();
 
-                                    let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<SchemaDataSourcingEvent>>::new().expect("Failed to create IPC one-shot server.");
+                                    let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<DataIndexingCommand>>::new().expect("Failed to create IPC one-shot server.");
                                     let subgraph_plugin_config = SubgraphPluginConfig {
                                         uuid,
                                         ipc_token,
@@ -322,8 +326,8 @@ fn start_geyser_runloop(
                                         let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to load Geyser plugin: {:?}", e)));
                                     };
                                     if let Ok((_, rx)) = server.accept() {
-                                        let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver::<SchemaDataSourcingEvent>(rx);
-                                        let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveSubgraph(subgraph_rx));
+                                        let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver::<DataIndexingCommand>(rx);
+                                        let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveCollection(subgraph_rx));
                                     };
                                     let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
                                     surfpool_plugin_manager.push(plugin);
@@ -375,6 +379,39 @@ fn start_geyser_runloop(
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), transaction_with_status_meta.slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
                             };
+                        }
+                    }
+                    Ok(GeyserEvent::UpdateAccount(account_update)) => {
+                        let GeyserAccountUpdate {
+                            pubkey,
+                            account,
+                            slot,
+                            sanitized_transaction,
+                            write_version,
+                        } = account_update;
+
+                        let account_replica = ReplicaAccountInfoV3 {
+                            pubkey: pubkey.as_ref(),
+                            lamports: account.lamports,
+                            owner: account.owner.as_ref(),
+                            executable: account.executable,
+                            rent_epoch: account.rent_epoch,
+                            data: account.data.as_ref(),
+                            write_version,
+                            txn: Some(&sanitized_transaction),
+                        };
+
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update account in Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser-plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update account in Geyser plugin: {:?}", e)));
+                            }
                         }
                     }
                 }
