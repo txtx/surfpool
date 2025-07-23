@@ -50,7 +50,7 @@ impl SurfpoolSubgraphPlugin {
         write_version: u64,
     ) {
         self.account_update_purgatory.lock().unwrap().insert(
-            pubkey.clone(),
+            *pubkey,
             AccountPurgatoryData {
                 slot,
                 account_data,
@@ -72,7 +72,7 @@ impl SurfpoolSubgraphPlugin {
         self.pda_mappings
             .lock()
             .unwrap()
-            .insert(pubkey.clone(), parsable_data.clone());
+            .insert(*pubkey, parsable_data.clone());
 
         let Some(AccountPurgatoryData {
             slot,
