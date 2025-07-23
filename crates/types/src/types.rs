@@ -139,6 +139,8 @@ pub struct ComputeUnitsEstimationResult {
 pub struct ProfileResult {
     pub compute_units: ComputeUnitsEstimationResult,
     pub state: ProfileState,
+    pub slot: u64,
+    pub uuid: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -542,4 +544,10 @@ pub struct SupplyUpdate {
     pub circulating: Option<u64>,
     pub non_circulating: Option<u64>,
     pub non_circulating_accounts: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum UuidOrSignature {
+    Uuid(Uuid),
+    Signature(Signature),
 }

@@ -46,7 +46,7 @@ use solana_transaction_status::{
 };
 use surfpool_types::{
     ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
-    TransactionConfirmationStatus, TransactionStatusEvent,
+    TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature,
 };
 use tokio::sync::RwLock;
 
@@ -1475,14 +1475,40 @@ impl SurfnetSvmLocker {
             capture
         };
 
+        // Determine if this is a simulation (no signature) or execution (has signature)
+        // For now, always generate a UUID and store in simulated_transaction_profiles
+        let uuid = uuid::Uuid::new_v4();
+        let mut is_execution = false;
+        // If the transaction has a non-default signature, treat as execution
+        if signature != solana_signature::Signature::default() {
+            is_execution = true;
+        }
+
+        let profile_result = ProfileResult {
+            compute_units: compute_units_estimation_result,
+            state: ProfileState::new(pre_execution_capture, post_execution_capture),
+            slot,
+            uuid: Some(uuid),
+        };
+
+        self.with_svm_writer(|svm| {
+            svm.simulated_transaction_profiles
+                .insert(uuid, profile_result.clone());
+            if is_execution {
+                svm.executed_transaction_profiles
+                    .insert(signature, profile_result.clone());
+                svm.profile_tag_map
+                    .entry(signature.to_string())
+                    .or_default()
+                    .push(UuidOrSignature::Uuid(uuid));
+            }
+        });
+
         Ok(SvmAccessContext::new(
             slot,
             latest_epoch_info,
             latest_blockhash,
-            ProfileResult {
-                compute_units: compute_units_estimation_result,
-                state: ProfileState::new(pre_execution_capture, post_execution_capture),
-            },
+            profile_result,
         ))
     }
 
