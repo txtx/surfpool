@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use diesel::prelude::*;
+use juniper::graphql_value;
 use juniper::{DefaultScalarValue, Executor, FieldError, Value};
 use surfpool_db::{
     diesel::{
@@ -91,36 +92,55 @@ pub fn fetch_dynamic_entries_from_postres(
                 let col = dynamic_table.column::<Text, _>(field);
                 query = match predicate {
                     "equals" => query.filter(col.eq(s)),
-                    "notEquals" => query.filter(col.ne(s)),
-                    "contains" => query.filter(col.like(format!("%{}%", s))),
-                    "notContains" => query.filter(col.not_like(format!("%{}%", s))),
-                    "endsWith" => query.filter(col.like(format!("%{}", s))),
-                    "startsWith" => query.filter(col.like(format!("{}%", s))),
-                    _ => panic!("Unsupported string predicate: {}", predicate),
+                    "not" => query.filter(col.ne(s)),
+                    "_contains" => query.filter(col.like(format!("%{}%", s))),
+                    "_notContains" => query.filter(col.not_like(format!("%{}%", s))),
+                    "_endsWith" => query.filter(col.like(format!("%{}", s))),
+                    "_startsWith" => query.filter(col.like(format!("{}%", s))),
+                    _ => {
+                        return Err(FieldError::new(
+                            format!("Unsupported string predicate: {}", predicate),
+                            graphql_value!({"invalid_params": "Invalid string predicate"}),
+                        ));
+                    }
                 };
             }
             DefaultScalarValue::Int(i) => {
                 let col = dynamic_table.column::<Integer, _>(field);
                 query = match predicate {
-                    "equals" | "isEqual" => query.filter(col.eq(*i)),
-                    "notEquals" => query.filter(col.ne(*i)),
-                    "greaterThan" => query.filter(col.gt(*i)),
-                    "greaterOrEqual" => query.filter(col.ge(*i)),
-                    "lowerThan" => query.filter(col.lt(*i)),
-                    "lowerOrEqual" => query.filter(col.le(*i)),
-                    "between" => panic!("'between' requires a tuple/array value"),
-                    _ => panic!("Unsupported integer predicate: {}", predicate),
+                    "equals" => query.filter(col.eq(*i)),
+                    "not" => query.filter(col.ne(*i)),
+                    "gt" => query.filter(col.gt(*i)),
+                    "gte" => query.filter(col.ge(*i)),
+                    "lt" => query.filter(col.lt(*i)),
+                    "lte" => query.filter(col.le(*i)),
+                    _ => {
+                        return Err(FieldError::new(
+                            format!("Unsupported integer predicate: {}", predicate),
+                            graphql_value!({"invalid_params": "Invalid integer predicate"}),
+                        ));
+                    }
                 };
             }
-            DefaultScalarValue::Boolean(_b) => {
+            DefaultScalarValue::Boolean(b) => {
                 let col = dynamic_table.column::<Bool, _>(field);
                 query = match predicate {
-                    "true" => query.filter(col.eq(true)),
-                    "false" => query.filter(col.eq(false)),
-                    _ => panic!("Unsupported boolean predicate: {}", predicate),
+                    "equals" => query.filter(col.eq(*b)),
+                    "not" => query.filter(col.ne(*b)),
+                    _ => {
+                        return Err(FieldError::new(
+                            format!("Unsupported boolean predicate: {}", predicate),
+                            graphql_value!({"invalid_params": "Invalid boolean predicate"}),
+                        ));
+                    }
                 };
             }
-            _ => panic!("Unsupported predicate or value type"),
+            _ => {
+                return Err(FieldError::new(
+                    format!("Unsupported predicate or value type: {}", predicate),
+                    graphql_value!({"invalid_params": "Invalid predicate or value type"}),
+                ));
+            }
         };
     }
 
@@ -155,36 +175,55 @@ pub fn fetch_dynamic_entries_from_sqlite(
                 let col = dynamic_table.column::<Text, _>(field);
                 query = match predicate {
                     "equals" => query.filter(col.eq(s)),
-                    "notEquals" => query.filter(col.ne(s)),
+                    "not" => query.filter(col.ne(s)),
                     "contains" => query.filter(col.like(format!("%{}%", s))),
                     "notContains" => query.filter(col.not_like(format!("%{}%", s))),
                     "endsWith" => query.filter(col.like(format!("%{}", s))),
                     "startsWith" => query.filter(col.like(format!("{}%", s))),
-                    _ => panic!("Unsupported string predicate: {}", predicate),
+                    _ => {
+                        return Err(FieldError::new(
+                            format!("Unsupported string predicate: {}", predicate),
+                            graphql_value!({"invalid_params": "Invalid string predicate"}),
+                        ));
+                    }
                 };
             }
             DefaultScalarValue::Int(i) => {
                 let col = dynamic_table.column::<Integer, _>(field);
                 query = match predicate {
-                    "equals" | "isEqual" => query.filter(col.eq(*i)),
-                    "notEquals" => query.filter(col.ne(*i)),
-                    "greaterThan" => query.filter(col.gt(*i)),
-                    "greaterOrEqual" => query.filter(col.ge(*i)),
-                    "lowerThan" => query.filter(col.lt(*i)),
-                    "lowerOrEqual" => query.filter(col.le(*i)),
-                    "between" => panic!("'between' requires a tuple/array value"),
-                    _ => panic!("Unsupported integer predicate: {}", predicate),
+                    "equals" => query.filter(col.eq(*i)),
+                    "not" => query.filter(col.ne(*i)),
+                    "gt" => query.filter(col.gt(*i)),
+                    "gte" => query.filter(col.ge(*i)),
+                    "lt" => query.filter(col.lt(*i)),
+                    "lte" => query.filter(col.le(*i)),
+                    _ => {
+                        return Err(FieldError::new(
+                            format!("Unsupported integer predicate: {}", predicate),
+                            graphql_value!({"invalid_params": "Invalid integer predicate"}),
+                        ));
+                    }
                 };
             }
-            DefaultScalarValue::Boolean(_b) => {
+            DefaultScalarValue::Boolean(b) => {
                 let col = dynamic_table.column::<Bool, _>(field);
                 query = match predicate {
-                    "true" => query.filter(col.eq(true)),
-                    "false" => query.filter(col.eq(false)),
-                    _ => panic!("Unsupported boolean predicate: {}", predicate),
+                    "equals" => query.filter(col.eq(*b)),
+                    "not" => query.filter(col.ne(*b)),
+                    _ => {
+                        return Err(FieldError::new(
+                            format!("Unsupported boolean predicate: {}", predicate),
+                            graphql_value!({"invalid_params": "Invalid boolean predicate"}),
+                        ));
+                    }
                 };
             }
-            _ => panic!("Unsupported predicate or value type"),
+            _ => {
+                return Err(FieldError::new(
+                    format!("Unsupported predicate or value type: {}", predicate),
+                    graphql_value!({"invalid_params": "Invalid predicate or value type"}),
+                ));
+            }
         };
     }
 
