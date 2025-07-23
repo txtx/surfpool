@@ -216,15 +216,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
         while let Ok((message, keypair)) = rx.recv() {
             let client =
                 RpcClient::new_with_commitment(&rpc_api_url, CommitmentConfig::processed());
-            match client.get_latest_blockhash() {
-                Ok(blockhash) => {
-                    let transaction = Transaction::new(&[keypair], message, blockhash);
-                    let _ = client.send_transaction(&transaction).unwrap();
-                }
-                Err(_e) => {
-                    // print error
-                }
-            }
+            let _ = client.get_latest_blockhash().and_then(|blockhash| {
+                let transaction = Transaction::new(&[keypair], message, blockhash);
+                client.send_transaction(&transaction)
+            });
         }
     });
 

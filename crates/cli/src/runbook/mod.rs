@@ -277,7 +277,7 @@ pub async fn execute_runbook(
             &simnet_events_tx,
             cmd.output_json,
         );
-        let _ = simnet_events_tx.send(SimnetEvent::RunbookCompleted(runbook_id.clone()));
+        let _ = simnet_events_tx.send(SimnetEvent::RunbookCompleted(runbook_id));
     } else {
         let (kill_supervised_execution_tx, block_store_handle) =
             configure_supervised_execution(runbook, runbook_state_location, &cmd, simnet_events_tx)

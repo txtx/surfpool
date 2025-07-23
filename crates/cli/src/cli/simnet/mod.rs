@@ -65,8 +65,8 @@ pub async fn handle_start_local_surfnet_command(
     // Build config
     let config = cmd.surfpool_config(airdrop_addresses);
     let remote_rpc_url = config.simnets[0].remote_rpc_url.clone();
-    let local_rpc_url = config.rpc.get_socket_address();
 
+    let local_rpc_url = format!("http://{}", config.rpc.get_socket_address());
     let network_binding = format!(
         "{}:{}",
         cmd.network_host, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED
