@@ -252,17 +252,28 @@ fn start_subgraph_runloop(
                         Ok(cmd) => match cmd {
                             DataIndexingCommand::ProcessCollectionEntriesPack(
                                 uuid,
-                                entries_pack,
+                                entry_bytes,
                             ) => {
                                 let err_ctx = "Failed to apply new database entry to subgraph";
-                                let gql_context = gql_context.write().map_err(|_| {
-                                    format!(
+                                let gql_context = match gql_context.write() {
+                                    Ok(ctx) => ctx,
+                                    Err(_) => {
+                                        let _ = subgraph_events_tx.send(SubgraphEvent::error(format!(
                                         "{err_ctx}: Failed to acquire write lock on gql context"
-                                    )
-                                })?;
+                                    )));
+                                        continue;
+                                    }
+                                };
 
-                                let entries =
-                                    CollectionEntryData::from_entries_pack(&uuid, entries_pack)?;
+                                let entries = match CollectionEntryData::from_entries_bytes(&uuid, entry_bytes) {
+                                    Ok(entries) => entries,
+                                    Err(e) => {
+                                        let _ = subgraph_events_tx.send(SubgraphEvent::error(format!(
+                                            "{err_ctx}: {e}"
+                                        )));
+                                        continue;
+                                    }
+                                };
 
                                 let metadata = cached_metadata.get(&uuid).unwrap();
 
@@ -270,7 +281,10 @@ fn start_subgraph_runloop(
                                     .pool
                                     .insert_entries_into_collection(entries, &metadata)
                                 {
-                                    error!(ctx.expect_logger(), "{}", e);
+                                    let _ = subgraph_events_tx.send(SubgraphEvent::error(format!(
+                                        "{err_ctx}: {e}"
+                                    )));
+                                    continue;
                                 }
                             }
                             DataIndexingCommand::ProcessCollection(_uuid) => {}

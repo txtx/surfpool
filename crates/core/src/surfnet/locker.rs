@@ -825,9 +825,9 @@ impl SurfnetSvmLocker {
                         } else {
                             SimpleAddressLoader::Disabled
                         },
-                        &HashSet::new(),
+                        &HashSet::new(), // todo: provide reserved account keys
                     )
-                    .unwrap();
+                    .ok();
 
                     for (pubkey, (before, after)) in pubkeys_from_message
                         .iter()
@@ -836,17 +836,19 @@ impl SurfnetSvmLocker {
                         if before.ne(&after) {
                             if let Some(after) = &after {
                                 svm_writer.update_account_registries(pubkey, after);
-                                svm_writer.increment_write_version();
+                                let write_version = svm_writer.increment_write_version();
 
-                                let _ = svm_writer.geyser_events_tx.send(
-                                    GeyserEvent::UpdateAccount(GeyserAccountUpdate::new(
-                                        *pubkey,
-                                        after.clone(),
-                                        svm_writer.get_latest_absolute_slot(),
-                                        sanitized_transaction.clone(),
-                                        svm_writer.write_version,
-                                    )),
-                                );
+                                if let Some(sanitized_transaction) = sanitized_transaction.clone() {
+                                    let _ = svm_writer.geyser_events_tx.send(
+                                        GeyserEvent::UpdateAccount(GeyserAccountUpdate::new(
+                                            *pubkey,
+                                            after.clone(),
+                                            svm_writer.get_latest_absolute_slot(),
+                                            sanitized_transaction.clone(),
+                                            write_version,
+                                        )),
+                                    );
+                                }
                             }
                             svm_writer
                                 .notify_account_subscribers(pubkey, &after.unwrap_or_default());

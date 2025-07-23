@@ -6,12 +6,16 @@ use juniper::{
 use serde::{Deserialize, Serialize};
 use txtx_addon_kit::types::types::Type;
 use txtx_addon_network_svm_types::{
-    SVM_PUBKEY,
+    SVM_F32, SVM_F64, SVM_I8, SVM_I16, SVM_I32, SVM_I64, SVM_I128, SVM_I256, SVM_PUBKEY,
+    SVM_SIGNATURE, SVM_U8, SVM_U16, SVM_U32, SVM_U64, SVM_U128, SVM_U256,
     subgraph::{IndexedSubgraphField, IndexedSubgraphSourceType, SubgraphRequest},
 };
 use uuid::Uuid;
 
-use super::{filters::SubgraphFilterSpec, scalars::pubkey::PublicKey};
+use super::{
+    filters::SubgraphFilterSpec,
+    scalars::{bigint::BigInt, pubkey::PublicKey, signature::Signature},
+};
 use crate::query::DataloaderContext;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -69,107 +73,65 @@ impl GraphQLType<DefaultScalarValue> for CollectionMetadata {
     {
         let mut fields: Vec<Field<'r, DefaultScalarValue>> = vec![];
         for field in metadata.fields.iter() {
-            let registration = match &field.data.expected_type {
-                Type::String => registry
-                    .field::<&String>(&field.data.display_name, &())
-                    .description(
-                        &field
-                            .data
-                            .description
-                            .as_ref()
-                            .map(|d| d.as_str())
-                            .unwrap_or(""),
-                    ),
-                Type::Integer => registry
-                    .field::<&i32>(&field.data.display_name, &())
-                    .description(
-                        &field
-                            .data
-                            .description
-                            .as_ref()
-                            .map(|d| d.as_str())
-                            .unwrap_or(""),
-                    ),
-                Type::Bool => registry
-                    .field::<&String>(&field.data.display_name, &())
-                    .description(
-                        &field
-                            .data
-                            .description
-                            .as_ref()
-                            .map(|d| d.as_str())
-                            .unwrap_or(""),
-                    ),
-                Type::Float => registry
-                    .field::<&String>(&field.data.display_name, &())
-                    .description(
-                        &field
-                            .data
-                            .description
-                            .as_ref()
-                            .map(|d| d.as_str())
-                            .unwrap_or(""),
-                    ),
-                Type::Null => registry
-                    .field::<&String>(&field.data.display_name, &())
-                    .description(
-                        &field
-                            .data
-                            .description
-                            .as_ref()
-                            .map(|d| d.as_str())
-                            .unwrap_or(""),
-                    ),
-                Type::Array(_array) => registry
-                    .field::<&String>(&field.data.display_name, &())
-                    .description(
-                        &field
-                            .data
-                            .description
-                            .as_ref()
-                            .map(|d| d.as_str())
-                            .unwrap_or(""),
-                    ),
-                Type::Buffer => registry
-                    .field::<&String>(&field.data.display_name, &())
-                    .description(
-                        &field
-                            .data
-                            .description
-                            .as_ref()
-                            .map(|d| d.as_str())
-                            .unwrap_or(""),
-                    ),
-                Type::Addon(_addon) => registry
-                    .field::<&String>(&field.data.display_name, &())
-                    .description(
-                        &field
-                            .data
-                            .description
-                            .as_ref()
-                            .map(|d| d.as_str())
-                            .unwrap_or(""),
-                    ),
-                Type::Object(_object) => registry
-                    .field::<&String>(&field.data.display_name, &())
-                    .description(
-                        &field
-                            .data
-                            .description
-                            .as_ref()
-                            .map(|d| d.as_str())
-                            .unwrap_or(""),
-                    ),
-                Type::Map(_map) => registry
-                    .field::<&String>(&field.data.display_name, &())
-                    .description(
-                        &field
-                            .data
-                            .description
-                            .as_ref()
-                            .map(|d| d.as_str())
-                            .unwrap_or(""),
-                    ),
+            let registration = {
+                let description = field
+                    .data
+                    .description
+                    .as_ref()
+                    .map(|d| d.as_str())
+                    .unwrap_or("");
+                match &field.data.expected_type {
+                    Type::String => registry
+                        .field::<&String>(&field.data.display_name, &())
+                        .description(&description),
+                    Type::Integer => registry
+                        .field::<&BigInt>(&field.data.display_name, &())
+                        .description(&description),
+                    Type::Bool => registry
+                        .field::<&String>(&field.data.display_name, &())
+                        .description(&description),
+                    Type::Float => registry
+                        .field::<&String>(&field.data.display_name, &())
+                        .description(&description),
+                    Type::Null => registry
+                        .field::<&String>(&field.data.display_name, &())
+                        .description(&description),
+                    Type::Array(_array) => registry
+                        .field::<&String>(&field.data.display_name, &())
+                        .description(&description),
+                    Type::Buffer => registry
+                        .field::<&String>(&field.data.display_name, &())
+                        .description(&description),
+                    Type::Addon(addon_id) => match addon_id.as_str() {
+                        SVM_PUBKEY => registry
+                            .field::<&PublicKey>(&field.data.display_name, &())
+                            .description(description),
+                        SVM_SIGNATURE => registry
+                            .field::<&Signature>(&field.data.display_name, &())
+                            .description(description),
+                        SVM_U8 | SVM_U16 | SVM_I8 | SVM_I16 | SVM_I32 => registry
+                            .field::<&i32>(&field.data.display_name, &())
+                            .description(description),
+                        SVM_U32 | SVM_U64 | SVM_I64 | SVM_I128 => registry
+                            .field::<&BigInt>(&field.data.display_name, &())
+                            .description(description),
+                        SVM_U128 | SVM_U256 | SVM_I256 => registry
+                            .field::<&String>(&field.data.display_name, &())
+                            .description(description),
+                        SVM_F32 | SVM_F64 => registry
+                            .field::<&f64>(&field.data.display_name, &())
+                            .description(description),
+                        _ => registry
+                            .field::<&String>(&field.data.display_name, &())
+                            .description(description),
+                    },
+                    Type::Object(_object) => registry
+                        .field::<&String>(&field.data.display_name, &())
+                        .description(&description),
+                    Type::Map(_map) => registry
+                        .field::<&String>(&field.data.display_name, &())
+                        .description(&description),
+                }
             };
             fields.push(registration);
         }
@@ -223,16 +185,22 @@ impl FieldMetadata {
         let mut field = match &self.data.expected_type {
             Type::Bool => registry.field::<&bool>(field_name, &()),
             Type::String => registry.field::<&String>(field_name, &()),
-            Type::Integer => registry.field::<&i32>(field_name, &()),
+            Type::Integer => registry.field::<&BigInt>(field_name, &()),
             Type::Float => registry.field::<&f64>(field_name, &()),
             Type::Buffer => registry.field::<&String>(field_name, &()),
-            Type::Addon(addon_id) => {
-                if addon_id == SVM_PUBKEY {
-                    registry.field::<&PublicKey>(field_name, &())
-                } else {
-                    registry.field::<&String>(field_name, &())
+            Type::Addon(addon_id) => match addon_id.as_str() {
+                SVM_PUBKEY => registry.field::<&PublicKey>(field_name, &()),
+                SVM_SIGNATURE => registry.field::<&Signature>(field_name, &()),
+                SVM_U8 | SVM_U16 | SVM_I8 | SVM_I16 | SVM_I32 => {
+                    registry.field::<&i32>(field_name, &())
                 }
-            }
+                SVM_U32 | SVM_U64 | SVM_I64 | SVM_I128 => {
+                    registry.field::<&BigInt>(field_name, &())
+                }
+                SVM_U128 | SVM_U256 | SVM_I256 => registry.field::<&String>(field_name, &()),
+                SVM_F32 | SVM_F64 => registry.field::<&f64>(field_name, &()),
+                _ => registry.field::<&String>(field_name, &()),
+            },
             unsupported => unimplemented!("unsupported type: {:?}", unsupported),
         };
         if let Some(description) = &self.data.description {
