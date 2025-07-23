@@ -169,7 +169,7 @@ pub fn extract_graphql_features<'a>(
     executor: Option<&'a Executor<DataloaderContext>>,
 ) -> (Vec<(&'a str, &'a str, &'a DefaultScalarValue)>, Vec<String>) {
     let mut filters_specs = vec![];
-    let mut fetched_fields = vec![];
+    let mut fetched_fields = vec!["id".to_string()];
 
     if let Some(executor) = executor {
         for arg in executor.look_ahead().arguments() {
