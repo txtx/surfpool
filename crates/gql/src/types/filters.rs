@@ -101,11 +101,11 @@ impl GraphQLType<DefaultScalarValue> for NumericFilter {
     {
         let args = [
             build_number_filter_argument(&spec.name, "equals"),
-            build_number_filter_argument(&spec.name, "notEquals"),
-            build_number_filter_argument(&spec.name, "greaterThan"),
-            build_number_filter_argument(&spec.name, "greaterOrEqual"),
-            build_number_filter_argument(&spec.name, "lowerThan"),
-            build_number_filter_argument(&spec.name, "lowerOrEqual"),
+            build_number_filter_argument(&spec.name, "not"),
+            build_number_filter_argument(&spec.name, "gt"),
+            build_number_filter_argument(&spec.name, "gte"),
+            build_number_filter_argument(&spec.name, "lt"),
+            build_number_filter_argument(&spec.name, "lte"),
         ];
         registry
             .build_input_object_type::<Self>(spec, &args)

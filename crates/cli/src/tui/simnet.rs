@@ -216,15 +216,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
         while let Ok((message, keypair)) = rx.recv() {
             let client =
                 RpcClient::new_with_commitment(&rpc_api_url, CommitmentConfig::processed());
-            match client.get_latest_blockhash() {
-                Ok(blockhash) => {
-                    let transaction = Transaction::new(&[keypair], message, blockhash);
-                    let _ = client.send_transaction(&transaction).unwrap();
-                }
-                Err(_e) => {
-                    // print error
-                }
-            }
+            let _ = client.get_latest_blockhash().and_then(|blockhash| {
+                let transaction = Transaction::new(&[keypair], message, blockhash);
+                client.send_transaction(&transaction)
+            });
         }
     });
 
@@ -680,7 +675,8 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
                 let row = if first {
                     vec![
                         Cell::new("⏐").style(color),
-                        Cell::new(dt.format("%H:%M:%S.%3f").to_string()).style(app.colors.light_gray),
+                        Cell::new(dt.format("%H:%M:%S.%3f").to_string())
+                            .style(app.colors.light_gray),
                         Cell::new(current_line.clone()),
                     ]
                 } else {
@@ -761,10 +757,11 @@ fn render_footer(f: &mut Frame, app: &mut App, area: Rect) {
     .split(area);
 
     let status = match app.status_bar_message {
-        Some(ref message) => {
-            title_block(message.as_str(), Alignment::Left).style(Style::new().fg(app.colors.light_gray))
+        Some(ref message) => title_block(message.as_str(), Alignment::Left)
+            .style(Style::new().fg(app.colors.light_gray)),
+        None => {
+            title_block(HELP_TEXT, Alignment::Left).style(Style::new().fg(app.colors.light_gray))
         }
-        None => title_block(HELP_TEXT, Alignment::Left).style(Style::new().fg(app.colors.light_gray)),
     };
     f.render_widget(status, rects[0]);
 
