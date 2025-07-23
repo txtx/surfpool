@@ -389,7 +389,7 @@ mod tests {
         };
         SubgraphRequest {
             program_id: program_id.clone(),
-            block_height: 0,
+            slot: 0,
             subgraph_name: "TestSubgraph".to_string(),
             subgraph_description: None,
             data_source: IndexedSubgraphSourceType::Event(
