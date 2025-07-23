@@ -529,7 +529,7 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
             vec![
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
-                    Span::styled("Dashboard  ", app.colors.gray),
+                    Span::styled("Explorer  ", app.colors.gray),
                     Span::styled(studio_url, app.colors.white),
                 ]),
                 Line::from(vec![Span::styled("۬-", app.colors.gray)]),

@@ -6,7 +6,7 @@ use juniper::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::schema::FieldMetadata;
+use super::collections::FieldMetadata;
 use crate::query::DataloaderContext;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -24,9 +24,11 @@ impl GraphQLType<DefaultScalarValue> for SubgraphFilterSpec {
     where
         DefaultScalarValue: 'r,
     {
-        let mut args = vec![registry.arg::<Option<NumericFilter>>("slot", &FieldInfo::new("slot"))];
-
+        let mut args = vec![];
         for field in spec.fields.iter() {
+            if !field.data.is_indexed {
+                continue;
+            }
             if field.is_bool() {
                 args.push(registry.arg::<Option<BooleanFilter>>(&field.data.display_name, spec));
             } else if field.is_string() {
@@ -99,11 +101,11 @@ impl GraphQLType<DefaultScalarValue> for NumericFilter {
     {
         let args = [
             build_number_filter_argument(&spec.name, "equals"),
-            build_number_filter_argument(&spec.name, "notEquals"),
-            build_number_filter_argument(&spec.name, "greaterThan"),
-            build_number_filter_argument(&spec.name, "greaterOrEqual"),
-            build_number_filter_argument(&spec.name, "lowerThan"),
-            build_number_filter_argument(&spec.name, "lowerOrEqual"),
+            build_number_filter_argument(&spec.name, "not"),
+            build_number_filter_argument(&spec.name, "gt"),
+            build_number_filter_argument(&spec.name, "gte"),
+            build_number_filter_argument(&spec.name, "lt"),
+            build_number_filter_argument(&spec.name, "lte"),
         ];
         registry
             .build_input_object_type::<Self>(spec, &args)
@@ -248,7 +250,7 @@ pub fn build_number_filter_argument<'r>(
 ) -> Argument<'r, DefaultScalarValue> {
     Argument::new(
         filter,
-        juniper::Type::Named(std::borrow::Cow::Borrowed("i128")),
+        juniper::Type::Named(std::borrow::Cow::Borrowed("Int")),
     )
     .description(&format!(
         "Keep entries with a value {} to another value",
