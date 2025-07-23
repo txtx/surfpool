@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct BigInt(pub i128);
 
 impl BigInt {
-    fn to_output<S: ScalarValue>(&self) -> Value<S> {
+    pub fn to_output<S: ScalarValue>(&self) -> Value<S> {
         Value::scalar(self.0.to_string())
     }
 

@@ -12,7 +12,7 @@ use solana_sdk::signature::Signature as SolSignature;
 pub struct Signature(pub SolSignature);
 
 impl Signature {
-    fn to_output<S: ScalarValue>(&self) -> Value<S> {
+    pub fn to_output<S: ScalarValue>(&self) -> Value<S> {
         Value::scalar(self.0.to_string())
     }
 

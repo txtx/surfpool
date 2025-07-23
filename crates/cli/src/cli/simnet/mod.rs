@@ -75,8 +75,8 @@ pub async fn handle_start_local_surfnet_command(
         .subgraph_database_path
         .as_ref()
         .map(|p| p.as_str())
-                .unwrap_or("surfpool.db");
-        // .unwrap_or(":memory:");
+        .unwrap_or("surfpool.db");
+    // .unwrap_or(":memory:");
     let explorer_handle = match start_subgraph_and_explorer_server(
         network_binding,
         subgraph_database_path,
