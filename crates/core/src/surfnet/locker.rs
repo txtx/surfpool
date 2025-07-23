@@ -825,7 +825,7 @@ impl SurfnetSvmLocker {
                         } else {
                             SimpleAddressLoader::Disabled
                         },
-                        &HashSet::new(),
+                        &HashSet::new(), // todo: provide reserved account keys
                     )
                     .ok();
 
