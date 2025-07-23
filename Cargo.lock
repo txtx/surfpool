@@ -12124,7 +12124,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.4.1"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48b3d0273b4625a66bed61107052c0faedd40786a335305f84a983b0e007a207"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -12151,11 +12153,15 @@ dependencies = [
  "tiny-hderive",
  "url 2.5.4",
  "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.1.25"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d87acc94fe8c7475a3a434ac8cc2085a8adb62c249bef252fc998cac567b53a2"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -12181,7 +12187,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.1.22"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c33e6f7113c8c26a69f9de07a3f518108f1234597d4568a4a0050a87953b77c5"
 dependencies = [
  "anchor-lang-idl",
  "convert_case 0.6.0",
@@ -12205,6 +12213,8 @@ dependencies = [
 [[package]]
 name = "txtx-cloud"
 version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d5cc6ce265357db0420be1187393c5791a637109b43320de4e3b95fddc048aa"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -12232,7 +12242,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.4.4"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb0268850132a2a9f0efa657d9943604ced6b9d3a745e3316d8fdaf69143c54b"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
@@ -12260,6 +12272,8 @@ dependencies = [
 [[package]]
 name = "txtx-gql"
 version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "538d284bf31b45935ace2d920cf251ddaf5e1de9a671eacb581f5661dedb3e83"
 dependencies = [
  "async-stream",
  "futures 0.3.31",
@@ -12273,6 +12287,8 @@ dependencies = [
 [[package]]
 name = "txtx-supervisor-ui"
 version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9609122b906ad5cff2618591d7d245ba819e95b15cff6ca83308ae6fafb84dc"
 dependencies = [
  "actix-cors",
  "actix-web",
