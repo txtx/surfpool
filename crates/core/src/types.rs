@@ -569,7 +569,9 @@ pub enum MintAccount {
 
 impl MintAccount {
     pub fn unpack(bytes: &[u8]) -> SurfpoolResult<Self> {
-        if let Ok(mint) = spl_token_2022::state::Mint::unpack(bytes) {
+        if let Ok(mint) = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&bytes) {
+            Ok(Self::SplToken2022(mint.base))
+        } else if let Ok(mint) = spl_token_2022::state::Mint::unpack(bytes) {
             Ok(Self::SplToken2022(mint))
         } else if let Ok(mint) = spl_token::state::Mint::unpack(bytes) {
             Ok(Self::SplToken(mint))
