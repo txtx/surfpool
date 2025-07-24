@@ -4,8 +4,8 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions, ReplicaEntryInfoVersions,
     ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
 };
-use solana_clock::Slot;
 use ipc_channel::ipc::IpcSender;
+use solana_clock::Slot;
 use solana_signature::Signature;
 use surfpool_types::{DataIndexingCommand, SubgraphPluginConfig};
 use txtx_addon_kit::types::types::Value as TxtxValue;
