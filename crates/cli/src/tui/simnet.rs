@@ -465,12 +465,6 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
     Ok(())
 }
 
-// fn add_event(app: &mut App, event: (EventType, DateTime<Local>, String)) {
-//     app.events
-//         .push_back(event);
-//     app.scroll_state.position(app.events.len() + 1)
-// }
-
 fn ui(f: &mut Frame, app: &mut App) {
     let rects = Layout::vertical([
         Constraint::Length(8),
