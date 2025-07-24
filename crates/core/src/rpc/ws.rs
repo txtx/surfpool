@@ -618,7 +618,8 @@ pub struct SurfpoolWsRpc {
     pub account_subscription_map:
         Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<UiAccount>>>>>,
     pub slot_subscription_map: Arc<RwLock<HashMap<SubscriptionId, Sink<SlotInfo>>>>,
-    pub logs_subscription_map: Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcLogsResponse>>>>>,
+    pub logs_subscription_map:
+        Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcLogsResponse>>>>>,
     pub tokio_handle: tokio::runtime::Handle,
 }
 
