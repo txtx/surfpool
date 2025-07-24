@@ -1214,6 +1214,29 @@ impl SurfnetSvm {
         self.slot_subscriptions
             .retain(|tx| tx.send(SlotInfo { slot, parent, root }).is_ok());
     }
+
+    pub fn write_simulated_profile_result(&mut self, tag: String, profile_result: ProfileResult) {
+        let uuid = Uuid::new_v4();
+        self.simulated_transaction_profiles
+            .insert(uuid, profile_result);
+        self.profile_tag_map
+            .entry(tag)
+            .or_insert_with(Vec::new)
+            .push(UuidOrSignature::Uuid(uuid));
+    }
+
+    pub fn write_executed_profile_result(
+        &mut self,
+        signature: Signature,
+        profile_result: ProfileResult,
+    ) {
+        self.executed_transaction_profiles
+            .insert(signature, profile_result);
+        self.profile_tag_map
+            .entry(signature.to_string())
+            .or_insert_with(Vec::new)
+            .push(UuidOrSignature::Signature(signature));
+    }
 }
 
 #[cfg(test)]
