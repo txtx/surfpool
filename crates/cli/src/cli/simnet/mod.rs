@@ -137,7 +137,7 @@ pub async fn handle_start_local_surfnet_command(
         match simnet_events_rx.recv() {
             Ok(SimnetEvent::Aborted(error)) => return Err(error),
             Ok(SimnetEvent::Shutdown) => return Ok(()),
-            Ok(SimnetEvent::Connected(_)) | Ok(SimnetEvent::Ready) => break,
+            Ok(SimnetEvent::Connected(_)) => break,
             _other => continue,
         }
     }
@@ -173,7 +173,7 @@ pub async fn handle_start_local_surfnet_command(
         }
     }
 
-    let displayed_url = if cmd.no_studio {
+    let displayed_url = if cmd.studio {
         DisplayedUrl::Datasource(sanitized_config)
     } else {
         DisplayedUrl::Studio(sanitized_config)

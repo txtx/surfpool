@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.9.5"
+version = "0.9.6"
 edition = "2024"
 description = "Surfpool is the best place to train before surfing Solana."
 license = "Apache-2.0"
@@ -52,7 +52,7 @@ serde_derive = "1.0.217" # must match the serde version, see https://github.com/
 serde_json = "1.0.135"
 serde_with = "3"
 solana-account = "2.2.1"
-solana-account-decoder = "2.2.1"
+solana-account-decoder = "=2.2.2"
 solana-account-decoder-client-types = { version = "2.2.1" }
 solana-address-lookup-table-interface = "2.2.1"
 solana-blake3-hasher = { version = "2.2.1", features = ["serde"]}
@@ -68,7 +68,6 @@ solana-keypair = "2.2.1"
 solana-message = { version = "2.2.1", features = ["serde"]}
 solana-native-token = "2.2.1"
 solana-packet = "2.2.1"
-solana-program = "2.2.1"
 solana-program-runtime = "2.2.1"
 solana-pubkey = { version = "2.2.1", features = ["serde"]}
 solana-rpc-client = "2.2.1"

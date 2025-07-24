@@ -287,7 +287,7 @@ impl SimnetEvent {
         match self {
             SimnetEvent::EpochInfoUpdate(epoch_info) => {
                 format!(
-                    "Connection established. Epoch {} / Slot index {} / Slot {}.",
+                    "Datasource connection successful. Epoch {} / Slot index {} / Slot {}.",
                     epoch_info.epoch, epoch_info.slot_index, epoch_info.absolute_slot
                 )
             }

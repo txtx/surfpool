@@ -184,8 +184,8 @@ pub struct StartSimnet {
     #[arg(long = "subgraph-database-path", short = 'd')]
     pub subgraph_database_path: Option<String>,
     /// Disable Studio (default: false)
-    #[clap(long = "no-studio")]
-    pub no_studio: bool,
+    #[clap(long = "studio", action=ArgAction::SetFalse)]
+    pub studio: bool,
     /// Set the Studio port
     #[arg(long = "studio-port", short = 's', default_value_t = CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED)]
     pub studio_port: u16,

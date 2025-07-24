@@ -104,9 +104,28 @@ impl App {
     ) -> App {
         let palette = palette::tailwind::EMERALD;
 
+        let mut events = vec![];
+        let (rpc_url, ws_url, datasource) = match &displayed_url {
+            DisplayedUrl::Datasource(config) | DisplayedUrl::Studio(config) => (
+                config.rpc_url.clone(),
+                config.ws_url.clone(),
+                config.rpc_datasource_url.clone(),
+            ),
+        };
+        events.push((
+            EventType::Success,
+            Local::now(),
+            format!("Surfnet up and running, emulating local Solana validator (RPC: {rpc_url}, WS: {ws_url})"),
+        ));
+        events.push((
+            EventType::Info,
+            Local::now(),
+            format!("Connecting surfnet to datasource {datasource}..."),
+        ));
+
         App {
-            state: TableState::default().with_selected(0),
-            scroll_state: ScrollbarState::new(5 * ITEM_HEIGHT),
+            state: TableState::default().with_offset(0),
+            scroll_state: ScrollbarState::new(0),
             colors: ColorTheme::new(&palette),
             simnet_events_rx,
             simnet_commands_tx,
@@ -120,27 +139,7 @@ impl App {
                 transaction_count: None,
             },
             successful_transactions: 0,
-            events: {
-                let mut events = vec![];
-                let (rpc_url, ws_url, datasource) = match &displayed_url {
-                    DisplayedUrl::Datasource(config) | DisplayedUrl::Studio(config) => (
-                        config.rpc_url.clone(),
-                        config.ws_url.clone(),
-                        config.rpc_datasource_url.clone(),
-                    ),
-                };
-                events.push((
-                    EventType::Success,
-                    Local::now(),
-                    format!("Started local validator [RPC: {rpc_url}, WS: {ws_url}]"),
-                ));
-                events.push((
-                    EventType::Success,
-                    Local::now(),
-                    format!("Connected validator to datasource {datasource}"),
-                ));
-                events
-            },
+            events,
             include_debug_logs,
             deploy_progress_rx,
             status_bar_message: None,
@@ -164,6 +163,10 @@ impl App {
         self.state.select_next();
         self.scroll_state.next();
         *self.state.offset_mut() = ITEM_HEIGHT;
+    }
+
+    pub fn tail(&mut self) {
+        self.state.select_last();
     }
 
     pub fn previous(&mut self) {
@@ -424,10 +427,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
 
         for event in new_events {
             app.events.push(event);
-            app.next();
+            app.tail();
         }
 
-        if event::poll(Duration::from_millis(5))? {
+        if event::poll(Duration::from_millis(25))? {
             if let Event::Key(key_event) = event::read()? {
                 if key_event.kind == KeyEventKind::Press {
                     use KeyCode::*;
