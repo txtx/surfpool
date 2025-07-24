@@ -1,4 +1,4 @@
-use actix_web::{App, HttpRequest, HttpResponse, HttpServer, Responder, get};
+use actix_web::{HttpRequest, HttpResponse, Responder, get};
 use include_dir::{Dir, include_dir};
 use mime_guess::from_path;
 
@@ -6,7 +6,7 @@ pub const OUT_DIR: &str = env!("OUT_DIR");
 pub static ASSETS: Dir<'_> = include_dir!("$OUT_DIR/surfpool-studio-ui");
 
 #[get("/{_:.*}")]
-async fn serve_static(req: HttpRequest) -> impl Responder {
+async fn serve_studio_static_files(req: HttpRequest) -> impl Responder {
     let path = req.path().trim_start_matches('/');
     let file = if path.is_empty() {
         ASSETS.get_file("index.html")
@@ -26,13 +26,4 @@ async fn serve_static(req: HttpRequest) -> impl Responder {
         }
         None => HttpResponse::NotFound().finish(),
     }
-}
-
-/// Launch an Actix web server that serves the static files.
-pub async fn serve_static_site(host: &str, port: u16) -> std::io::Result<()> {
-    println!("Starting Surfpool Studio UI on {}:{}", host, port);
-    HttpServer::new(|| App::new().service(serve_static))
-        .bind((host, port))?
-        .run()
-        .await
 }
