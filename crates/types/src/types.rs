@@ -158,6 +158,8 @@ pub enum SimnetEvent {
         tag: String,
         timestamp: DateTime<Local>,
     },
+    RunbookStarted(String),
+    RunbookCompleted(String),
 }
 
 impl SimnetEvent {
