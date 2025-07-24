@@ -926,6 +926,7 @@ impl SurfnetSvmLocker {
                         pre_execution_capture.clone(),
                         post_execution_capture,
                         latest_absolute_slot,
+                        Some(Uuid::new_v4()),
                     );
                     svm_writer.write_executed_profile_result(signature, profile_result);
 

@@ -1262,7 +1262,7 @@ impl SurfnetSvm {
         commitment_level: CommitmentLevel,
     ) {
         self.updated_at = Utc::now().timestamp_millis() as u64;
-        for (expected_level, filter, tx) in self.logs_subscriptions.iter() {
+        for (expected_level, _filter, tx) in self.logs_subscriptions.iter() {
             if expected_level.eq(&commitment_level) {
                 let message = RpcLogsResponse {
                     signature: signature.to_string(),

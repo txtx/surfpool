@@ -120,7 +120,27 @@ impl App {
                 transaction_count: None,
             },
             successful_transactions: 0,
-            events: vec![],
+            events: {
+                let mut events = vec![];
+                let (rpc_url, ws_url, datasource) = match &displayed_url {
+                    DisplayedUrl::Datasource(config) | DisplayedUrl::Studio(config) => (
+                        config.rpc_url.clone(),
+                        config.ws_url.clone(),
+                        config.rpc_datasource_url.clone(),
+                    ),
+                };
+                events.push((
+                    EventType::Success,
+                    Local::now(),
+                    format!("Started local validator [RPC: {rpc_url}, WS: {ws_url}]"),
+                ));
+                events.push((
+                    EventType::Success,
+                    Local::now(),
+                    format!("Connected validator to datasource {datasource}"),
+                ));
+                events
+            },
             include_debug_logs,
             deploy_progress_rx,
             status_bar_message: None,
