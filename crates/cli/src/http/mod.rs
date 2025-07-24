@@ -26,6 +26,7 @@ use surfpool_gql::{
     query::{CollectionMetadataMap, Dataloader, DataloaderContext, SqlStore},
     types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata},
 };
+use surfpool_studio_ui::serve_studio_static_files;
 use surfpool_types::{
     DataIndexingCommand, SanitizedConfig, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
 };
@@ -89,7 +90,7 @@ pub async fn start_subgraph_and_explorer_server(
                     .route("/v1/subscriptions", web::get().to(subscriptions))
                     .route("/console", web::get().to(graphiql)),
             )
-            .service(dist)
+            .service(serve_studio_static_files)
     })
     .workers(5)
     .bind(network_binding)?
