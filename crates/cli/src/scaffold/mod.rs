@@ -84,7 +84,7 @@ impl ProgramMetadata {
     }
 }
 
-pub fn scaffold_iac_layout(
+pub fn scaffold_iac_boilerplate(
     framework: &Framework,
     programs: Vec<ProgramMetadata>,
     base_location: &FileLocation,

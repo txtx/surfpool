@@ -11278,7 +11278,7 @@ dependencies = [
  "agave-geyser-plugin-interface",
  "ipc-channel",
  "serde_json",
- "solana-program",
+ "solana-clock",
  "solana-signature",
  "surfpool-types",
  "txtx-addon-kit",

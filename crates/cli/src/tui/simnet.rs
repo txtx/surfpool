@@ -248,13 +248,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     event.account_update_msg(),
                                 ));
                             }
-                            SimnetEvent::PluginLoaded(_) => {
-                                new_events.push((
-                                    EventType::Success,
-                                    Local::now(),
-                                    event.plugin_loaded_msg(),
-                                ));
-                            }
+                            SimnetEvent::PluginLoaded(_) => {}
                             SimnetEvent::EpochInfoUpdate(epoch_info) => {
                                 app.epoch_info = epoch_info.clone();
                                 new_events.push((

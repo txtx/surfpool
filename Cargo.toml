@@ -66,7 +66,6 @@ solana-keypair = "2.2.1"
 solana-message = { version = "2.2.1", features = ["serde"]}
 solana-native-token = "2.2.1"
 solana-packet = "2.2.1"
-solana-program = "2.2.1"
 solana-program-runtime = "2.2.1"
 solana-pubkey = { version = "2.2.1", features = ["serde"]}
 solana-rpc-client = "2.2.1"

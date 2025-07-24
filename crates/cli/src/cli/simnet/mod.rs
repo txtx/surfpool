@@ -29,7 +29,7 @@ use super::{Context, DEFAULT_CLOUD_URL, ExecuteRunbook, StartSimnet};
 use crate::{
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
-    scaffold::{detect_program_frameworks, scaffold_iac_layout},
+    scaffold::{detect_program_frameworks, scaffold_iac_boilerplate},
     tui::{self, simnet::DisplayedUrl},
 };
 
@@ -398,7 +398,7 @@ async fn write_and_execute_iac(
         txtx_manifest_location.append_path("txtx.yml")?;
         if !txtx_manifest_location.exists() {
             // Scaffold IaC
-            scaffold_iac_layout(&framework, programs, &base_location)?;
+            scaffold_iac_boilerplate(&framework, programs, &base_location)?;
         }
 
         let mut futures = vec![];

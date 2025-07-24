@@ -256,7 +256,7 @@ fn start_subgraph_runloop(
                                 collections_map.add_collection(metadata);
                                 gql_schema.replace(new_dynamic_schema(collections_map.clone()));
 
-                                let console_url = format!("{}/data", config.studio_url.clone());
+                                let console_url = format!("{}/subgraphs", config.studio_url.clone());
                                 let _ = sender.send(console_url);
                             }
                             SubgraphCommand::ObserveCollection(subgraph_observer_rx) => {
