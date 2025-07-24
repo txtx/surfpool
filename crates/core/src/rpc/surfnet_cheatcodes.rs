@@ -758,11 +758,10 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         };
         Box::pin(async move {
             let profile_result = svm_locker.get_profile_result(signature_or_uuid.clone())?;
-            let latest_slot = svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot());
             let context_slot = profile_result
                 .as_ref()
                 .map(|pr| pr.slot)
-                .unwrap_or(latest_slot);
+                .unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
             Ok(RpcResponse {
                 context: RpcResponseContext::new(context_slot),
                 value: profile_result,
