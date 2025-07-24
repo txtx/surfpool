@@ -746,6 +746,18 @@ impl SurfnetSvmLocker {
             .await?
             .inner;
 
+        let pre_execution_capture = {
+            let mut capture = BTreeMap::new();
+            for account_update in account_updates.iter() {
+                self.snapshot_get_account_result(
+                    &mut capture,
+                    account_update.clone(),
+                    Some(UiAccountEncoding::JsonParsed),
+                );
+            }
+            capture
+        };
+
         self.with_svm_writer(|svm_writer| {
             for update in &account_updates {
                 svm_writer.write_account_update(update.clone());
@@ -865,13 +877,37 @@ impl SurfnetSvmLocker {
                         }
                     }
 
-                    let token_accounts_after = pubkeys_from_message
+                    let mut token_accounts_after = vec![];
+                    let mut post_execution_capture = BTreeMap::new();
+                    for (i, (pubkey, account)) in pubkeys_from_message
                         .iter()
+                        .zip(accounts_after.iter())
                         .enumerate()
-                        .filter_map(|(i, p)| {
-                            svm_writer.token_accounts.get(&p).cloned().map(|a| (i, a))
-                        })
-                        .collect::<Vec<_>>();
+                    {
+                        let token_account = svm_writer.token_accounts.get(&pubkey).cloned();
+
+                        let ui_account = if let Some(account) = account {
+                            let ui_account = svm_writer
+                                .account_to_rpc_keyed_account(
+                                    &pubkey,
+                                    account,
+                                    &RpcAccountInfoConfig {
+                                        encoding: Some(UiAccountEncoding::JsonParsed),
+                                        ..Default::default()
+                                    },
+                                    token_account.map(|a| a.mint()),
+                                )
+                                .account;
+                            Some(ui_account)
+                        } else {
+                            None
+                        };
+                        post_execution_capture.insert(*pubkey, ui_account);
+
+                        if let Some(token_account) = token_account {
+                            token_accounts_after.push((i, token_account));
+                        }
+                    }
 
                     let token_mints = token_accounts_after
                         .iter()
@@ -883,6 +919,15 @@ impl SurfnetSvmLocker {
                                 .cloned()
                         })
                         .collect::<Result<Vec<_>, SurfpoolError>>()?;
+
+                    let profile_result = ProfileResult::success(
+                        res.compute_units_consumed,
+                        res.logs.clone(),
+                        pre_execution_capture.clone(),
+                        post_execution_capture,
+                        latest_absolute_slot,
+                    );
+                    svm_writer.write_executed_profile_result(signature, profile_result);
 
                     let transaction_meta = convert_transaction_metadata_from_canonical(&res);
 
