@@ -132,12 +132,12 @@ impl App {
                 events.push((
                     EventType::Success,
                     Local::now(),
-                    format!("Booting validator [RPC: {rpc_url}, WS: {ws_url}]"),
+                    format!("Started localvalidator [RPC: {rpc_url}, WS: {ws_url}]"),
                 ));
                 events.push((
-                    EventType::Info,
+                    EventType::Success,
                     Local::now(),
-                    format!("Using {datasource} as a datasource"),
+                    format!("Connected validator to datasource {datasource}"),
                 ));
                 events
             },

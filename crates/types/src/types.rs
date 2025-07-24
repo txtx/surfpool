@@ -117,6 +117,7 @@ impl ProfileResult {
         pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
         post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
         slot: u64,
+        uuid: Option<Uuid>,
     ) -> Self {
         Self {
             compute_units: ComputeUnitsEstimationResult {
@@ -127,7 +128,7 @@ impl ProfileResult {
             },
             state: ProfileState::new(pre_execution, post_execution),
             slot,
-            uuid: None,
+            uuid
         }
     }
 }
