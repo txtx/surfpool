@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt, path::PathBuf};
+use std::{collections::BTreeMap, fmt, path::PathBuf, str::FromStr};
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
@@ -106,12 +106,39 @@ pub struct ComputeUnitsEstimationResult {
 pub struct ProfileResult {
     pub compute_units: ComputeUnitsEstimationResult,
     pub state: ProfileState,
+    pub slot: u64,
+    pub uuid: Option<Uuid>,
+}
+
+impl ProfileResult {
+    pub fn success(
+        compute_units_consumed: u64,
+        logs: Vec<String>,
+        pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+        post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+        slot: u64,
+    ) -> Self {
+        Self {
+            compute_units: ComputeUnitsEstimationResult {
+                success: true,
+                compute_units_consumed,
+                log_messages: Some(logs),
+                error_message: None,
+            },
+            state: ProfileState::new(pre_execution, post_execution),
+            slot,
+            uuid: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+
 pub struct ProfileState {
+    #[serde(with = "profile_state_map")]
     pub pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+    #[serde(with = "profile_state_map")]
     pub post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
 }
 
@@ -124,6 +151,39 @@ impl ProfileState {
             pre_execution,
             post_execution,
         }
+    }
+}
+
+pub mod profile_state_map {
+    use super::*;
+
+    pub fn serialize<S>(
+        map: &BTreeMap<Pubkey, Option<UiAccount>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let str_map: BTreeMap<String, &Option<UiAccount>> =
+            map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        str_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<BTreeMap<Pubkey, Option<UiAccount>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let str_map: BTreeMap<String, Option<UiAccount>> = BTreeMap::deserialize(deserializer)?;
+        str_map
+            .into_iter()
+            .map(|(k, v)| {
+                Pubkey::from_str(&k)
+                    .map(|pk| (pk, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
     }
 }
 
@@ -548,6 +608,33 @@ pub struct SupplyUpdate {
     pub circulating: Option<u64>,
     pub non_circulating: Option<u64>,
     pub non_circulating_accounts: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub enum UuidOrSignature {
+    Uuid(Uuid),
+    Signature(Signature),
+}
+
+impl<'de> Deserialize<'de> for UuidOrSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        if let Ok(uuid) = Uuid::parse_str(&s) {
+            return Ok(UuidOrSignature::Uuid(uuid));
+        }
+
+        if let Ok(signature) = s.parse::<Signature>() {
+            return Ok(UuidOrSignature::Signature(signature));
+        }
+
+        Err(serde::de::Error::custom(
+            "expected a Uuid or a valid Solana Signature",
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -10,7 +10,10 @@ use solana_sdk::{program_option::COption, system_program, transaction::Versioned
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
     SimnetEvent,
-    types::{AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate},
+    types::{
+        AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate,
+        UuidOrSignature,
+    },
 };
 
 use super::{RunloopContext, SurfnetRpcContext};
@@ -272,12 +275,12 @@ pub trait SvmTricksRpc {
     ///
     /// ## Returns
     /// A `RpcResponse<Vec<ProfileResult>>` containing the profiling results.
-    #[rpc(meta, name = "surfnet_getProfileResults")]
-    fn get_profile_results(
+    #[rpc(meta, name = "surfnet_getProfileResultsByTag")]
+    fn get_profile_results_by_tag(
         &self,
         meta: Self::Metadata,
         tag: String,
-    ) -> Result<RpcResponse<Vec<ProfileResult>>>;
+    ) -> BoxFuture<Result<RpcResponse<Option<Vec<ProfileResult>>>>>;
 
     /// A "cheat code" method for developers to set or update the network supply information in Surfpool.
     ///
@@ -374,6 +377,13 @@ pub trait SvmTricksRpc {
         program_id_str: String,
         new_authority_str: Option<String>,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
+
+    #[rpc(meta, name = "surfnet_getTransactionProfile")]
+    fn get_transaction_profile(
+        &self,
+        meta: Self::Metadata,
+        signature_or_uuid: UuidOrSignature,
+    ) -> BoxFuture<Result<RpcResponse<Option<ProfileResult>>>>;
 }
 
 #[derive(Clone)]
@@ -623,14 +633,8 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 inner: profile_result,
                 ..
             } = svm_locker
-                .profile_transaction(&remote_ctx, transaction, encoding)
+                .profile_transaction(&remote_ctx, transaction, encoding, tag.clone())
                 .await?;
-
-            if let Some(tag_str) = tag {
-                if profile_result.compute_units.success {
-                    svm_locker.write_profiling_results(tag_str, profile_result.clone());
-                }
-            }
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
@@ -639,24 +643,23 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         })
     }
 
-    fn get_profile_results(
+    fn get_profile_results_by_tag(
         &self,
         meta: Self::Metadata,
         tag: String,
-    ) -> Result<RpcResponse<Vec<ProfileResult>>> {
-        meta.with_svm_reader(|svm_reader| {
-            let results = svm_reader
-                .tagged_profiling_results
-                .get(&tag)
-                .cloned()
-                .unwrap_or_default();
-
-            RpcResponse {
-                context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
-                value: results,
-            }
+    ) -> BoxFuture<Result<RpcResponse<Option<Vec<ProfileResult>>>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+        Box::pin(async move {
+            let profiles = svm_locker.get_profile_results_by_tag(tag)?;
+            let slot = svm_locker.get_latest_absolute_slot();
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
+                value: profiles,
+            })
         })
-        .map_err(Into::into)
     }
 
     fn set_supply(
@@ -740,6 +743,28 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
                 value: (),
+            })
+        })
+    }
+
+    fn get_transaction_profile(
+        &self,
+        meta: Self::Metadata,
+        signature_or_uuid: UuidOrSignature,
+    ) -> BoxFuture<Result<RpcResponse<Option<ProfileResult>>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+        Box::pin(async move {
+            let profile_result = svm_locker.get_profile_result(signature_or_uuid.clone())?;
+            let context_slot = profile_result
+                .as_ref()
+                .map(|pr| pr.slot)
+                .unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(context_slot),
+                value: profile_result,
             })
         })
     }

@@ -42,8 +42,9 @@ use spl_token_2022::extension::{
 };
 use surfpool_types::{
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
-    types::{ComputeUnitsEstimationResult, ProfileResult},
+    types::{ComputeUnitsEstimationResult, ProfileResult, UuidOrSignature},
 };
+use uuid::Uuid;
 
 use super::{
     AccountSubscriptionData, BlockHeader, BlockIdentifier, FINALIZATION_SLOT_THRESHOLD,
@@ -84,8 +85,10 @@ pub struct SurfnetSvm {
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub account_subscriptions: AccountSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
+    pub profile_tag_map: HashMap<String, Vec<UuidOrSignature>>,
+    pub simulated_transaction_profiles: HashMap<Uuid, ProfileResult>,
+    pub executed_transaction_profiles: HashMap<Signature, ProfileResult>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
-    pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
@@ -155,8 +158,10 @@ impl SurfnetSvm {
                 signature_subscriptions: HashMap::new(),
                 account_subscriptions: HashMap::new(),
                 slot_subscriptions: Vec::new(),
+                profile_tag_map: HashMap::new(),
+                simulated_transaction_profiles: HashMap::new(),
+                executed_transaction_profiles: HashMap::new(),
                 logs_subscriptions: Vec::new(),
-                tagged_profiling_results: HashMap::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 accounts_registry: HashMap::new(),
                 accounts_by_owner: HashMap::new(),
@@ -1212,6 +1217,29 @@ impl SurfnetSvm {
         self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_subscriptions
             .retain(|tx| tx.send(SlotInfo { slot, parent, root }).is_ok());
+    }
+
+    pub fn write_simulated_profile_result(&mut self, tag: String, profile_result: ProfileResult) {
+        let uuid = Uuid::new_v4();
+        self.simulated_transaction_profiles
+            .insert(uuid, profile_result);
+        self.profile_tag_map
+            .entry(tag)
+            .or_insert_with(Vec::new)
+            .push(UuidOrSignature::Uuid(uuid));
+    }
+
+    pub fn write_executed_profile_result(
+        &mut self,
+        signature: Signature,
+        profile_result: ProfileResult,
+    ) {
+        self.executed_transaction_profiles
+            .insert(signature, profile_result);
+        self.profile_tag_map
+            .entry(signature.to_string())
+            .or_insert_with(Vec::new)
+            .push(UuidOrSignature::Signature(signature));
     }
 
     pub fn subscribe_for_logs_updates(
