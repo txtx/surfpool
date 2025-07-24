@@ -747,12 +747,23 @@ impl SurfnetSvm {
                 let _ = status_tx.try_send(TransactionStatusEvent::Success(
                     TransactionConfirmationStatus::Finalized,
                 ));
+                let signature = &tx.signatures[0];
                 self.notify_signature_subscribers(
                     SignatureSubscriptionType::finalized(),
-                    &tx.signatures[0],
+                    &signature,
                     self.latest_epoch_info.absolute_slot,
                     None,
                 );
+                let Some(tx_data) = self.transactions.get(&signature) else {
+                    continue;
+                };
+                let logs = tx_data
+                    .expect_processed()
+                    .meta
+                    .log_messages
+                    .clone()
+                    .unwrap_or(vec![]);
+                self.notify_logs_subscribers(signature, None, logs, CommitmentLevel::Finalized);
             } else {
                 requeue.push_back((finalized_at, tx, status_tx));
             }
