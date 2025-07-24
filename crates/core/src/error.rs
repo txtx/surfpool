@@ -417,4 +417,20 @@ impl SurfpoolError {
         let error = Error::invalid_params(format!("Invalid token account state {state}"));
         Self(error)
     }
+
+    pub fn transaction_not_found_in_svm<S>(signature: S) -> Self
+    where
+        S: Display,
+    {
+        let mut error = Error::internal_error();
+        error.message =
+            format!("Transaction with signature '{signature}' was not found in the SVM");
+        Self(error)
+    }
+
+    pub fn tag_not_found(tag: &str) -> Self {
+        let mut error = Error::internal_error();
+        error.message = format!("Profile result associated with tag '{tag}' not found in the SVM");
+        Self(error)
+    }
 }
