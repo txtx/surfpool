@@ -128,7 +128,7 @@ impl ProfileResult {
             },
             state: ProfileState::new(pre_execution, post_execution),
             slot,
-            uuid
+            uuid,
         }
     }
 }
