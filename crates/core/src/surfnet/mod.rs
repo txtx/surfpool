@@ -5,6 +5,7 @@ use jsonrpc_core::Result as RpcError;
 use locker::SurfnetSvmLocker;
 use solana_account::Account;
 use solana_account_decoder::{UiAccount, UiAccountEncoding};
+use solana_client::{rpc_config::RpcTransactionLogsFilter, rpc_response::RpcLogsResponse};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
@@ -78,6 +79,12 @@ pub type SignatureSubscriptionData = (
 
 pub type AccountSubscriptionData =
     HashMap<Pubkey, Vec<(Option<UiAccountEncoding>, Sender<UiAccount>)>>;
+
+pub type LogsSubscriptionData = (
+    CommitmentLevel,
+    RpcTransactionLogsFilter,
+    Sender<(Slot, RpcLogsResponse)>,
+);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SignatureSubscriptionType {
