@@ -132,7 +132,7 @@ impl App {
                 events.push((
                     EventType::Success,
                     Local::now(),
-                    format!("Started localvalidator [RPC: {rpc_url}, WS: {ws_url}]"),
+                    format!("Started local validator [RPC: {rpc_url}, WS: {ws_url}]"),
                 ));
                 events.push((
                     EventType::Success,
