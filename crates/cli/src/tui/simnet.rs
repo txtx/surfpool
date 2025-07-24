@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, error::Error, io, time::Duration};
+use std::{error::Error, io, time::Duration};
 
 use chrono::{DateTime, Local};
 use crossbeam::channel::{Select, Sender, unbounded};
@@ -22,7 +22,9 @@ use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::Transaction;
 use surfpool_core::{solana_rpc_client::rpc_client::RpcClient, surfnet::SLOTS_PER_EPOCH};
-use surfpool_types::{BlockProductionMode, ClockCommand, SimnetCommand, SimnetEvent};
+use surfpool_types::{
+    BlockProductionMode, ClockCommand, SanitizedConfig, SimnetCommand, SimnetEvent,
+};
 use txtx_core::kit::{
     channel::Receiver,
     types::frontend::{BlockEvent, ProgressBarStatusColor},
@@ -39,7 +41,8 @@ struct ColorTheme {
     primary: Color,
     secondary: Color,
     white: Color,
-    gray: Color,
+    dark_gray: Color,
+    light_gray: Color,
     error: Color,
     warning: Color,
     info: Color,
@@ -53,8 +56,9 @@ impl ColorTheme {
             accent: color.c400,
             primary: color.c500,
             secondary: color.c300,
-            white: tailwind::SLATE.c200,
-            gray: tailwind::ZINC.c800,
+            white: tailwind::SLATE.c100,
+            dark_gray: tailwind::ZINC.c800,
+            light_gray: tailwind::ZINC.c400,
             error: tailwind::RED.c400,
             warning: tailwind::YELLOW.c500,
             info: tailwind::BLUE.c500,
@@ -80,12 +84,11 @@ struct App {
     clock: Clock,
     epoch_info: EpochInfo,
     successful_transactions: u32,
-    events: VecDeque<(EventType, DateTime<Local>, String)>,
+    events: Vec<(EventType, DateTime<Local>, String)>,
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     status_bar_message: Option<String>,
     displayed_url: DisplayedUrl,
-    rpc_url: String,
     breaker: Option<Keypair>,
     paused: bool,
 }
@@ -97,7 +100,6 @@ impl App {
         include_debug_logs: bool,
         deploy_progress_rx: Vec<Receiver<BlockEvent>>,
         displayed_url: DisplayedUrl,
-        rpc_url: String,
         breaker: Option<Keypair>,
     ) -> App {
         let palette = palette::tailwind::EMERALD;
@@ -118,12 +120,11 @@ impl App {
                 transaction_count: None,
             },
             successful_transactions: 0,
-            events: VecDeque::new(),
+            events: vec![],
             include_debug_logs,
             deploy_progress_rx,
             status_bar_message: None,
             displayed_url,
-            rpc_url,
             breaker,
             paused: false,
         }
@@ -142,8 +143,7 @@ impl App {
     pub fn next(&mut self) {
         self.state.select_next();
         self.scroll_state.next();
-        let new_offset = self.state.offset() + ITEM_HEIGHT;
-        *self.state.offset_mut() = new_offset;
+        *self.state.offset_mut() = ITEM_HEIGHT;
     }
 
     pub fn previous(&mut self) {
@@ -164,8 +164,8 @@ impl App {
 }
 
 pub enum DisplayedUrl {
-    Studio(String),
-    Datasource(String),
+    Studio(SanitizedConfig),
+    Datasource(SanitizedConfig),
 }
 
 pub fn start_app(
@@ -174,7 +174,6 @@ pub fn start_app(
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     displayed_url: DisplayedUrl,
-    rpc_url: String,
     breaker: Option<Keypair>,
 ) -> Result<(), Box<dyn Error>> {
     // setup terminal
@@ -191,7 +190,6 @@ pub fn start_app(
         include_debug_logs,
         deploy_progress_rx,
         displayed_url,
-        rpc_url,
         breaker,
     );
     let res = run_app(&mut terminal, app);
@@ -210,14 +208,18 @@ pub fn start_app(
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
     let (tx, rx) = unbounded();
-    let rpc_api_url = app.rpc_url.clone();
+    let rpc_api_url = match app.displayed_url {
+        DisplayedUrl::Datasource(ref config) => config.rpc_url.clone(),
+        DisplayedUrl::Studio(ref config) => config.rpc_url.clone(),
+    };
     let _ = hiro_system_kit::thread_named("break solana").spawn(move || {
         while let Ok((message, keypair)) = rx.recv() {
             let client =
                 RpcClient::new_with_commitment(&rpc_api_url, CommitmentConfig::processed());
-            let blockhash = client.get_latest_blockhash().unwrap();
-            let transaction = Transaction::new(&[keypair], message, blockhash);
-            let _ = client.send_transaction(&transaction).unwrap();
+            let _ = client.get_latest_blockhash().and_then(|blockhash| {
+                let transaction = Transaction::new(&[keypair], message, blockhash);
+                client.send_transaction(&transaction)
+            });
         }
     });
 
@@ -225,6 +227,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
     loop {
         let mut selector = Select::new();
         let mut handles = vec![];
+        let mut new_events = vec![];
 
         {
             selector.recv(&app.simnet_events_rx);
@@ -233,21 +236,20 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     handles.push(selector.recv(rx));
                 }
             }
-
             let oper = selector.try_select();
             if let Ok(oper) = oper {
                 match oper.index() {
                     0 => match oper.recv(&app.simnet_events_rx) {
                         Ok(event) => match &event {
                             SimnetEvent::AccountUpdate(dt, _account) => {
-                                app.events.push_front((
+                                new_events.push((
                                     EventType::Success,
                                     *dt,
                                     event.account_update_msg(),
                                 ));
                             }
                             SimnetEvent::PluginLoaded(_) => {
-                                app.events.push_front((
+                                new_events.push((
                                     EventType::Success,
                                     Local::now(),
                                     event.plugin_loaded_msg(),
@@ -255,7 +257,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             }
                             SimnetEvent::EpochInfoUpdate(epoch_info) => {
                                 app.epoch_info = epoch_info.clone();
-                                app.events.push_front((
+                                new_events.push((
                                     EventType::Success,
                                     Local::now(),
                                     event.epoch_info_update_msg(),
@@ -264,7 +266,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             SimnetEvent::ClockUpdate(clock) => {
                                 app.clock = clock.clone();
                                 if app.include_debug_logs {
-                                    app.events.push_front((
+                                    new_events.push((
                                         EventType::Debug,
                                         Local::now(),
                                         event.clock_update_msg(),
@@ -272,29 +274,46 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 }
                             }
                             SimnetEvent::ErrorLog(dt, log) => {
-                                app.events
-                                    .push_front((EventType::Failure, *dt, log.clone()));
+                                new_events.push((EventType::Failure, *dt, log.clone()));
                             }
                             SimnetEvent::InfoLog(dt, log) => {
-                                app.events.push_front((EventType::Info, *dt, log.clone()));
+                                new_events.push((EventType::Info, *dt, log.clone()));
                             }
                             SimnetEvent::DebugLog(dt, log) => {
                                 if app.include_debug_logs {
-                                    app.events.push_front((EventType::Debug, *dt, log.clone()));
+                                    new_events.push((EventType::Debug, *dt, log.clone()));
                                 }
                             }
                             SimnetEvent::WarnLog(dt, log) => {
-                                app.events
-                                    .push_front((EventType::Warning, *dt, log.clone()));
+                                new_events.push((EventType::Warning, *dt, log.clone()));
                             }
                             SimnetEvent::TransactionReceived(_dt, _transaction) => {}
-                            SimnetEvent::TransactionProcessed(dt, meta, _err) => {
-                                if deployment_completed {
-                                    for log in meta.logs.iter() {
-                                        app.events.push_front((EventType::Debug, *dt, log.clone()));
+                            SimnetEvent::TransactionProcessed(dt, meta, err) => {
+                                if let Some(err) = err {
+                                    new_events.push((
+                                        EventType::Failure,
+                                        *dt,
+                                        format!("Failed processing tx {}: {}", meta.signature, err),
+                                    ));
+                                } else {
+                                    if deployment_completed {
+                                        new_events.push((
+                                            EventType::Success,
+                                            *dt,
+                                            format!("Processed tx {}", meta.signature),
+                                        ));
+                                        if app.include_debug_logs {
+                                            for log in meta.logs.iter() {
+                                                new_events.push((
+                                                    EventType::Debug,
+                                                    *dt,
+                                                    log.clone(),
+                                                ));
+                                            }
+                                        }
                                     }
+                                    app.successful_transactions += 1;
                                 }
-                                app.successful_transactions += 1;
                             }
                             SimnetEvent::BlockHashExpired => {}
                             SimnetEvent::Aborted(_error) => {
@@ -314,14 +333,32 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     "Profiled [{}]: {} CUs",
                                     tag, result.compute_units.compute_units_consumed
                                 );
-                                app.events.push_front((EventType::Info, *timestamp, msg));
+                                new_events.push((EventType::Info, *timestamp, msg));
+                            }
+                            SimnetEvent::RunbookStarted(runbook_id) => {
+                                deployment_completed = false;
+                                new_events.push((
+                                    EventType::Success,
+                                    Local::now(),
+                                    format!("Runbook '{}' execution started", runbook_id),
+                                ));
+                            }
+                            SimnetEvent::RunbookCompleted(runbook_id) => {
+                                deployment_completed = true;
+                                new_events.push((
+                                    EventType::Success,
+                                    Local::now(),
+                                    format!("Runbook '{}' execution completed", runbook_id),
+                                ));
+                                app.status_bar_message = None;
                             }
                         },
                         Err(_) => break,
                     },
                     i => match oper.recv(&app.deploy_progress_rx[i - 1]) {
-                        Ok(event) => {
-                            if let BlockEvent::UpdateProgressBarStatus(update) = event {
+                        Ok(event) => match event {
+                            BlockEvent::UpdateProgressBarStatus(update) => {
+                                deployment_completed = false;
                                 match update.new_status.status_color {
                                     ProgressBarStatusColor::Yellow => {
                                         app.status_bar_message = Some(format!(
@@ -331,7 +368,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     }
                                     ProgressBarStatusColor::Green => {
                                         app.status_bar_message = None;
-                                        app.events.push_front((
+                                        new_events.push((
                                             EventType::Info,
                                             Local::now(),
                                             update.new_status.message,
@@ -339,7 +376,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     }
                                     ProgressBarStatusColor::Red => {
                                         app.status_bar_message = None;
-                                        app.events.push_front((
+                                        new_events.push((
                                             EventType::Failure,
                                             Local::now(),
                                             update.new_status.message,
@@ -347,7 +384,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     }
                                     ProgressBarStatusColor::Purple => {
                                         app.status_bar_message = None;
-                                        app.events.push_front((
+                                        new_events.push((
                                             EventType::Info,
                                             Local::now(),
                                             update.new_status.message,
@@ -355,13 +392,19 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     }
                                 };
                             }
-                        }
+                            _ => {}
+                        },
                         Err(_) => {
                             deployment_completed = true;
                         }
                     },
                 }
-            }
+            };
+        }
+
+        for event in new_events {
+            app.events.push(event);
+            app.next();
         }
 
         if event::poll(Duration::from_millis(5))? {
@@ -484,11 +527,11 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
 
     let epoch_progress = Gauge::default()
         .gauge_style(app.colors.primary)
-        .bg(app.colors.gray)
+        .bg(app.colors.dark_gray)
         .percent(app.epoch_progress());
     f.render_widget(epoch_progress, widgets[2].inner(Margin::new(1, 0)));
 
-    let default_style = Style::new().fg(app.colors.gray);
+    let default_style = Style::new().fg(app.colors.dark_gray);
 
     let separator = Block::default()
         .style(default_style)
@@ -502,19 +545,19 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
 
 fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
     let infos = match app.displayed_url {
-        DisplayedUrl::Datasource(ref datasource_url) => {
+        DisplayedUrl::Datasource(ref config) => {
             vec![
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
-                    Span::styled("Surfnet   ", app.colors.gray),
-                    Span::styled(&app.rpc_url, app.colors.white),
+                    Span::styled("Surfnet   ", app.colors.light_gray),
+                    Span::styled(&config.rpc_url, app.colors.white),
                 ]),
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
-                    Span::styled("Provider  ", app.colors.gray),
-                    Span::styled(datasource_url, app.colors.white),
+                    Span::styled("Provider  ", app.colors.light_gray),
+                    Span::styled(&config.rpc_datasource_url, app.colors.white),
                 ]),
-                Line::from(vec![Span::styled("۬-", app.colors.gray)]),
+                Line::from(vec![Span::styled("۬-", app.colors.light_gray)]),
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
                     Span::styled(
@@ -525,14 +568,14 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
                 ]),
             ]
         }
-        DisplayedUrl::Studio(ref studio_url) => {
+        DisplayedUrl::Studio(ref config) => {
             vec![
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
-                    Span::styled("Explorer  ", app.colors.gray),
-                    Span::styled(studio_url, app.colors.white),
+                    Span::styled("Explorer  ", app.colors.light_gray),
+                    Span::styled(&config.studio_url, app.colors.white),
                 ]),
-                Line::from(vec![Span::styled("۬-", app.colors.gray)]),
+                Line::from(vec![Span::styled("۬-", app.colors.light_gray)]),
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
                     Span::styled(
@@ -563,7 +606,7 @@ fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
             let color = if i < cursor {
                 app.colors.accent
             } else {
-                app.colors.gray
+                app.colors.dark_gray
             };
             spans.push(Span::styled("● ", color));
         }
@@ -602,23 +645,76 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
         .title(Line::from(title));
     f.render_widget(title, rects[0]);
 
-    let rows = app.events.iter().map(|(event_type, dt, log)| {
+    // Estimate available width for the log column
+    let log_col_width = area.width.saturating_sub(1 + 12 + 2); // event + timestamp + padding
+
+    let mut rows = Vec::new();
+    for (event_type, dt, log) in &app.events {
         let color = match event_type {
             EventType::Failure => app.colors.error,
             EventType::Info => app.colors.info,
             EventType::Success => app.colors.success,
             EventType::Warning => app.colors.warning,
-            EventType::Debug => app.colors.gray,
+            EventType::Debug => app.colors.light_gray,
         };
-        let row = vec![
-            Cell::new("⏐").style(color),
-            Cell::new(dt.format("%H:%M:%S.%3f").to_string()).style(app.colors.gray),
-            Cell::new(log.to_string()),
-        ];
-        Row::new(row)
-            .style(Style::new().fg(app.colors.white))
-            .height(1)
-    });
+
+        // Smart word wrapping
+        let mut current_line = String::new();
+        let mut first = true;
+        for word in log.split_whitespace() {
+            if current_line.len() + word.len() + 1 > log_col_width as usize
+                && !current_line.is_empty()
+            {
+                // Push the current line
+                let row = if first {
+                    vec![
+                        Cell::new("⏐").style(color),
+                        Cell::new(dt.format("%H:%M:%S.%3f").to_string())
+                            .style(app.colors.light_gray),
+                        Cell::new(current_line.clone()),
+                    ]
+                } else {
+                    vec![
+                        Cell::new(" "),
+                        Cell::new(" "),
+                        Cell::new(current_line.clone()),
+                    ]
+                };
+                rows.push(
+                    Row::new(row)
+                        .style(Style::new().fg(app.colors.white))
+                        .height(1),
+                );
+                current_line.clear();
+                first = false;
+            }
+            if !current_line.is_empty() {
+                current_line.push(' ');
+            }
+            current_line.push_str(word);
+        }
+        // Push any remaining text
+        if !current_line.is_empty() {
+            let row = if first {
+                vec![
+                    Cell::new("⏐").style(color),
+                    Cell::new(dt.format("%H:%M:%S.%3f").to_string()).style(app.colors.light_gray),
+                    Cell::new(current_line.clone()),
+                ]
+            } else {
+                vec![
+                    Cell::new(" "),
+                    Cell::new(" "),
+                    Cell::new(current_line.clone()),
+                ]
+            };
+            rows.push(
+                Row::new(row)
+                    .style(Style::new().fg(app.colors.white))
+                    .height(1),
+            );
+        }
+    }
 
     let table = Table::new(
         rows,
@@ -655,10 +751,11 @@ fn render_footer(f: &mut Frame, app: &mut App, area: Rect) {
     .split(area);
 
     let status = match app.status_bar_message {
-        Some(ref message) => {
-            title_block(message.as_str(), Alignment::Left).style(Style::new().fg(app.colors.gray))
+        Some(ref message) => title_block(message.as_str(), Alignment::Left)
+            .style(Style::new().fg(app.colors.light_gray)),
+        None => {
+            title_block(HELP_TEXT, Alignment::Left).style(Style::new().fg(app.colors.light_gray))
         }
-        None => title_block(HELP_TEXT, Alignment::Left).style(Style::new().fg(app.colors.gray)),
     };
     f.render_widget(status, rects[0]);
 

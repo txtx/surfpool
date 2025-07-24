@@ -17,13 +17,13 @@ use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::{
     rpc_config::{
         RpcAccountInfoConfig, RpcBlockConfig, RpcLargestAccountsConfig, RpcLargestAccountsFilter,
-        RpcSignaturesForAddressConfig, RpcTransactionConfig,
+        RpcSignaturesForAddressConfig, RpcTransactionConfig, RpcTransactionLogsFilter,
     },
     rpc_filter::RpcFilterType,
     rpc_request::TokenAccountsFilter,
     rpc_response::{
         RpcAccountBalance, RpcConfirmedTransactionStatusWithSignature, RpcKeyedAccount,
-        RpcTokenAccountBalance,
+        RpcLogsResponse, RpcTokenAccountBalance,
     },
 };
 use solana_clock::Slot;
@@ -780,6 +780,7 @@ impl SurfnetSvmLocker {
                 })
                 .collect::<Vec<_>>()
                 .clone();
+            let mut logs = vec![];
 
             // if not skipping preflight, simulate the transaction
             if !skip_preflight {
@@ -793,6 +794,7 @@ impl SurfnetSvmLocker {
                                 res.err
                             )));
                         let meta = convert_transaction_metadata_from_canonical(&res.meta);
+                        logs = meta.logs.clone();
                         let _ = status_tx.try_send(TransactionStatusEvent::SimulationFailure((
                             res.err.clone(),
                             meta,
@@ -801,7 +803,13 @@ impl SurfnetSvmLocker {
                             SignatureSubscriptionType::processed(),
                             &signature,
                             latest_absolute_slot,
+                            Some(res.err.clone()),
+                        );
+                        svm_writer.notify_logs_subscribers(
+                            &signature,
                             Some(res.err),
+                            logs,
+                            CommitmentLevel::Processed,
                         );
                         return Ok::<(), SurfpoolError>(());
                     }
@@ -812,6 +820,7 @@ impl SurfnetSvmLocker {
                 .send_transaction(transaction.clone(), false /* cu_analysis_enabled */)
             {
                 Ok(res) => {
+                    logs = res.logs.clone();
                     let accounts_after = pubkeys_from_message
                         .iter()
                         .map(|p| svm_writer.inner.get_account(p))
@@ -932,8 +941,9 @@ impl SurfnetSvmLocker {
                 SignatureSubscriptionType::processed(),
                 &signature,
                 latest_absolute_slot,
-                err,
+                err.clone(),
             );
+            svm_writer.notify_logs_subscribers(&signature, err, logs, CommitmentLevel::Processed);
             Ok(())
         })?;
 
@@ -2009,6 +2019,17 @@ impl SurfnetSvmLocker {
     /// Subscribes for slot updates and returns a receiver of slot updates.
     pub fn subscribe_for_slot_updates(&self) -> Receiver<SlotInfo> {
         self.with_svm_writer(|svm_writer| svm_writer.subscribe_for_slot_updates())
+    }
+
+    /// Subscribes for logs updates and returns a receiver of logs updates.
+    pub fn subscribe_for_logs_updates(
+        &self,
+        commitment_level: &CommitmentLevel,
+        filter: &RpcTransactionLogsFilter,
+    ) -> Receiver<(Slot, RpcLogsResponse)> {
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.subscribe_for_logs_updates(commitment_level, filter)
+        })
     }
 
     fn snapshot_get_account_result(

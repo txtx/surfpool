@@ -21,6 +21,8 @@ use uuid::Uuid;
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEFAULT_RPC_PORT: u16 = 8899;
 pub const DEFAULT_WS_PORT: u16 = 8900;
+pub const DEFAULT_STUDIO_PORT: u16 = 8488;
+pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -160,6 +162,8 @@ pub enum SimnetEvent {
         tag: String,
         timestamp: DateTime<Local>,
     },
+    RunbookStarted(String),
+    RunbookCompleted(String),
 }
 
 impl SimnetEvent {
@@ -287,11 +291,21 @@ pub enum ClockEvent {
     ExpireBlockHash,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SanitizedConfig {
+    pub rpc_url: String,
+    pub ws_url: String,
+    pub rpc_datasource_url: String,
+    pub studio_url: String,
+    pub graphql_query_route_url: String,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SurfpoolConfig {
     pub simnets: Vec<SimnetConfig>,
     pub rpc: RpcConfig,
     pub subgraph: SubgraphConfig,
+    pub studio: StudioConfig,
     pub plugin_config_path: Vec<PathBuf>,
 }
 
@@ -318,6 +332,18 @@ impl Default for SimnetConfig {
     }
 }
 
+impl SimnetConfig {
+    pub fn get_sanitized_datasource_url(&self) -> String {
+        self.remote_rpc_url
+            .split("?")
+            .map(|e| e.to_string())
+            .collect::<Vec<String>>()
+            .first()
+            .expect("datasource url invalid")
+            .to_string()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SubgraphConfig {}
 
@@ -329,19 +355,12 @@ pub struct RpcConfig {
 }
 
 impl RpcConfig {
-    pub fn get_socket_address(&self) -> String {
+    pub fn get_rpc_base_url(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
-    pub fn get_ws_address(&self) -> String {
+    pub fn get_ws_base_url(&self) -> String {
         format!("{}:{}", self.bind_host, self.ws_port)
     }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SubgraphPluginConfig {
-    pub uuid: Uuid,
-    pub ipc_token: String,
-    pub subgraph_request: SubgraphRequest,
 }
 
 impl Default for RpcConfig {
@@ -352,6 +371,34 @@ impl Default for RpcConfig {
             ws_port: DEFAULT_WS_PORT,
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct StudioConfig {
+    pub bind_host: String,
+    pub bind_port: u16,
+}
+
+impl StudioConfig {
+    pub fn get_studio_base_url(&self) -> String {
+        format!("{}:{}", self.bind_host, self.bind_port)
+    }
+}
+
+impl Default for StudioConfig {
+    fn default() -> Self {
+        Self {
+            bind_host: DEFAULT_NETWORK_HOST.to_string(),
+            bind_port: CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SubgraphPluginConfig {
+    pub uuid: Uuid,
+    pub ipc_token: String,
+    pub subgraph_request: SubgraphRequest,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
