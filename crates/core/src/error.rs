@@ -422,23 +422,15 @@ impl SurfpoolError {
     where
         S: Display,
     {
-        let error = Error::invalid_params(format!(
-            "Transaction with signature '{signature}' was not found in the SVM. \
-            This may mean the transaction was never executed or has been pruned from local history. \
-            If you are looking for a simulated transaction, use the corresponding UUID instead."
-        ));
+        let mut error = Error::internal_error();
+        error.message =
+            format!("Transaction with signature '{signature}' was not found in the SVM");
         Self(error)
     }
 
-    pub fn transaction_not_found_in_svm_by_uuid<U>(uuid: U) -> Self
-    where
-        U: Display,
-    {
-        let error = Error::invalid_params(format!(
-            "Transaction with UUID '{uuid}' was not found in the SVM. \
-            This usually means the simulation result has expired or was never created. \
-            If you are trying to look up an executed transaction, use its signature instead."
-        ));
+    pub fn tag_not_found(tag: &str) -> Self {
+        let mut error = Error::internal_error();
+        error.message = format!("Tag '{tag}' not found in the SVM");
         Self(error)
     }
 }

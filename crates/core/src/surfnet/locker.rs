@@ -52,6 +52,7 @@ use surfpool_types::{
     TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature,
 };
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 use super::{
     AccountFactory, GetAccountResult, GetTransactionResult, GeyserEvent, SignatureSubscriptionType,
@@ -1412,6 +1413,7 @@ impl SurfnetSvmLocker {
         remote_ctx: &Option<SurfnetRemoteClient>,
         transaction: VersionedTransaction,
         encoding: Option<UiAccountEncoding>,
+        tag: Option<String>,
     ) -> SurfpoolContextualizedResult<ProfileResult> {
         let SvmAccessContext {
             slot,
@@ -1506,15 +1508,7 @@ impl SurfnetSvmLocker {
             capture
         };
 
-        // Determine if this is a simulation (no signature) or execution (has signature)
-        // For now, always generate a UUID and store in simulated_transaction_profiles
-        let uuid = uuid::Uuid::new_v4();
-        let mut is_execution = false;
-        // If the transaction has a non-default signature, treat as execution
-        if signature != solana_signature::Signature::default() {
-            is_execution = true;
-        }
-
+        let uuid = Uuid::new_v4();
         let profile_result = ProfileResult {
             compute_units: compute_units_estimation_result,
             state: ProfileState::new(pre_execution_capture, post_execution_capture),
@@ -1525,13 +1519,13 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm| {
             svm.simulated_transaction_profiles
                 .insert(uuid, profile_result.clone());
-            if is_execution {
-                svm.executed_transaction_profiles
-                    .insert(signature, profile_result.clone());
+            if let Some(ref tag) = tag {
                 svm.profile_tag_map
-                    .entry(signature.to_string())
+                    .entry(tag.clone())
                     .or_default()
                     .push(UuidOrSignature::Uuid(uuid));
+            } else {
+                svm.profile_tag_map.insert(uuid.to_string(), Vec::new());
             }
         });
 
@@ -1543,24 +1537,52 @@ impl SurfnetSvmLocker {
         ))
     }
 
-    /// Records profiling results under a tag and emits a tagged profile event.
-    pub fn write_profiling_results(&self, tag: String, profile_result: ProfileResult) {
-        self.with_svm_writer(|svm_writer| {
-            svm_writer
-                .tagged_profiling_results
-                .entry(tag.clone())
-                .or_default()
-                .push(profile_result.clone());
-            let _ = svm_writer
-                .simnet_events_tx
-                .try_send(SimnetEvent::tagged_profile(
-                    profile_result.clone(),
-                    tag.clone(),
-                ));
-        });
+    /// Returns the profile result for a given signature or UUID, and whether it exists in the SVM.
+    pub fn get_profile_results(
+        &self,
+        signature_or_uuid: UuidOrSignature,
+    ) -> (Option<ProfileResult>, bool, Slot) {
+        match &signature_or_uuid {
+            UuidOrSignature::Signature(signature) => {
+                let profile = self.with_svm_reader(|svm| {
+                    svm.executed_transaction_profiles.get(signature).cloned()
+                });
+                let exists = self.with_svm_reader(|svm| svm.transactions.contains_key(signature));
+                let slot = self.with_svm_reader(|svm| svm.get_latest_absolute_slot());
+                (profile, exists, slot)
+            }
+            UuidOrSignature::Uuid(uuid) => {
+                let profile = self
+                    .with_svm_reader(|svm| svm.simulated_transaction_profiles.get(uuid).cloned());
+                let slot = self.with_svm_reader(|svm| svm.get_latest_absolute_slot());
+                (profile, true, slot)
+            }
+        }
+    }
+
+    /// Returns the profile results for a given tag.
+    pub fn get_profile_results_by_tag(
+        &self,
+        tag: String,
+    ) -> Result<(Option<Vec<ProfileResult>>, Slot), SurfpoolError> {
+        let slot = self.with_svm_reader(|svm| svm.get_latest_absolute_slot());
+        let tag_map = self.with_svm_reader(|svm| svm.profile_tag_map.get(&tag).cloned());
+        match tag_map {
+            None => Ok((None, slot)),
+            Some(uuids_or_sigs) => {
+                let mut profiles = Vec::new();
+                for id in uuids_or_sigs {
+                    let (profile, exists, _) = self.get_profile_results(id.clone());
+                    if !exists || profile.is_none() {
+                        return Err(SurfpoolError::tag_not_found(&tag));
+                    }
+                    profiles.push(profile.unwrap());
+                }
+                Ok((Some(profiles), slot))
+            }
+        }
     }
 }
-
 /// Program account related functions
 impl SurfnetSvmLocker {
     /// Clones a program account from source to destination, handling upgradeable loader state.

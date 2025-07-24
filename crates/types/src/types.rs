@@ -505,10 +505,31 @@ pub struct SupplyUpdate {
     pub non_circulating_accounts: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub enum UuidOrSignature {
     Uuid(Uuid),
     Signature(Signature),
+}
+
+impl<'de> Deserialize<'de> for UuidOrSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        if let Ok(uuid) = Uuid::parse_str(&s) {
+            return Ok(UuidOrSignature::Uuid(uuid));
+        }
+
+        if let Ok(signature) = s.parse::<Signature>() {
+            return Ok(UuidOrSignature::Signature(signature));
+        }
+
+        Err(serde::de::Error::custom(
+            "expected a Uuid or a valid Solana Signature",
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
