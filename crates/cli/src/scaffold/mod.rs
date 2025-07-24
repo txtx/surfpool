@@ -165,9 +165,10 @@ pub fn scaffold_iac_layout(
     let mut signer_localnet = String::new();
     // signer_simnet.push_str(&get_interpolated_header_template(&format!("Runbook")));
     // signer_simnet.push_str(&get_interpolated_addon_template("http://localhost:8899"));
-    signer_localnet.push_str(&get_interpolated_localnet_signer_template(
-        "input.authority_keypair_json",
-    ));
+    signer_localnet.push_str(&get_interpolated_localnet_signer_template(&format!(
+        "\"{}\"",
+        DEFAULT_SOLANA_KEYPAIR_PATH.to_string()
+    )));
 
     for program_metadata in selected_programs.iter() {
         deployment_runbook_src.push_str(
@@ -234,8 +235,6 @@ pub fn scaffold_iac_layout(
         indexmap! {
             "network_id".to_string() => "localnet".to_string(),
             "rpc_api_url".to_string() => format!("http://{}:{}", DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT),
-            "payer_keypair_json".to_string() => DEFAULT_SOLANA_KEYPAIR_PATH.clone(),
-            "authority_keypair_json".to_string() => DEFAULT_SOLANA_KEYPAIR_PATH.clone(),
         },
     );
     manifest.environments.insert(

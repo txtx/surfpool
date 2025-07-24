@@ -15,10 +15,11 @@ use solana_account_decoder::{
 };
 use solana_client::{
     rpc_client::SerializableTransaction,
-    rpc_config::{RpcAccountInfoConfig, RpcBlockConfig},
-    rpc_response::{RpcKeyedAccount, RpcPerfSample},
+    rpc_config::{RpcAccountInfoConfig, RpcBlockConfig, RpcTransactionLogsFilter},
+    rpc_response::{RpcKeyedAccount, RpcLogsResponse, RpcPerfSample},
 };
 use solana_clock::{Clock, MAX_RECENT_BLOCKHASHES, Slot};
+use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
 use solana_feature_set::{FeatureSet, disable_new_loader_v3_deployments};
 use solana_hash::Hash;
@@ -53,7 +54,7 @@ use super::{
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
-    surfnet::locker::is_supported_token_program,
+    surfnet::{LogsSubscriptionData, locker::is_supported_token_program},
     types::{MintAccount, SurfnetTransactionStatus, TokenAccount, TransactionWithStatusMeta},
 };
 
@@ -87,7 +88,7 @@ pub struct SurfnetSvm {
     pub profile_tag_map: HashMap<String, Vec<UuidOrSignature>>,
     pub simulated_transaction_profiles: HashMap<Uuid, ProfileResult>,
     pub executed_transaction_profiles: HashMap<Signature, ProfileResult>,
-    pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
+    pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
@@ -157,10 +158,10 @@ impl SurfnetSvm {
                 signature_subscriptions: HashMap::new(),
                 account_subscriptions: HashMap::new(),
                 slot_subscriptions: Vec::new(),
-                tagged_profiling_results: HashMap::new(),
                 profile_tag_map: HashMap::new(),
                 simulated_transaction_profiles: HashMap::new(),
                 executed_transaction_profiles: HashMap::new(),
+                logs_subscriptions: Vec::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 accounts_registry: HashMap::new(),
                 accounts_by_owner: HashMap::new(),
@@ -719,6 +720,17 @@ impl SurfnetSvm {
                 slot,
                 None,
             );
+            let Some(SurfnetTransactionStatus::Processed(tx_data)) =
+                self.transactions.get(&signature)
+            else {
+                continue;
+            };
+            self.notify_logs_subscribers(
+                &signature,
+                None,
+                tx_data.meta.log_messages.clone().unwrap_or(vec![]),
+                CommitmentLevel::Confirmed,
+            );
             confirmed_transactions.push(signature);
         }
 
@@ -740,12 +752,23 @@ impl SurfnetSvm {
                 let _ = status_tx.try_send(TransactionStatusEvent::Success(
                     TransactionConfirmationStatus::Finalized,
                 ));
+                let signature = &tx.signatures[0];
                 self.notify_signature_subscribers(
                     SignatureSubscriptionType::finalized(),
-                    &tx.signatures[0],
+                    &signature,
                     self.latest_epoch_info.absolute_slot,
                     None,
                 );
+                let Some(tx_data) = self.transactions.get(&signature) else {
+                    continue;
+                };
+                let logs = tx_data
+                    .expect_processed()
+                    .meta
+                    .log_messages
+                    .clone()
+                    .unwrap_or(vec![]);
+                self.notify_logs_subscribers(signature, None, logs, CommitmentLevel::Finalized);
             } else {
                 requeue.push_back((finalized_at, tx, status_tx));
             }
@@ -755,25 +778,6 @@ impl SurfnetSvm {
             .append(&mut requeue);
 
         Ok(())
-    }
-
-    /// Notifies listeners of an invalid transaction and sends a verification failure event.
-    ///
-    /// # Arguments
-    /// * `signature` - The transaction signature.
-    /// * `status_tx` - The status event sender.
-    pub fn notify_invalid_transaction(
-        &self,
-        signature: Signature,
-        status_tx: Sender<TransactionStatusEvent>,
-    ) {
-        let _ = self.simnet_events_tx.try_send(SimnetEvent::error(format!(
-            "Transaction verification failed: {}",
-            signature
-        )));
-        let _ = status_tx.try_send(TransactionStatusEvent::VerificationFailure(
-            signature.to_string(),
-        ));
     }
 
     /// Writes account updates to the SVM state based on the provided account update result.
@@ -1236,6 +1240,38 @@ impl SurfnetSvm {
             .entry(signature.to_string())
             .or_insert_with(Vec::new)
             .push(UuidOrSignature::Signature(signature));
+    }
+
+    pub fn subscribe_for_logs_updates(
+        &mut self,
+        commitment_level: &CommitmentLevel,
+        filter: &RpcTransactionLogsFilter,
+    ) -> Receiver<(Slot, RpcLogsResponse)> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        let (tx, rx) = unbounded();
+        self.logs_subscriptions
+            .push((commitment_level.clone(), filter.clone(), tx));
+        rx
+    }
+
+    pub fn notify_logs_subscribers(
+        &mut self,
+        signature: &Signature,
+        err: Option<TransactionError>,
+        logs: Vec<String>,
+        commitment_level: CommitmentLevel,
+    ) {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        for (expected_level, filter, tx) in self.logs_subscriptions.iter() {
+            if expected_level.eq(&commitment_level) {
+                let message = RpcLogsResponse {
+                    signature: signature.to_string(),
+                    err: err.clone(),
+                    logs: logs.clone(),
+                };
+                let _ = tx.send((self.get_latest_absolute_slot(), message));
+            }
+        }
     }
 }
 

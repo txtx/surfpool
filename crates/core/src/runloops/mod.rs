@@ -459,7 +459,7 @@ async fn start_http_rpc_server_runloop(
 ) -> Result<JoinHandle<()>, String> {
     let server_bind: SocketAddr = config
         .rpc
-        .get_socket_address()
+        .get_rpc_base_url()
         .parse::<SocketAddr>()
         .map_err(|e| e.to_string())?;
 
@@ -509,7 +509,7 @@ async fn start_ws_rpc_server_runloop(
 ) -> Result<JoinHandle<()>, String> {
     let ws_server_bind: SocketAddr = config
         .rpc
-        .get_ws_address()
+        .get_ws_base_url()
         .parse::<SocketAddr>()
         .map_err(|e| e.to_string())?;
 
@@ -533,6 +533,7 @@ async fn start_ws_rpc_server_runloop(
                     signature_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     account_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     slot_subscription_map: Arc::new(RwLock::new(HashMap::new())),
+                    logs_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     tokio_handle: tokio_handle.clone(),
                 }
                 .to_delegate(),

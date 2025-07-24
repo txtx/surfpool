@@ -666,14 +666,15 @@ async fn test_surfnet_estimate_compute_units() {
     );
 
     println!("Retrieving profile results for tag: {}", tag1);
-    let results_response_tag1: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> =
-        rpc_server.get_profile_results(Some(runloop_context.clone()), tag1.clone());
+    let results_response_tag1 = rpc_server
+        .get_profile_results_by_tag(Some(runloop_context.clone()), tag1.clone())
+        .await;
     assert!(
         results_response_tag1.is_ok(),
         "get_profile_results for tag1 failed: {:?}",
         results_response_tag1.err()
     );
-    let results_vec_tag1 = results_response_tag1.unwrap().value;
+    let results_vec_tag1 = results_response_tag1.unwrap().value.unwrap_or_default();
     assert_eq!(results_vec_tag1.len(), 1, "Expected 1 result for tag1");
     println!(
         "Found {} result(s) for tag: {}",
@@ -703,13 +704,17 @@ async fn test_surfnet_estimate_compute_units() {
         "\nTesting retrieval with non-existent tag: {}",
         tag_non_existent
     );
-    let results_non_existent_response: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> =
-        rpc_server.get_profile_results(Some(runloop_context.clone()), tag_non_existent.clone());
+    let results_non_existent_response = rpc_server
+        .get_profile_results_by_tag(Some(runloop_context.clone()), tag_non_existent.clone())
+        .await;
     assert!(
         results_non_existent_response.is_ok(),
         "get_profile_results for non-existent tag failed"
     );
-    let results_non_existent_vec = results_non_existent_response.unwrap().value;
+    let results_non_existent_vec = results_non_existent_response
+        .unwrap()
+        .value
+        .unwrap_or_default();
     assert!(
         results_non_existent_vec.is_empty(),
         "Expected empty vec for non-existent tag"
@@ -757,13 +762,14 @@ async fn test_surfnet_estimate_compute_units() {
     );
 
     println!("Retrieving profile results for tag: {}", tag2);
-    let results_response_tag2: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> =
-        rpc_server.get_profile_results(Some(runloop_context.clone()), tag2.clone());
+    let results_response_tag2 = rpc_server
+        .get_profile_results_by_tag(Some(runloop_context.clone()), tag2.clone())
+        .await;
     assert!(
         results_response_tag2.is_ok(),
         "get_profile_results for tag2 failed"
     );
-    let results_vec_tag2 = results_response_tag2.unwrap().value;
+    let results_vec_tag2 = results_response_tag2.unwrap().value.unwrap_or_default();
     assert_eq!(results_vec_tag2.len(), 2, "Expected 2 results for tag2");
     println!(
         "Found {} result(s) for tag: {}",
@@ -809,14 +815,17 @@ async fn test_surfnet_estimate_compute_units() {
     );
 
     println!("Retrieving profile results for tag: {} again", tag1);
-    // runloop_context can be consumed here if it's the last use
-    let results_response_tag1_again: JsonRpcResult<RpcResponse<Vec<SurfpoolProfileResult>>> =
-        rpc_server.get_profile_results(Some(runloop_context), tag1.clone());
+    let results_response_tag1_again = rpc_server
+        .get_profile_results_by_tag(Some(runloop_context), tag1.clone())
+        .await;
     assert!(
         results_response_tag1_again.is_ok(),
         "get_profile_results for tag1 (again) failed"
     );
-    let results_vec_tag1_again = results_response_tag1_again.unwrap().value;
+    let results_vec_tag1_again = results_response_tag1_again
+        .unwrap()
+        .value
+        .unwrap_or_default();
     assert_eq!(
         results_vec_tag1_again.len(),
         1,

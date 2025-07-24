@@ -275,12 +275,12 @@ pub trait SvmTricksRpc {
     ///
     /// ## Returns
     /// A `RpcResponse<Vec<ProfileResult>>` containing the profiling results.
-    #[rpc(meta, name = "surfnet_getProfileResults")]
-    fn get_profile_results(
+    #[rpc(meta, name = "surfnet_getProfileResultsByTag")]
+    fn get_profile_results_by_tag(
         &self,
         meta: Self::Metadata,
         tag: String,
-    ) -> Result<RpcResponse<Vec<ProfileResult>>>;
+    ) -> BoxFuture<Result<RpcResponse<Option<Vec<ProfileResult>>>>>;
 
     /// A "cheat code" method for developers to set or update the network supply information in Surfpool.
     ///
@@ -382,8 +382,8 @@ pub trait SvmTricksRpc {
     fn get_transaction_profile(
         &self,
         meta: Self::Metadata,
-        transaction_signature: UuidOrSignature,
-    ) -> BoxFuture<Result<RpcResponse<ProfileResult>>>;
+        signature_or_uuid: UuidOrSignature,
+    ) -> BoxFuture<Result<RpcResponse<Option<ProfileResult>>>>;
 }
 
 #[derive(Clone)]
@@ -602,7 +602,6 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
     }
 
     fn profile_transaction(
-        //TODO: surfnet_getTransactionProfilesByTag
         &self,
         meta: Self::Metadata,
         transaction_data_b64: String,
@@ -634,14 +633,8 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 inner: profile_result,
                 ..
             } = svm_locker
-                .profile_transaction(&remote_ctx, transaction, encoding)
+                .profile_transaction(&remote_ctx, transaction, encoding, tag.clone())
                 .await?;
-
-            if let Some(tag_str) = tag {
-                if profile_result.compute_units.success {
-                    svm_locker.write_profiling_results(tag_str, profile_result.clone());
-                }
-            }
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
@@ -650,24 +643,23 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         })
     }
 
-    fn get_profile_results(
+    fn get_profile_results_by_tag(
         &self,
         meta: Self::Metadata,
         tag: String,
-    ) -> Result<RpcResponse<Vec<ProfileResult>>> {
-        meta.with_svm_reader(|svm_reader| {
-            let results = svm_reader
-                .tagged_profiling_results
-                .get(&tag)
-                .cloned()
-                .unwrap_or_default();
-
-            RpcResponse {
-                context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
-                value: results,
-            }
+    ) -> BoxFuture<Result<RpcResponse<Option<Vec<ProfileResult>>>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+        Box::pin(async move {
+            let profiles = svm_locker.get_profile_results_by_tag(tag)?;
+            let slot = svm_locker.get_latest_absolute_slot();
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
+                value: profiles,
+            })
         })
-        .map_err(Into::into)
     }
 
     fn set_supply(
@@ -758,78 +750,22 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
     fn get_transaction_profile(
         &self,
         meta: Self::Metadata,
-        transaction_signature: UuidOrSignature,
-    ) -> BoxFuture<Result<RpcResponse<ProfileResult>>> {
+        signature_or_uuid: UuidOrSignature,
+    ) -> BoxFuture<Result<RpcResponse<Option<ProfileResult>>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
-        let first_slot = svm_locker
-            .get_first_local_slot()
-            .unwrap_or_else(|| svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot()));
-        let latest_slot = svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot());
-
         Box::pin(async move {
-            let mut profile_result =
-                svm_locker.with_svm_reader(|svm| match &transaction_signature {
-                    UuidOrSignature::Signature(signature) => {
-                        svm.executed_transaction_profiles.get(signature).cloned()
-                    }
-                    UuidOrSignature::Uuid(uuid) => {
-                        svm.simulated_transaction_profiles.get(uuid).cloned()
-                    }
-                });
-
-            if profile_result.is_none() {
-                match &transaction_signature {
-                    UuidOrSignature::Signature(signature) => {
-                        let tx_opt = svm_locker.with_svm_reader(|svm| {
-                            svm.transactions
-                                .get(signature)
-                                .map(|entry| entry.expect_processed().transaction.clone())
-                        });
-                        if let Some(transaction) = tx_opt {
-                            if let Ok(SvmAccessContext { inner: prof, .. }) = svm_locker
-                                .profile_transaction(
-                                    &None,
-                                    transaction,
-                                    Some(UiAccountEncoding::JsonParsed),
-                                )
-                                .await
-                            {
-                                profile_result = Some(prof);
-                            }
-                        }
-                    }
-                    UuidOrSignature::Uuid(_) => {
-                        // No reconstruction for UUID, error will be returned below if not found
-                    }
-                }
-            }
-
-            match profile_result {
-                Some(profile_result) => {
-                    let context_slot = if profile_result.slot >= first_slot
-                        && profile_result.slot <= latest_slot
-                    {
-                        profile_result.slot
-                    } else {
-                        latest_slot
-                    };
-                    Ok(RpcResponse {
-                        context: RpcResponseContext::new(context_slot),
-                        value: profile_result,
-                    })
-                }
-                None => match &transaction_signature {
-                    UuidOrSignature::Signature(signature) => {
-                        Err(SurfpoolError::transaction_not_found_in_svm(signature).into())
-                    }
-                    UuidOrSignature::Uuid(uuid) => {
-                        Err(SurfpoolError::transaction_not_found_in_svm_by_uuid(uuid).into())
-                    }
-                },
-            }
+            let profile_result = svm_locker.get_profile_result(signature_or_uuid.clone())?;
+            let context_slot = profile_result
+                .as_ref()
+                .map(|pr| pr.slot)
+                .unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(context_slot),
+                value: profile_result,
+            })
         })
     }
 }
