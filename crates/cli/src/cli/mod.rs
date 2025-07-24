@@ -8,8 +8,8 @@ use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
 use surfpool_types::{
-    DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT, DEFAULT_WS_PORT, RpcConfig, SimnetConfig,
-    SubgraphConfig, SurfpoolConfig,
+    CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED, DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT,
+    DEFAULT_WS_PORT, RpcConfig, SimnetConfig, StudioConfig, SubgraphConfig, SurfpoolConfig,
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -27,8 +27,6 @@ pub struct Context {
 }
 
 pub const DEFAULT_SLOT_TIME_MS: &str = "400";
-pub const DEFAULT_STUDIO_PORT: u16 = 8488;
-pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
 pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
@@ -248,6 +246,13 @@ impl StartSimnet {
         }
     }
 
+    pub fn studio_config(&self) -> StudioConfig {
+        StudioConfig {
+            bind_host: self.network_host.clone(),
+            bind_port: self.studio_port,
+        }
+    }
+
     pub fn simnet_config(&self, airdrop_addresses: Vec<Pubkey>) -> SimnetConfig {
         let remote_rpc_url = match &self.network {
             Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
@@ -287,6 +292,7 @@ impl StartSimnet {
             simnets: vec![self.simnet_config(airdrop_addresses)],
             rpc: self.rpc_config(),
             subgraph: self.subgraph_config(),
+            studio: self.studio_config(),
             plugin_config_path,
         }
     }
