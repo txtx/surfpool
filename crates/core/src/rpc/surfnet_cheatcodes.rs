@@ -653,13 +653,12 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Err(e) => return e.into(),
         };
         Box::pin(async move {
-            match svm_locker.get_profile_results_by_tag(tag) {
-                Ok((profiles_opt, slot)) => Ok(RpcResponse {
-                    context: RpcResponseContext::new(slot),
-                    value: profiles_opt,
-                }),
-                Err(e) => Err(e.into()),
-            }
+            let profiles = svm_locker.get_profile_results_by_tag(tag)?;
+            let slot = svm_locker.get_latest_absolute_slot();
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
+                value: profiles,
+            })
         })
     }
 
@@ -758,33 +757,16 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Err(e) => return e.into(),
         };
         Box::pin(async move {
-            let (profile_result, exists_in_svm, latest_slot) =
-                svm_locker.get_profile_results(signature_or_uuid.clone());
-
-            match (signature_or_uuid, profile_result) {
-                (UuidOrSignature::Signature(_), Some(profile_result)) => Ok(RpcResponse {
-                    context: RpcResponseContext::new(profile_result.slot),
-                    value: Some(profile_result),
-                }),
-                (UuidOrSignature::Signature(signature), None) => {
-                    if exists_in_svm {
-                        Err(SurfpoolError::transaction_not_found_in_svm(signature).into())
-                    } else {
-                        Ok(RpcResponse {
-                            context: RpcResponseContext::new(latest_slot),
-                            value: None,
-                        })
-                    }
-                }
-                (UuidOrSignature::Uuid(_), Some(profile_result)) => Ok(RpcResponse {
-                    context: RpcResponseContext::new(profile_result.slot),
-                    value: Some(profile_result),
-                }),
-                (UuidOrSignature::Uuid(_), None) => Ok(RpcResponse {
-                    context: RpcResponseContext::new(latest_slot),
-                    value: None,
-                }),
-            }
+            let profile_result = svm_locker.get_profile_result(signature_or_uuid.clone())?;
+            let latest_slot = svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot());
+            let context_slot = profile_result
+                .as_ref()
+                .map(|pr| pr.slot)
+                .unwrap_or(latest_slot);
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(context_slot),
+                value: profile_result,
+            })
         })
     }
 }

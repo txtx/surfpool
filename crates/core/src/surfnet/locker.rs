@@ -1529,14 +1529,10 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm| {
             svm.simulated_transaction_profiles
                 .insert(uuid, profile_result.clone());
-            if let Some(ref tag) = tag {
-                svm.profile_tag_map
-                    .entry(tag.clone())
-                    .or_default()
-                    .push(UuidOrSignature::Uuid(uuid));
-            } else {
-                svm.profile_tag_map.insert(uuid.to_string(), Vec::new());
-            }
+            svm.profile_tag_map
+                .entry(tag.clone().unwrap_or(uuid.to_string()))
+                .or_default()
+                .push(UuidOrSignature::Uuid(uuid));
         });
 
         Ok(SvmAccessContext::new(
@@ -1548,24 +1544,27 @@ impl SurfnetSvmLocker {
     }
 
     /// Returns the profile result for a given signature or UUID, and whether it exists in the SVM.
-    pub fn get_profile_results(
+    pub fn get_profile_result(
         &self,
         signature_or_uuid: UuidOrSignature,
-    ) -> (Option<ProfileResult>, bool, Slot) {
+    ) -> SurfpoolResult<Option<ProfileResult>> {
         match &signature_or_uuid {
             UuidOrSignature::Signature(signature) => {
                 let profile = self.with_svm_reader(|svm| {
                     svm.executed_transaction_profiles.get(signature).cloned()
                 });
-                let exists = self.with_svm_reader(|svm| svm.transactions.contains_key(signature));
-                let slot = self.with_svm_reader(|svm| svm.get_latest_absolute_slot());
-                (profile, exists, slot)
+                let transaction_exists =
+                    self.with_svm_reader(|svm| svm.transactions.contains_key(signature));
+                if profile.is_none() && transaction_exists {
+                    Err(SurfpoolError::transaction_not_found_in_svm(signature))
+                } else {
+                    Ok(profile)
+                }
             }
             UuidOrSignature::Uuid(uuid) => {
                 let profile = self
                     .with_svm_reader(|svm| svm.simulated_transaction_profiles.get(uuid).cloned());
-                let slot = self.with_svm_reader(|svm| svm.get_latest_absolute_slot());
-                (profile, true, slot)
+                Ok(profile)
             }
         }
     }
@@ -1574,21 +1573,20 @@ impl SurfnetSvmLocker {
     pub fn get_profile_results_by_tag(
         &self,
         tag: String,
-    ) -> Result<(Option<Vec<ProfileResult>>, Slot), SurfpoolError> {
-        let slot = self.with_svm_reader(|svm| svm.get_latest_absolute_slot());
+    ) -> SurfpoolResult<Option<Vec<ProfileResult>>> {
         let tag_map = self.with_svm_reader(|svm| svm.profile_tag_map.get(&tag).cloned());
         match tag_map {
-            None => Ok((None, slot)),
+            None => Ok(None),
             Some(uuids_or_sigs) => {
                 let mut profiles = Vec::new();
                 for id in uuids_or_sigs {
-                    let (profile, exists, _) = self.get_profile_results(id.clone());
-                    if !exists || profile.is_none() {
+                    let profile = self.get_profile_result(id.clone())?;
+                    if profile.is_none() {
                         return Err(SurfpoolError::tag_not_found(&tag));
                     }
                     profiles.push(profile.unwrap());
                 }
-                Ok((Some(profiles), slot))
+                Ok(Some(profiles))
             }
         }
     }

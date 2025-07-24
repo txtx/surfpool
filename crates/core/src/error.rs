@@ -430,7 +430,7 @@ impl SurfpoolError {
 
     pub fn tag_not_found(tag: &str) -> Self {
         let mut error = Error::internal_error();
-        error.message = format!("Tag '{tag}' not found in the SVM");
+        error.message = format!("Profile result associated with tag '{tag}' not found in the SVM");
         Self(error)
     }
 }
