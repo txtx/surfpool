@@ -18,6 +18,9 @@ fn main() {
 
         zip.extract(&asset_dir).expect("Failed to extract zip");
     } else {
-        println!("cargo:warning=Studio assets already extracted");
+        println!(
+            "cargo:warning=Studio assets already found at {}",
+            asset_dir.display()
+        );
     }
 }
