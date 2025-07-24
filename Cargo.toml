@@ -98,13 +98,13 @@ reqwest = { version = "0.12.18", features = ["blocking", "json"] }
 
 
 [patch.crates-io]
-# txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
-# txtx-core = { path = "../txtx/crates/txtx-core" }
-# txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
-# txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
-# txtx-gql = { path = "../txtx/crates/txtx-gql" }
-# txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
-# txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
+txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
+txtx-core = { path = "../txtx/crates/txtx-core" }
+txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
+txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
+txtx-gql = { path = "../txtx/crates/txtx-gql" }
+txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
+txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
 # txtx-addon-kit = { git = "ssh://git@github.com/txtx/txtx.git", branch = "feat/account-subgraphs" }
 # txtx-core = { git = "ssh://git@github.com/txtx/txtx.git", branch = "feat/account-subgraphs" }
 # txtx-addon-network-svm = { git = "ssh://git@github.com/txtx/txtx.git", branch = "feat/account-subgraphs" }
