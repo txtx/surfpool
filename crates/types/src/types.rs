@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt, path::PathBuf};
+use std::{collections::BTreeMap, fmt, path::PathBuf, str::FromStr};
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
@@ -108,10 +108,35 @@ pub struct ProfileResult {
     pub uuid: Option<Uuid>,
 }
 
+impl ProfileResult {
+    pub fn success(
+        compute_units_consumed: u64,
+        logs: Vec<String>,
+        pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+        post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+        slot: u64,
+    ) -> Self {
+        Self {
+            compute_units: ComputeUnitsEstimationResult {
+                success: true,
+                compute_units_consumed,
+                log_messages: Some(logs),
+                error_message: None,
+            },
+            state: ProfileState::new(pre_execution, post_execution),
+            slot,
+            uuid: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+
 pub struct ProfileState {
+    #[serde(with = "profile_state_map")]
     pub pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+    #[serde(with = "profile_state_map")]
     pub post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
 }
 
@@ -124,6 +149,39 @@ impl ProfileState {
             pre_execution,
             post_execution,
         }
+    }
+}
+
+pub mod profile_state_map {
+    use super::*;
+
+    pub fn serialize<S>(
+        map: &BTreeMap<Pubkey, Option<UiAccount>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let str_map: BTreeMap<String, &Option<UiAccount>> =
+            map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        str_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<BTreeMap<Pubkey, Option<UiAccount>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let str_map: BTreeMap<String, Option<UiAccount>> = BTreeMap::deserialize(deserializer)?;
+        str_map
+            .into_iter()
+            .map(|(k, v)| {
+                Pubkey::from_str(&k)
+                    .map(|pk| (pk, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
     }
 }
 
@@ -505,10 +563,58 @@ pub struct SupplyUpdate {
     pub non_circulating_accounts: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum UuidOrSignature {
     Uuid(Uuid),
     Signature(Signature),
+}
+
+/// Intermediate struct used for deserialization of [UuidOrSignature].
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum UuidOrSignatureHelper {
+    Uuid { uuid: Uuid },
+    Signature { signature: String },
+}
+
+impl Serialize for UuidOrSignature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            UuidOrSignature::Uuid(uuid) => {
+                let mut map = std::collections::HashMap::new();
+                map.insert("uuid", uuid.to_string());
+                map.serialize(serializer)
+            }
+            UuidOrSignature::Signature(sig) => {
+                println!("Serializing signature: {}", sig);
+                let mut map = std::collections::HashMap::new();
+                map.insert("signature", sig.to_string());
+                map.serialize(serializer)
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for UuidOrSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let helper = UuidOrSignatureHelper::deserialize(deserializer)?;
+
+        match helper {
+            UuidOrSignatureHelper::Uuid { uuid } => Ok(UuidOrSignature::Uuid(uuid)),
+            UuidOrSignatureHelper::Signature { signature } => {
+                println!("Deserializing signature: {}", signature);
+                let sig = Signature::from_str(&signature).map_err(serde::de::Error::custom);
+                println!("Deserialized signature: {:?}", sig);
+                Ok(UuidOrSignature::Signature(sig?))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
