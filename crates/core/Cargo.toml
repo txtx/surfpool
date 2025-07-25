@@ -19,6 +19,7 @@ bincode = { workspace = true }
 borsh = { workspace = true }
 bs58 = "0.5.1"
 chrono = "0.4"
+convert_case = { workspace = true }
 crossbeam = "0.8.4"
 crossbeam-channel = { workspace = true }
 hex = { workspace = true }
@@ -82,6 +83,7 @@ zstd = "0.13.2"
 libloading = "0.7.4"
 json5 = "0.4.1"
 txtx-addon-network-svm-types = { workspace = true }
+txtx-addon-network-svm = { workspace = true }
 uuid = "1.7.0"
 blake3 = "1.8.2"
 anyhow = "1.0.98"

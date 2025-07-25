@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt, path::PathBuf, str::FromStr};
+use std::{cmp::Ordering, collections::BTreeMap, fmt, path::PathBuf, str::FromStr};
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
@@ -7,7 +7,7 @@ use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Visitor};
 use serde_with::{BytesOrString, serde_as};
 use solana_account_decoder_client_types::UiAccount;
-use solana_clock::{Clock, Epoch};
+use solana_clock::{Clock, Epoch, Slot};
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
@@ -643,4 +643,29 @@ impl<'de> Deserialize<'de> for UuidOrSignature {
 pub enum DataIndexingCommand {
     ProcessCollection(Uuid),
     ProcessCollectionEntriesPack(Uuid, Vec<u8>),
+}
+
+// Define a wrapper struct
+#[derive(Debug, Clone)]
+pub struct VersionedIdl(pub Slot, pub Idl);
+
+// Implement ordering based on Slot
+impl PartialEq for VersionedIdl {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for VersionedIdl {}
+
+impl PartialOrd for VersionedIdl {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for VersionedIdl {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0) // or reverse it if you want min-heap behavior
+    }
 }
