@@ -50,7 +50,7 @@ use solana_transaction_status::{
 };
 use surfpool_types::{
     ComputeUnitsEstimationResult, Idl, ProfileResult, ProfileState, SimnetEvent,
-    TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature,
+    TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature, VersionedIdl,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -1638,15 +1638,19 @@ impl SurfnetSvmLocker {
         }
     }
 
-    pub fn register_idl(&self, idl: Idl) -> SurfpoolResult<()> {
-        self.with_svm_writer(|svm| {
-            svm.idl_registry.insert(idl.address.clone(), idl);
-            Ok::<(), SurfpoolError>(())
-        })
+    pub fn register_idl(&self, idl: Idl, slot: Option<Slot>) {
+        self.with_svm_writer(|svm| svm.register_idl(idl, slot))
     }
 
-    pub fn get_idl(&self, address: &str) -> SurfpoolResult<Option<Idl>> {
-        self.with_svm_reader(|svm| Ok(svm.idl_registry.get(address).cloned()))
+    pub fn get_idl(&self, address: &Pubkey, slot: Option<Slot>) -> Option<Idl> {
+        self.with_svm_reader(|svm| {
+            svm.registered_idls.get(address).and_then(|heap| {
+                heap.iter()
+                    .filter(|VersionedIdl(s, _)| s <= &slot.unwrap_or(u64::MAX))
+                    .max()
+                    .map(|VersionedIdl(_, idl)| idl.clone())
+            })
+        })
     }
 }
 /// Program account related functions

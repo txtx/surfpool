@@ -4,7 +4,9 @@ use jsonrpc_derive::rpc;
 use solana_account::Account;
 use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_response::RpcResponseContext;
+use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{program_option::COption, system_program, transaction::VersionedTransaction};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
@@ -423,11 +425,46 @@ pub trait SvmTricksRpc {
     /// ## Parameters
     /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `idl`: The full IDL object to be registered in memory. The `address` field should match the program's public key.
+    /// - `slot` (optional): The slot at which to register the IDL. If omitted, uses the latest slot.
     ///
     /// ## Returns
     /// A `RpcResponse<()>` indicating whether the IDL registration was successful.
     ///
-    /// ## Example Request
+    /// ## Example Request (with slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_registerIdl",
+    ///   "params": [
+    ///     {
+    ///       "address": "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa",
+    ///       "metadata": {
+    ///         "name": "test",
+    ///         "version": "0.1.0",
+    ///         "spec": "0.1.0",
+    ///         "description": "Created with Anchor"
+    ///       },
+    ///       "instructions": [
+    ///         {
+    ///           "name": "initialize",
+    ///           "discriminator": [175,175,109,31,13,152,155,237],
+    ///           "accounts": [],
+    ///           "args": []
+    ///         }
+    ///       ],
+    ///       "accounts": [],
+    ///       "types": [],
+    ///       "events": [],
+    ///       "errors": [],
+    ///       "constants": [],
+    ///       "state": null
+    ///     },
+    ///     355684457
+    ///   ]
+    /// }
+    /// ```
+    /// ## Example Request (without slot)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -474,18 +511,36 @@ pub trait SvmTricksRpc {
     /// }
     /// ```
     #[rpc(meta, name = "surfnet_registerIdl")]
-    fn register_idl(&self, meta: Self::Metadata, idl: Idl) -> BoxFuture<Result<RpcResponse<()>>>;
+    fn register_idl(
+        &self,
+        meta: Self::Metadata,
+        idl: Idl,
+        slot: Option<Slot>,
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
 
     /// A cheat code to get the registered IDL for a given program ID.
     ///
     /// ## Parameters
     /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `program_id`: The base-58 encoded public key of the program whose IDL is being requested.
+    /// - `slot` (optional): The slot at which to query the IDL. If omitted, uses the latest slot.
     ///
     /// ## Returns
     /// A `RpcResponse<Option<Idl>>` containing the IDL if it exists, or `None` if not found.
     ///
-    /// ## Example Request
+    /// ## Example Request (with slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_getIdl",
+    ///   "params": [
+    ///     "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa",
+    ///     355684457
+    ///   ]
+    /// }
+    /// ```
+    /// ## Example Request (without slot)
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
@@ -505,8 +560,7 @@ pub trait SvmTricksRpc {
     ///     "slot": 355684457,
     ///     "apiVersion": "2.2.2"
     ///   },
-    ///     "value": { /* ...IDL object... */ }
-    ///   },
+    ///   "value": { /* ...IDL object... */ },
     ///   "id": 1
     /// }
     /// ```
@@ -515,6 +569,7 @@ pub trait SvmTricksRpc {
         &self,
         meta: Self::Metadata,
         program_id: String,
+        slot: Option<Slot>,
     ) -> BoxFuture<Result<RpcResponse<Option<Idl>>>>;
 }
 
@@ -901,13 +956,18 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         })
     }
 
-    fn register_idl(&self, meta: Self::Metadata, idl: Idl) -> BoxFuture<Result<RpcResponse<()>>> {
+    fn register_idl(
+        &self,
+        meta: Self::Metadata,
+        idl: Idl,
+        slot: Option<Slot>,
+    ) -> BoxFuture<Result<RpcResponse<()>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
         Box::pin(async move {
-            svm_locker.register_idl(idl)?;
+            svm_locker.register_idl(idl, slot);
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
                 value: (),
@@ -919,15 +979,17 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         &self,
         meta: Self::Metadata,
         program_id: String,
+        slot: Option<Slot>,
     ) -> BoxFuture<Result<RpcResponse<Option<Idl>>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
         Box::pin(async move {
-            let idl = svm_locker.get_idl(&program_id)?;
+            let idl = svm_locker.get_idl(&Pubkey::from_str_const(&program_id), slot);
+            let slot = slot.unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+                context: RpcResponseContext::new(slot),
                 value: idl,
             })
         })
