@@ -1,0 +1,390 @@
+{
+    "address": "2e6tZJbYevCm3jhgjbSFbmVbuDfErmMz32sMGSzZHgiN",
+    "metadata": {
+        "name": "split_token_transfer",
+        "version": "0.1.0",
+        "spec": "0.1.0",
+        "description": "Created with Anchor"
+    },
+    "instructions": [
+        {
+            "name": "split_token_transfer",
+            "discriminator": [
+                204,
+                245,
+                152,
+                176,
+                168,
+                246,
+                220,
+                39
+            ],
+            "accounts": [
+                {
+                    "name": "sender",
+                    "writable": true,
+                    "signer": true
+                },
+                {
+                    "name": "recipient_1",
+                    "writable": true
+                },
+                {
+                    "name": "recipient_2",
+                    "writable": true
+                },
+                {
+                    "name": "mint"
+                },
+                {
+                    "name": "sender_token_account",
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "account",
+                                "path": "sender"
+                            },
+                            {
+                                "kind": "account",
+                                "path": "token_program"
+                            },
+                            {
+                                "kind": "account",
+                                "path": "mint"
+                            }
+                        ],
+                        "program": {
+                            "kind": "const",
+                            "value": [
+                                140,
+                                151,
+                                37,
+                                143,
+                                78,
+                                36,
+                                137,
+                                241,
+                                187,
+                                61,
+                                16,
+                                41,
+                                20,
+                                142,
+                                13,
+                                131,
+                                11,
+                                90,
+                                19,
+                                153,
+                                218,
+                                255,
+                                16,
+                                132,
+                                4,
+                                142,
+                                123,
+                                216,
+                                219,
+                                233,
+                                248,
+                                89
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "custom",
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    99,
+                                    117,
+                                    115,
+                                    116,
+                                    111,
+                                    109
+                                ]
+                            },
+                            {
+                                "kind": "account",
+                                "path": "sender"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "recipient_1_token_account",
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "account",
+                                "path": "recipient_1"
+                            },
+                            {
+                                "kind": "account",
+                                "path": "token_program"
+                            },
+                            {
+                                "kind": "account",
+                                "path": "mint"
+                            }
+                        ],
+                        "program": {
+                            "kind": "const",
+                            "value": [
+                                140,
+                                151,
+                                37,
+                                143,
+                                78,
+                                36,
+                                137,
+                                241,
+                                187,
+                                61,
+                                16,
+                                41,
+                                20,
+                                142,
+                                13,
+                                131,
+                                11,
+                                90,
+                                19,
+                                153,
+                                218,
+                                255,
+                                16,
+                                132,
+                                4,
+                                142,
+                                123,
+                                216,
+                                219,
+                                233,
+                                248,
+                                89
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "recipient_2_token_account",
+                    "writable": true,
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "account",
+                                "path": "recipient_2"
+                            },
+                            {
+                                "kind": "account",
+                                "path": "token_program"
+                            },
+                            {
+                                "kind": "account",
+                                "path": "mint"
+                            }
+                        ],
+                        "program": {
+                            "kind": "const",
+                            "value": [
+                                140,
+                                151,
+                                37,
+                                143,
+                                78,
+                                36,
+                                137,
+                                241,
+                                187,
+                                61,
+                                16,
+                                41,
+                                20,
+                                142,
+                                13,
+                                131,
+                                11,
+                                90,
+                                19,
+                                153,
+                                218,
+                                255,
+                                16,
+                                132,
+                                4,
+                                142,
+                                123,
+                                216,
+                                219,
+                                233,
+                                248,
+                                89
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "system_program",
+                    "address": "11111111111111111111111111111111"
+                },
+                {
+                    "name": "associated_token_program",
+                    "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+                },
+                {
+                    "name": "token_program"
+                },
+                {
+                    "name": "event_authority",
+                    "pda": {
+                        "seeds": [
+                            {
+                                "kind": "const",
+                                "value": [
+                                    95,
+                                    95,
+                                    101,
+                                    118,
+                                    101,
+                                    110,
+                                    116,
+                                    95,
+                                    97,
+                                    117,
+                                    116,
+                                    104,
+                                    111,
+                                    114,
+                                    105,
+                                    116,
+                                    121
+                                ]
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "program"
+                }
+            ],
+            "args": [
+                {
+                    "name": "amount",
+                    "type": "u64"
+                }
+            ]
+        }
+    ],
+    "accounts": [
+        {
+            "name": "CustomAccount",
+            "discriminator": [
+                99,
+                151,
+                198,
+                27,
+                164,
+                9,
+                6,
+                138
+            ]
+        }
+    ],
+    "events": [
+        {
+            "name": "SplitTransferEvent",
+            "discriminator": [
+                49,
+                77,
+                41,
+                29,
+                220,
+                239,
+                9,
+                66
+            ]
+        }
+    ],
+    "types": [
+        {
+            "name": "CustomAccount",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "my_custom_data",
+                        "type": "u64"
+                    },
+                    {
+                        "name": "another_field",
+                        "type": "string"
+                    },
+                    {
+                        "name": "bool",
+                        "type": "bool"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "SplitTransferEvent",
+            "docs": [
+                "The split transfer event."
+            ],
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    {
+                        "name": "recipient_1_amount",
+                        "docs": [
+                            "The amount transferred to recipient 1."
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "recipient_1",
+                        "docs": [
+                            "The amount transferred to recipient 2."
+                        ],
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "recipient_2_amount",
+                        "docs": [
+                            "The amount transferred to recipient 2."
+                        ],
+                        "type": "u64"
+                    },
+                    {
+                        "name": "recipient_2",
+                        "docs": [
+                            "The amount transferred to recipient 2."
+                        ],
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "mint",
+                        "docs": [
+                            "Token mint address."
+                        ],
+                        "type": "pubkey"
+                    },
+                    {
+                        "name": "token_program_id",
+                        "docs": [
+                            "The program ID of the token program."
+                        ],
+                        "type": "pubkey"
+                    }
+                ]
+            }
+        }
+    ]
+}
