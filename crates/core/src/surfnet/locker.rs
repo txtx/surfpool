@@ -1639,12 +1639,12 @@ impl SurfnetSvmLocker {
     }
 
     pub fn register_idl(&self, idl: Idl, slot: Option<Slot>) {
-        self.with_svm_writer(|svm| svm.register_idl(idl, slot))
+        self.with_svm_writer(|svm_writer| svm_writer.register_idl(idl, slot))
     }
 
     pub fn get_idl(&self, address: &Pubkey, slot: Option<Slot>) -> Option<Idl> {
-        self.with_svm_reader(|svm| {
-            svm.registered_idls.get(address).and_then(|heap| {
+        self.with_svm_reader(|svm_reader| {
+            svm_reader.registered_idls.get(address).and_then(|heap| {
                 heap.iter()
                     .filter(|VersionedIdl(s, _)| s <= &slot.unwrap_or(u64::MAX))
                     .max()

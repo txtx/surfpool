@@ -6,7 +6,6 @@ use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
-use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{program_option::COption, system_program, transaction::VersionedTransaction};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
@@ -985,8 +984,12 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
-        Box::pin(async move {
-            let idl = svm_locker.get_idl(&Pubkey::from_str_const(&program_id), slot);
+        Box::pin(async move {   
+            let program_id = match verify_pubkey(&program_id) {
+                Ok(pk) => pk,
+                Err(e) => return Err(e.into()),
+            };
+            let idl = svm_locker.get_idl(&program_id, slot);
             let slot = slot.unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
