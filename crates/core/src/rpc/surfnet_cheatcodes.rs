@@ -984,7 +984,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
-        Box::pin(async move {   
+        Box::pin(async move {
             let program_id = match verify_pubkey(&program_id) {
                 Ok(pk) => pk,
                 Err(e) => return Err(e.into()),
