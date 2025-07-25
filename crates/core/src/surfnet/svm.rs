@@ -41,7 +41,7 @@ use spl_token_2022::extension::{
     scaled_ui_amount::ScaledUiAmountConfig,
 };
 use surfpool_types::{
-    SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
+    Idl, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
     types::{ComputeUnitsEstimationResult, ProfileResult, UuidOrSignature},
 };
 use uuid::Uuid;
@@ -108,6 +108,7 @@ pub struct SurfnetSvm {
     /// For example, when an account is updated in the same slot multiple times,
     /// the update with higher write_version should supersede the one with lower write_version.
     pub write_version: u64,
+    pub idl_registry: HashMap<String, Idl>,
 }
 
 impl SurfnetSvm {
@@ -178,6 +179,7 @@ impl SurfnetSvm {
                 genesis_config: GenesisConfig::default(),
                 inflation: Inflation::default(),
                 write_version: 0,
+                idl_registry: HashMap::new(),
             },
             simnet_events_rx,
             geyser_events_rx,

@@ -48,7 +48,7 @@ use solana_transaction_status::{
     UiTransactionEncoding,
 };
 use surfpool_types::{
-    ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
+    ComputeUnitsEstimationResult, Idl, ProfileResult, ProfileState, SimnetEvent,
     TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature,
 };
 use tokio::sync::RwLock;
@@ -155,7 +155,7 @@ impl SurfnetSvmLocker {
     /// The result produced by the closure.
     pub fn with_svm_writer<T, F>(&self, writer: F) -> T
     where
-        F: Fn(&mut SurfnetSvm) -> T + Send + Sync,
+        F: FnOnce(&mut SurfnetSvm) -> T + Send + Sync,
         T: Send + 'static,
     {
         let write_lock = self.0.clone();
@@ -1635,6 +1635,17 @@ impl SurfnetSvmLocker {
                 Ok(Some(profiles))
             }
         }
+    }
+
+    pub fn register_idl(&self, idl: Idl) -> SurfpoolResult<()> {
+        self.with_svm_writer(|svm| {
+            svm.idl_registry.insert(idl.address.clone(), idl);
+            Ok::<(), SurfpoolError>(())
+        })
+    }
+
+    pub fn get_idl(&self, address: &str) -> SurfpoolResult<Option<Idl>> {
+        self.with_svm_reader(|svm| Ok(svm.idl_registry.get(address).cloned()))
     }
 }
 /// Program account related functions

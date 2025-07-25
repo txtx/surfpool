@@ -96,6 +96,7 @@ tracing = "0.1"
 uuid = "1.15.1"
 tokio = "1.43.0"
 reqwest = { version = "0.12.18", features = ["blocking", "json"] }
+anchor-lang-idl = "0.1.2"
 
 
 [patch.crates-io]

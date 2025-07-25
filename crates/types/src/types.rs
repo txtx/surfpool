@@ -24,6 +24,7 @@ pub const DEFAULT_WS_PORT: u16 = 8900;
 pub const DEFAULT_STUDIO_PORT: u16 = 8488;
 pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
+pub type Idl = anchor_lang_idl::types::Idl;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionMetadata {
