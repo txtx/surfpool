@@ -719,7 +719,7 @@ impl Rpc for SurfpoolWsRpc {
                 .get_transaction(
                     &remote_ctx.map(|(r, _)| r),
                     &signature,
-                    rpc_transaction_config
+                    rpc_transaction_config,
                 )
                 .await
             {

@@ -355,7 +355,7 @@ fn start_geyser_runloop(
                         ) {
                             Ok(tx) => tx,
                             Err(e) => {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: failed to serialize transaction: {:?}", e)));
+                                let _ = simnet_events_tx.send(SimnetEvent::warn(format!("Failed to serialize transaction: {:?}", e)));
                                 continue;
                             }
                         };
