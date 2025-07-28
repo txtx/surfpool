@@ -666,6 +666,6 @@ impl PartialOrd for VersionedIdl {
 
 impl Ord for VersionedIdl {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0) // or reverse it if you want min-heap behavior
+        self.0.cmp(&other.0)
     }
 }
