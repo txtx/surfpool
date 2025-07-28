@@ -1262,8 +1262,8 @@ async fn test_get_transaction_profile() {
     println!("All get_transaction_profile tests passed successfully!");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_register_and_get_idl_without_slot() {
+#[test]
+fn test_register_and_get_idl_without_slot() {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
     let rpc_server = SurfnetCheatcodesRpc;
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
@@ -1282,9 +1282,8 @@ async fn test_register_and_get_idl_without_slot() {
 
     // Test 1: Register IDL without slot
 
-    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
-        .register_idl(Some(runloop_context.clone()), idl.clone(), None)
-        .await;
+    let register_response: JsonRpcResult<RpcResponse<()>> =
+        rpc_server.register_idl(Some(runloop_context.clone()), idl.clone(), None);
 
     assert!(
         register_response.is_ok(),
@@ -1294,9 +1293,8 @@ async fn test_register_and_get_idl_without_slot() {
 
     // Test 2: Get IDL without slot
 
-    let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server
-        .get_idl(Some(runloop_context.clone()), idl.address.to_string(), None)
-        .await;
+    let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> =
+        rpc_server.get_idl(Some(runloop_context.clone()), idl.address.to_string(), None);
 
     assert!(
         get_idl_response.is_ok(),
@@ -1315,8 +1313,8 @@ async fn test_register_and_get_idl_without_slot() {
     println!("All IDL registration and retrieval tests passed successfully!");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_register_and_get_idl_with_slot() {
+#[test]
+fn test_register_and_get_idl_with_slot() {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
     let rpc_server = SurfnetCheatcodesRpc;
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
@@ -1335,15 +1333,13 @@ async fn test_register_and_get_idl_with_slot() {
 
     // Test 1: Register IDL with slot
 
-    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
-        .register_idl(
-            Some(runloop_context.clone()),
-            idl.clone(),
-            Some(Slot::from(
-                svm_locker_for_context.get_latest_absolute_slot(),
-            )),
-        )
-        .await;
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server.register_idl(
+        Some(runloop_context.clone()),
+        idl.clone(),
+        Some(Slot::from(
+            svm_locker_for_context.get_latest_absolute_slot(),
+        )),
+    );
 
     assert!(
         register_response.is_ok(),
@@ -1353,15 +1349,13 @@ async fn test_register_and_get_idl_with_slot() {
 
     // Test 2: Get IDL with slot
 
-    let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server
-        .get_idl(
-            Some(runloop_context.clone()),
-            idl.address.to_string(),
-            Some(Slot::from(
-                svm_locker_for_context.get_latest_absolute_slot(),
-            )),
-        )
-        .await;
+    let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server.get_idl(
+        Some(runloop_context.clone()),
+        idl.address.to_string(),
+        Some(Slot::from(
+            svm_locker_for_context.get_latest_absolute_slot(),
+        )),
+    );
 
     assert!(
         get_idl_response.is_ok(),
@@ -1415,13 +1409,11 @@ async fn test_register_and_get_same_idl_with_different_slots() {
 
     // Step 1: Register IDL v1 at slot_1
     println!("  [1] Registering IDL v1 at slot: {}", slot_1);
-    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
-        .register_idl(
-            Some(runloop_context.clone()),
-            idl_v1.clone(),
-            Some(Slot::from(slot_1)),
-        )
-        .await;
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server.register_idl(
+        Some(runloop_context.clone()),
+        idl_v1.clone(),
+        Some(Slot::from(slot_1)),
+    );
 
     assert!(
         register_response.is_ok(),
@@ -1432,13 +1424,11 @@ async fn test_register_and_get_same_idl_with_different_slots() {
 
     // Step 2: Register IDL v2 at slot_2
     println!("  [2] Registering IDL v2 at slot: {}", slot_2);
-    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
-        .register_idl(
-            Some(runloop_context.clone()),
-            idl_v2.clone(),
-            Some(Slot::from(slot_2)),
-        )
-        .await;
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server.register_idl(
+        Some(runloop_context.clone()),
+        idl_v2.clone(),
+        Some(Slot::from(slot_2)),
+    );
 
     assert!(
         register_response.is_ok(),
@@ -1449,13 +1439,11 @@ async fn test_register_and_get_same_idl_with_different_slots() {
 
     // Step 3: Register IDL v3 at slot_3
     println!("  [3] Registering IDL v3 at slot: {}", slot_3);
-    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
-        .register_idl(
-            Some(runloop_context.clone()),
-            idl_v3.clone(),
-            Some(Slot::from(slot_3)),
-        )
-        .await;
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server.register_idl(
+        Some(runloop_context.clone()),
+        idl_v3.clone(),
+        Some(Slot::from(slot_3)),
+    );
 
     assert!(
         register_response.is_ok(),
@@ -1480,13 +1468,11 @@ async fn test_register_and_get_same_idl_with_different_slots() {
             description
         );
 
-        let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server
-            .get_idl(
-                Some(runloop_context.clone()),
-                idl_v1.address.to_string(),
-                Some(Slot::from(*query_slot)),
-            )
-            .await;
+        let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server.get_idl(
+            Some(runloop_context.clone()),
+            idl_v1.address.to_string(),
+            Some(Slot::from(*query_slot)),
+        );
 
         assert!(
             get_idl_response.is_ok(),

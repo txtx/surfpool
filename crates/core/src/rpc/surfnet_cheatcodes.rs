@@ -515,7 +515,7 @@ pub trait SvmTricksRpc {
         meta: Self::Metadata,
         idl: Idl,
         slot: Option<Slot>,
-    ) -> BoxFuture<Result<RpcResponse<()>>>;
+    ) -> Result<RpcResponse<()>>;
 
     /// A cheat code to get the registered IDL for a given program ID.
     ///
@@ -569,7 +569,7 @@ pub trait SvmTricksRpc {
         meta: Self::Metadata,
         program_id: String,
         slot: Option<Slot>,
-    ) -> BoxFuture<Result<RpcResponse<Option<Idl>>>>;
+    ) -> Result<RpcResponse<Option<Idl>>>;
 }
 
 #[derive(Clone)]
@@ -960,17 +960,15 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         meta: Self::Metadata,
         idl: Idl,
         slot: Option<Slot>,
-    ) -> BoxFuture<Result<RpcResponse<()>>> {
+    ) -> Result<RpcResponse<()>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
-            Err(e) => return e.into(),
+            Err(e) => return Err(e.into()),
         };
-        Box::pin(async move {
-            svm_locker.register_idl(idl, slot);
-            Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
-                value: (),
-            })
+        svm_locker.register_idl(idl, slot);
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: (),
         })
     }
 
@@ -979,12 +977,11 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         meta: Self::Metadata,
         program_id: String,
         slot: Option<Slot>,
-    ) -> BoxFuture<Result<RpcResponse<Option<Idl>>>> {
+    ) -> Result<RpcResponse<Option<Idl>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
-            Err(e) => return e.into(),
+            Err(e) => return Err(e.into()),
         };
-        Box::pin(async move {
             let program_id = match verify_pubkey(&program_id) {
                 Ok(pk) => pk,
                 Err(e) => return Err(e.into()),
@@ -993,8 +990,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             let slot = slot.unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
-                value: idl,
-            })
+            value: idl,
         })
     }
 }
