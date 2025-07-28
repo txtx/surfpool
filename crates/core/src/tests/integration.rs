@@ -7,6 +7,7 @@ use jsonrpc_core::{
     futures::future::{self, join_all},
 };
 use jsonrpc_core_client::transports::http;
+use solana_clock::Slot;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
@@ -21,8 +22,11 @@ use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
-    SimnetCommand, SimnetEvent, SurfpoolConfig,
-    types::{BlockProductionMode, ProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig},
+    Idl, SimnetCommand, SimnetEvent, SurfpoolConfig,
+    types::{
+        BlockProductionMode, ProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig,
+        TransactionStatusEvent, UuidOrSignature,
+    },
 };
 use tokio::{sync::RwLock, task};
 
@@ -30,7 +34,10 @@ use crate::{
     PluginManagerCommand,
     error::SurfpoolError,
     rpc::{
-        RunloopContext, full::FullClient, minimal::MinimalClient, surfnet_cheatcodes::SvmTricksRpc,
+        RunloopContext,
+        full::FullClient,
+        minimal::MinimalClient,
+        surfnet_cheatcodes::{SurfnetCheatcodesRpc, SvmTricksRpc},
     },
     runloops::start_local_surfnet_runloop,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
@@ -1043,4 +1050,463 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
         "  Recipient pre-lamports: {}, post-lamports: {}",
         initial_recipient_lamports_pre, recipient_post_data.lamports
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_transaction_profile() {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    // Set up test accounts
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 1_000_000;
+
+    svm_instance
+        .airdrop(&payer.pubkey(), lamports_to_send * 2)
+        .unwrap();
+
+    // Create a transaction to profile
+    let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let latest_blockhash = svm_instance.latest_blockhash();
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message.clone()), &[&payer])
+        .unwrap();
+
+    let tx_bytes = bincode::serialize(&tx).unwrap();
+    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
+
+    // Manually construct RunloopContext
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    // Test 1: Profile a transaction with a tag and retrieve by UUID
+    let tag = "test_get_transaction_profile_tag".to_string();
+    println!("Testing transaction profiling with tag: {}", tag);
+
+    let profile_response: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+        .profile_transaction(
+            Some(runloop_context.clone()),
+            tx_b64.clone(),
+            Some(tag.clone()),
+            None,
+        )
+        .await;
+
+    assert!(
+        profile_response.is_ok(),
+        "Profile transaction failed: {:?}",
+        profile_response.err()
+    );
+
+    let profile_result = profile_response.unwrap().value;
+    assert!(
+        profile_result.compute_units.success,
+        "Transaction profiling failed"
+    );
+
+    let uuid = profile_result
+        .uuid
+        .expect("Profile result should have a UUID");
+    println!("Generated UUID: {}", uuid);
+
+    // Test 2: Retrieve profile by UUID
+    println!("Testing retrieval by UUID: {}", uuid);
+    let uuid_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> = rpc_server
+        .get_transaction_profile(Some(runloop_context.clone()), UuidOrSignature::Uuid(uuid))
+        .await;
+
+    assert!(
+        uuid_response.is_ok(),
+        "Get transaction profile by UUID failed: {:?}",
+        uuid_response.err()
+    );
+
+    let retrieved_profile = uuid_response.unwrap().value;
+    assert!(
+        retrieved_profile.is_some(),
+        "Profile should be found by UUID"
+    );
+
+    let retrieved = retrieved_profile.unwrap();
+    assert_eq!(
+        retrieved.compute_units.compute_units_consumed,
+        profile_result.compute_units.compute_units_consumed,
+        "Retrieved profile should match original profile"
+    );
+    assert_eq!(
+        retrieved.compute_units.success, profile_result.compute_units.success,
+        "Retrieved profile success should match original"
+    );
+    assert_eq!(
+        retrieved.uuid,
+        Some(uuid),
+        "Retrieved profile should have the same UUID"
+    );
+
+    // Test 3: Process the transaction to get a signature and retrieve by signature
+    println!("Processing transaction to get signature");
+    let (status_tx, status_rx) = crossbeam_unbounded();
+
+    svm_locker_for_context
+        .process_transaction(&None, tx.clone(), status_tx, false)
+        .await
+        .unwrap();
+
+    // Wait for transaction processing
+    match status_rx.recv() {
+        Ok(TransactionStatusEvent::Success(_)) => {
+            println!("Transaction processed successfully");
+        }
+        Ok(TransactionStatusEvent::SimulationFailure((error, _))) => {
+            panic!("Transaction simulation failed: {:?}", error);
+        }
+        Ok(TransactionStatusEvent::ExecutionFailure((error, _))) => {
+            panic!("Transaction execution failed: {:?}", error);
+        }
+        Ok(TransactionStatusEvent::VerificationFailure(error)) => {
+            panic!("Transaction verification failed: {}", error);
+        }
+        Err(e) => {
+            panic!("Failed to receive transaction status: {:?}", e);
+        }
+    }
+
+    let signature = tx.signatures[0];
+    println!("Transaction signature: {}", signature);
+
+    // Test 4: Retrieve profile by signature
+    println!("Testing retrieval by signature: {}", signature);
+    let signature_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> = rpc_server
+        .get_transaction_profile(
+            Some(runloop_context.clone()),
+            UuidOrSignature::Signature(signature),
+        )
+        .await;
+
+    assert!(
+        signature_response.is_ok(),
+        "Get transaction profile by signature failed: {:?}",
+        signature_response.err()
+    );
+
+    let retrieved_by_signature = signature_response.unwrap().value;
+    assert!(
+        retrieved_by_signature.is_some(),
+        "Profile should be found by signature"
+    );
+
+    let retrieved_sig = retrieved_by_signature.unwrap();
+    assert!(
+        retrieved_sig.compute_units.success,
+        "Retrieved profile by signature should be successful"
+    );
+    assert!(
+        retrieved_sig.compute_units.compute_units_consumed > 0,
+        "Retrieved profile should have consumed compute units"
+    );
+
+    // Test 5: Test retrieval with non-existent UUID
+    println!("Testing retrieval with non-existent UUID");
+    let non_existent_uuid = uuid::Uuid::new_v4();
+    let non_existent_uuid_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> =
+        rpc_server
+            .get_transaction_profile(
+                Some(runloop_context.clone()),
+                UuidOrSignature::Uuid(non_existent_uuid),
+            )
+            .await;
+
+    assert!(
+        non_existent_uuid_response.is_ok(),
+        "Get transaction profile with non-existent UUID should not fail"
+    );
+
+    let non_existent_result = non_existent_uuid_response.unwrap().value;
+    assert!(
+        non_existent_result.is_none(),
+        "Non-existent UUID should return None"
+    );
+
+    // Test 6: Test retrieval with non-existent signature
+    println!("Testing retrieval with non-existent signature");
+    let non_existent_signature = solana_sdk::signature::Signature::new_unique();
+    let non_existent_sig_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> =
+        rpc_server
+            .get_transaction_profile(
+                Some(runloop_context.clone()),
+                UuidOrSignature::Signature(non_existent_signature),
+            )
+            .await;
+
+    assert!(
+        non_existent_sig_response.is_ok(),
+        "Get transaction profile with non-existent signature should not fail"
+    );
+
+    let non_existent_sig_result = non_existent_sig_response.unwrap().value;
+    assert!(
+        non_existent_sig_result.is_none(),
+        "Non-existent signature should return None"
+    );
+
+    // Test 7: Verify context slot is correct
+    println!("Verifying response context");
+    let uuid_response_with_context = rpc_server
+        .get_transaction_profile(Some(runloop_context.clone()), UuidOrSignature::Uuid(uuid))
+        .await
+        .unwrap();
+
+    println!(
+        "Response context slot: {}",
+        uuid_response_with_context.context.slot
+    );
+    println!("All get_transaction_profile tests passed successfully!");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_register_and_get_idl_without_slot() {
+    let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    // Test 1: Register IDL without slot
+
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
+        .register_idl(Some(runloop_context.clone()), idl.clone(), None)
+        .await;
+
+    assert!(
+        register_response.is_ok(),
+        "Register IDL failed: {:?}",
+        register_response.err()
+    );
+
+    // Test 2: Get IDL without slot
+
+    let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server
+        .get_idl(Some(runloop_context.clone()), idl.address.to_string(), None)
+        .await;
+
+    assert!(
+        get_idl_response.is_ok(),
+        "Get IDL failed: {:?}",
+        get_idl_response.err()
+    );
+
+    let retrieved_idl = get_idl_response.unwrap().value;
+    assert!(retrieved_idl.is_some(), "IDL should be found");
+    assert_eq!(
+        retrieved_idl.unwrap(),
+        idl,
+        "Retrieved IDL should match registered IDL"
+    );
+
+    println!("All IDL registration and retrieval tests passed successfully!");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_register_and_get_idl_with_slot() {
+    let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    // Test 1: Register IDL with slot
+
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
+        .register_idl(
+            Some(runloop_context.clone()),
+            idl.clone(),
+            Some(Slot::from(
+                svm_locker_for_context.get_latest_absolute_slot(),
+            )),
+        )
+        .await;
+
+    assert!(
+        register_response.is_ok(),
+        "Register IDL failed: {:?}",
+        register_response.err()
+    );
+
+    // Test 2: Get IDL with slot
+
+    let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server
+        .get_idl(
+            Some(runloop_context.clone()),
+            idl.address.to_string(),
+            Some(Slot::from(
+                svm_locker_for_context.get_latest_absolute_slot(),
+            )),
+        )
+        .await;
+
+    assert!(
+        get_idl_response.is_ok(),
+        "Get IDL failed: {:?}",
+        get_idl_response.err()
+    );
+
+    let retrieved_idl = get_idl_response.unwrap().value;
+    assert!(retrieved_idl.is_some(), "IDL should be found");
+    assert_eq!(
+        retrieved_idl.unwrap(),
+        idl,
+        "Retrieved IDL should match registered IDL"
+    );
+
+    println!("All IDL registration and retrieval tests passed successfully!");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_register_and_get_same_idl_with_different_slots() {
+    let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+
+    // Prepare a list of slots to test registering the same IDL at different slots
+    let current_slot = svm_locker_for_context.get_latest_absolute_slot();
+    let past_slot = current_slot.saturating_sub(1);
+    let future_slot = current_slot.saturating_add(100);
+
+    println!("Current slot: {}", current_slot);
+    println!("Past slot: {}", past_slot);
+    println!("Future slot: {}", future_slot);
+
+    println!("Testing IDL registration and retrieval at different slots:");
+
+    // Step 1: Register IDL at current slot (0)
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    println!("  [1] Registering IDL at slot: {}", current_slot);
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
+        .register_idl(
+            Some(runloop_context.clone()),
+            idl.clone(),
+            Some(Slot::from(current_slot)),
+        )
+        .await;
+
+    assert!(
+        register_response.is_ok(),
+        "Register IDL failed at slot {}: {:?}",
+        current_slot,
+        register_response.err()
+    );
+
+    // Step 2: Register IDL at future slot (100)
+    println!("  [2] Registering IDL at slot: {}", future_slot);
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
+        .register_idl(
+            Some(runloop_context.clone()),
+            idl.clone(),
+            Some(Slot::from(future_slot)),
+        )
+        .await;
+
+    assert!(
+        register_response.is_ok(),
+        "Register IDL failed at slot {}: {:?}",
+        future_slot,
+        register_response.err()
+    );
+
+    // Step 3: Test slot-based isolation
+    let test_slots = [current_slot, current_slot + 50, future_slot + 50];
+
+    for (i, &query_slot) in test_slots.iter().enumerate() {
+        println!("  [{}] Querying IDL at slot: {}", i + 3, query_slot);
+
+        let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server
+            .get_idl(
+                Some(runloop_context.clone()),
+                idl.address.to_string(),
+                Some(Slot::from(query_slot)),
+            )
+            .await;
+
+        assert!(
+            get_idl_response.is_ok(),
+            "Get IDL failed at slot {}: {:?}",
+            query_slot,
+            get_idl_response.err()
+        );
+
+        let retrieved_idl = get_idl_response.unwrap().value;
+
+        if query_slot < future_slot {
+            // Should get the current slot IDL
+            assert!(
+                retrieved_idl.is_some(),
+                "IDL should be available when querying at slot {} (before future slot {})",
+                query_slot,
+                future_slot
+            );
+            println!(
+                "  [{}] Correctly: IDL available at slot {} (before future slot)",
+                i + 3,
+                query_slot
+            );
+        } else {
+            // Should get the future slot IDL
+            assert!(
+                retrieved_idl.is_some(),
+                "IDL should be available when querying at slot {} (after future slot {})",
+                query_slot,
+                future_slot
+            );
+            println!(
+                "  [{}] Correctly: IDL available at slot {} (after future slot)",
+                i + 3,
+                query_slot
+            );
+        }
+    }
+
+    println!("All IDL registration and retrieval tests at different slots passed successfully!");
 }

@@ -1644,9 +1644,12 @@ impl SurfnetSvmLocker {
 
     pub fn get_idl(&self, address: &Pubkey, slot: Option<Slot>) -> Option<Idl> {
         self.with_svm_reader(|svm_reader| {
+            let current_slot = svm_reader.get_latest_absolute_slot();
+            let query_slot = slot.unwrap_or(current_slot);
+
             svm_reader.registered_idls.get(address).and_then(|heap| {
                 heap.iter()
-                    .filter(|VersionedIdl(s, _)| s <= &slot.unwrap_or(u64::MAX))
+                    .filter(|VersionedIdl(s, _)| s <= &query_slot)
                     .max()
                     .map(|VersionedIdl(_, idl)| idl.clone())
             })
