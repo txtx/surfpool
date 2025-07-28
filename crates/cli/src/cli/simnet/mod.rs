@@ -80,7 +80,7 @@ pub async fn handle_start_local_surfnet_command(
     };
 
     let subgraph_database_path = cmd
-        .subgraph_database_path
+        .subgraph_db
         .as_ref()
         .map(|p| p.as_str())
         .unwrap_or(":memory:");
