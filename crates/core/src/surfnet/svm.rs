@@ -1308,9 +1308,7 @@ impl SurfnetSvm {
         let filter_slot = self.latest_epoch_info.absolute_slot; // todo: consider if we should pass in a slot
         match encoding {
             UiAccountEncoding::JsonParsed => {
-                println!("Encoding account {} with JsonParsed", pubkey);
                 if let Some(registered_idls) = self.registered_idls.get(owner_program_id) {
-                    println!("Found some registered IDLs for account {}", pubkey);
                     let ordered_available_idls = registered_idls
                         .iter()
                         // only get IDLs that are active (their slot is before the latest slot)
@@ -1334,18 +1332,10 @@ impl SurfnetSvm {
                             .iter()
                             .find(|a| a.discriminator.eq(&discriminator))
                         {
-                            println!(
-                                "Found matching account type for {}: {}",
-                                pubkey, matching_account.name
-                            );
                             // If we found a matching account, we can look up the type to parse the account
                             if let Some(account_type) =
                                 idl.types.iter().find(|t| t.name == matching_account.name)
                             {
-                                println!(
-                                    "Found matching account type definition for {}: {}",
-                                    pubkey, account_type.name
-                                );
                                 // If we found a matching account type, we can use it to parse the account data
                                 let rest = data[8..].as_ref();
                                 if let Ok(parsed_value) =
@@ -1354,10 +1344,6 @@ impl SurfnetSvm {
                                         &account_type.ty,
                                     )
                                 {
-                                    println!(
-                                        "Parsed account data for {}: {:?}",
-                                        pubkey, parsed_value
-                                    );
                                     return UiAccount {
                                         lamports: account.lamports(),
                                         data: UiAccountData::Json(ParsedAccount {
