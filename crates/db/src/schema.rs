@@ -4,6 +4,7 @@ diesel::table! {
         created_at -> Date,
         updated_at -> Date,
         table_name -> Text,
+        workspace_slug -> Text,
         schema -> Text,
     }
 }

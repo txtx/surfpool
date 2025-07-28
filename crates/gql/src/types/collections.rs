@@ -24,13 +24,14 @@ pub struct CollectionMetadata {
     pub name: String,
     pub description: Option<String>,
     pub table_name: String,
+    pub workspace_slug: String,
     pub filters: SubgraphFilterSpec,
     pub fields: Vec<FieldMetadata>,
     pub source_type: IndexedSubgraphSourceType,
 }
 
 impl CollectionMetadata {
-    pub fn from_request(uuid: &Uuid, request: &SubgraphRequest) -> Self {
+    pub fn from_request(uuid: &Uuid, request: &SubgraphRequest, workspace_slug: &str) -> Self {
         let name = request.subgraph_name.to_case(Case::Pascal);
         let mut fields: Vec<_> = request
             .intrinsic_fields
@@ -47,6 +48,7 @@ impl CollectionMetadata {
             id: *uuid,
             name: name.clone(),
             table_name: format!("entries_{}", uuid.simple().to_string()),
+            workspace_slug: workspace_slug.to_string(),
             filters: SubgraphFilterSpec {
                 name: format!("{}Filter", name),
                 fields: fields.clone(),

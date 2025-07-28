@@ -17,6 +17,7 @@ use surfpool_db::{
     },
 };
 use txtx_addon_kit::types::types::Type;
+use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
 
 use crate::{
@@ -145,7 +146,12 @@ pub fn fetch_dynamic_entries_from_postres(
 
     let fetched_data = query
         .load::<DynamicRow<NamedField<DynamicValue>>>(&mut *pg_conn)
-        .unwrap();
+        .map_err(|err| {
+            FieldError::new(
+                format!("Internal error: unable to fetch data"),
+                graphql_value!({"error": err.to_string()}),
+            )
+        })?;
 
     Ok((fetched_fields, fetched_data))
 }
@@ -162,7 +168,7 @@ pub fn fetch_dynamic_entries_from_sqlite(
     let dynamic_table = table(metadata.table_name.as_str());
     let (filters_specs, fetched_fields) = extract_graphql_features(executor);
     for field_name in fetched_fields.iter() {
-        select.add_field(dynamic_table.column::<Untyped, _>(field_name.to_string()));
+        select.add_field(dynamic_table.column::<Untyped, _>(format!("\"{}\"", field_name)));
     }
 
     // Build the query and apply filters immediately to avoid borrow checker issues
@@ -228,7 +234,12 @@ pub fn fetch_dynamic_entries_from_sqlite(
 
     let fetched_data = query
         .load::<DynamicRow<NamedField<DynamicValue>>>(&mut *sqlite_conn)
-        .unwrap();
+        .map_err(|err| {
+            FieldError::new(
+                format!("Internal error: unable to fetch data"),
+                graphql_value!({"error": err.to_string()}),
+            )
+        })?;
 
     Ok((fetched_fields, fetched_data))
 }
@@ -267,7 +278,11 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         Ok(results)
     }
 
-    fn register_collection(&self, metadata: &CollectionMetadata) -> Result<(), String> {
+    fn register_collection(
+        &self,
+        metadata: &CollectionMetadata,
+        request: &SubgraphRequest,
+    ) -> Result<(), String> {
         let mut conn = self.get().expect("unable to connect to db");
 
         // 1. Ensure subgraphs table exists
@@ -277,6 +292,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
                 created_at TIMESTAMP NOT NULL,
                 updated_at TIMESTAMP NOT NULL,
                 table_name TEXT NOT NULL,
+                workspace_slug TEXT NOT NULL,
                 schema TEXT NOT NULL
             )",
         )
@@ -295,7 +311,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
                 Type::Bool => "BOOLEAN",
                 _ => "TEXT", // fallback for unknown types
             };
-            let col = format!("{} {}", field.data.display_name, sql_type);
+            let col = format!("\"{}\" {}", field.data.display_name, sql_type);
             columns.push(col);
         }
         let create_entries_sql = format!(
@@ -309,12 +325,12 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             .map_err(|e| format!("Failed to create entries table: {e}"))?;
         // let schema_json = serde_json::to_string(request)
         //     .map_err(|e| format!("Failed to serialize schema: {e}"))?;
-        let schema_json = String::new();
+        let schema_json = serde_json::to_string(request).expect("Failed to serialize schema");
         let now = chrono::Utc::now().naive_utc();
 
         let sql = format!(
-            "INSERT INTO collections (id, created_at, updated_at, table_name, schema) VALUES ('{}', '{}', '{}', '{}', '{}')",
-            metadata.id, now, now, &metadata.table_name, schema_json
+            "INSERT INTO collections (id, created_at, updated_at, table_name, workspace_slug, schema) VALUES ('{}', '{}', '{}', '{}', '{}', '{}')",
+            metadata.id, now, now, &metadata.table_name, &metadata.workspace_slug, schema_json
         );
 
         sql_query(&sql)
@@ -338,7 +354,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         let mut values: Vec<String> = vec![];
 
         for entry in entries {
-            columns.push("id");
+            columns.push("id".to_string());
             values.push(format!("'{}'", entry.id));
 
             // Use the schema to determine the order and names of dynamic fields
@@ -354,7 +370,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
                         _ => unimplemented!(),
                     };
                     values.push(val_str);
-                    columns.push(col);
+                    columns.push(format!("\"{}\"", col));
                 }
             }
 
@@ -459,12 +475,12 @@ mod tests {
         let store = SqlStore::new_in_memory();
         let request = test_request();
         let uuid = Uuid::new_v4();
-        let metadata = CollectionMetadata::from_request(&uuid, &request);
+        let metadata = CollectionMetadata::from_request(&uuid, &request, "test");
 
         // Register subgraph
         store
             .pool
-            .register_collection(&metadata)
+            .register_collection(&metadata, &request)
             .expect("register_collection");
 
         // Insert entry
