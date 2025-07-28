@@ -45,6 +45,7 @@ use surfpool_types::{
     Idl, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent, VersionedIdl,
     types::{ComputeUnitsEstimationResult, ProfileResult, UuidOrSignature},
 };
+use txtx_addon_kit::types::types::AddonJsonConverter;
 use txtx_addon_network_svm::codec::idl::parse_bytes_to_value_with_expected_idl_type_def_ty;
 use uuid::Uuid;
 
@@ -61,6 +62,14 @@ use crate::{
 };
 
 pub type AccountOwner = Pubkey;
+
+pub fn get_txtx_value_json_converters() -> Vec<AddonJsonConverter<'static>> {
+    vec![
+        Box::new(move |value: &txtx_addon_kit::types::types::Value| {
+            txtx_addon_network_svm_types::SvmValue::to_json(value)
+        }) as AddonJsonConverter<'static>,
+    ]
+}
 
 /// `SurfnetSvm` provides a lightweight Solana Virtual Machine (SVM) for testing and simulation.
 ///
@@ -1354,7 +1363,8 @@ impl SurfnetSvm {
                                         data: UiAccountData::Json(ParsedAccount {
                                             program: format!("{}", idl.metadata.name)
                                                 .to_case(convert_case::Case::Kebab),
-                                            parsed: parsed_value.to_json(),
+                                            parsed: parsed_value
+                                                .to_json(Some(&get_txtx_value_json_converters())),
                                             space: data.len() as u64,
                                         }),
                                         owner: account.owner().to_string(),
