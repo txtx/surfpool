@@ -982,14 +982,14 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             Ok(locker) => locker,
             Err(e) => return Err(e.into()),
         };
-            let program_id = match verify_pubkey(&program_id) {
-                Ok(pk) => pk,
-                Err(e) => return Err(e.into()),
-            };
-            let idl = svm_locker.get_idl(&program_id, slot);
-            let slot = slot.unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
-            Ok(RpcResponse {
-                context: RpcResponseContext::new(slot),
+        let program_id = match verify_pubkey(&program_id) {
+            Ok(pk) => pk,
+            Err(e) => return Err(e.into()),
+        };
+        let idl = svm_locker.get_idl(&program_id, slot);
+        let slot = slot.unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(slot),
             value: idl,
         })
     }
