@@ -1313,11 +1313,10 @@ impl SurfnetSvm {
                             }
                         })
                         .collect::<Vec<_>>();
-                    let most_recent_idl = ordered_available_idls.first();
-                    // if we have None here, it means the only IDLs registered for this pubkey are for a
-                    // future slot, for some reason
-                    if let Some(idl) = most_recent_idl {
-                        println!("Using IDL for account {}: {}", pubkey, idl.metadata.name);
+                    // if we have none in this loop, it means the only IDLs registered for this pubkey are for a
+                    // future slot, for some reason. if we have some, we'll try each one in this loop, starting
+                    // with the most recent one, to see if the account data can be parsed to the IDL type
+                    for idl in &ordered_available_idls {
                         // If we have a valid IDL, use it to parse the account data
                         let data = account.data();
                         let discriminator = &data[..8];
