@@ -1259,18 +1259,6 @@ async fn test_get_transaction_profile() {
         non_existent_sig_result.is_none(),
         "Non-existent signature should return None"
     );
-
-    // Test 7: Verify context slot is correct
-    println!("Verifying response context");
-    let uuid_response_with_context = rpc_server
-        .get_transaction_profile(Some(runloop_context.clone()), UuidOrSignature::Uuid(uuid))
-        .await
-        .unwrap();
-
-    println!(
-        "Response context slot: {}",
-        uuid_response_with_context.context.slot
-    );
     println!("All get_transaction_profile tests passed successfully!");
 }
 
@@ -1394,24 +1382,26 @@ async fn test_register_and_get_idl_with_slot() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_register_and_get_same_idl_with_different_slots() {
-    let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
+    let idl_v1: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
+    let idl_v2: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v2.json")).unwrap();
+    let idl_v3: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v3.json")).unwrap();
     let rpc_server = SurfnetCheatcodesRpc;
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
 
-    // Prepare a list of slots to test registering the same IDL at different slots
+    // Prepare slots for registering different IDLs
     let current_slot = svm_locker_for_context.get_latest_absolute_slot();
-    let past_slot = current_slot.saturating_sub(1);
-    let future_slot = current_slot.saturating_add(100);
+    let slot_1 = current_slot.saturating_add(10); // First IDL registration
+    let slot_2 = current_slot.saturating_add(50); // Second IDL registration  
+    let slot_3 = current_slot.saturating_add(100); // Third IDL registration
 
     println!("Current slot: {}", current_slot);
-    println!("Past slot: {}", past_slot);
-    println!("Future slot: {}", future_slot);
+    println!("Slot 1 (IDL v1): {}", slot_1);
+    println!("Slot 2 (IDL v2): {}", slot_2);
+    println!("Slot 3 (IDL v3): {}", slot_3);
 
-    println!("Testing IDL registration and retrieval at different slots:");
-
-    // Step 1: Register IDL at current slot (0)
+    // Setup runloop context
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
@@ -1423,50 +1413,78 @@ async fn test_register_and_get_same_idl_with_different_slots() {
         remote_rpc_client: None,
     };
 
-    println!("  [1] Registering IDL at slot: {}", current_slot);
+    // Step 1: Register IDL v1 at slot_1
+    println!("  [1] Registering IDL v1 at slot: {}", slot_1);
     let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
         .register_idl(
             Some(runloop_context.clone()),
-            idl.clone(),
-            Some(Slot::from(current_slot)),
+            idl_v1.clone(),
+            Some(Slot::from(slot_1)),
         )
         .await;
 
     assert!(
         register_response.is_ok(),
-        "Register IDL failed at slot {}: {:?}",
-        current_slot,
+        "Register IDL v1 failed at slot {}: {:?}",
+        slot_1,
         register_response.err()
     );
 
-    // Step 2: Register IDL at future slot (100)
-    println!("  [2] Registering IDL at slot: {}", future_slot);
+    // Step 2: Register IDL v2 at slot_2
+    println!("  [2] Registering IDL v2 at slot: {}", slot_2);
     let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
         .register_idl(
             Some(runloop_context.clone()),
-            idl.clone(),
-            Some(Slot::from(future_slot)),
+            idl_v2.clone(),
+            Some(Slot::from(slot_2)),
         )
         .await;
 
     assert!(
         register_response.is_ok(),
-        "Register IDL failed at slot {}: {:?}",
-        future_slot,
+        "Register IDL v2 failed at slot {}: {:?}",
+        slot_2,
         register_response.err()
     );
 
-    // Step 3: Test slot-based isolation
-    let test_slots = [current_slot, current_slot + 50, future_slot + 50];
+    // Step 3: Register IDL v3 at slot_3
+    println!("  [3] Registering IDL v3 at slot: {}", slot_3);
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server
+        .register_idl(
+            Some(runloop_context.clone()),
+            idl_v3.clone(),
+            Some(Slot::from(slot_3)),
+        )
+        .await;
 
-    for (i, &query_slot) in test_slots.iter().enumerate() {
-        println!("  [{}] Querying IDL at slot: {}", i + 3, query_slot);
+    assert!(
+        register_response.is_ok(),
+        "Register IDL v3 failed at slot {}: {:?}",
+        slot_3,
+        register_response.err()
+    );
+
+    // Step 4: Test retrieval at different points in time
+    let test_cases = vec![
+        (current_slot + 5, "before any registration", None), // Before slot_1
+        (slot_1 + 5, "after v1 registration", Some(&idl_v1)), // After slot_1, before slot_2
+        (slot_2 + 5, "after v2 registration", Some(&idl_v2)), // After slot_2, before slot_3
+        (slot_3 + 5, "after v3 registration", Some(&idl_v3)), // After slot_3
+    ];
+
+    for (i, (query_slot, description, expected_idl)) in test_cases.iter().enumerate() {
+        println!(
+            "  [{}] Querying IDL at slot {} ({})",
+            i + 4,
+            query_slot,
+            description
+        );
 
         let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server
             .get_idl(
                 Some(runloop_context.clone()),
-                idl.address.to_string(),
-                Some(Slot::from(query_slot)),
+                idl_v1.address.to_string(),
+                Some(Slot::from(*query_slot)),
             )
             .await;
 
@@ -1479,32 +1497,40 @@ async fn test_register_and_get_same_idl_with_different_slots() {
 
         let retrieved_idl = get_idl_response.unwrap().value;
 
-        if query_slot < future_slot {
-            // Should get the current slot IDL
-            assert!(
-                retrieved_idl.is_some(),
-                "IDL should be available when querying at slot {} (before future slot {})",
-                query_slot,
-                future_slot
-            );
-            println!(
-                "  [{}] Correctly: IDL available at slot {} (before future slot)",
-                i + 3,
-                query_slot
-            );
-        } else {
-            // Should get the future slot IDL
-            assert!(
-                retrieved_idl.is_some(),
-                "IDL should be available when querying at slot {} (after future slot {})",
-                query_slot,
-                future_slot
-            );
-            println!(
-                "  [{}] Correctly: IDL available at slot {} (after future slot)",
-                i + 3,
-                query_slot
-            );
+        match expected_idl {
+            None => {
+                // Should not have any IDL before first registration
+                assert!(
+                    retrieved_idl.is_none(),
+                    "IDL should not be available when querying at slot {} (before first registration)",
+                    query_slot
+                );
+                println!(
+                    "  [{}] Correctly: No IDL available at slot {} (before first registration)",
+                    i + 4,
+                    query_slot
+                );
+            }
+            Some(expected) => {
+                // Should have the appropriate IDL
+                assert!(
+                    retrieved_idl.is_some(),
+                    "IDL should be available when querying at slot {}",
+                    query_slot
+                );
+
+                let retrieved = retrieved_idl.unwrap();
+                assert_eq!(
+                    retrieved, **expected,
+                    "Retrieved IDL should match expected IDL at slot {}",
+                    query_slot
+                );
+                println!(
+                    "  [{}] Correctly: Expected IDL retrieved at slot {}",
+                    i + 4,
+                    query_slot
+                );
+            }
         }
     }
 
