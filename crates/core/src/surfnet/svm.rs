@@ -1757,12 +1757,21 @@ mod tests {
     fn test_encode_ui_account() {
         let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
 
-        let idl: Idl =
-            serde_json::from_slice(&include_bytes!("../tests/assets/idl.json").to_vec()).unwrap();
+        let idl_v1: Idl =
+            serde_json::from_slice(&include_bytes!("../tests/assets/idl_v1.json").to_vec())
+                .unwrap();
 
-        svm.register_idl(idl.clone(), None);
+        svm.register_idl(idl_v1.clone(), Some(0));
 
         let account_pubkey = Pubkey::new_unique();
+
+        #[derive(borsh::BorshSerialize)]
+        pub struct CustomAccount {
+            pub my_custom_data: u64,
+            pub another_field: String,
+            pub bool: bool,
+            pub pubkey: Pubkey,
+        }
 
         // Account data not matching IDL schema should use default encoding
         {
@@ -1772,7 +1781,7 @@ mod tests {
             let account = Account {
                 lamports: 1000,
                 data: account_data,
-                owner: idl.address.parse().unwrap(),
+                owner: idl_v1.address.parse().unwrap(),
                 executable: false,
                 rent_epoch: 0,
             };
@@ -1787,7 +1796,7 @@ mod tests {
             let expected_account = UiAccount {
                 lamports: 1000,
                 data: expected_data,
-                owner: idl.address.clone(),
+                owner: idl_v1.address.clone(),
                 executable: false,
                 rent_epoch: 0,
                 space: Some(account.data.len() as u64),
@@ -1797,17 +1806,13 @@ mod tests {
 
         // valid account data matching IDL schema should be parsed
         {
-            #[derive(borsh::BorshSerialize)]
-            pub struct CustomAccount {
-                pub my_custom_data: u64,
-                pub another_field: String,
-                pub bool: bool,
-            }
-            let mut account_data = idl.accounts[0].discriminator.clone();
+            let mut account_data = idl_v1.accounts[0].discriminator.clone();
+            let pubkey = Pubkey::new_unique();
             CustomAccount {
                 my_custom_data: 42,
                 another_field: "test".to_string(),
                 bool: true,
+                pubkey,
             }
             .serialize(&mut account_data)
             .unwrap();
@@ -1815,7 +1820,7 @@ mod tests {
             let account = Account {
                 lamports: 1000,
                 data: account_data,
-                owner: idl.address.parse().unwrap(),
+                owner: idl_v1.address.parse().unwrap(),
                 executable: false,
                 rent_epoch: 0,
             };
@@ -1830,15 +1835,144 @@ mod tests {
             let expected_account = UiAccount {
                 lamports: 1000,
                 data: UiAccountData::Json(ParsedAccount {
-                    program: format!("{}", idl.metadata.name).to_case(convert_case::Case::Kebab),
+                    program: format!("{}", idl_v1.metadata.name).to_case(convert_case::Case::Kebab),
                     parsed: serde_json::json!({
                         "my_custom_data": 42,
                         "another_field": "test",
                         "bool": true,
+                        "pubkey": pubkey.to_string(),
                     }),
                     space: account.data.len() as u64,
                 }),
-                owner: idl.address.clone(),
+                owner: idl_v1.address.clone(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(account.data.len() as u64),
+            };
+            assert_eq!(ui_account, expected_account);
+        }
+
+        let idl_v2: Idl =
+            serde_json::from_slice(&include_bytes!("../tests/assets/idl_v2.json").to_vec())
+                .unwrap();
+
+        svm.register_idl(idl_v2.clone(), Some(100));
+
+        // even though we have a new IDL that is more recent, we should be able to match with the old IDL
+        {
+            let mut account_data = idl_v1.accounts[0].discriminator.clone();
+            let pubkey = Pubkey::new_unique();
+            CustomAccount {
+                my_custom_data: 42,
+                another_field: "test".to_string(),
+                bool: true,
+                pubkey,
+            }
+            .serialize(&mut account_data)
+            .unwrap();
+
+            let account = Account {
+                lamports: 1000,
+                data: account_data,
+                owner: idl_v1.address.parse().unwrap(),
+                executable: false,
+                rent_epoch: 0,
+            };
+
+            let ui_account = svm.encode_ui_account(
+                &account_pubkey,
+                &account,
+                UiAccountEncoding::JsonParsed,
+                None,
+                None,
+            );
+            let expected_account = UiAccount {
+                lamports: 1000,
+                data: UiAccountData::Json(ParsedAccount {
+                    program: format!("{}", idl_v1.metadata.name).to_case(convert_case::Case::Kebab),
+                    parsed: serde_json::json!({
+                        "my_custom_data": 42,
+                        "another_field": "test",
+                        "bool": true,
+                        "pubkey": pubkey.to_string(),
+                    }),
+                    space: account.data.len() as u64,
+                }),
+                owner: idl_v1.address.clone(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(account.data.len() as u64),
+            };
+            assert_eq!(ui_account, expected_account);
+        }
+
+        // valid account data matching IDL v2 schema should be parsed, if svm slot reaches IDL registration slot
+        {
+            // use the v2 shape of the custom account
+            #[derive(borsh::BorshSerialize)]
+            pub struct CustomAccount {
+                pub my_custom_data: u64,
+                pub another_field: String,
+                pub pubkey: Pubkey,
+            }
+            let mut account_data = idl_v1.accounts[0].discriminator.clone();
+            let pubkey = Pubkey::new_unique();
+            CustomAccount {
+                my_custom_data: 42,
+                another_field: "test".to_string(),
+                pubkey,
+            }
+            .serialize(&mut account_data)
+            .unwrap();
+
+            let account = Account {
+                lamports: 1000,
+                data: account_data.clone(),
+                owner: idl_v1.address.parse().unwrap(),
+                executable: false,
+                rent_epoch: 0,
+            };
+
+            let ui_account = svm.encode_ui_account(
+                &account_pubkey,
+                &account,
+                UiAccountEncoding::JsonParsed,
+                None,
+                None,
+            );
+            let base64_data = general_purpose::STANDARD.encode(&account_data);
+            let expected_data = UiAccountData::Binary(base64_data, UiAccountEncoding::Base64);
+            let expected_account = UiAccount {
+                lamports: 1000,
+                data: expected_data,
+                owner: idl_v1.address.clone(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(account.data.len() as u64),
+            };
+            assert_eq!(ui_account, expected_account);
+
+            svm.latest_epoch_info.absolute_slot = 100; // simulate reaching the slot where IDL v2 was registered
+
+            let ui_account = svm.encode_ui_account(
+                &account_pubkey,
+                &account,
+                UiAccountEncoding::JsonParsed,
+                None,
+                None,
+            );
+            let expected_account = UiAccount {
+                lamports: 1000,
+                data: UiAccountData::Json(ParsedAccount {
+                    program: format!("{}", idl_v1.metadata.name).to_case(convert_case::Case::Kebab),
+                    parsed: serde_json::json!({
+                        "my_custom_data": 42,
+                        "another_field": "test",
+                        "pubkey": pubkey.to_string(),
+                    }),
+                    space: account.data.len() as u64,
+                }),
+                owner: idl_v1.address.clone(),
                 executable: false,
                 rent_epoch: 0,
                 space: Some(account.data.len() as u64),

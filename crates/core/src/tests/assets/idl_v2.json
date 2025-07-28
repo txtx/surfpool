@@ -327,8 +327,8 @@
                         "type": "string"
                     },
                     {
-                        "name": "bool",
-                        "type": "bool"
+                        "name": "pubkey",
+                        "type": "pubkey"
                     }
                 ]
             }
