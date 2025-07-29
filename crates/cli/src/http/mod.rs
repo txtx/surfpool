@@ -24,13 +24,14 @@ use surfpool_gql::{
     db::schema::collections,
     new_dynamic_schema,
     query::{CollectionsMetadataLookup, Dataloader, DataloaderContext, SqlStore},
-    types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata},
+    types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata, sql},
 };
 use surfpool_studio_ui::serve_studio_static_files;
 use surfpool_types::{
     DataIndexingCommand, SanitizedConfig, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
 };
 use txtx_core::kit::types::types::Value;
+use txtx_gql::kit::uuid::Uuid;
 
 use crate::cli::Context;
 
@@ -47,8 +48,11 @@ pub async fn start_subgraph_and_explorer_server(
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     ctx: &Context,
 ) -> Result<(ServerHandle, JoinHandle<Result<(), String>>), Box<dyn StdError>> {
+    let sql_store = SqlStore::new(subgraph_database_path);
+    sql_store.init_subgraph_tables()?;
+
     let context = DataloaderContext {
-        pool: SqlStore::new(subgraph_database_path).pool,
+        pool: sql_store.pool,
     };
     let collections_metadata_lookup = CollectionsMetadataLookup::new();
     let schema = RwLock::new(Some(new_dynamic_schema(
@@ -214,6 +218,7 @@ fn start_subgraph_runloop(
     ctx: &Context,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let ctx = ctx.clone();
+    let worker_id = Uuid::default();
     let handle = hiro_system_kit::thread_named("Subgraph")
         .spawn(move || {
             let mut observers = vec![];
@@ -247,7 +252,7 @@ fn start_subgraph_runloop(
                                         "{err_ctx}: Failed to acquire write lock on gql context"
                                     )
                                 })?;
-                                if let Err(e) = gql_context.pool.register_collection(&metadata, &request) {
+                                if let Err(e) = gql_context.pool.register_collection(&metadata, &request, &worker_id) {
                                     error!(ctx.expect_logger(), "{}", e);
                                 }
                                 collections_metadata_lookup.add_collection(metadata);

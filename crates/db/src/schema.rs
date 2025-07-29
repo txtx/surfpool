@@ -7,5 +7,17 @@ diesel::table! {
         workspace_slug -> Text,
         schema -> Text,
         last_slot_processed -> Int4,
+        worker_id -> Text,
+    }
+}
+
+diesel::table! {
+    workers (id) {
+        id -> Text,
+        created_at -> Date,
+        updated_at -> Date,
+        cursor -> Text,
+        token -> Text,
+        last_slot_processed -> Int4,
     }
 }

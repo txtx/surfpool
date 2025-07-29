@@ -9,8 +9,10 @@ use juniper::{
 use surfpool_db::diesel::{
     self, Connection, MultiConnection,
     r2d2::{ConnectionManager, Pool, PooledConnection},
+    sql_query,
 };
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
+use uuid::Uuid;
 
 use crate::types::{
     CollectionEntry, CollectionEntryData, collections::CollectionMetadata,
@@ -63,6 +65,7 @@ pub trait Dataloader {
         &self,
         metadata: &CollectionMetadata,
         request: &SubgraphRequest,
+        worker_id: &Uuid,
     ) -> Result<(), String>;
     fn insert_entries_into_collection(
         &self,
@@ -192,6 +195,39 @@ impl SqlStore {
 
     pub fn get_conn(&self) -> PooledConnection<ConnectionManager<DatabaseConnection>> {
         self.pool.get().unwrap()
+    }
+
+    pub fn init_subgraph_tables(&self) -> Result<(), String> {
+        let mut db_conn = self.get_conn();
+
+        sql_query(
+            "CREATE TABLE IF NOT EXISTS workers (
+                    id TEXT PRIMARY KEY,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    cursor TEXT NOT NULL,
+                    token TEXT NOT NULL,
+                    last_slot_processed INTEGER NOT NULL
+                )",
+        )
+        .execute(&mut *db_conn)
+        .map_err(|e| format!("Failed to create collections table: {e}"))?;
+
+        sql_query(
+            "CREATE TABLE IF NOT EXISTS collections (
+                    id TEXT PRIMARY KEY,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    table_name TEXT NOT NULL,
+                    workspace_slug TEXT NOT NULL,
+                    schema TEXT NOT NULL,
+                    last_slot_processed INTEGER NOT NULL,
+                    worker_id TEXT NOT NULL
+                )",
+        )
+        .execute(&mut *db_conn)
+        .map_err(|e| format!("Failed to create collections table: {e}"))?;
+        Ok(())
     }
 }
 

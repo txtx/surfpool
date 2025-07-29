@@ -282,23 +282,9 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         &self,
         metadata: &CollectionMetadata,
         request: &SubgraphRequest,
+        worker_id: &Uuid,
     ) -> Result<(), String> {
         let mut conn = self.get().expect("unable to connect to db");
-
-        // 1. Ensure subgraphs table exists
-        sql_query(
-            "CREATE TABLE IF NOT EXISTS collections (
-                id TEXT PRIMARY KEY,
-                created_at TIMESTAMP NOT NULL,
-                updated_at TIMESTAMP NOT NULL,
-                table_name TEXT NOT NULL,
-                workspace_slug TEXT NOT NULL,
-                schema TEXT NOT NULL,
-                last_slot_processed INTEGER NOT NULL
-            )",
-        )
-        .execute(&mut *conn)
-        .map_err(|e| format!("Failed to create collections table: {e}"))?;
 
         // 2. Create a new entries table for this subgraph, using the schema to determine the fields
         // Build the SQL for the entries table using the schema fields
@@ -330,8 +316,15 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         let now = chrono::Utc::now().naive_utc();
 
         let sql = format!(
-            "INSERT INTO collections (id, created_at, updated_at, table_name, workspace_slug, schema, last_slot_processed) VALUES ('{}', '{}', '{}', '{}', '{}', '{}', '{}')",
-            metadata.id, now, now, &metadata.table_name, &metadata.workspace_slug, schema_json, request.slot
+            "INSERT INTO collections (id, created_at, updated_at, table_name, workspace_slug, schema, last_slot_processed, worker_id) VALUES ('{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
+            metadata.id,
+            now,
+            now,
+            &metadata.table_name,
+            &metadata.workspace_slug,
+            schema_json,
+            request.slot,
+            worker_id
         );
 
         sql_query(&sql)
@@ -481,7 +474,7 @@ mod tests {
         // Register subgraph
         store
             .pool
-            .register_collection(&metadata, &request)
+            .register_collection(&metadata, &request, &Uuid::default())
             .expect("register_collection");
 
         // Insert entry
