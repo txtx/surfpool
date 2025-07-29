@@ -25,17 +25,31 @@ use txtx_core::{
 };
 use txtx_gql::kit::{
     indexmap::IndexMap,
-    types::{cloud_interface::CloudServiceContext, frontend::ProgressBarStatusColor},
+    types::{
+        cloud_interface::CloudServiceContext,
+        frontend::ProgressBarStatusColor,
+        types::{AddonJsonConverter, Value},
+    },
 };
 #[cfg(feature = "supervisor_ui")]
 use txtx_supervisor_ui::cloud_relayer::RelayerChannelEvent;
 
 use crate::cli::{DEFAULT_ID_SVC_URL, ExecuteRunbook};
 
+pub fn get_json_converters() -> Vec<AddonJsonConverter<'static>> {
+    get_available_addons()
+        .into_iter()
+        .map(|addon| {
+            Box::new(move |value: &Value| addon.to_json(value)) as AddonJsonConverter<'static>
+        })
+        .collect()
+}
+
+pub fn get_available_addons() -> Vec<Box<dyn Addon>> {
+    vec![Box::new(StdAddon::new()), Box::new(SvmNetworkAddon::new())]
+}
 pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
-    let available_addons: Vec<Box<dyn Addon>> =
-        vec![Box::new(StdAddon::new()), Box::new(SvmNetworkAddon::new())];
-    available_addons
+    get_available_addons()
         .into_iter()
         .find(|addon| namespace.starts_with(&addon.get_namespace().to_string()))
 }
@@ -677,6 +691,7 @@ fn process_runbook_execution_output(
                             .workspace_location,
                         &runbook.runbook_id.name,
                         &runbook.top_level_inputs_map.current_top_level_input_name(),
+                        &get_json_converters(),
                     ) {
                         Ok(output_location) => {
                             let _ = simnet_events_tx.send(SimnetEvent::info(format!(
@@ -693,12 +708,16 @@ fn process_runbook_execution_output(
                     }
                 } else {
                     let _ = simnet_events_tx.send(SimnetEvent::info(
-                        serde_json::to_string_pretty(&runbook_outputs.to_json()).unwrap(),
+                        serde_json::to_string_pretty(
+                            &runbook_outputs.to_json(&get_json_converters()),
+                        )
+                        .unwrap(),
                     ));
                 }
             } else {
                 let _ = simnet_events_tx.send(SimnetEvent::debug(
-                    serde_json::to_string_pretty(&runbook_outputs.to_json()).unwrap(),
+                    serde_json::to_string_pretty(&runbook_outputs.to_json(&get_json_converters()))
+                        .unwrap(),
                 ));
             }
         }
