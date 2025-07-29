@@ -211,7 +211,7 @@ impl SqlStore {
                 )",
         )
         .execute(&mut *db_conn)
-        .map_err(|e| format!("Failed to create collections table: {e}"))?;
+        .map_err(|e| format!("Failed to create workers table: {e}"))?;
 
         sql_query(
             "CREATE TABLE IF NOT EXISTS collections (

@@ -467,6 +467,10 @@ mod tests {
     fn test_register_insert_fetch() {
         // Prepare dataset
         let store = SqlStore::new_in_memory();
+        store
+            .init_subgraph_tables()
+            .expect("unable to initialize tables");
+
         let request = test_request();
         let uuid = Uuid::new_v4();
         let metadata = CollectionMetadata::from_request(&uuid, &request, "test");
