@@ -563,7 +563,7 @@ pub trait SvmTricksRpc {
     ///   "id": 1
     /// }
     /// ```
-    #[rpc(meta, name = "surfnet_getIdl")]
+    #[rpc(meta, name = "surfnet_getActiveIdl")]
     fn get_idl(
         &self,
         meta: Self::Metadata,
