@@ -42,7 +42,7 @@ use spl_token_2022::extension::{
 };
 use surfpool_types::{
     SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
-    types::{ComputeUnitsEstimationResult, ProfileResult, UuidOrSignature},
+    types::{ComputeUnitsEstimationResult, KeyedProfileResult, UuidOrSignature},
 };
 use uuid::Uuid;
 
@@ -86,8 +86,8 @@ pub struct SurfnetSvm {
     pub account_subscriptions: AccountSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
     pub profile_tag_map: HashMap<String, Vec<UuidOrSignature>>,
-    pub simulated_transaction_profiles: HashMap<Uuid, ProfileResult>,
-    pub executed_transaction_profiles: HashMap<Signature, ProfileResult>,
+    pub simulated_transaction_profiles: HashMap<Uuid, KeyedProfileResult>,
+    pub executed_transaction_profiles: HashMap<Signature, KeyedProfileResult>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
@@ -1219,7 +1219,11 @@ impl SurfnetSvm {
             .retain(|tx| tx.send(SlotInfo { slot, parent, root }).is_ok());
     }
 
-    pub fn write_simulated_profile_result(&mut self, tag: String, profile_result: ProfileResult) {
+    pub fn write_simulated_profile_result(
+        &mut self,
+        tag: String,
+        profile_result: KeyedProfileResult,
+    ) {
         let uuid = Uuid::new_v4();
         self.simulated_transaction_profiles
             .insert(uuid, profile_result);
@@ -1232,7 +1236,7 @@ impl SurfnetSvm {
     pub fn write_executed_profile_result(
         &mut self,
         signature: Signature,
-        profile_result: ProfileResult,
+        profile_result: KeyedProfileResult,
     ) {
         self.executed_transaction_profiles
             .insert(signature, profile_result);

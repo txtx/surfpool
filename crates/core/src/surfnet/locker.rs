@@ -31,7 +31,7 @@ use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_message::{
-    SimpleAddressLoader, VersionedMessage,
+    Message, MessageHeader, SimpleAddressLoader, VersionedMessage,
     v0::{LoadedAddresses, MessageAddressTableLookup},
 };
 use solana_pubkey::Pubkey;
@@ -41,6 +41,7 @@ use solana_sdk::{
     transaction::{SanitizedTransaction, VersionedTransaction},
 };
 use solana_signature::Signature;
+use solana_transaction::Transaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta,
@@ -48,8 +49,8 @@ use solana_transaction_status::{
     UiTransactionEncoding,
 };
 use surfpool_types::{
-    ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
-    TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature,
+    ComputeUnitsEstimationResult, KeyedProfileResult, ProfileState, ProfiledInstructionsMap,
+    SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -920,7 +921,7 @@ impl SurfnetSvmLocker {
                         })
                         .collect::<Result<Vec<_>, SurfpoolError>>()?;
 
-                    let profile_result = ProfileResult::success(
+                    let profile_result = KeyedProfileResult::success(
                         res.compute_units_consumed,
                         res.logs.clone(),
                         pre_execution_capture.clone(),
@@ -1464,13 +1465,133 @@ impl SurfnetSvmLocker {
             svm_reader.estimate_compute_units(transaction)
         })
     }
+
+    /// Tx with IXs A, B, C
+    /// A -> P1, P2, SP. P1 -> Signer
+    /// B -> P3, P4, SP. P3 -> Signer
+    /// C -> P5, P6, SP. P5 -> Signer
+    ///
+    /// Message:
+    /// acc_keys: [P1, P3, P5, // P2, P4, P6, SP]
+    ///
+    /// mutable_signers: [P1, P3, P5]
+    /// readonly_signers: []
+    /// mutable_non_signers: [P2, P4, P6]
+    /// readonly_non_signers: [SP]
+    ///
+    /// num_required_signatures: 3
+    /// num_readonly_signed_accounts: 0
+    /// num_readonly_unsigned_accounts: 1
+    ///
+    /// Ix A:
+    ///   program_id_index: 6
+    ///   account_keys: [0, 3]
+    ///
+    /// Create a Tx with just IX A
+    /// Message:
+    /// new_acc_keys: [SP, P1, P2]
+    /// let mut new_ordered_acc_keys
+    /// let mut new_num_required_signatures = 0
+    ///  for key in new_acc_keys
+    ///    if acc_keys.index_of(key) < num_required_signatures
+    ///      new_num_required_signatures++
+    ///    if acc_keys.index_of(key) > num_required_signatures
+    ///        && acc_keys.index_of(key)  (num_required_signatures + num_readonly_signed_accounts)
+    ///    
+    ///
+
+    pub async fn _profile_transaction(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+        transaction: VersionedTransaction,
+        encoding: Option<UiAccountEncoding>,
+        tag: Option<String>,
+    ) {
+        let instructions = transaction.message.instructions();
+
+        let ix_count = instructions.len();
+        let message_accounts = transaction.message.static_account_keys();
+
+        let last_signer_index = (transaction.message.header().num_required_signatures - 1) as usize;
+        let last_mutable_signer_index: usize =
+            last_signer_index - transaction.message.header().num_readonly_signed_accounts;
+        let accounts_len = message_accounts.len();
+        let last_mutable_non_signer_index: usize =
+            accounts_len - transaction.message.header().num_readonly_unsigned_accounts;
+
+        let mutable_signers = message_accounts[0..last_mutable_signer_index];
+        let readonly_signers = message_accounts[last_mutable_signer_index..last_signer_index];
+        let mutable_non_signers =
+            message_accounts[last_signer_index..last_mutable_non_signer_index];
+        let readonly_non_signers = message_accounts[last_mutable_non_signer_index..];
+
+        let mut ix_profile_results: ProfiledInstructionsMap = HashMap::new();
+
+        for idx in 0..ix_count {
+            let ixs_for_tx = instructions[0..idx].to_vec();
+
+            let mut new_mutable_signers = HashSet::new();
+            let mut new_readonly_signers = HashSet::new();
+            let mut new_mutable_non_signers = HashSet::new();
+            let mut new_readonly_non_signers = HashSet::new();
+
+            for ix in ixs_for_tx {
+                let mut all_accounts_indexes = ix.accounts.clone();
+                all_accounts_indexes.push(ix.program_id_index);
+                for account_idx in ix.accounts {
+                    if let Some(acc) = mutable_signers.get(account_idx as usize) {
+                        new_mutable_signers.insert(*acc);
+                    }
+                    if let Some(acc) = readonly_signers.get(account_idx as usize) {
+                        new_readonly_signers.insert(*acc);
+                    }
+                    if let Some(acc) = mutable_non_signers.get(account_idx as usize) {
+                        new_mutable_non_signers.insert(*acc);
+                    }
+                    if let Some(acc) = readonly_non_signers.get(account_idx as usize) {
+                        new_readonly_non_signers.insert(*acc);
+                    }
+                }
+            }
+
+            let num_required_signatures: u8 =
+                new_mutable_signers.len() + new_readonly_signers.len();
+            let num_readonly_signed_accounts: u8 = new_readonly_signers.len();
+            let num_readonly_unsigned_accounts: u8 = new_readonly_non_signers.len();
+
+            new_mutable_signers.append(&mut new_readonly_signers);
+            new_mutable_signers.append(&mut new_mutable_non_signers);
+            new_mutable_signers.append(&mut new_readonly_non_signers);
+
+            let new_account_keys = new_mutable_signers.iter().cloned().collect::<Vec<_>>();
+
+            let new_message = Message {
+                header: MessageHeader {
+                    num_required_signatures,
+                    num_readonly_signed_accounts,
+                    num_readonly_unsigned_accounts,
+                },
+                account_keys: new_account_keys,
+                recent_blockhash: transaction.message.recent_blockhash(),
+                instructions: ixs_for_tx,
+            };
+
+            let tx = Transaction {
+                signatures: transaction.signatures[0..num_required_signatures],
+                message: new_message,
+            };
+
+            // now profile this transaction an add our results to ix_profile_results
+        }
+    }
+
     pub async fn profile_transaction(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
         transaction: VersionedTransaction,
         encoding: Option<UiAccountEncoding>,
         tag: Option<String>,
-    ) -> SurfpoolContextualizedResult<ProfileResult> {
+    ) -> SurfpoolContextualizedResult<KeyedProfileResult> {
         let SvmAccessContext {
             slot,
             latest_epoch_info,
@@ -1565,11 +1686,11 @@ impl SurfnetSvmLocker {
         };
 
         let uuid = Uuid::new_v4();
-        let profile_result = ProfileResult {
+        let profile_result = KeyedProfileResult {
             compute_units: compute_units_estimation_result,
             state: ProfileState::new(pre_execution_capture, post_execution_capture),
             slot,
-            uuid: Some(uuid),
+            key: Some(uuid),
         };
 
         self.with_svm_writer(|svm| {
@@ -1593,7 +1714,7 @@ impl SurfnetSvmLocker {
     pub fn get_profile_result(
         &self,
         signature_or_uuid: UuidOrSignature,
-    ) -> SurfpoolResult<Option<ProfileResult>> {
+    ) -> SurfpoolResult<Option<KeyedProfileResult>> {
         match &signature_or_uuid {
             UuidOrSignature::Signature(signature) => {
                 let profile = self.with_svm_reader(|svm| {
@@ -1619,7 +1740,7 @@ impl SurfnetSvmLocker {
     pub fn get_profile_results_by_tag(
         &self,
         tag: String,
-    ) -> SurfpoolResult<Option<Vec<ProfileResult>>> {
+    ) -> SurfpoolResult<Option<Vec<KeyedProfileResult>>> {
         let tag_map = self.with_svm_reader(|svm| svm.profile_tag_map.get(&tag).cloned());
         match tag_map {
             None => Ok(None),

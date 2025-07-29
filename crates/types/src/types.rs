@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, fmt, path::PathBuf, str::FromStr};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt,
+    path::PathBuf,
+    str::FromStr,
+};
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
@@ -9,7 +14,9 @@ use serde_with::{BytesOrString, serde_as};
 use solana_account_decoder_client_types::UiAccount;
 use solana_clock::{Clock, Epoch};
 use solana_epoch_info::EpochInfo;
-use solana_message::inner_instruction::InnerInstructionsList;
+use solana_message::{
+    compiled_instruction::CompiledInstruction, inner_instruction::InnerInstructionsList,
+};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
@@ -103,21 +110,38 @@ pub struct ComputeUnitsEstimationResult {
 /// The struct for storing the profiling results.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct ProfileResult {
-    pub compute_units: ComputeUnitsEstimationResult,
-    pub state: ProfileState,
+pub struct KeyedProfileResult {
     pub slot: u64,
-    pub uuid: Option<Uuid>,
+    pub key: UuidOrSignature,
+    pub profile: TransactionProfileResult,
 }
 
-impl ProfileResult {
+// Tx with ixs [A, B, C]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TransactionProfileResult {
+    pub instruction_profiles: Option<ProfiledInstructionsMap>, // Contains { [A] : {..result}, [A+B]: {..result} }
+    pub transaction_profile: ProfileResult,                    // Contains ..result
+}
+
+pub type ProfiledInstructionIndexes = Vec<usize>;
+pub type ProfiledInstructionsMap = HashMap<ProfiledInstructionIndexes, ProfileResult>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileResult {
+    pub state: ProfileState,
+    pub compute_units_consumed: u64,
+    pub log_messages: Option<Vec<String>>,
+    pub error_message: Option<String>,
+}
+
+impl KeyedProfileResult {
     pub fn success(
         compute_units_consumed: u64,
         logs: Vec<String>,
         pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
-        post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
         slot: u64,
-        uuid: Option<Uuid>,
+        key: UuidOrSignature,
     ) -> Self {
         Self {
             compute_units: ComputeUnitsEstimationResult {
@@ -128,7 +152,7 @@ impl ProfileResult {
             },
             state: ProfileState::new(pre_execution, post_execution),
             slot,
-            uuid,
+            key: uuid,
         }
     }
 }
@@ -217,7 +241,7 @@ pub enum SimnetEvent {
     ),
     AccountUpdate(DateTime<Local>, Pubkey),
     TaggedProfile {
-        result: ProfileResult,
+        result: KeyedProfileResult,
         tag: String,
         timestamp: DateTime<Local>,
     },
@@ -266,7 +290,7 @@ impl SimnetEvent {
         Self::AccountUpdate(Local::now(), pubkey)
     }
 
-    pub fn tagged_profile(result: ProfileResult, tag: String) -> Self {
+    pub fn tagged_profile(result: KeyedProfileResult, tag: String) -> Self {
         Self::TaggedProfile {
             result,
             tag,
@@ -611,7 +635,7 @@ pub struct SupplyUpdate {
     pub non_circulating_accounts: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum UuidOrSignature {
     Uuid(Uuid),
     Signature(Signature),

@@ -22,7 +22,9 @@ use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
     SimnetCommand, SimnetEvent, SurfpoolConfig,
-    types::{BlockProductionMode, ProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig},
+    types::{
+        BlockProductionMode, KeyedProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig,
+    },
 };
 use tokio::{sync::RwLock, task};
 
