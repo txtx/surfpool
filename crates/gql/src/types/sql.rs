@@ -293,7 +293,8 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
                 updated_at TIMESTAMP NOT NULL,
                 table_name TEXT NOT NULL,
                 workspace_slug TEXT NOT NULL,
-                schema TEXT NOT NULL
+                schema TEXT NOT NULL,
+                last_slot_processed INTEGER NOT NULL
             )",
         )
         .execute(&mut *conn)
@@ -329,8 +330,8 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         let now = chrono::Utc::now().naive_utc();
 
         let sql = format!(
-            "INSERT INTO collections (id, created_at, updated_at, table_name, workspace_slug, schema) VALUES ('{}', '{}', '{}', '{}', '{}', '{}')",
-            metadata.id, now, now, &metadata.table_name, &metadata.workspace_slug, schema_json
+            "INSERT INTO collections (id, created_at, updated_at, table_name, workspace_slug, schema, last_slot_processed) VALUES ('{}', '{}', '{}', '{}', '{}', '{}', '{}')",
+            metadata.id, now, now, &metadata.table_name, &metadata.workspace_slug, schema_json, request.slot
         );
 
         sql_query(&sql)

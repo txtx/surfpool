@@ -6,5 +6,6 @@ diesel::table! {
         table_name -> Text,
         workspace_slug -> Text,
         schema -> Text,
+        last_slot_processed -> Int4,
     }
 }
