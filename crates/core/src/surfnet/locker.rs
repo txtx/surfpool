@@ -9,7 +9,8 @@ use itertools::Itertools;
 use litesvm::types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult};
 use solana_account::{Account, ReadableAccount};
 use solana_account_decoder::{
-    UiAccount, UiAccountEncoding,
+    UiAccount, UiAccountEncoding, UiDataSliceConfig,
+    parse_account_data::AccountAdditionalDataV3,
     parse_bpf_loader::{BpfUpgradeableLoaderAccountType, UiProgram, parse_bpf_upgradeable_loader},
     parse_token::UiTokenAmount,
 };
@@ -48,8 +49,8 @@ use solana_transaction_status::{
     UiTransactionEncoding,
 };
 use surfpool_types::{
-    ComputeUnitsEstimationResult, ProfileResult, ProfileState, SimnetEvent,
-    TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature,
+    ComputeUnitsEstimationResult, Idl, ProfileResult, ProfileState, SimnetEvent,
+    TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature, VersionedIdl,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -118,7 +119,7 @@ impl SurfnetSvmLocker {
     /// The result produced by the closure.
     pub fn with_svm_reader<T, F>(&self, reader: F) -> T
     where
-        F: Fn(&SurfnetSvm) -> T + Send + Sync,
+        F: FnOnce(&SurfnetSvm) -> T + Send + Sync,
     {
         let read_lock = self.0.clone();
         tokio::task::block_in_place(move || {
@@ -155,7 +156,7 @@ impl SurfnetSvmLocker {
     /// The result produced by the closure.
     pub fn with_svm_writer<T, F>(&self, writer: F) -> T
     where
-        F: Fn(&mut SurfnetSvm) -> T + Send + Sync,
+        F: FnOnce(&mut SurfnetSvm) -> T + Send + Sync,
         T: Send + 'static,
     {
         let write_lock = self.0.clone();
@@ -1636,6 +1637,22 @@ impl SurfnetSvmLocker {
             }
         }
     }
+
+    pub fn register_idl(&self, idl: Idl, slot: Option<Slot>) {
+        self.with_svm_writer(|svm_writer| svm_writer.register_idl(idl, slot))
+    }
+
+    pub fn get_idl(&self, address: &Pubkey, slot: Option<Slot>) -> Option<Idl> {
+        self.with_svm_reader(|svm_reader| {
+            let query_slot = slot.unwrap_or_else(|| svm_reader.get_latest_absolute_slot());
+            svm_reader.registered_idls.get(address).and_then(|heap| {
+                heap.iter()
+                    .filter(|VersionedIdl(s, _)| s <= &query_slot)
+                    .max()
+                    .map(|VersionedIdl(_, idl)| idl.clone())
+            })
+        })
+    }
 }
 /// Program account related functions
 impl SurfnetSvmLocker {
@@ -1887,6 +1904,19 @@ impl SurfnetSvmLocker {
         Ok(self.with_contextualized_svm_reader(|_| res.clone()))
     }
 
+    pub fn encode_ui_account(
+        &self,
+        pubkey: &Pubkey,
+        account: &Account,
+        encoding: UiAccountEncoding,
+        additional_data: Option<AccountAdditionalDataV3>,
+        data_slice: Option<UiDataSliceConfig>,
+    ) -> UiAccount {
+        self.with_svm_reader(|svm_reader| {
+            svm_reader.encode_ui_account(pubkey, account, encoding, additional_data, data_slice)
+        })
+    }
+
     /// Retrieves program accounts from the local cache and remote client, combining results.
     pub async fn get_program_accounts_local_then_remote(
         &self,
@@ -1901,9 +1931,23 @@ impl SurfnetSvmLocker {
             latest_blockhash,
             inner: local_accounts,
         } = self.get_program_accounts_local(program_id, account_config.clone(), filters.clone())?;
+
+        let encoding = account_config.encoding.unwrap_or(UiAccountEncoding::Base64);
+        let data_slice = account_config.data_slice;
+
         let remote_accounts = client
             .get_program_accounts(program_id, account_config, filters)
-            .await?;
+            .await
+            .map(|accounts| {
+                accounts
+                    .iter()
+                    .map(|(pubkey, account)| RpcKeyedAccount {
+                        pubkey: pubkey.to_string(),
+                        account: self
+                            .encode_ui_account(pubkey, account, encoding, None, data_slice),
+                    })
+                    .collect::<Vec<RpcKeyedAccount>>()
+            })?;
 
         let mut combined_accounts = remote_accounts;
 
