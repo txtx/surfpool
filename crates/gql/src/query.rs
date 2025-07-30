@@ -205,7 +205,7 @@ impl SqlStore {
                     id TEXT PRIMARY KEY,
                     created_at TIMESTAMP NOT NULL,
                     updated_at TIMESTAMP NOT NULL,
-                    cursor TEXT NOT NULL,
+                    cursor TEXT,
                     token TEXT NOT NULL,
                     last_slot_processed INTEGER NOT NULL
                 )",

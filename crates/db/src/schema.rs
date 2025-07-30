@@ -16,7 +16,7 @@ diesel::table! {
         id -> Text,
         created_at -> Date,
         updated_at -> Date,
-        cursor -> Text,
+        cursor -> Nullable<Text>,
         token -> Text,
         last_slot_processed -> Int4,
     }
