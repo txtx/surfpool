@@ -22,7 +22,9 @@ use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::Transaction;
 use surfpool_core::{solana_rpc_client::rpc_client::RpcClient, surfnet::SLOTS_PER_EPOCH};
-use surfpool_types::{BlockProductionMode, ClockCommand, SimnetCommand, SimnetEvent};
+use surfpool_types::{
+    BlockProductionMode, ClockCommand, SanitizedConfig, SimnetCommand, SimnetEvent,
+};
 use txtx_core::kit::{
     channel::Receiver,
     types::frontend::{BlockEvent, ProgressBarStatusColor},
@@ -87,7 +89,6 @@ struct App {
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     status_bar_message: Option<String>,
     displayed_url: DisplayedUrl,
-    rpc_url: String,
     breaker: Option<Keypair>,
     paused: bool,
 }
@@ -99,14 +100,32 @@ impl App {
         include_debug_logs: bool,
         deploy_progress_rx: Vec<Receiver<BlockEvent>>,
         displayed_url: DisplayedUrl,
-        rpc_url: String,
         breaker: Option<Keypair>,
     ) -> App {
         let palette = palette::tailwind::EMERALD;
 
+        let mut events = vec![];
+        let (rpc_url, ws_url, datasource) = match &displayed_url {
+            DisplayedUrl::Datasource(config) | DisplayedUrl::Studio(config) => (
+                config.rpc_url.clone(),
+                config.ws_url.clone(),
+                config.rpc_datasource_url.clone(),
+            ),
+        };
+        events.push((
+            EventType::Success,
+            Local::now(),
+            format!("Surfnet up and running, emulating local Solana validator (RPC: {rpc_url}, WS: {ws_url})"),
+        ));
+        events.push((
+            EventType::Info,
+            Local::now(),
+            format!("Connecting surfnet to datasource {datasource}..."),
+        ));
+
         App {
-            state: TableState::default().with_selected(0),
-            scroll_state: ScrollbarState::new(5 * ITEM_HEIGHT),
+            state: TableState::default().with_offset(0),
+            scroll_state: ScrollbarState::new(0),
             colors: ColorTheme::new(&palette),
             simnet_events_rx,
             simnet_commands_tx,
@@ -120,12 +139,11 @@ impl App {
                 transaction_count: None,
             },
             successful_transactions: 0,
-            events: vec![],
+            events,
             include_debug_logs,
             deploy_progress_rx,
             status_bar_message: None,
             displayed_url,
-            rpc_url,
             breaker,
             paused: false,
         }
@@ -147,6 +165,10 @@ impl App {
         *self.state.offset_mut() = ITEM_HEIGHT;
     }
 
+    pub fn tail(&mut self) {
+        self.state.select_last();
+    }
+
     pub fn previous(&mut self) {
         self.state.select_previous();
         self.scroll_state.prev();
@@ -165,8 +187,8 @@ impl App {
 }
 
 pub enum DisplayedUrl {
-    Studio(String),
-    Datasource(String),
+    Studio(SanitizedConfig),
+    Datasource(SanitizedConfig),
 }
 
 pub fn start_app(
@@ -175,7 +197,6 @@ pub fn start_app(
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     displayed_url: DisplayedUrl,
-    rpc_url: String,
     breaker: Option<Keypair>,
 ) -> Result<(), Box<dyn Error>> {
     // setup terminal
@@ -192,7 +213,6 @@ pub fn start_app(
         include_debug_logs,
         deploy_progress_rx,
         displayed_url,
-        rpc_url,
         breaker,
     );
     let res = run_app(&mut terminal, app);
@@ -211,7 +231,10 @@ pub fn start_app(
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
     let (tx, rx) = unbounded();
-    let rpc_api_url = app.rpc_url.clone();
+    let rpc_api_url = match app.displayed_url {
+        DisplayedUrl::Datasource(ref config) => config.rpc_url.clone(),
+        DisplayedUrl::Studio(ref config) => config.rpc_url.clone(),
+    };
     let _ = hiro_system_kit::thread_named("break solana").spawn(move || {
         while let Ok((message, keypair)) = rx.recv() {
             let client =
@@ -404,10 +427,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
 
         for event in new_events {
             app.events.push(event);
-            app.next();
+            app.tail();
         }
 
-        if event::poll(Duration::from_millis(5))? {
+        if event::poll(Duration::from_millis(25))? {
             if let Event::Key(key_event) = event::read()? {
                 if key_event.kind == KeyEventKind::Press {
                     use KeyCode::*;
@@ -545,17 +568,17 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
 
 fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
     let infos = match app.displayed_url {
-        DisplayedUrl::Datasource(ref datasource_url) => {
+        DisplayedUrl::Datasource(ref config) => {
             vec![
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
                     Span::styled("Surfnet   ", app.colors.light_gray),
-                    Span::styled(&app.rpc_url, app.colors.white),
+                    Span::styled(&config.rpc_url, app.colors.white),
                 ]),
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
                     Span::styled("Provider  ", app.colors.light_gray),
-                    Span::styled(datasource_url, app.colors.white),
+                    Span::styled(&config.rpc_datasource_url, app.colors.white),
                 ]),
                 Line::from(vec![Span::styled("۬-", app.colors.light_gray)]),
                 Line::from(vec![
@@ -568,12 +591,12 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
                 ]),
             ]
         }
-        DisplayedUrl::Studio(ref studio_url) => {
+        DisplayedUrl::Studio(ref config) => {
             vec![
                 Line::from(vec![
                     Span::styled("۬", app.colors.white),
                     Span::styled("Explorer  ", app.colors.light_gray),
-                    Span::styled(studio_url, app.colors.white),
+                    Span::styled(&config.studio_url, app.colors.white),
                 ]),
                 Line::from(vec![Span::styled("۬-", app.colors.light_gray)]),
                 Line::from(vec![

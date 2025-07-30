@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use surfpool_core::{start_local_surfnet, surfnet::svm::SurfnetSvm};
-use surfpool_types::{SimnetEvent, SubgraphEvent};
+use surfpool_types::{SanitizedConfig, SimnetEvent, SubgraphEvent};
 use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
     types::frontend::BlockEvent,
@@ -27,7 +27,6 @@ use txtx_gql::kit::reqwest;
 
 use super::{Context, DEFAULT_CLOUD_URL, ExecuteRunbook, StartSimnet};
 use crate::{
-    cli::CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
@@ -64,22 +63,31 @@ pub async fn handle_start_local_surfnet_command(
 
     // Build config
     let config = cmd.surfpool_config(airdrop_addresses);
-    let remote_rpc_url = config.simnets[0].remote_rpc_url.clone();
 
-    let local_rpc_url = format!("http://{}", config.rpc.get_socket_address());
-    let network_binding = format!(
-        "{}:{}",
-        cmd.network_host, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED
-    );
+    let studio_binding_address = config.studio.get_studio_base_url();
+    let rpc_url = format!("http://{}", config.rpc.get_rpc_base_url());
+    let ws_url = format!("ws://{}", config.rpc.get_ws_base_url());
+    let studio_url = format!("http://{}", studio_binding_address);
+    let graphql_query_route_url = format!("{}/gql/v1/graphql", studio_url);
+    let rpc_datasource_url = config.simnets[0].get_sanitized_datasource_url();
+
+    let sanitized_config = SanitizedConfig {
+        rpc_url,
+        ws_url,
+        rpc_datasource_url,
+        studio_url,
+        graphql_query_route_url,
+    };
+
     let subgraph_database_path = cmd
         .subgraph_database_path
         .as_ref()
         .map(|p| p.as_str())
         .unwrap_or(":memory:");
     let explorer_handle = match start_subgraph_and_explorer_server(
-        network_binding,
+        studio_binding_address,
         subgraph_database_path,
-        config.clone(),
+        sanitized_config.clone(),
         subgraph_events_tx.clone(),
         subgraph_commands_rx,
         ctx,
@@ -129,7 +137,7 @@ pub async fn handle_start_local_surfnet_command(
         match simnet_events_rx.recv() {
             Ok(SimnetEvent::Aborted(error)) => return Err(error),
             Ok(SimnetEvent::Shutdown) => return Ok(()),
-            Ok(SimnetEvent::Connected(_)) | Ok(SimnetEvent::Ready) => break,
+            Ok(SimnetEvent::Connected(_)) => break,
             _other => continue,
         }
     }
@@ -165,17 +173,10 @@ pub async fn handle_start_local_surfnet_command(
         }
     }
 
-    let displayed_url = if cmd.no_studio {
-        let datasource_base_url = remote_rpc_url
-            .split("?")
-            .map(|e| e.to_string())
-            .collect::<Vec<String>>()
-            .first()
-            .expect("datasource url invalid")
-            .to_string();
-        DisplayedUrl::Datasource(datasource_base_url)
+    let displayed_url = if cmd.studio {
+        DisplayedUrl::Datasource(sanitized_config)
     } else {
-        DisplayedUrl::Studio(format!("http://127.0.0.1:{}", cmd.studio_port))
+        DisplayedUrl::Studio(sanitized_config)
     };
 
     // Start frontend - kept on main thread
@@ -194,7 +195,6 @@ pub async fn handle_start_local_surfnet_command(
             cmd.debug,
             deploy_progress_rx,
             displayed_url,
-            local_rpc_url,
             breaker,
         )
         .map_err(|e| format!("{}", e))?;

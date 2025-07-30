@@ -1,6 +1,7 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 
 use chrono::Utc;
+use convert_case::Casing;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use litesvm::{
     LiteSVM,
@@ -10,15 +11,16 @@ use litesvm::{
 };
 use solana_account::{Account, ReadableAccount};
 use solana_account_decoder::{
-    UiAccount, UiAccountEncoding, encode_ui_account,
-    parse_account_data::{AccountAdditionalDataV3, SplTokenAdditionalDataV2},
+    UiAccount, UiAccountData, UiAccountEncoding, UiDataSliceConfig, encode_ui_account,
+    parse_account_data::{AccountAdditionalDataV3, ParsedAccount, SplTokenAdditionalDataV2},
 };
 use solana_client::{
     rpc_client::SerializableTransaction,
-    rpc_config::{RpcAccountInfoConfig, RpcBlockConfig},
-    rpc_response::{RpcKeyedAccount, RpcPerfSample},
+    rpc_config::{RpcAccountInfoConfig, RpcBlockConfig, RpcTransactionLogsFilter},
+    rpc_response::{RpcKeyedAccount, RpcLogsResponse, RpcPerfSample},
 };
 use solana_clock::{Clock, MAX_RECENT_BLOCKHASHES, Slot};
+use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
 use solana_feature_set::{FeatureSet, disable_new_loader_v3_deployments};
 use solana_hash::Hash;
@@ -40,9 +42,12 @@ use spl_token_2022::extension::{
     scaled_ui_amount::ScaledUiAmountConfig,
 };
 use surfpool_types::{
-    SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
-    types::{ComputeUnitsEstimationResult, ProfileResult},
+    Idl, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent, VersionedIdl,
+    types::{ComputeUnitsEstimationResult, ProfileResult, UuidOrSignature},
 };
+use txtx_addon_kit::types::types::AddonJsonConverter;
+use txtx_addon_network_svm_types::subgraph::idl::parse_bytes_to_value_with_expected_idl_type_def_ty;
+use uuid::Uuid;
 
 use super::{
     AccountSubscriptionData, BlockHeader, BlockIdentifier, FINALIZATION_SLOT_THRESHOLD,
@@ -52,11 +57,19 @@ use super::{
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
-    surfnet::locker::is_supported_token_program,
+    surfnet::{LogsSubscriptionData, locker::is_supported_token_program},
     types::{MintAccount, SurfnetTransactionStatus, TokenAccount, TransactionWithStatusMeta},
 };
 
 pub type AccountOwner = Pubkey;
+
+pub fn get_txtx_value_json_converters() -> Vec<AddonJsonConverter<'static>> {
+    vec![
+        Box::new(move |value: &txtx_addon_kit::types::types::Value| {
+            txtx_addon_network_svm_types::SvmValue::to_json(value)
+        }) as AddonJsonConverter<'static>,
+    ]
+}
 
 /// `SurfnetSvm` provides a lightweight Solana Virtual Machine (SVM) for testing and simulation.
 ///
@@ -83,7 +96,10 @@ pub struct SurfnetSvm {
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub account_subscriptions: AccountSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
-    pub tagged_profiling_results: HashMap<String, Vec<ProfileResult>>,
+    pub profile_tag_map: HashMap<String, Vec<UuidOrSignature>>,
+    pub simulated_transaction_profiles: HashMap<Uuid, ProfileResult>,
+    pub executed_transaction_profiles: HashMap<Signature, ProfileResult>,
+    pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
@@ -103,6 +119,7 @@ pub struct SurfnetSvm {
     /// For example, when an account is updated in the same slot multiple times,
     /// the update with higher write_version should supersede the one with lower write_version.
     pub write_version: u64,
+    pub registered_idls: HashMap<Pubkey, BinaryHeap<VersionedIdl>>,
 }
 
 impl SurfnetSvm {
@@ -153,7 +170,10 @@ impl SurfnetSvm {
                 signature_subscriptions: HashMap::new(),
                 account_subscriptions: HashMap::new(),
                 slot_subscriptions: Vec::new(),
-                tagged_profiling_results: HashMap::new(),
+                profile_tag_map: HashMap::new(),
+                simulated_transaction_profiles: HashMap::new(),
+                executed_transaction_profiles: HashMap::new(),
+                logs_subscriptions: Vec::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 accounts_registry: HashMap::new(),
                 accounts_by_owner: HashMap::new(),
@@ -170,6 +190,7 @@ impl SurfnetSvm {
                 genesis_config: GenesisConfig::default(),
                 inflation: Inflation::default(),
                 write_version: 0,
+                registered_idls: HashMap::new(),
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -712,6 +733,17 @@ impl SurfnetSvm {
                 slot,
                 None,
             );
+            let Some(SurfnetTransactionStatus::Processed(tx_data)) =
+                self.transactions.get(&signature)
+            else {
+                continue;
+            };
+            self.notify_logs_subscribers(
+                &signature,
+                None,
+                tx_data.meta.log_messages.clone().unwrap_or(vec![]),
+                CommitmentLevel::Confirmed,
+            );
             confirmed_transactions.push(signature);
         }
 
@@ -733,12 +765,23 @@ impl SurfnetSvm {
                 let _ = status_tx.try_send(TransactionStatusEvent::Success(
                     TransactionConfirmationStatus::Finalized,
                 ));
+                let signature = &tx.signatures[0];
                 self.notify_signature_subscribers(
                     SignatureSubscriptionType::finalized(),
-                    &tx.signatures[0],
+                    &signature,
                     self.latest_epoch_info.absolute_slot,
                     None,
                 );
+                let Some(tx_data) = self.transactions.get(&signature) else {
+                    continue;
+                };
+                let logs = tx_data
+                    .expect_processed()
+                    .meta
+                    .log_messages
+                    .clone()
+                    .unwrap_or(vec![]);
+                self.notify_logs_subscribers(signature, None, logs, CommitmentLevel::Finalized);
             } else {
                 requeue.push_back((finalized_at, tx, status_tx));
             }
@@ -748,25 +791,6 @@ impl SurfnetSvm {
             .append(&mut requeue);
 
         Ok(())
-    }
-
-    /// Notifies listeners of an invalid transaction and sends a verification failure event.
-    ///
-    /// # Arguments
-    /// * `signature` - The transaction signature.
-    /// * `status_tx` - The status event sender.
-    pub fn notify_invalid_transaction(
-        &self,
-        signature: Signature,
-        status_tx: Sender<TransactionStatusEvent>,
-    ) {
-        let _ = self.simnet_events_tx.try_send(SimnetEvent::error(format!(
-            "Transaction verification failed: {}",
-            signature
-        )));
-        let _ = status_tx.try_send(TransactionStatusEvent::VerificationFailure(
-            signature.to_string(),
-        ));
     }
 
     /// Writes account updates to the SVM state based on the provided account update result.
@@ -1106,7 +1130,7 @@ impl SurfnetSvm {
 
         RpcKeyedAccount {
             pubkey: pubkey.to_string(),
-            account: encode_ui_account(
+            account: self.encode_ui_account(
                 pubkey,
                 account,
                 config.encoding.unwrap_or(UiAccountEncoding::Base64),
@@ -1207,10 +1231,157 @@ impl SurfnetSvm {
         self.slot_subscriptions
             .retain(|tx| tx.send(SlotInfo { slot, parent, root }).is_ok());
     }
+
+    pub fn write_simulated_profile_result(&mut self, tag: String, profile_result: ProfileResult) {
+        let uuid = Uuid::new_v4();
+        self.simulated_transaction_profiles
+            .insert(uuid, profile_result);
+        self.profile_tag_map
+            .entry(tag)
+            .or_insert_with(Vec::new)
+            .push(UuidOrSignature::Uuid(uuid));
+    }
+
+    pub fn write_executed_profile_result(
+        &mut self,
+        signature: Signature,
+        profile_result: ProfileResult,
+    ) {
+        self.executed_transaction_profiles
+            .insert(signature, profile_result);
+        self.profile_tag_map
+            .entry(signature.to_string())
+            .or_insert_with(Vec::new)
+            .push(UuidOrSignature::Signature(signature));
+    }
+
+    pub fn subscribe_for_logs_updates(
+        &mut self,
+        commitment_level: &CommitmentLevel,
+        filter: &RpcTransactionLogsFilter,
+    ) -> Receiver<(Slot, RpcLogsResponse)> {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        let (tx, rx) = unbounded();
+        self.logs_subscriptions
+            .push((commitment_level.clone(), filter.clone(), tx));
+        rx
+    }
+
+    pub fn notify_logs_subscribers(
+        &mut self,
+        signature: &Signature,
+        err: Option<TransactionError>,
+        logs: Vec<String>,
+        commitment_level: CommitmentLevel,
+    ) {
+        self.updated_at = Utc::now().timestamp_millis() as u64;
+        for (expected_level, _filter, tx) in self.logs_subscriptions.iter() {
+            if expected_level.eq(&commitment_level) {
+                let message = RpcLogsResponse {
+                    signature: signature.to_string(),
+                    err: err.clone(),
+                    logs: logs.clone(),
+                };
+                let _ = tx.send((self.get_latest_absolute_slot(), message));
+            }
+        }
+    }
+
+    pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) {
+        let slot = slot.unwrap_or_else(|| self.latest_epoch_info.absolute_slot);
+        let program_id = Pubkey::from_str_const(&idl.address);
+        self.registered_idls
+            .entry(program_id)
+            .or_insert_with(BinaryHeap::new)
+            .push(VersionedIdl(slot, idl));
+    }
+
+    pub fn encode_ui_account<T: ReadableAccount>(
+        &self,
+        pubkey: &Pubkey,
+        account: &T,
+        encoding: UiAccountEncoding,
+        additional_data: Option<AccountAdditionalDataV3>,
+        data_slice_config: Option<UiDataSliceConfig>,
+    ) -> UiAccount {
+        let owner_program_id = account.owner();
+        let filter_slot = self.latest_epoch_info.absolute_slot; // todo: consider if we should pass in a slot
+        match encoding {
+            UiAccountEncoding::JsonParsed => {
+                if let Some(registered_idls) = self.registered_idls.get(owner_program_id) {
+                    let ordered_available_idls = registered_idls
+                        .iter()
+                        // only get IDLs that are active (their slot is before the latest slot)
+                        .filter_map(|VersionedIdl(slot, idl)| {
+                            if *slot <= filter_slot {
+                                Some(idl)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    // if we have none in this loop, it means the only IDLs registered for this pubkey are for a
+                    // future slot, for some reason. if we have some, we'll try each one in this loop, starting
+                    // with the most recent one, to see if the account data can be parsed to the IDL type
+                    for idl in &ordered_available_idls {
+                        // If we have a valid IDL, use it to parse the account data
+                        let data = account.data();
+                        let discriminator = &data[..8];
+                        if let Some(matching_account) = idl
+                            .accounts
+                            .iter()
+                            .find(|a| a.discriminator.eq(&discriminator))
+                        {
+                            // If we found a matching account, we can look up the type to parse the account
+                            if let Some(account_type) =
+                                idl.types.iter().find(|t| t.name == matching_account.name)
+                            {
+                                // If we found a matching account type, we can use it to parse the account data
+                                let rest = data[8..].as_ref();
+                                if let Ok(parsed_value) =
+                                    parse_bytes_to_value_with_expected_idl_type_def_ty(
+                                        &rest,
+                                        &account_type.ty,
+                                    )
+                                {
+                                    return UiAccount {
+                                        lamports: account.lamports(),
+                                        data: UiAccountData::Json(ParsedAccount {
+                                            program: format!("{}", idl.metadata.name)
+                                                .to_case(convert_case::Case::Kebab),
+                                            parsed: parsed_value
+                                                .to_json(Some(&get_txtx_value_json_converters())),
+                                            space: data.len() as u64,
+                                        }),
+                                        owner: account.owner().to_string(),
+                                        executable: account.executable(),
+                                        rent_epoch: account.rent_epoch(),
+                                        space: Some(account.data().len() as u64),
+                                    };
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        // Fall back to the default encoding
+        encode_ui_account(
+            pubkey,
+            account,
+            encoding,
+            additional_data,
+            data_slice_config,
+        )
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use base64::{Engine, engine::general_purpose};
+    use borsh::BorshSerialize;
     // use test_log::test; // uncomment to get logs from litesvm
     use solana_account::Account;
     use solana_sdk::{
@@ -1579,6 +1750,234 @@ mod tests {
                     "Expected account update event not received after GetAccountResult::FoundAccount update"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_encode_ui_account() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let idl_v1: Idl =
+            serde_json::from_slice(&include_bytes!("../tests/assets/idl_v1.json").to_vec())
+                .unwrap();
+
+        svm.register_idl(idl_v1.clone(), Some(0));
+
+        let account_pubkey = Pubkey::new_unique();
+
+        #[derive(borsh::BorshSerialize)]
+        pub struct CustomAccount {
+            pub my_custom_data: u64,
+            pub another_field: String,
+            pub bool: bool,
+            pub pubkey: Pubkey,
+        }
+
+        // Account data not matching IDL schema should use default encoding
+        {
+            let account_data = vec![0; 100];
+            let base64_data = general_purpose::STANDARD.encode(&account_data);
+            let expected_data = UiAccountData::Binary(base64_data, UiAccountEncoding::Base64);
+            let account = Account {
+                lamports: 1000,
+                data: account_data,
+                owner: idl_v1.address.parse().unwrap(),
+                executable: false,
+                rent_epoch: 0,
+            };
+
+            let ui_account = svm.encode_ui_account(
+                &account_pubkey,
+                &account,
+                UiAccountEncoding::JsonParsed,
+                None,
+                None,
+            );
+            let expected_account = UiAccount {
+                lamports: 1000,
+                data: expected_data,
+                owner: idl_v1.address.clone(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(account.data.len() as u64),
+            };
+            assert_eq!(ui_account, expected_account);
+        }
+
+        // valid account data matching IDL schema should be parsed
+        {
+            let mut account_data = idl_v1.accounts[0].discriminator.clone();
+            let pubkey = Pubkey::new_unique();
+            CustomAccount {
+                my_custom_data: 42,
+                another_field: "test".to_string(),
+                bool: true,
+                pubkey,
+            }
+            .serialize(&mut account_data)
+            .unwrap();
+
+            let account = Account {
+                lamports: 1000,
+                data: account_data,
+                owner: idl_v1.address.parse().unwrap(),
+                executable: false,
+                rent_epoch: 0,
+            };
+
+            let ui_account = svm.encode_ui_account(
+                &account_pubkey,
+                &account,
+                UiAccountEncoding::JsonParsed,
+                None,
+                None,
+            );
+            let expected_account = UiAccount {
+                lamports: 1000,
+                data: UiAccountData::Json(ParsedAccount {
+                    program: format!("{}", idl_v1.metadata.name).to_case(convert_case::Case::Kebab),
+                    parsed: serde_json::json!({
+                        "my_custom_data": 42,
+                        "another_field": "test",
+                        "bool": true,
+                        "pubkey": pubkey.to_string(),
+                    }),
+                    space: account.data.len() as u64,
+                }),
+                owner: idl_v1.address.clone(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(account.data.len() as u64),
+            };
+            assert_eq!(ui_account, expected_account);
+        }
+
+        let idl_v2: Idl =
+            serde_json::from_slice(&include_bytes!("../tests/assets/idl_v2.json").to_vec())
+                .unwrap();
+
+        svm.register_idl(idl_v2.clone(), Some(100));
+
+        // even though we have a new IDL that is more recent, we should be able to match with the old IDL
+        {
+            let mut account_data = idl_v1.accounts[0].discriminator.clone();
+            let pubkey = Pubkey::new_unique();
+            CustomAccount {
+                my_custom_data: 42,
+                another_field: "test".to_string(),
+                bool: true,
+                pubkey,
+            }
+            .serialize(&mut account_data)
+            .unwrap();
+
+            let account = Account {
+                lamports: 1000,
+                data: account_data,
+                owner: idl_v1.address.parse().unwrap(),
+                executable: false,
+                rent_epoch: 0,
+            };
+
+            let ui_account = svm.encode_ui_account(
+                &account_pubkey,
+                &account,
+                UiAccountEncoding::JsonParsed,
+                None,
+                None,
+            );
+            let expected_account = UiAccount {
+                lamports: 1000,
+                data: UiAccountData::Json(ParsedAccount {
+                    program: format!("{}", idl_v1.metadata.name).to_case(convert_case::Case::Kebab),
+                    parsed: serde_json::json!({
+                        "my_custom_data": 42,
+                        "another_field": "test",
+                        "bool": true,
+                        "pubkey": pubkey.to_string(),
+                    }),
+                    space: account.data.len() as u64,
+                }),
+                owner: idl_v1.address.clone(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(account.data.len() as u64),
+            };
+            assert_eq!(ui_account, expected_account);
+        }
+
+        // valid account data matching IDL v2 schema should be parsed, if svm slot reaches IDL registration slot
+        {
+            // use the v2 shape of the custom account
+            #[derive(borsh::BorshSerialize)]
+            pub struct CustomAccount {
+                pub my_custom_data: u64,
+                pub another_field: String,
+                pub pubkey: Pubkey,
+            }
+            let mut account_data = idl_v1.accounts[0].discriminator.clone();
+            let pubkey = Pubkey::new_unique();
+            CustomAccount {
+                my_custom_data: 42,
+                another_field: "test".to_string(),
+                pubkey,
+            }
+            .serialize(&mut account_data)
+            .unwrap();
+
+            let account = Account {
+                lamports: 1000,
+                data: account_data.clone(),
+                owner: idl_v1.address.parse().unwrap(),
+                executable: false,
+                rent_epoch: 0,
+            };
+
+            let ui_account = svm.encode_ui_account(
+                &account_pubkey,
+                &account,
+                UiAccountEncoding::JsonParsed,
+                None,
+                None,
+            );
+            let base64_data = general_purpose::STANDARD.encode(&account_data);
+            let expected_data = UiAccountData::Binary(base64_data, UiAccountEncoding::Base64);
+            let expected_account = UiAccount {
+                lamports: 1000,
+                data: expected_data,
+                owner: idl_v1.address.clone(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(account.data.len() as u64),
+            };
+            assert_eq!(ui_account, expected_account);
+
+            svm.latest_epoch_info.absolute_slot = 100; // simulate reaching the slot where IDL v2 was registered
+
+            let ui_account = svm.encode_ui_account(
+                &account_pubkey,
+                &account,
+                UiAccountEncoding::JsonParsed,
+                None,
+                None,
+            );
+            let expected_account = UiAccount {
+                lamports: 1000,
+                data: UiAccountData::Json(ParsedAccount {
+                    program: format!("{}", idl_v1.metadata.name).to_case(convert_case::Case::Kebab),
+                    parsed: serde_json::json!({
+                        "my_custom_data": 42,
+                        "another_field": "test",
+                        "pubkey": pubkey.to_string(),
+                    }),
+                    space: account.data.len() as u64,
+                }),
+                owner: idl_v1.address.clone(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(account.data.len() as u64),
+            };
+            assert_eq!(ui_account, expected_account);
         }
     }
 }

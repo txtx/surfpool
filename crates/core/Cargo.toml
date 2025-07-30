@@ -19,6 +19,7 @@ bincode = { workspace = true }
 borsh = { workspace = true }
 bs58 = "0.5.1"
 chrono = "0.4"
+convert_case = { workspace = true }
 crossbeam = "0.8.4"
 crossbeam-channel = { workspace = true }
 hex = { workspace = true }

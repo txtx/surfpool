@@ -11,7 +11,7 @@ use actix_web::{
     dev::ServerHandle,
     http::header::{self},
     middleware,
-    web::{self, Data},
+    web::{self, Data, route},
 };
 use convert_case::{Case, Casing};
 use crossbeam::channel::{Receiver, Select, Sender};
@@ -26,10 +26,13 @@ use surfpool_gql::{
     query::{CollectionMetadataMap, Dataloader, DataloaderContext, SqlStore},
     types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata},
 };
-use surfpool_types::{DataIndexingCommand, SubgraphCommand, SubgraphEvent, SurfpoolConfig};
+use surfpool_studio_ui::serve_studio_static_files;
+use surfpool_types::{
+    DataIndexingCommand, SanitizedConfig, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
+};
 use txtx_core::kit::types::types::Value;
 
-use crate::cli::{CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED, Context};
+use crate::cli::Context;
 
 #[cfg(feature = "explorer")]
 #[derive(RustEmbed)]
@@ -39,7 +42,7 @@ pub struct Asset;
 pub async fn start_subgraph_and_explorer_server(
     network_binding: String,
     subgraph_database_path: &str,
-    _config: SurfpoolConfig,
+    config: SanitizedConfig,
     subgraph_events_tx: Sender<SubgraphEvent>,
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     ctx: &Context,
@@ -51,6 +54,7 @@ pub async fn start_subgraph_and_explorer_server(
     let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
     let schema_wrapped = Data::new(schema);
     let context_wrapped = Data::new(RwLock::new(context));
+    let config_wrapped = Data::new(RwLock::new(config.clone()));
 
     let subgraph_handle = start_subgraph_runloop(
         subgraph_events_tx,
@@ -58,6 +62,7 @@ pub async fn start_subgraph_and_explorer_server(
         context_wrapped.clone(),
         schema_wrapped.clone(),
         schema_datasource,
+        config,
         ctx,
     )?;
 
@@ -65,6 +70,7 @@ pub async fn start_subgraph_and_explorer_server(
         App::new()
             .app_data(schema_wrapped.clone())
             .app_data(context_wrapped.clone())
+            .app_data(config_wrapped.clone())
             .wrap(
                 Cors::default()
                     .allow_any_origin()
@@ -76,6 +82,7 @@ pub async fn start_subgraph_and_explorer_server(
             )
             .wrap(middleware::Compress::default())
             .wrap(middleware::Logger::default())
+            .service(get_config)
             .service(
                 web::scope("/gql")
                     .route("/v1/graphql?<request..>", web::get().to(get_graphql))
@@ -83,7 +90,7 @@ pub async fn start_subgraph_and_explorer_server(
                     .route("/v1/subscriptions", web::get().to(subscriptions))
                     .route("/console", web::get().to(graphiql)),
             )
-            .service(dist)
+            .service(serve_studio_static_files)
     })
     .workers(5)
     .bind(network_binding)?
@@ -110,6 +117,21 @@ fn handle_embedded_file(path: &str) -> HttpResponse {
             }
         }
     }
+}
+
+#[actix_web::get("/config")]
+async fn get_config(
+    req: HttpRequest,
+    payload: web::Payload,
+    config: Data<RwLock<SanitizedConfig>>,
+) -> Result<HttpResponse, Error> {
+    let config = config
+        .read()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read context"))?;
+    let api_config = serde_json::json!(*config);
+    Ok(HttpResponse::Ok()
+        .content_type("application/json")
+        .body(api_config.to_string()))
 }
 
 #[cfg(not(feature = "explorer"))]
@@ -191,6 +213,7 @@ fn start_subgraph_runloop(
     gql_context: Data<RwLock<DataloaderContext>>,
     gql_schema: Data<RwLock<Option<DynamicSchema>>>,
     mut collections_map: CollectionMetadataMap,
+    config: SanitizedConfig,
     ctx: &Context,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let ctx = ctx.clone();
@@ -234,10 +257,7 @@ fn start_subgraph_runloop(
                                 collections_map.add_collection(metadata);
                                 gql_schema.replace(new_dynamic_schema(collections_map.clone()));
 
-                                let console_url = format!(
-                                    "http://127.0.0.1:{}/gql/console",
-                                    CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED
-                                );
+                                let console_url = format!("{}/subgraphs", config.studio_url.clone());
                                 let _ = sender.send(console_url);
                             }
                             SubgraphCommand::ObserveCollection(subgraph_observer_rx) => {

@@ -22,7 +22,7 @@ atty = "0.2.13"
 chrono = "0.4"
 clap = { version = "4.5.27", features = ["derive"], optional = true }
 clap_complete = "4.5.44"
-convert_case = "0.7.1"
+convert_case = { workspace = true }
 crossbeam = "0.8.4"
 crossterm = "0.28.1"
 ctrlc = { version = "3.4.5", optional = true }
@@ -52,6 +52,7 @@ surfpool-core = { workspace = true }
 surfpool-gql = { workspace = true }
 surfpool-types = { workspace = true }
 surfpool-mcp = { workspace = true }
+surfpool-studio-ui = { workspace = true }
 tokio = { workspace = true }
 toml = { version = "0.8.2", features = ["preserve_order"], optional = true }
 txtx-addon-network-svm = { workspace = true }

@@ -4,13 +4,17 @@ use jsonrpc_derive::rpc;
 use solana_account::Account;
 use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_response::RpcResponseContext;
+use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{program_option::COption, system_program, transaction::VersionedTransaction};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    SimnetEvent,
-    types::{AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate},
+    Idl, SimnetEvent,
+    types::{
+        AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate,
+        UuidOrSignature,
+    },
 };
 
 use super::{RunloopContext, SurfnetRpcContext};
@@ -272,12 +276,12 @@ pub trait SvmTricksRpc {
     ///
     /// ## Returns
     /// A `RpcResponse<Vec<ProfileResult>>` containing the profiling results.
-    #[rpc(meta, name = "surfnet_getProfileResults")]
-    fn get_profile_results(
+    #[rpc(meta, name = "surfnet_getProfileResultsByTag")]
+    fn get_profile_results_by_tag(
         &self,
         meta: Self::Metadata,
         tag: String,
-    ) -> Result<RpcResponse<Vec<ProfileResult>>>;
+    ) -> BoxFuture<Result<RpcResponse<Option<Vec<ProfileResult>>>>>;
 
     /// A "cheat code" method for developers to set or update the network supply information in Surfpool.
     ///
@@ -374,6 +378,198 @@ pub trait SvmTricksRpc {
         program_id_str: String,
         new_authority_str: Option<String>,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
+
+    /// A cheat code to get the transaction profile for a given signature or UUID.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `signature_or_uuid`: The transaction signature (as a base-58 string) or a UUID (as a string) for which to retrieve the profile.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<Option<ProfileResult>>` containing the transaction profile if found, or `None` if not found.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_getTransactionProfile",
+    ///   "params": [
+    ///     "5Nf3...TxSignatureOrUuidHere"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "context": {
+    ///     "slot": 355684457,
+    ///     "apiVersion": "2.2.2"
+    ///   },
+    ///   "value": { /* ...ProfileResult object... */ },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_getTransactionProfile")]
+    fn get_transaction_profile(
+        &self,
+        meta: Self::Metadata,
+        signature_or_uuid: UuidOrSignature,
+    ) -> BoxFuture<Result<RpcResponse<Option<ProfileResult>>>>;
+
+    /// A cheat code to register an IDL for a given program in memory.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `idl`: The full IDL object to be registered in memory. The `address` field should match the program's public key.
+    /// - `slot` (optional): The slot at which to register the IDL. If omitted, uses the latest slot.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the IDL registration was successful.
+    ///
+    /// ## Example Request (with slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_registerIdl",
+    ///   "params": [
+    ///     {
+    ///       "address": "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa",
+    ///       "metadata": {
+    ///         "name": "test",
+    ///         "version": "0.1.0",
+    ///         "spec": "0.1.0",
+    ///         "description": "Created with Anchor"
+    ///       },
+    ///       "instructions": [
+    ///         {
+    ///           "name": "initialize",
+    ///           "discriminator": [175,175,109,31,13,152,155,237],
+    ///           "accounts": [],
+    ///           "args": []
+    ///         }
+    ///       ],
+    ///       "accounts": [],
+    ///       "types": [],
+    ///       "events": [],
+    ///       "errors": [],
+    ///       "constants": [],
+    ///       "state": null
+    ///     },
+    ///     355684457
+    ///   ]
+    /// }
+    /// ```
+    /// ## Example Request (without slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_registerIdl",
+    ///   "params": [
+    ///     {
+    ///       "address": "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa",
+    ///       "metadata": {
+    ///         "name": "test",
+    ///         "version": "0.1.0",
+    ///         "spec": "0.1.0",
+    ///         "description": "Created with Anchor"
+    ///       },
+    ///       "instructions": [
+    ///         {
+    ///           "name": "initialize",
+    ///           "discriminator": [175,175,109,31,13,152,155,237],
+    ///           "accounts": [],
+    ///           "args": []
+    ///         }
+    ///       ],
+    ///       "accounts": [],
+    ///       "types": [],
+    ///       "events": [],
+    ///       "errors": [],
+    ///       "constants": [],
+    ///       "state": null
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "context": {
+    ///     "slot": 355684457,
+    ///     "apiVersion": "2.2.2"
+    ///   },
+    ///   "value": null,
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_registerIdl")]
+    fn register_idl(
+        &self,
+        meta: Self::Metadata,
+        idl: Idl,
+        slot: Option<Slot>,
+    ) -> Result<RpcResponse<()>>;
+
+    /// A cheat code to get the registered IDL for a given program ID.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `program_id`: The base-58 encoded public key of the program whose IDL is being requested.
+    /// - `slot` (optional): The slot at which to query the IDL. If omitted, uses the latest slot.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<Option<Idl>>` containing the IDL if it exists, or `None` if not found.
+    ///
+    /// ## Example Request (with slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_getIdl",
+    ///   "params": [
+    ///     "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa",
+    ///     355684457
+    ///   ]
+    /// }
+    /// ```
+    /// ## Example Request (without slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_getIdl",
+    ///   "params": [
+    ///     "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "context": {
+    ///     "slot": 355684457,
+    ///     "apiVersion": "2.2.2"
+    ///   },
+    ///   "value": { /* ...IDL object... */ },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_getActiveIdl")]
+    fn get_idl(
+        &self,
+        meta: Self::Metadata,
+        program_id: String,
+        slot: Option<Slot>,
+    ) -> Result<RpcResponse<Option<Idl>>>;
 }
 
 #[derive(Clone)]
@@ -623,14 +819,8 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 inner: profile_result,
                 ..
             } = svm_locker
-                .profile_transaction(&remote_ctx, transaction, encoding)
+                .profile_transaction(&remote_ctx, transaction, encoding, tag.clone())
                 .await?;
-
-            if let Some(tag_str) = tag {
-                if profile_result.compute_units.success {
-                    svm_locker.write_profiling_results(tag_str, profile_result.clone());
-                }
-            }
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
@@ -639,24 +829,23 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         })
     }
 
-    fn get_profile_results(
+    fn get_profile_results_by_tag(
         &self,
         meta: Self::Metadata,
         tag: String,
-    ) -> Result<RpcResponse<Vec<ProfileResult>>> {
-        meta.with_svm_reader(|svm_reader| {
-            let results = svm_reader
-                .tagged_profiling_results
-                .get(&tag)
-                .cloned()
-                .unwrap_or_default();
-
-            RpcResponse {
-                context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
-                value: results,
-            }
+    ) -> BoxFuture<Result<RpcResponse<Option<Vec<ProfileResult>>>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+        Box::pin(async move {
+            let profiles = svm_locker.get_profile_results_by_tag(tag)?;
+            let slot = svm_locker.get_latest_absolute_slot();
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
+                value: profiles,
+            })
         })
-        .map_err(Into::into)
     }
 
     fn set_supply(
@@ -741,6 +930,67 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                 context: RpcResponseContext::new(slot),
                 value: (),
             })
+        })
+    }
+
+    fn get_transaction_profile(
+        &self,
+        meta: Self::Metadata,
+        signature_or_uuid: UuidOrSignature,
+    ) -> BoxFuture<Result<RpcResponse<Option<ProfileResult>>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+        Box::pin(async move {
+            let profile_result = svm_locker.get_profile_result(signature_or_uuid.clone())?;
+            let context_slot = profile_result
+                .as_ref()
+                .map(|pr| pr.slot)
+                .unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(context_slot),
+                value: profile_result,
+            })
+        })
+    }
+
+    fn register_idl(
+        &self,
+        meta: Self::Metadata,
+        idl: Idl,
+        slot: Option<Slot>,
+    ) -> Result<RpcResponse<()>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return Err(e.into()),
+        };
+        svm_locker.register_idl(idl, slot);
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: (),
+        })
+    }
+
+    fn get_idl(
+        &self,
+        meta: Self::Metadata,
+        program_id: String,
+        slot: Option<Slot>,
+    ) -> Result<RpcResponse<Option<Idl>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return Err(e.into()),
+        };
+        let program_id = match verify_pubkey(&program_id) {
+            Ok(pk) => pk,
+            Err(e) => return Err(e.into()),
+        };
+        let idl = svm_locker.get_idl(&program_id, slot);
+        let slot = slot.unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(slot),
+            value: idl,
         })
     }
 }

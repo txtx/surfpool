@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt, path::PathBuf};
+use std::{cmp::Ordering, collections::BTreeMap, fmt, path::PathBuf, str::FromStr};
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
@@ -7,7 +7,7 @@ use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Visitor};
 use serde_with::{BytesOrString, serde_as};
 use solana_account_decoder_client_types::UiAccount;
-use solana_clock::{Clock, Epoch};
+use solana_clock::{Clock, Epoch, Slot};
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
@@ -21,7 +21,10 @@ use uuid::Uuid;
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEFAULT_RPC_PORT: u16 = 8899;
 pub const DEFAULT_WS_PORT: u16 = 8900;
+pub const DEFAULT_STUDIO_PORT: u16 = 8488;
+pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
+pub type Idl = anchor_lang_idl::types::Idl;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionMetadata {
@@ -104,12 +107,40 @@ pub struct ComputeUnitsEstimationResult {
 pub struct ProfileResult {
     pub compute_units: ComputeUnitsEstimationResult,
     pub state: ProfileState,
+    pub slot: u64,
+    pub uuid: Option<Uuid>,
+}
+
+impl ProfileResult {
+    pub fn success(
+        compute_units_consumed: u64,
+        logs: Vec<String>,
+        pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+        post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+        slot: u64,
+        uuid: Option<Uuid>,
+    ) -> Self {
+        Self {
+            compute_units: ComputeUnitsEstimationResult {
+                success: true,
+                compute_units_consumed,
+                log_messages: Some(logs),
+                error_message: None,
+            },
+            state: ProfileState::new(pre_execution, post_execution),
+            slot,
+            uuid,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+
 pub struct ProfileState {
+    #[serde(with = "profile_state_map")]
     pub pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+    #[serde(with = "profile_state_map")]
     pub post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
 }
 
@@ -122,6 +153,39 @@ impl ProfileState {
             pre_execution,
             post_execution,
         }
+    }
+}
+
+pub mod profile_state_map {
+    use super::*;
+
+    pub fn serialize<S>(
+        map: &BTreeMap<Pubkey, Option<UiAccount>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let str_map: BTreeMap<String, &Option<UiAccount>> =
+            map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        str_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<BTreeMap<Pubkey, Option<UiAccount>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let str_map: BTreeMap<String, Option<UiAccount>> = BTreeMap::deserialize(deserializer)?;
+        str_map
+            .into_iter()
+            .map(|(k, v)| {
+                Pubkey::from_str(&k)
+                    .map(|pk| (pk, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
     }
 }
 
@@ -224,7 +288,7 @@ impl SimnetEvent {
         match self {
             SimnetEvent::EpochInfoUpdate(epoch_info) => {
                 format!(
-                    "Connection established. Epoch {} / Slot index {} / Slot {}.",
+                    "Datasource connection successful. Epoch {} / Slot index {} / Slot {}.",
                     epoch_info.epoch, epoch_info.slot_index, epoch_info.absolute_slot
                 )
             }
@@ -287,11 +351,21 @@ pub enum ClockEvent {
     ExpireBlockHash,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SanitizedConfig {
+    pub rpc_url: String,
+    pub ws_url: String,
+    pub rpc_datasource_url: String,
+    pub studio_url: String,
+    pub graphql_query_route_url: String,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SurfpoolConfig {
     pub simnets: Vec<SimnetConfig>,
     pub rpc: RpcConfig,
     pub subgraph: SubgraphConfig,
+    pub studio: StudioConfig,
     pub plugin_config_path: Vec<PathBuf>,
 }
 
@@ -318,6 +392,18 @@ impl Default for SimnetConfig {
     }
 }
 
+impl SimnetConfig {
+    pub fn get_sanitized_datasource_url(&self) -> String {
+        self.remote_rpc_url
+            .split("?")
+            .map(|e| e.to_string())
+            .collect::<Vec<String>>()
+            .first()
+            .expect("datasource url invalid")
+            .to_string()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SubgraphConfig {}
 
@@ -329,19 +415,12 @@ pub struct RpcConfig {
 }
 
 impl RpcConfig {
-    pub fn get_socket_address(&self) -> String {
+    pub fn get_rpc_base_url(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
-    pub fn get_ws_address(&self) -> String {
+    pub fn get_ws_base_url(&self) -> String {
         format!("{}:{}", self.bind_host, self.ws_port)
     }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SubgraphPluginConfig {
-    pub uuid: Uuid,
-    pub ipc_token: String,
-    pub subgraph_request: SubgraphRequest,
 }
 
 impl Default for RpcConfig {
@@ -352,6 +431,34 @@ impl Default for RpcConfig {
             ws_port: DEFAULT_WS_PORT,
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct StudioConfig {
+    pub bind_host: String,
+    pub bind_port: u16,
+}
+
+impl StudioConfig {
+    pub fn get_studio_base_url(&self) -> String {
+        format!("{}:{}", self.bind_host, self.bind_port)
+    }
+}
+
+impl Default for StudioConfig {
+    fn default() -> Self {
+        Self {
+            bind_host: DEFAULT_NETWORK_HOST.to_string(),
+            bind_port: CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SubgraphPluginConfig {
+    pub uuid: Uuid,
+    pub ipc_token: String,
+    pub subgraph_request: SubgraphRequest,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -505,8 +612,60 @@ pub struct SupplyUpdate {
     pub non_circulating_accounts: Option<Vec<String>>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub enum UuidOrSignature {
+    Uuid(Uuid),
+    Signature(Signature),
+}
+
+impl<'de> Deserialize<'de> for UuidOrSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        if let Ok(uuid) = Uuid::parse_str(&s) {
+            return Ok(UuidOrSignature::Uuid(uuid));
+        }
+
+        if let Ok(signature) = s.parse::<Signature>() {
+            return Ok(UuidOrSignature::Signature(signature));
+        }
+
+        Err(serde::de::Error::custom(
+            "expected a Uuid or a valid Solana Signature",
+        ))
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum DataIndexingCommand {
     ProcessCollection(Uuid),
     ProcessCollectionEntriesPack(Uuid, Vec<u8>),
+}
+
+// Define a wrapper struct
+#[derive(Debug, Clone)]
+pub struct VersionedIdl(pub Slot, pub Idl);
+
+// Implement ordering based on Slot
+impl PartialEq for VersionedIdl {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for VersionedIdl {}
+
+impl PartialOrd for VersionedIdl {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for VersionedIdl {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0)
+    }
 }

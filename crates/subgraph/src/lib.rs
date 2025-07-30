@@ -5,7 +5,7 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
     ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
 };
 use ipc_channel::ipc::IpcSender;
-use solana_program::clock::Slot;
+use solana_clock::Slot;
 use solana_signature::Signature;
 use surfpool_types::{DataIndexingCommand, SubgraphPluginConfig};
 use txtx_addon_network_svm::Pubkey;
