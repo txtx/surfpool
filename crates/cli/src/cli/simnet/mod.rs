@@ -306,7 +306,7 @@ fn log_events(
                             ctx.expect_logger(),
                             "Profiled [{}]: {} CUs",
                             tag,
-                            result.compute_units.compute_units_consumed
+                            result.profile.transaction_profile.compute_units_consumed
                         );
                     }
                     SimnetEvent::RunbookStarted(runbook_id) => {

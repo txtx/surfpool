@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -49,8 +49,9 @@ use solana_transaction_status::{
     UiTransactionEncoding,
 };
 use surfpool_types::{
-    ComputeUnitsEstimationResult, KeyedProfileResult, ProfileState, ProfiledInstructionsMap,
-    SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature,
+    ComputeUnitsEstimationResult, KeyedProfileResult, ProfileResult, ProfileState,
+    ProfiledInstructionsMap, SimnetEvent, TransactionConfirmationStatus, TransactionProfileResult,
+    TransactionStatusEvent, UuidOrSignature,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -927,7 +928,7 @@ impl SurfnetSvmLocker {
                         pre_execution_capture.clone(),
                         post_execution_capture,
                         latest_absolute_slot,
-                        Some(Uuid::new_v4()),
+                        UuidOrSignature::Uuid(Uuid::new_v4()),
                     );
                     svm_writer.write_executed_profile_result(signature, profile_result);
 
@@ -1512,18 +1513,18 @@ impl SurfnetSvmLocker {
         let ix_count = instructions.len();
         let message_accounts = transaction.message.static_account_keys();
 
-        let last_signer_index = (transaction.message.header().num_required_signatures - 1) as usize;
+        let last_signer_index = transaction.message.header().num_required_signatures as usize - 1;
         let last_mutable_signer_index: usize =
-            last_signer_index - transaction.message.header().num_readonly_signed_accounts;
+            last_signer_index - transaction.message.header().num_readonly_signed_accounts as usize;
         let accounts_len = message_accounts.len();
         let last_mutable_non_signer_index: usize =
-            accounts_len - transaction.message.header().num_readonly_unsigned_accounts;
+            accounts_len - transaction.message.header().num_readonly_unsigned_accounts as usize;
 
-        let mutable_signers = message_accounts[0..last_mutable_signer_index];
-        let readonly_signers = message_accounts[last_mutable_signer_index..last_signer_index];
+        let mutable_signers = &message_accounts[0..last_mutable_signer_index];
+        let readonly_signers = &message_accounts[last_mutable_signer_index..last_signer_index];
         let mutable_non_signers =
-            message_accounts[last_signer_index..last_mutable_non_signer_index];
-        let readonly_non_signers = message_accounts[last_mutable_non_signer_index..];
+            &message_accounts[last_signer_index..last_mutable_non_signer_index];
+        let readonly_non_signers = &message_accounts[last_mutable_non_signer_index..];
 
         let mut ix_profile_results: ProfiledInstructionsMap = HashMap::new();
 
@@ -1535,7 +1536,7 @@ impl SurfnetSvmLocker {
             let mut new_mutable_non_signers = HashSet::new();
             let mut new_readonly_non_signers = HashSet::new();
 
-            for ix in ixs_for_tx {
+            for ix in ixs_for_tx.clone() {
                 let mut all_accounts_indexes = ix.accounts.clone();
                 all_accounts_indexes.push(ix.program_id_index);
                 for account_idx in ix.accounts {
@@ -1554,30 +1555,30 @@ impl SurfnetSvmLocker {
                 }
             }
 
-            let num_required_signatures: u8 =
+            let num_required_signatures: usize =
                 new_mutable_signers.len() + new_readonly_signers.len();
-            let num_readonly_signed_accounts: u8 = new_readonly_signers.len();
-            let num_readonly_unsigned_accounts: u8 = new_readonly_non_signers.len();
+            let num_readonly_signed_accounts: usize = new_readonly_signers.len();
+            let num_readonly_unsigned_accounts: usize = new_readonly_non_signers.len();
 
-            new_mutable_signers.append(&mut new_readonly_signers);
-            new_mutable_signers.append(&mut new_mutable_non_signers);
-            new_mutable_signers.append(&mut new_readonly_non_signers);
+            new_mutable_signers.extend(new_readonly_signers);
+            new_mutable_signers.extend(new_mutable_non_signers);
+            new_mutable_signers.extend(new_readonly_non_signers);
 
             let new_account_keys = new_mutable_signers.iter().cloned().collect::<Vec<_>>();
 
             let new_message = Message {
                 header: MessageHeader {
-                    num_required_signatures,
-                    num_readonly_signed_accounts,
-                    num_readonly_unsigned_accounts,
+                    num_required_signatures: num_required_signatures as u8,
+                    num_readonly_signed_accounts: num_readonly_signed_accounts as u8,
+                    num_readonly_unsigned_accounts: num_readonly_unsigned_accounts as u8,
                 },
                 account_keys: new_account_keys,
-                recent_blockhash: transaction.message.recent_blockhash(),
+                recent_blockhash: *transaction.message.recent_blockhash(),
                 instructions: ixs_for_tx,
             };
 
             let tx = Transaction {
-                signatures: transaction.signatures[0..num_required_signatures],
+                signatures: transaction.signatures[0..num_required_signatures].to_vec(),
                 message: new_message,
             };
 
@@ -1687,10 +1688,17 @@ impl SurfnetSvmLocker {
 
         let uuid = Uuid::new_v4();
         let profile_result = KeyedProfileResult {
-            compute_units: compute_units_estimation_result,
-            state: ProfileState::new(pre_execution_capture, post_execution_capture),
+            profile: TransactionProfileResult {
+                instruction_profiles: None,
+                transaction_profile: ProfileResult {
+                    state: ProfileState::new(pre_execution_capture, post_execution_capture),
+                    compute_units_consumed: compute_units_estimation_result.compute_units_consumed,
+                    log_messages: None,
+                    error_message: None,
+                },
+            },
             slot,
-            key: Some(uuid),
+            key: UuidOrSignature::Uuid(uuid),
         };
 
         self.with_svm_writer(|svm| {

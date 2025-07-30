@@ -14,9 +14,7 @@ use serde_with::{BytesOrString, serde_as};
 use solana_account_decoder_client_types::UiAccount;
 use solana_clock::{Clock, Epoch};
 use solana_epoch_info::EpochInfo;
-use solana_message::{
-    compiled_instruction::CompiledInstruction, inner_instruction::InnerInstructionsList,
-};
+use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
@@ -140,19 +138,22 @@ impl KeyedProfileResult {
         compute_units_consumed: u64,
         logs: Vec<String>,
         pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+        post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
         slot: u64,
         key: UuidOrSignature,
     ) -> Self {
         Self {
-            compute_units: ComputeUnitsEstimationResult {
-                success: true,
-                compute_units_consumed,
-                log_messages: Some(logs),
-                error_message: None,
+            profile: TransactionProfileResult {
+                instruction_profiles: None,
+                transaction_profile: ProfileResult {
+                    state: ProfileState::new(pre_execution, post_execution),
+                    compute_units_consumed,
+                    log_messages: Some(logs),
+                    error_message: None,
+                },
             },
-            state: ProfileState::new(pre_execution, post_execution),
             slot,
-            key: uuid,
+            key,
         }
     }
 }

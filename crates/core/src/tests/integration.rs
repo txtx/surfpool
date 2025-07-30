@@ -604,15 +604,25 @@ async fn test_surfnet_estimate_compute_units() {
     let rpc_response_value_no_tag = response_no_tag_initial.unwrap().value;
 
     assert!(
-        rpc_response_value_no_tag.compute_units.success,
+        rpc_response_value_no_tag
+            .profile
+            .transaction_profile
+            .state
+            .success,
         "CU estimation with None tag failed"
     );
     println!(
         "Initial CU estimation (no tag): consumed = {}, success = {}",
         rpc_response_value_no_tag
-            .compute_units
+            .profile
+            .transaction_profile
+            .state
             .compute_units_consumed,
-        rpc_response_value_no_tag.compute_units.success
+        rpc_response_value_no_tag
+            .profile
+            .transaction_profile
+            .state
+            .success
     );
     assert!(
         rpc_response_value_no_tag
