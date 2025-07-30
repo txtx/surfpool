@@ -1582,117 +1582,19 @@ impl SurfnetSvmLocker {
                 signatures: transaction.signatures[0..num_required_signatures].to_vec(),
                 message: new_message,
             };
-
-            // now profile the transaction and add our results to ix_profile_results
+ 
             let versioned_tx = VersionedTransaction::from(tx);
+            let profile_result = self
+                .profile_transaction(remote_ctx, versioned_tx, encoding, None)
+                .await?
+                .inner;
 
-            // Create a new SVM clone for this profiling iteration
-            let SvmAccessContext {
-                slot: _slot,
-                latest_epoch_info: _latest_epoch_info,
-                latest_blockhash: _latest_blockhash,
-                inner: mut svm_clone,
-            } = self.with_contextualized_svm_reader(|svm_reader| svm_reader.clone());
-
-            let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
-            let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
-            svm_clone.simnet_events_tx = dummy_simnet_tx;
-            svm_clone.geyser_events_tx = dummy_geyser_tx;
-
-            let svm_locker = SurfnetSvmLocker::new(svm_clone);
-            let remote_ctx_with_config = remote_ctx
-                .clone()
-                .map(|client| (client, CommitmentConfig::confirmed()));
-
-            // Get loaded addresses and account keys for this partial transaction
-            let loaded_addresses = svm_locker
-                .get_loaded_addresses(&remote_ctx_with_config, &versioned_tx.message)
-                .await?;
-            let account_keys =
-                svm_locker.get_pubkeys_from_message(&versioned_tx.message, loaded_addresses);
-
-            // Capture pre-execution state
-            let pre_execution_capture = {
-                let mut capture = BTreeMap::new();
-                for pubkey in &account_keys {
-                    let account = svm_locker
-                        .get_account(&remote_ctx_with_config, pubkey, None)
-                        .await?
-                        .inner;
-                    svm_locker.snapshot_get_account_result(&mut capture, account, encoding);
-                }
-                capture
-            };
-
-            // Estimate compute units for the partial transaction
-            let compute_units_estimation_result =
-                svm_locker.estimate_compute_units(&versioned_tx).inner;
-
-            // Process the partial transaction
-            let (status_tx, status_rx) = crossbeam_channel::unbounded();
-            let signature = versioned_tx.signatures[0];
-            let _ = svm_locker
-                .process_transaction(remote_ctx, versioned_tx, status_tx, true)
-                .await?;
-
-            // Wait for transaction completion
-            let simnet_events_tx = self.simnet_events_tx();
-            loop {
-                if let Ok(status) = status_rx.try_recv() {
-                    match status {
-                        TransactionStatusEvent::Success(_) => break,
-                        TransactionStatusEvent::ExecutionFailure((err, _)) => {
-                            let _ = simnet_events_tx.try_send(SimnetEvent::WarnLog(
-                                chrono::Local::now(),
-                                format!(
-                                    "Partial transaction {} failed during instruction profiling: {}",
-                                    signature, err
-                                ),
-                            ));
-                            return Err(SurfpoolError::internal(format!(
-                                "Partial transaction {} failed during instruction profiling: {}",
-                                signature, err
-                            )));
-                        }
-                        TransactionStatusEvent::SimulationFailure(_) => unreachable!(),
-                        TransactionStatusEvent::VerificationFailure(_) => {
-                            let _ = simnet_events_tx.try_send(SimnetEvent::WarnLog(
-                                chrono::Local::now(),
-                                format!(
-                                    "Partial transaction {} verification failed during instruction profiling",
-                                    signature
-                                ),
-                            ));
-                            return Err(SurfpoolError::internal(format!(
-                                "Partial transaction {} verification failed during instruction profiling",
-                                signature
-                            )));
-                        }
-                    }
-                }
-            }
-
-            // Capture post-execution state
-            let post_execution_capture = {
-                let mut capture = BTreeMap::new();
-                for pubkey in &account_keys {
-                    let account = svm_locker.get_account_local(pubkey).inner;
-                    svm_locker.snapshot_get_account_result(&mut capture, account, encoding);
-                }
-                capture
-            };
-
-            // Create the profile result for this instruction set
-            let profile_result = ProfileResult {
-                state: ProfileState::new(pre_execution_capture, post_execution_capture),
-                compute_units_consumed: compute_units_estimation_result.compute_units_consumed,
-                log_messages: None,
-                error_message: None,
-            };
-
-            // Store the result with instruction indexes as key
+            // Extract the transaction profile result and store it with instruction indexes as key
             let instruction_indexes: Vec<usize> = (0..idx).collect();
-            ix_profile_results.insert(instruction_indexes, profile_result);
+            ix_profile_results.insert(
+                instruction_indexes,
+                profile_result.profile.transaction_profile,
+            );
         }
 
         // Create the final transaction profile result with instruction profiles
