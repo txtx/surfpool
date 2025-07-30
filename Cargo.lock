@@ -1693,15 +1693,6 @@ dependencies = [
 
 [[package]]
 name = "convert_case"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb402b8d4c85569410425650ce3eddc7d698ed96d39a73f941b08fb63082f1e7"
-dependencies = [
- "unicode-segmentation",
-]
-
-[[package]]
-name = "convert_case"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baaaa0ecca5b51987b9423ccdc971514dd8b0bb7b4060b983d3664dad3f1f89f"
@@ -11118,7 +11109,7 @@ dependencies = [
  "chrono",
  "clap 4.5.27",
  "clap_complete 4.5.44",
- "convert_case 0.7.1",
+ "convert_case 0.8.0",
  "crossbeam",
  "crossterm",
  "ctrlc",
@@ -11171,6 +11162,7 @@ dependencies = [
  "borsh 1.5.5",
  "bs58",
  "chrono",
+ "convert_case 0.8.0",
  "crossbeam",
  "crossbeam-channel",
  "hex",
@@ -11233,6 +11225,7 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.13",
  "txtx-addon-kit",
+ "txtx-addon-network-svm",
  "txtx-addon-network-svm-types",
  "uuid",
  "zstd 0.13.2",
@@ -11335,6 +11328,7 @@ dependencies = [
 name = "surfpool-types"
 version = "0.9.6"
 dependencies = [
+ "anchor-lang-idl",
  "blake3",
  "chrono",
  "crossbeam-channel",
@@ -12168,9 +12162,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.4.2"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48b3d0273b4625a66bed61107052c0faedd40786a335305f84a983b0e007a207"
+checksum = "05de0fe134886ba0855e4645a543494406d5f1497ad61b8f9455726261f709f5"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -12203,9 +12197,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d87acc94fe8c7475a3a434ac8cc2085a8adb62c249bef252fc998cac567b53a2"
+checksum = "9e622f75e9aab7835480cd0b9e65e13256bcbf40b78c0200be5e2d450b536d0e"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -12231,9 +12225,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c33e6f7113c8c26a69f9de07a3f518108f1234597d4568a4a0050a87953b77c5"
+checksum = "54b9535bb9d93e112d9f05c9971aa76bce60563d2eec06de65b7d7e89602c24e"
 dependencies = [
  "anchor-lang-idl",
  "convert_case 0.6.0",
@@ -12256,9 +12250,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-cloud"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d5cc6ce265357db0420be1187393c5791a637109b43320de4e3b95fddc048aa"
+checksum = "a9eefa0475950dd86ae46605db8a89c9e57b25e28dba29d8a89c214bec7727ab"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -12286,9 +12280,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.4.5"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb0268850132a2a9f0efa657d9943604ced6b9d3a745e3316d8fdaf69143c54b"
+checksum = "82a6829d7b2fddec32d1fe7d37f810de8e8868a7bc9534fb44632894bfe563aa"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
@@ -12315,9 +12309,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-gql"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "538d284bf31b45935ace2d920cf251ddaf5e1de9a671eacb581f5661dedb3e83"
+checksum = "3dd30cac596bdb4406403e4219228c1910553cc43c7606a73e51cdf03b1b8adb"
 dependencies = [
  "async-stream",
  "futures 0.3.31",

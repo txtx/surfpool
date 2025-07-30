@@ -7,6 +7,7 @@ use jsonrpc_core::{
     futures::future::{self, join_all},
 };
 use jsonrpc_core_client::transports::http;
+use solana_clock::Slot;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
@@ -21,9 +22,10 @@ use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
-    SimnetCommand, SimnetEvent, SurfpoolConfig,
+    Idl, SimnetCommand, SimnetEvent, SurfpoolConfig,
     types::{
         BlockProductionMode, KeyedProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig,
+        TransactionStatusEvent, UuidOrSignature,
     },
 };
 use tokio::{sync::RwLock, task};
@@ -32,7 +34,10 @@ use crate::{
     PluginManagerCommand,
     error::SurfpoolError,
     rpc::{
-        RunloopContext, full::FullClient, minimal::MinimalClient, surfnet_cheatcodes::SvmTricksRpc,
+        RunloopContext,
+        full::FullClient,
+        minimal::MinimalClient,
+        surfnet_cheatcodes::{SurfnetCheatcodesRpc, SvmTricksRpc},
     },
     runloops::start_local_surfnet_runloop,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
@@ -607,8 +612,8 @@ async fn test_surfnet_estimate_compute_units() {
         rpc_response_value_no_tag
             .profile
             .transaction_profile
-            .state
-            .success,
+            .error_message
+            .is_none(),
         "CU estimation with None tag failed"
     );
     println!(
@@ -616,32 +621,37 @@ async fn test_surfnet_estimate_compute_units() {
         rpc_response_value_no_tag
             .profile
             .transaction_profile
-            .state
             .compute_units_consumed,
         rpc_response_value_no_tag
             .profile
             .transaction_profile
-            .state
-            .success
+            .error_message
+            .is_none()
     );
     assert!(
         rpc_response_value_no_tag
-            .compute_units
+            .profile
+            .transaction_profile
             .compute_units_consumed
             > 0,
         "Invalid compute units consumed for None tag"
     );
     assert!(
         rpc_response_value_no_tag
-            .compute_units
+            .profile
+            .transaction_profile
             .error_message
             .is_none(),
         "Error message should be None for None tag. Got: {:?}",
-        rpc_response_value_no_tag.compute_units.error_message
+        rpc_response_value_no_tag
+            .profile
+            .transaction_profile
+            .error_message
     );
     assert!(
         rpc_response_value_no_tag
-            .compute_units
+            .profile
+            .transaction_profile
             .log_messages
             .is_some(),
         "Log messages should be present for None tag"
@@ -665,16 +675,25 @@ async fn test_surfnet_estimate_compute_units() {
     );
     let rpc_response_tagged_1_value = response_tagged_1.unwrap().value;
     assert!(
-        rpc_response_tagged_1_value.compute_units.success,
+        rpc_response_tagged_1_value
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none(),
         "CU estimation with tag1 failed"
     );
     println!(
         "CU estimation (tag: {}): consumed = {}, success = {}",
         tag1,
         rpc_response_tagged_1_value
-            .compute_units
+            .profile
+            .transaction_profile
             .compute_units_consumed,
-        rpc_response_tagged_1_value.compute_units.success
+        rpc_response_tagged_1_value
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none()
     );
 
     println!("Retrieving profile results for tag: {}", tag1);
@@ -694,20 +713,39 @@ async fn test_surfnet_estimate_compute_units() {
         tag1
     );
     assert_eq!(
-        results_vec_tag1[0].compute_units.compute_units_consumed,
+        results_vec_tag1[0]
+            .profile
+            .transaction_profile
+            .compute_units_consumed,
         rpc_response_tagged_1_value
-            .compute_units
+            .profile
+            .transaction_profile
             .compute_units_consumed
     );
     assert_eq!(
-        results_vec_tag1[0].compute_units.success,
-        rpc_response_tagged_1_value.compute_units.success
+        results_vec_tag1[0]
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none(),
+        rpc_response_tagged_1_value
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none()
     );
     println!(
         "Verified retrieved result for tag {}: CU = {}, success = {}",
         tag1,
-        results_vec_tag1[0].compute_units.compute_units_consumed,
-        results_vec_tag1[0].compute_units.success
+        results_vec_tag1[0]
+            .profile
+            .transaction_profile
+            .compute_units_consumed,
+        results_vec_tag1[0]
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none()
     );
 
     // Test 2: Retrieve with a non-existent tag
@@ -752,8 +790,15 @@ async fn test_surfnet_estimate_compute_units() {
     println!(
         "CU estimation 1 (tag: {}): consumed = {}, success = {}",
         tag2,
-        cu_2a_profile_result.compute_units.compute_units_consumed,
-        cu_2a_profile_result.compute_units.success
+        cu_2a_profile_result
+            .profile
+            .transaction_profile
+            .compute_units_consumed,
+        cu_2a_profile_result
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none()
     );
 
     let response_tagged_2b: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
@@ -769,8 +814,15 @@ async fn test_surfnet_estimate_compute_units() {
     println!(
         "CU estimation 2 (tag: {}): consumed = {}, success = {}",
         tag2,
-        cu_2b_profile_result.compute_units.compute_units_consumed,
-        cu_2b_profile_result.compute_units.success
+        cu_2b_profile_result
+            .profile
+            .transaction_profile
+            .compute_units_consumed,
+        cu_2b_profile_result
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none()
     );
 
     println!("Retrieving profile results for tag: {}", tag2);
@@ -789,20 +841,40 @@ async fn test_surfnet_estimate_compute_units() {
         tag2
     );
     assert_eq!(
-        results_vec_tag2[0].compute_units.compute_units_consumed,
-        cu_2a_profile_result.compute_units.compute_units_consumed
+        results_vec_tag2[0]
+            .profile
+            .transaction_profile
+            .compute_units_consumed,
+        cu_2a_profile_result
+            .profile
+            .transaction_profile
+            .compute_units_consumed
     );
     println!(
         "Verified retrieved result 1 for tag {}: CU = {}",
-        tag2, results_vec_tag2[0].compute_units.compute_units_consumed
+        tag2,
+        results_vec_tag2[0]
+            .profile
+            .transaction_profile
+            .compute_units_consumed
     );
     assert_eq!(
-        results_vec_tag2[1].compute_units.compute_units_consumed,
-        cu_2b_profile_result.compute_units.compute_units_consumed
+        results_vec_tag2[1]
+            .profile
+            .transaction_profile
+            .compute_units_consumed,
+        cu_2b_profile_result
+            .profile
+            .transaction_profile
+            .compute_units_consumed
     );
     println!(
         "Verified retrieved result 2 for tag {}: CU = {}",
-        tag2, results_vec_tag2[1].compute_units.compute_units_consumed
+        tag2,
+        results_vec_tag2[1]
+            .profile
+            .transaction_profile
+            .compute_units_consumed
     );
 
     // Test 4: Estimate with another None tag, ensure it doesn't affect tagged results for tag1
@@ -821,9 +893,14 @@ async fn test_surfnet_estimate_compute_units() {
     println!(
         "CU estimation (None tag again): consumed = {}, success = {}",
         rpc_response_no_tag_again_value
-            .compute_units
+            .profile
+            .transaction_profile
             .compute_units_consumed,
-        rpc_response_no_tag_again_value.compute_units.success
+        rpc_response_no_tag_again_value
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none()
     );
 
     println!("Retrieving profile results for tag: {} again", tag1);
@@ -851,17 +928,20 @@ async fn test_surfnet_estimate_compute_units() {
     );
     assert_eq!(
         results_vec_tag1_again[0]
-            .compute_units
+            .profile
+            .transaction_profile
             .compute_units_consumed,
         rpc_response_tagged_1_value
-            .compute_units
+            .profile
+            .transaction_profile
             .compute_units_consumed
     );
     println!(
         "Verified retrieved result for tag {}: CU = {} (after None tag call)",
         tag1,
         results_vec_tag1_again[0]
-            .compute_units
+            .profile
+            .transaction_profile
             .compute_units_consumed
     );
 
@@ -956,15 +1036,28 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     let profile_result = response.unwrap().value;
 
     // Verify compute units part
-    assert!(profile_result.compute_units.success, "CU estimation failed");
     assert!(
-        profile_result.compute_units.compute_units_consumed > 0,
+        profile_result
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none(),
+        "CU estimation failed"
+    );
+    assert!(
+        profile_result
+            .profile
+            .transaction_profile
+            .compute_units_consumed
+            > 0,
         "Invalid CU consumption"
     );
 
     // Verify pre_execution state
     assert!(
         profile_result
+            .profile
+            .transaction_profile
             .state
             .pre_execution
             .contains_key(&payer_pubkey)
@@ -972,12 +1065,16 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
 
     assert!(
         profile_result
+            .profile
+            .transaction_profile
             .state
             .pre_execution
             .contains_key(&recipient_pubkey)
     );
 
     let payer_pre_account = profile_result
+        .profile
+        .transaction_profile
         .state
         .pre_execution
         .get(&payer_pubkey)
@@ -990,6 +1087,8 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     );
 
     let recipient_pre_account = profile_result
+        .profile
+        .transaction_profile
         .state
         .pre_execution
         .get(&recipient_pubkey)
@@ -1003,18 +1102,24 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     // Verify post_execution state
     assert!(
         profile_result
+            .profile
+            .transaction_profile
             .state
             .post_execution
             .contains_key(&payer_pubkey)
     );
     assert!(
         profile_result
+            .profile
+            .transaction_profile
             .state
             .post_execution
             .contains_key(&recipient_pubkey)
     );
 
     let payer_post_data = profile_result
+        .profile
+        .transaction_profile
         .state
         .post_execution
         .get(&payer_pubkey)
@@ -1034,6 +1139,8 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     );
 
     let recipient_post_data = profile_result
+        .profile
+        .transaction_profile
         .state
         .post_execution
         .get(&recipient_pubkey)
@@ -1055,4 +1162,502 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
         "  Recipient pre-lamports: {}, post-lamports: {}",
         initial_recipient_lamports_pre, recipient_post_data.lamports
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_transaction_profile() {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    // Set up test accounts
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 1_000_000;
+
+    svm_instance
+        .airdrop(&payer.pubkey(), lamports_to_send * 2)
+        .unwrap();
+
+    // Create a transaction to profile
+    let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let latest_blockhash = svm_instance.latest_blockhash();
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message.clone()), &[&payer])
+        .unwrap();
+
+    let tx_bytes = bincode::serialize(&tx).unwrap();
+    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
+
+    // Manually construct RunloopContext
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    // Test 1: Profile a transaction with a tag and retrieve by UUID
+    let tag = "test_get_transaction_profile_tag".to_string();
+    println!("Testing transaction profiling with tag: {}", tag);
+
+    let profile_response: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+        .profile_transaction(
+            Some(runloop_context.clone()),
+            tx_b64.clone(),
+            Some(tag.clone()),
+            None,
+        )
+        .await;
+
+    assert!(
+        profile_response.is_ok(),
+        "Profile transaction failed: {:?}",
+        profile_response.err()
+    );
+
+    let profile_result = profile_response.unwrap().value;
+    assert!(
+        profile_result
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none(),
+        "Transaction profiling failed"
+    );
+
+    let UuidOrSignature::Uuid(uuid) = profile_result.key else {
+        panic!(
+            "Expected a UUID from the profile result, got: {:?}",
+            profile_result.key
+        );
+    };
+    println!("Generated UUID: {}", uuid);
+
+    // Test 2: Retrieve profile by UUID
+    println!("Testing retrieval by UUID: {}", uuid);
+    let uuid_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> = rpc_server
+        .get_transaction_profile(Some(runloop_context.clone()), UuidOrSignature::Uuid(uuid))
+        .await;
+
+    assert!(
+        uuid_response.is_ok(),
+        "Get transaction profile by UUID failed: {:?}",
+        uuid_response.err()
+    );
+
+    let retrieved_profile = uuid_response.unwrap().value;
+    assert!(
+        retrieved_profile.is_some(),
+        "Profile should be found by UUID"
+    );
+
+    let retrieved = retrieved_profile.unwrap();
+    assert_eq!(
+        retrieved.profile.transaction_profile.compute_units_consumed,
+        profile_result
+            .profile
+            .transaction_profile
+            .compute_units_consumed,
+        "Retrieved profile should match original profile"
+    );
+    assert_eq!(
+        retrieved
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none(),
+        profile_result
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none(),
+        "Retrieved profile success should match original"
+    );
+    assert_eq!(
+        retrieved.key,
+        UuidOrSignature::Uuid(uuid),
+        "Retrieved profile should have the same UUID"
+    );
+
+    // Test 3: Process the transaction to get a signature and retrieve by signature
+    println!("Processing transaction to get signature");
+    let (status_tx, status_rx) = crossbeam_unbounded();
+
+    svm_locker_for_context
+        .process_transaction(&None, tx.clone(), status_tx, false)
+        .await
+        .unwrap();
+
+    // Wait for transaction processing
+    match status_rx.recv() {
+        Ok(TransactionStatusEvent::Success(_)) => {
+            println!("Transaction processed successfully");
+        }
+        Ok(TransactionStatusEvent::SimulationFailure((error, _))) => {
+            panic!("Transaction simulation failed: {:?}", error);
+        }
+        Ok(TransactionStatusEvent::ExecutionFailure((error, _))) => {
+            panic!("Transaction execution failed: {:?}", error);
+        }
+        Ok(TransactionStatusEvent::VerificationFailure(error)) => {
+            panic!("Transaction verification failed: {}", error);
+        }
+        Err(e) => {
+            panic!("Failed to receive transaction status: {:?}", e);
+        }
+    }
+
+    let signature = tx.signatures[0];
+    println!("Transaction signature: {}", signature);
+
+    // Test 4: Retrieve profile by signature
+    println!("Testing retrieval by signature: {}", signature);
+    let signature_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> = rpc_server
+        .get_transaction_profile(
+            Some(runloop_context.clone()),
+            UuidOrSignature::Signature(signature),
+        )
+        .await;
+
+    assert!(
+        signature_response.is_ok(),
+        "Get transaction profile by signature failed: {:?}",
+        signature_response.err()
+    );
+
+    let retrieved_by_signature = signature_response.unwrap().value;
+    assert!(
+        retrieved_by_signature.is_some(),
+        "Profile should be found by signature"
+    );
+
+    let retrieved_sig = retrieved_by_signature.unwrap();
+    assert!(
+        retrieved_sig
+            .profile
+            .transaction_profile
+            .error_message
+            .is_none(),
+        "Retrieved profile by signature should be successful"
+    );
+    assert!(
+        retrieved_sig
+            .profile
+            .transaction_profile
+            .compute_units_consumed
+            > 0,
+        "Retrieved profile should have consumed compute units"
+    );
+
+    // Test 5: Test retrieval with non-existent UUID
+    println!("Testing retrieval with non-existent UUID");
+    let non_existent_uuid = uuid::Uuid::new_v4();
+    let non_existent_uuid_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> =
+        rpc_server
+            .get_transaction_profile(
+                Some(runloop_context.clone()),
+                UuidOrSignature::Uuid(non_existent_uuid),
+            )
+            .await;
+
+    assert!(
+        non_existent_uuid_response.is_ok(),
+        "Get transaction profile with non-existent UUID should not fail"
+    );
+
+    let non_existent_result = non_existent_uuid_response.unwrap().value;
+    assert!(
+        non_existent_result.is_none(),
+        "Non-existent UUID should return None"
+    );
+
+    // Test 6: Test retrieval with non-existent signature
+    println!("Testing retrieval with non-existent signature");
+    let non_existent_signature = solana_sdk::signature::Signature::new_unique();
+    let non_existent_sig_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> =
+        rpc_server
+            .get_transaction_profile(
+                Some(runloop_context.clone()),
+                UuidOrSignature::Signature(non_existent_signature),
+            )
+            .await;
+
+    assert!(
+        non_existent_sig_response.is_ok(),
+        "Get transaction profile with non-existent signature should not fail"
+    );
+
+    let non_existent_sig_result = non_existent_sig_response.unwrap().value;
+    assert!(
+        non_existent_sig_result.is_none(),
+        "Non-existent signature should return None"
+    );
+    println!("All get_transaction_profile tests passed successfully!");
+}
+
+#[test]
+fn test_register_and_get_idl_without_slot() {
+    let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    // Test 1: Register IDL without slot
+
+    let register_response: JsonRpcResult<RpcResponse<()>> =
+        rpc_server.register_idl(Some(runloop_context.clone()), idl.clone(), None);
+
+    assert!(
+        register_response.is_ok(),
+        "Register IDL failed: {:?}",
+        register_response.err()
+    );
+
+    // Test 2: Get IDL without slot
+
+    let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> =
+        rpc_server.get_idl(Some(runloop_context.clone()), idl.address.to_string(), None);
+
+    assert!(
+        get_idl_response.is_ok(),
+        "Get IDL failed: {:?}",
+        get_idl_response.err()
+    );
+
+    let retrieved_idl = get_idl_response.unwrap().value;
+    assert!(retrieved_idl.is_some(), "IDL should be found");
+    assert_eq!(
+        retrieved_idl.unwrap(),
+        idl,
+        "Retrieved IDL should match registered IDL"
+    );
+
+    println!("All IDL registration and retrieval tests passed successfully!");
+}
+
+#[test]
+fn test_register_and_get_idl_with_slot() {
+    let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    // Test 1: Register IDL with slot
+
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server.register_idl(
+        Some(runloop_context.clone()),
+        idl.clone(),
+        Some(Slot::from(
+            svm_locker_for_context.get_latest_absolute_slot(),
+        )),
+    );
+
+    assert!(
+        register_response.is_ok(),
+        "Register IDL failed: {:?}",
+        register_response.err()
+    );
+
+    // Test 2: Get IDL with slot
+
+    let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server.get_idl(
+        Some(runloop_context.clone()),
+        idl.address.to_string(),
+        Some(Slot::from(
+            svm_locker_for_context.get_latest_absolute_slot(),
+        )),
+    );
+
+    assert!(
+        get_idl_response.is_ok(),
+        "Get IDL failed: {:?}",
+        get_idl_response.err()
+    );
+
+    let retrieved_idl = get_idl_response.unwrap().value;
+    assert!(retrieved_idl.is_some(), "IDL should be found");
+    assert_eq!(
+        retrieved_idl.unwrap(),
+        idl,
+        "Retrieved IDL should match registered IDL"
+    );
+
+    println!("All IDL registration and retrieval tests passed successfully!");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_register_and_get_same_idl_with_different_slots() {
+    let idl_v1: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
+    let idl_v2: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v2.json")).unwrap();
+    let idl_v3: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v3.json")).unwrap();
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+
+    // Prepare slots for registering different IDLs
+    let current_slot = svm_locker_for_context.get_latest_absolute_slot();
+    let slot_1 = current_slot.saturating_add(10); // First IDL registration
+    let slot_2 = current_slot.saturating_add(50); // Second IDL registration  
+    let slot_3 = current_slot.saturating_add(100); // Third IDL registration
+
+    println!("Current slot: {}", current_slot);
+    println!("Slot 1 (IDL v1): {}", slot_1);
+    println!("Slot 2 (IDL v2): {}", slot_2);
+    println!("Slot 3 (IDL v3): {}", slot_3);
+
+    // Setup runloop context
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    // Step 1: Register IDL v1 at slot_1
+    println!("  [1] Registering IDL v1 at slot: {}", slot_1);
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server.register_idl(
+        Some(runloop_context.clone()),
+        idl_v1.clone(),
+        Some(Slot::from(slot_1)),
+    );
+
+    assert!(
+        register_response.is_ok(),
+        "Register IDL v1 failed at slot {}: {:?}",
+        slot_1,
+        register_response.err()
+    );
+
+    // Step 2: Register IDL v2 at slot_2
+    println!("  [2] Registering IDL v2 at slot: {}", slot_2);
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server.register_idl(
+        Some(runloop_context.clone()),
+        idl_v2.clone(),
+        Some(Slot::from(slot_2)),
+    );
+
+    assert!(
+        register_response.is_ok(),
+        "Register IDL v2 failed at slot {}: {:?}",
+        slot_2,
+        register_response.err()
+    );
+
+    // Step 3: Register IDL v3 at slot_3
+    println!("  [3] Registering IDL v3 at slot: {}", slot_3);
+    let register_response: JsonRpcResult<RpcResponse<()>> = rpc_server.register_idl(
+        Some(runloop_context.clone()),
+        idl_v3.clone(),
+        Some(Slot::from(slot_3)),
+    );
+
+    assert!(
+        register_response.is_ok(),
+        "Register IDL v3 failed at slot {}: {:?}",
+        slot_3,
+        register_response.err()
+    );
+
+    // Step 4: Test retrieval at different points in time
+    let test_cases = vec![
+        (current_slot + 5, "before any registration", None), // Before slot_1
+        (slot_1 + 5, "after v1 registration", Some(&idl_v1)), // After slot_1, before slot_2
+        (slot_2 + 5, "after v2 registration", Some(&idl_v2)), // After slot_2, before slot_3
+        (slot_3 + 5, "after v3 registration", Some(&idl_v3)), // After slot_3
+    ];
+
+    for (i, (query_slot, description, expected_idl)) in test_cases.iter().enumerate() {
+        println!(
+            "  [{}] Querying IDL at slot {} ({})",
+            i + 4,
+            query_slot,
+            description
+        );
+
+        let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server.get_idl(
+            Some(runloop_context.clone()),
+            idl_v1.address.to_string(),
+            Some(Slot::from(*query_slot)),
+        );
+
+        assert!(
+            get_idl_response.is_ok(),
+            "Get IDL failed at slot {}: {:?}",
+            query_slot,
+            get_idl_response.err()
+        );
+
+        let retrieved_idl = get_idl_response.unwrap().value;
+
+        match expected_idl {
+            None => {
+                // Should not have any IDL before first registration
+                assert!(
+                    retrieved_idl.is_none(),
+                    "IDL should not be available when querying at slot {} (before first registration)",
+                    query_slot
+                );
+                println!(
+                    "  [{}] Correctly: No IDL available at slot {} (before first registration)",
+                    i + 4,
+                    query_slot
+                );
+            }
+            Some(expected) => {
+                // Should have the appropriate IDL
+                assert!(
+                    retrieved_idl.is_some(),
+                    "IDL should be available when querying at slot {}",
+                    query_slot
+                );
+
+                let retrieved = retrieved_idl.unwrap();
+                assert_eq!(
+                    retrieved, **expected,
+                    "Retrieved IDL should match expected IDL at slot {}",
+                    query_slot
+                );
+                println!(
+                    "  [{}] Correctly: Expected IDL retrieved at slot {}",
+                    i + 4,
+                    query_slot
+                );
+            }
+        }
+    }
+
+    println!("All IDL registration and retrieval tests at different slots passed successfully!");
 }

@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, HashMap},
     fmt,
     path::PathBuf,
@@ -12,7 +13,7 @@ use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Visitor};
 use serde_with::{BytesOrString, serde_as};
 use solana_account_decoder_client_types::UiAccount;
-use solana_clock::{Clock, Epoch};
+use solana_clock::{Clock, Epoch, Slot};
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
@@ -29,6 +30,7 @@ pub const DEFAULT_WS_PORT: u16 = 8900;
 pub const DEFAULT_STUDIO_PORT: u16 = 8488;
 pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
+pub type Idl = anchor_lang_idl::types::Idl;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionMetadata {
@@ -667,4 +669,29 @@ impl<'de> Deserialize<'de> for UuidOrSignature {
 pub enum DataIndexingCommand {
     ProcessCollection(Uuid),
     ProcessCollectionEntriesPack(Uuid, Vec<u8>),
+}
+
+// Define a wrapper struct
+#[derive(Debug, Clone)]
+pub struct VersionedIdl(pub Slot, pub Idl);
+
+// Implement ordering based on Slot
+impl PartialEq for VersionedIdl {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for VersionedIdl {}
+
+impl PartialOrd for VersionedIdl {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for VersionedIdl {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0)
+    }
 }

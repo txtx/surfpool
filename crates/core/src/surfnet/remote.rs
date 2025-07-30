@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use serde_json::json;
-use solana_account_decoder::{UiAccountEncoding, encode_ui_account};
+use solana_account::Account;
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
     rpc_client::GetConfirmedSignaturesForAddress2Config,
@@ -253,9 +253,7 @@ impl SurfnetRemoteClient {
         program_id: &Pubkey,
         account_config: RpcAccountInfoConfig,
         filters: Option<Vec<RpcFilterType>>,
-    ) -> SurfpoolResult<Vec<RpcKeyedAccount>> {
-        let encoding = account_config.encoding.unwrap_or(UiAccountEncoding::Base64);
-        let data_slice = account_config.data_slice;
+    ) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
         self.client
             .get_program_accounts_with_config(
                 program_id,
@@ -267,15 +265,6 @@ impl SurfnetRemoteClient {
                 },
             )
             .await
-            .map(|accounts| {
-                accounts
-                    .iter()
-                    .map(|(pubkey, account)| RpcKeyedAccount {
-                        pubkey: pubkey.to_string(),
-                        account: encode_ui_account(pubkey, account, encoding, None, data_slice),
-                    })
-                    .collect()
-            })
             .map_err(|e| SurfpoolError::get_program_accounts(*program_id, e))
     }
 
