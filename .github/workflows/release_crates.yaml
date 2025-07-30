@@ -43,12 +43,17 @@ jobs:
 
       - name: Publish Crates
         run: |
+          ROOT_VERSION=$(tq -f Cargo.toml .package.version | sed 's/"//g')
           for manifest in crates/types/Cargo.toml crates/core/Cargo.toml crates/db/Cargo.toml crates/gql/Cargo.toml crates/subgraph/Cargo.toml crates/studio/Cargo.toml; do
             if [ -f "$manifest" ]; then
               echo "Checking $manifest for changes..."
               
               CRATE_NAME=$(tq -f "$manifest" .package.name | sed 's/"//g') # remove quotes around package name
               VERSION=$(tq -f "$manifest" .package.version)
+              # if VERSION is { workspace = true }, use the root version
+              if [ "$VERSION" = "{ workspace = true }" ]; then
+                VERSION="$ROOT_VERSION"
+              fi
 
               if cargo search -q "$CRATE_NAME" | grep "$VERSION"; then
                 echo "$CRATE_NAME ($manifest) is already published with version $VERSION, skipping..."
