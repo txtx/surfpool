@@ -523,7 +523,7 @@ pub trait Rpc {
         meta: Self::Metadata,
         subscriber: Subscriber<RpcResponse<RpcLogsResponse>>,
         mentions: Option<RpcTransactionLogsFilter>,
-        commitment: Option<CommitmentLevel>,
+        commitment: Option<CommitmentConfig>,
     );
 
     /// Unsubscribe from logs notifications.
@@ -1070,7 +1070,7 @@ impl Rpc for SurfpoolWsRpc {
         meta: Self::Metadata,
         subscriber: Subscriber<RpcResponse<RpcLogsResponse>>,
         mentions: Option<RpcTransactionLogsFilter>,
-        commitment: Option<CommitmentLevel>,
+        commitment: Option<CommitmentConfig>,
     ) {
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
@@ -1083,7 +1083,7 @@ impl Rpc for SurfpoolWsRpc {
         };
 
         let mentions = mentions.unwrap_or(RpcTransactionLogsFilter::All);
-        let commitment = commitment.unwrap_or(CommitmentLevel::Confirmed);
+        let commitment = commitment.unwrap_or_default().commitment;
 
         let logs_active = Arc::clone(&self.logs_subscription_map);
         let meta = meta.clone();
