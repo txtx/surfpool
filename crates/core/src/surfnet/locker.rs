@@ -1502,13 +1502,13 @@ impl SurfnetSvmLocker {
     ///    
     ///
 
-    pub async fn _profile_transaction(
+    pub async fn profile_instructions(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
         transaction: VersionedTransaction,
         encoding: Option<UiAccountEncoding>,
         tag: Option<String>,
-    ) {
+    ) -> SurfpoolResult<()> {
         let instructions = transaction.message.instructions();
 
         let ix_count = instructions.len();
@@ -1583,8 +1583,145 @@ impl SurfnetSvmLocker {
                 message: new_message,
             };
 
-            // now profile this transaction an add our results to ix_profile_results
+            // now profile the transaction and add our results to ix_profile_results
+            let versioned_tx = VersionedTransaction::from(tx);
+
+            // Create a new SVM clone for this profiling iteration
+            let SvmAccessContext {
+                slot: _slot,
+                latest_epoch_info: _latest_epoch_info,
+                latest_blockhash: _latest_blockhash,
+                inner: mut svm_clone,
+            } = self.with_contextualized_svm_reader(|svm_reader| svm_reader.clone());
+
+            let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
+            let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
+            svm_clone.simnet_events_tx = dummy_simnet_tx;
+            svm_clone.geyser_events_tx = dummy_geyser_tx;
+
+            let svm_locker = SurfnetSvmLocker::new(svm_clone);
+            let remote_ctx_with_config = remote_ctx
+                .clone()
+                .map(|client| (client, CommitmentConfig::confirmed()));
+
+            // Get loaded addresses and account keys for this partial transaction
+            let loaded_addresses = svm_locker
+                .get_loaded_addresses(&remote_ctx_with_config, &versioned_tx.message)
+                .await?;
+            let account_keys =
+                svm_locker.get_pubkeys_from_message(&versioned_tx.message, loaded_addresses);
+
+            // Capture pre-execution state
+            let pre_execution_capture = {
+                let mut capture = BTreeMap::new();
+                for pubkey in &account_keys {
+                    let account = svm_locker
+                        .get_account(&remote_ctx_with_config, pubkey, None)
+                        .await?
+                        .inner;
+                    svm_locker.snapshot_get_account_result(&mut capture, account, encoding);
+                }
+                capture
+            };
+
+            // Estimate compute units for the partial transaction
+            let compute_units_estimation_result =
+                svm_locker.estimate_compute_units(&versioned_tx).inner;
+
+            // Process the partial transaction
+            let (status_tx, status_rx) = crossbeam_channel::unbounded();
+            let signature = versioned_tx.signatures[0];
+            let _ = svm_locker
+                .process_transaction(remote_ctx, versioned_tx, status_tx, true)
+                .await?;
+
+            // Wait for transaction completion
+            let simnet_events_tx = self.simnet_events_tx();
+            loop {
+                if let Ok(status) = status_rx.try_recv() {
+                    match status {
+                        TransactionStatusEvent::Success(_) => break,
+                        TransactionStatusEvent::ExecutionFailure((err, _)) => {
+                            let _ = simnet_events_tx.try_send(SimnetEvent::WarnLog(
+                                chrono::Local::now(),
+                                format!(
+                                    "Partial transaction {} failed during instruction profiling: {}",
+                                    signature, err
+                                ),
+                            ));
+                            return Err(SurfpoolError::internal(format!(
+                                "Partial transaction {} failed during instruction profiling: {}",
+                                signature, err
+                            )));
+                        }
+                        TransactionStatusEvent::SimulationFailure(_) => unreachable!(),
+                        TransactionStatusEvent::VerificationFailure(_) => {
+                            let _ = simnet_events_tx.try_send(SimnetEvent::WarnLog(
+                                chrono::Local::now(),
+                                format!(
+                                    "Partial transaction {} verification failed during instruction profiling",
+                                    signature
+                                ),
+                            ));
+                            return Err(SurfpoolError::internal(format!(
+                                "Partial transaction {} verification failed during instruction profiling",
+                                signature
+                            )));
+                        }
+                    }
+                }
+            }
+
+            // Capture post-execution state
+            let post_execution_capture = {
+                let mut capture = BTreeMap::new();
+                for pubkey in &account_keys {
+                    let account = svm_locker.get_account_local(pubkey).inner;
+                    svm_locker.snapshot_get_account_result(&mut capture, account, encoding);
+                }
+                capture
+            };
+
+            // Create the profile result for this instruction set
+            let profile_result = ProfileResult {
+                state: ProfileState::new(pre_execution_capture, post_execution_capture),
+                compute_units_consumed: compute_units_estimation_result.compute_units_consumed,
+                log_messages: None,
+                error_message: None,
+            };
+
+            // Store the result with instruction indexes as key
+            let instruction_indexes: Vec<usize> = (0..idx).collect();
+            ix_profile_results.insert(instruction_indexes, profile_result);
         }
+
+        // Create the final transaction profile result with instruction profiles
+        let uuid = Uuid::new_v4();
+        let final_profile_result = KeyedProfileResult {
+            profile: TransactionProfileResult {
+                instruction_profiles: Some(ix_profile_results),
+                transaction_profile: ProfileResult {
+                    state: ProfileState::new(BTreeMap::new(), BTreeMap::new()),
+                    compute_units_consumed: 0,
+                    log_messages: None,
+                    error_message: None,
+                },
+            },
+            slot: self.get_latest_absolute_slot(),
+            key: UuidOrSignature::Uuid(uuid),
+        };
+
+        // Store the result
+        self.with_svm_writer(|svm| {
+            svm.simulated_transaction_profiles
+                .insert(uuid, final_profile_result.clone());
+            svm.profile_tag_map
+                .entry(tag.clone().unwrap_or(uuid.to_string()))
+                .or_default()
+                .push(UuidOrSignature::Uuid(uuid));
+        });
+
+        Ok(())
     }
 
     pub async fn profile_transaction(
