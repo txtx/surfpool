@@ -354,7 +354,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             } => {
                                 let msg = format!(
                                     "Profiled [{}]: {} CUs",
-                                    tag, result.profile.transaction_profile.compute_units_consumed
+                                    tag, result.transaction_profile.compute_units_consumed
                                 );
                                 new_events.push((EventType::Info, *timestamp, msg));
                             }

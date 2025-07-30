@@ -1,10 +1,4 @@
-use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, HashMap},
-    fmt,
-    path::PathBuf,
-    str::FromStr,
-};
+use std::{cmp::Ordering, collections::BTreeMap, fmt, path::PathBuf, str::FromStr};
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
@@ -113,18 +107,10 @@ pub struct ComputeUnitsEstimationResult {
 pub struct KeyedProfileResult {
     pub slot: u64,
     pub key: UuidOrSignature,
-    pub profile: TransactionProfileResult,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instruction_profiles: Option<Vec<ProfileResult>>,
+    pub transaction_profile: ProfileResult,
 }
-
-// Tx with ixs [A, B, C]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TransactionProfileResult {
-    pub instruction_profiles: Option<ProfiledInstructionsMap>, // Contains { [A] : {..result}, [A+B]: {..result} }
-    pub transaction_profile: ProfileResult,                    // Contains ..result
-}
-
-pub type ProfiledInstructionIndexes = Vec<usize>;
-pub type ProfiledInstructionsMap = HashMap<ProfiledInstructionIndexes, ProfileResult>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -133,6 +119,8 @@ pub struct ProfileResult {
     pub compute_units_consumed: u64,
     pub log_messages: Option<Vec<String>>,
     pub error_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<Vec<usize>>,
 }
 
 impl KeyedProfileResult {
@@ -145,14 +133,13 @@ impl KeyedProfileResult {
         key: UuidOrSignature,
     ) -> Self {
         Self {
-            profile: TransactionProfileResult {
-                instruction_profiles: None,
-                transaction_profile: ProfileResult {
-                    state: ProfileState::new(pre_execution, post_execution),
-                    compute_units_consumed,
-                    log_messages: Some(logs),
-                    error_message: None,
-                },
+            instruction_profiles: None,
+            transaction_profile: ProfileResult {
+                state: ProfileState::new(pre_execution, post_execution),
+                compute_units_consumed,
+                log_messages: Some(logs),
+                error_message: None,
+                instructions: None,
             },
             slot,
             key,

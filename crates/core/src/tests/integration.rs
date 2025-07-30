@@ -610,7 +610,6 @@ async fn test_surfnet_estimate_compute_units() {
 
     assert!(
         rpc_response_value_no_tag
-            .profile
             .transaction_profile
             .error_message
             .is_none(),
@@ -619,18 +618,15 @@ async fn test_surfnet_estimate_compute_units() {
     println!(
         "Initial CU estimation (no tag): consumed = {}, success = {}",
         rpc_response_value_no_tag
-            .profile
             .transaction_profile
             .compute_units_consumed,
         rpc_response_value_no_tag
-            .profile
             .transaction_profile
             .error_message
             .is_none()
     );
     assert!(
         rpc_response_value_no_tag
-            .profile
             .transaction_profile
             .compute_units_consumed
             > 0,
@@ -638,19 +634,14 @@ async fn test_surfnet_estimate_compute_units() {
     );
     assert!(
         rpc_response_value_no_tag
-            .profile
             .transaction_profile
             .error_message
             .is_none(),
         "Error message should be None for None tag. Got: {:?}",
-        rpc_response_value_no_tag
-            .profile
-            .transaction_profile
-            .error_message
+        rpc_response_value_no_tag.transaction_profile.error_message
     );
     assert!(
         rpc_response_value_no_tag
-            .profile
             .transaction_profile
             .log_messages
             .is_some(),
@@ -676,7 +667,6 @@ async fn test_surfnet_estimate_compute_units() {
     let rpc_response_tagged_1_value = response_tagged_1.unwrap().value;
     assert!(
         rpc_response_tagged_1_value
-            .profile
             .transaction_profile
             .error_message
             .is_none(),
@@ -686,11 +676,9 @@ async fn test_surfnet_estimate_compute_units() {
         "CU estimation (tag: {}): consumed = {}, success = {}",
         tag1,
         rpc_response_tagged_1_value
-            .profile
             .transaction_profile
             .compute_units_consumed,
         rpc_response_tagged_1_value
-            .profile
             .transaction_profile
             .error_message
             .is_none()
@@ -714,22 +702,18 @@ async fn test_surfnet_estimate_compute_units() {
     );
     assert_eq!(
         results_vec_tag1[0]
-            .profile
             .transaction_profile
             .compute_units_consumed,
         rpc_response_tagged_1_value
-            .profile
             .transaction_profile
             .compute_units_consumed
     );
     assert_eq!(
         results_vec_tag1[0]
-            .profile
             .transaction_profile
             .error_message
             .is_none(),
         rpc_response_tagged_1_value
-            .profile
             .transaction_profile
             .error_message
             .is_none()
@@ -738,11 +722,9 @@ async fn test_surfnet_estimate_compute_units() {
         "Verified retrieved result for tag {}: CU = {}, success = {}",
         tag1,
         results_vec_tag1[0]
-            .profile
             .transaction_profile
             .compute_units_consumed,
         results_vec_tag1[0]
-            .profile
             .transaction_profile
             .error_message
             .is_none()
@@ -791,11 +773,9 @@ async fn test_surfnet_estimate_compute_units() {
         "CU estimation 1 (tag: {}): consumed = {}, success = {}",
         tag2,
         cu_2a_profile_result
-            .profile
             .transaction_profile
             .compute_units_consumed,
         cu_2a_profile_result
-            .profile
             .transaction_profile
             .error_message
             .is_none()
@@ -815,11 +795,9 @@ async fn test_surfnet_estimate_compute_units() {
         "CU estimation 2 (tag: {}): consumed = {}, success = {}",
         tag2,
         cu_2b_profile_result
-            .profile
             .transaction_profile
             .compute_units_consumed,
         cu_2b_profile_result
-            .profile
             .transaction_profile
             .error_message
             .is_none()
@@ -842,11 +820,9 @@ async fn test_surfnet_estimate_compute_units() {
     );
     assert_eq!(
         results_vec_tag2[0]
-            .profile
             .transaction_profile
             .compute_units_consumed,
         cu_2a_profile_result
-            .profile
             .transaction_profile
             .compute_units_consumed
     );
@@ -854,17 +830,14 @@ async fn test_surfnet_estimate_compute_units() {
         "Verified retrieved result 1 for tag {}: CU = {}",
         tag2,
         results_vec_tag2[0]
-            .profile
             .transaction_profile
             .compute_units_consumed
     );
     assert_eq!(
         results_vec_tag2[1]
-            .profile
             .transaction_profile
             .compute_units_consumed,
         cu_2b_profile_result
-            .profile
             .transaction_profile
             .compute_units_consumed
     );
@@ -872,7 +845,6 @@ async fn test_surfnet_estimate_compute_units() {
         "Verified retrieved result 2 for tag {}: CU = {}",
         tag2,
         results_vec_tag2[1]
-            .profile
             .transaction_profile
             .compute_units_consumed
     );
@@ -893,11 +865,9 @@ async fn test_surfnet_estimate_compute_units() {
     println!(
         "CU estimation (None tag again): consumed = {}, success = {}",
         rpc_response_no_tag_again_value
-            .profile
             .transaction_profile
             .compute_units_consumed,
         rpc_response_no_tag_again_value
-            .profile
             .transaction_profile
             .error_message
             .is_none()
@@ -928,11 +898,9 @@ async fn test_surfnet_estimate_compute_units() {
     );
     assert_eq!(
         results_vec_tag1_again[0]
-            .profile
             .transaction_profile
             .compute_units_consumed,
         rpc_response_tagged_1_value
-            .profile
             .transaction_profile
             .compute_units_consumed
     );
@@ -940,7 +908,6 @@ async fn test_surfnet_estimate_compute_units() {
         "Verified retrieved result for tag {}: CU = {} (after None tag call)",
         tag1,
         results_vec_tag1_again[0]
-            .profile
             .transaction_profile
             .compute_units_consumed
     );
@@ -1037,26 +1004,17 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
 
     // Verify compute units part
     assert!(
-        profile_result
-            .profile
-            .transaction_profile
-            .error_message
-            .is_none(),
+        profile_result.transaction_profile.error_message.is_none(),
         "CU estimation failed"
     );
     assert!(
-        profile_result
-            .profile
-            .transaction_profile
-            .compute_units_consumed
-            > 0,
+        profile_result.transaction_profile.compute_units_consumed > 0,
         "Invalid CU consumption"
     );
 
     // Verify pre_execution state
     assert!(
         profile_result
-            .profile
             .transaction_profile
             .state
             .pre_execution
@@ -1065,7 +1023,6 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
 
     assert!(
         profile_result
-            .profile
             .transaction_profile
             .state
             .pre_execution
@@ -1073,7 +1030,6 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     );
 
     let payer_pre_account = profile_result
-        .profile
         .transaction_profile
         .state
         .pre_execution
@@ -1087,7 +1043,6 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     );
 
     let recipient_pre_account = profile_result
-        .profile
         .transaction_profile
         .state
         .pre_execution
@@ -1102,7 +1057,6 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     // Verify post_execution state
     assert!(
         profile_result
-            .profile
             .transaction_profile
             .state
             .post_execution
@@ -1110,7 +1064,6 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     );
     assert!(
         profile_result
-            .profile
             .transaction_profile
             .state
             .post_execution
@@ -1118,7 +1071,6 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     );
 
     let payer_post_data = profile_result
-        .profile
         .transaction_profile
         .state
         .post_execution
@@ -1139,7 +1091,6 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     );
 
     let recipient_post_data = profile_result
-        .profile
         .transaction_profile
         .state
         .post_execution
@@ -1223,11 +1174,7 @@ async fn test_get_transaction_profile() {
 
     let profile_result = profile_response.unwrap().value;
     assert!(
-        profile_result
-            .profile
-            .transaction_profile
-            .error_message
-            .is_none(),
+        profile_result.transaction_profile.error_message.is_none(),
         "Transaction profiling failed"
     );
 
@@ -1259,24 +1206,13 @@ async fn test_get_transaction_profile() {
 
     let retrieved = retrieved_profile.unwrap();
     assert_eq!(
-        retrieved.profile.transaction_profile.compute_units_consumed,
-        profile_result
-            .profile
-            .transaction_profile
-            .compute_units_consumed,
+        retrieved.transaction_profile.compute_units_consumed,
+        profile_result.transaction_profile.compute_units_consumed,
         "Retrieved profile should match original profile"
     );
     assert_eq!(
-        retrieved
-            .profile
-            .transaction_profile
-            .error_message
-            .is_none(),
-        profile_result
-            .profile
-            .transaction_profile
-            .error_message
-            .is_none(),
+        retrieved.transaction_profile.error_message.is_none(),
+        profile_result.transaction_profile.error_message.is_none(),
         "Retrieved profile success should match original"
     );
     assert_eq!(
@@ -1339,19 +1275,11 @@ async fn test_get_transaction_profile() {
 
     let retrieved_sig = retrieved_by_signature.unwrap();
     assert!(
-        retrieved_sig
-            .profile
-            .transaction_profile
-            .error_message
-            .is_none(),
+        retrieved_sig.transaction_profile.error_message.is_none(),
         "Retrieved profile by signature should be successful"
     );
     assert!(
-        retrieved_sig
-            .profile
-            .transaction_profile
-            .compute_units_consumed
-            > 0,
+        retrieved_sig.transaction_profile.compute_units_consumed > 0,
         "Retrieved profile should have consumed compute units"
     );
 

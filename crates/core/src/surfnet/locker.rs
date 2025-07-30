@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     sync::Arc,
 };
 
@@ -51,8 +51,8 @@ use solana_transaction_status::{
 };
 use surfpool_types::{
     ComputeUnitsEstimationResult, Idl, KeyedProfileResult, ProfileResult, ProfileState,
-    ProfiledInstructionsMap, SimnetEvent, TransactionConfirmationStatus, TransactionProfileResult,
-    TransactionStatusEvent, UuidOrSignature, VersionedIdl,
+    SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature,
+    VersionedIdl,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -1502,16 +1502,17 @@ impl SurfnetSvmLocker {
     ///    
     ///
 
-    pub async fn profile_instructions(
+    pub async fn profile_transaction(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
         transaction: VersionedTransaction,
         encoding: Option<UiAccountEncoding>,
         tag: Option<String>,
-    ) -> SurfpoolResult<()> {
+    ) -> SurfpoolContextualizedResult<KeyedProfileResult> {
         let instructions = transaction.message.instructions();
 
         let ix_count = instructions.len();
+        let ix_to_process_index = ix_count.saturating_sub(2); // last instruction is the one we want to profile
         let message_accounts = transaction.message.static_account_keys();
 
         let last_signer_index = transaction.message.header().num_required_signatures as usize - 1;
@@ -1527,88 +1528,86 @@ impl SurfnetSvmLocker {
             &message_accounts[last_signer_index..last_mutable_non_signer_index];
         let readonly_non_signers = &message_accounts[last_mutable_non_signer_index..];
 
-        let mut ix_profile_results: ProfiledInstructionsMap = HashMap::new();
+        let do_profile_ixs = true; // get from the svm locker with something like self.do_profile_instructions()
 
-        for idx in 0..ix_count {
-            let ixs_for_tx = instructions[0..idx].to_vec();
+        let ix_profiles = if do_profile_ixs {
+            let mut ix_profile_results = vec![];
+            for idx in 0..ix_to_process_index {
+                let ixs_for_tx = instructions[0..idx].to_vec();
 
-            let mut new_mutable_signers = HashSet::new();
-            let mut new_readonly_signers = HashSet::new();
-            let mut new_mutable_non_signers = HashSet::new();
-            let mut new_readonly_non_signers = HashSet::new();
+                let mut new_mutable_signers = HashSet::new();
+                let mut new_readonly_signers = HashSet::new();
+                let mut new_mutable_non_signers = HashSet::new();
+                let mut new_readonly_non_signers = HashSet::new();
 
-            for ix in ixs_for_tx.clone() {
-                let mut all_accounts_indexes = ix.accounts.clone();
-                all_accounts_indexes.push(ix.program_id_index);
-                for account_idx in ix.accounts {
-                    if let Some(acc) = mutable_signers.get(account_idx as usize) {
-                        new_mutable_signers.insert(*acc);
-                    }
-                    if let Some(acc) = readonly_signers.get(account_idx as usize) {
-                        new_readonly_signers.insert(*acc);
-                    }
-                    if let Some(acc) = mutable_non_signers.get(account_idx as usize) {
-                        new_mutable_non_signers.insert(*acc);
-                    }
-                    if let Some(acc) = readonly_non_signers.get(account_idx as usize) {
-                        new_readonly_non_signers.insert(*acc);
+                for ix in ixs_for_tx.clone() {
+                    let mut all_accounts_indexes = ix.accounts.clone();
+                    all_accounts_indexes.push(ix.program_id_index);
+                    for account_idx in ix.accounts {
+                        if let Some(acc) = mutable_signers.get(account_idx as usize) {
+                            new_mutable_signers.insert(*acc);
+                        }
+                        if let Some(acc) = readonly_signers.get(account_idx as usize) {
+                            new_readonly_signers.insert(*acc);
+                        }
+                        if let Some(acc) = mutable_non_signers.get(account_idx as usize) {
+                            new_mutable_non_signers.insert(*acc);
+                        }
+                        if let Some(acc) = readonly_non_signers.get(account_idx as usize) {
+                            new_readonly_non_signers.insert(*acc);
+                        }
                     }
                 }
+
+                let num_required_signatures: usize =
+                    new_mutable_signers.len() + new_readonly_signers.len();
+                let num_readonly_signed_accounts: usize = new_readonly_signers.len();
+                let num_readonly_unsigned_accounts: usize = new_readonly_non_signers.len();
+
+                new_mutable_signers.extend(new_readonly_signers);
+                new_mutable_signers.extend(new_mutable_non_signers);
+                new_mutable_signers.extend(new_readonly_non_signers);
+
+                let new_account_keys = new_mutable_signers.iter().cloned().collect::<Vec<_>>();
+
+                let new_message = Message {
+                    header: MessageHeader {
+                        num_required_signatures: num_required_signatures as u8,
+                        num_readonly_signed_accounts: num_readonly_signed_accounts as u8,
+                        num_readonly_unsigned_accounts: num_readonly_unsigned_accounts as u8,
+                    },
+                    account_keys: new_account_keys,
+                    recent_blockhash: *transaction.message.recent_blockhash(),
+                    instructions: ixs_for_tx,
+                };
+
+                let tx = Transaction {
+                    signatures: transaction.signatures[0..num_required_signatures].to_vec(),
+                    message: new_message,
+                };
+
+                let versioned_tx = VersionedTransaction::from(tx);
+                let mut profile_result = self
+                    .inner_profile_transaction(remote_ctx, versioned_tx, encoding, None)
+                    .await?;
+
+                profile_result.instructions = Some((0..idx).collect());
+                ix_profile_results.push(profile_result)
             }
+            Some(ix_profile_results)
+        } else {
+            None
+        };
 
-            let num_required_signatures: usize =
-                new_mutable_signers.len() + new_readonly_signers.len();
-            let num_readonly_signed_accounts: usize = new_readonly_signers.len();
-            let num_readonly_unsigned_accounts: usize = new_readonly_non_signers.len();
-
-            new_mutable_signers.extend(new_readonly_signers);
-            new_mutable_signers.extend(new_mutable_non_signers);
-            new_mutable_signers.extend(new_readonly_non_signers);
-
-            let new_account_keys = new_mutable_signers.iter().cloned().collect::<Vec<_>>();
-
-            let new_message = Message {
-                header: MessageHeader {
-                    num_required_signatures: num_required_signatures as u8,
-                    num_readonly_signed_accounts: num_readonly_signed_accounts as u8,
-                    num_readonly_unsigned_accounts: num_readonly_unsigned_accounts as u8,
-                },
-                account_keys: new_account_keys,
-                recent_blockhash: *transaction.message.recent_blockhash(),
-                instructions: ixs_for_tx,
-            };
-
-            let tx = Transaction {
-                signatures: transaction.signatures[0..num_required_signatures].to_vec(),
-                message: new_message,
-            };
- 
-            let versioned_tx = VersionedTransaction::from(tx);
-            let profile_result = self
-                .profile_transaction(remote_ctx, versioned_tx, encoding, None)
-                .await?
-                .inner;
-
-            // Extract the transaction profile result and store it with instruction indexes as key
-            let instruction_indexes: Vec<usize> = (0..idx).collect();
-            ix_profile_results.insert(
-                instruction_indexes,
-                profile_result.profile.transaction_profile,
-            );
-        }
+        let transaction_profile = self
+            .inner_profile_transaction(remote_ctx, transaction, encoding, tag.clone())
+            .await?;
 
         // Create the final transaction profile result with instruction profiles
         let uuid = Uuid::new_v4();
         let final_profile_result = KeyedProfileResult {
-            profile: TransactionProfileResult {
-                instruction_profiles: Some(ix_profile_results),
-                transaction_profile: ProfileResult {
-                    state: ProfileState::new(BTreeMap::new(), BTreeMap::new()),
-                    compute_units_consumed: 0,
-                    log_messages: None,
-                    error_message: None,
-                },
-            },
+            instruction_profiles: ix_profiles,
+            transaction_profile,
             slot: self.get_latest_absolute_slot(),
             key: UuidOrSignature::Uuid(uuid),
         };
@@ -1623,22 +1622,25 @@ impl SurfnetSvmLocker {
                 .push(UuidOrSignature::Uuid(uuid));
         });
 
-        Ok(())
+        let epoch_info = self.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info());
+        let latest_blockhash = self.with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        Ok(SvmAccessContext::new(
+            self.get_latest_absolute_slot(),
+            epoch_info,
+            latest_blockhash,
+            final_profile_result,
+        ))
     }
 
-    pub async fn profile_transaction(
+    pub async fn inner_profile_transaction(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
         transaction: VersionedTransaction,
         encoding: Option<UiAccountEncoding>,
         tag: Option<String>,
-    ) -> SurfpoolContextualizedResult<KeyedProfileResult> {
-        let SvmAccessContext {
-            slot,
-            latest_epoch_info,
-            latest_blockhash,
-            inner: mut svm_clone,
-        } = self.with_contextualized_svm_reader(|svm_reader| svm_reader.clone());
+    ) -> SurfpoolResult<ProfileResult> {
+        let mut svm_clone = self.with_svm_reader(|svm_reader| svm_reader.clone());
 
         let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
         let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
@@ -1726,36 +1728,15 @@ impl SurfnetSvmLocker {
             capture
         };
 
-        let uuid = Uuid::new_v4();
-        let profile_result = KeyedProfileResult {
-            profile: TransactionProfileResult {
-                instruction_profiles: None,
-                transaction_profile: ProfileResult {
-                    state: ProfileState::new(pre_execution_capture, post_execution_capture),
-                    compute_units_consumed: compute_units_estimation_result.compute_units_consumed,
-                    log_messages: None,
-                    error_message: None,
-                },
-            },
-            slot,
-            key: UuidOrSignature::Uuid(uuid),
+        let profile_result = ProfileResult {
+            state: ProfileState::new(pre_execution_capture, post_execution_capture),
+            compute_units_consumed: compute_units_estimation_result.compute_units_consumed,
+            log_messages: compute_units_estimation_result.log_messages,
+            error_message: compute_units_estimation_result.error_message,
+            instructions: None,
         };
 
-        self.with_svm_writer(|svm| {
-            svm.simulated_transaction_profiles
-                .insert(uuid, profile_result.clone());
-            svm.profile_tag_map
-                .entry(tag.clone().unwrap_or(uuid.to_string()))
-                .or_default()
-                .push(UuidOrSignature::Uuid(uuid));
-        });
-
-        Ok(SvmAccessContext::new(
-            slot,
-            latest_epoch_info,
-            latest_blockhash,
-            profile_result,
-        ))
+        Ok(profile_result)
     }
 
     /// Returns the profile result for a given signature or UUID, and whether it exists in the SVM.
