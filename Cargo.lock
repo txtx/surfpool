@@ -12162,9 +12162,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf35c938ab9202631213e175976af524d2503af2fff6a9ee2e6f720362a4fa75"
+checksum = "05de0fe134886ba0855e4645a543494406d5f1497ad61b8f9455726261f709f5"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -12197,9 +12197,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d15dcaefdea8ef2d077c086991dcf8931d198e0c7168a6c0237bc8746df7673"
+checksum = "9e622f75e9aab7835480cd0b9e65e13256bcbf40b78c0200be5e2d450b536d0e"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -12225,9 +12225,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b38b67e470ab5256106414063e8cbb49e79c02d7d76392a2a98f2ca9591798d7"
+checksum = "54b9535bb9d93e112d9f05c9971aa76bce60563d2eec06de65b7d7e89602c24e"
 dependencies = [
  "anchor-lang-idl",
  "convert_case 0.6.0",
@@ -12250,9 +12250,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-cloud"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d5cc6ce265357db0420be1187393c5791a637109b43320de4e3b95fddc048aa"
+checksum = "a9eefa0475950dd86ae46605db8a89c9e57b25e28dba29d8a89c214bec7727ab"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -12280,9 +12280,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.4.6"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f988f07af55f076e1483b929fc2f1fdfcb58710132b524ba3783dd692db02e9"
+checksum = "82a6829d7b2fddec32d1fe7d37f810de8e8868a7bc9534fb44632894bfe563aa"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
@@ -12309,9 +12309,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-gql"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "538d284bf31b45935ace2d920cf251ddaf5e1de9a671eacb581f5661dedb3e83"
+checksum = "3dd30cac596bdb4406403e4219228c1910553cc43c7606a73e51cdf03b1b8adb"
 dependencies = [
  "async-stream",
  "futures 0.3.31",
