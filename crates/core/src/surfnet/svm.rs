@@ -46,7 +46,7 @@ use surfpool_types::{
     types::{ComputeUnitsEstimationResult, ProfileResult, UuidOrSignature},
 };
 use txtx_addon_kit::types::types::AddonJsonConverter;
-use txtx_addon_network_svm::codec::idl::parse_bytes_to_value_with_expected_idl_type_def_ty;
+use txtx_addon_network_svm_types::subgraph::idl::parse_bytes_to_value_with_expected_idl_type_def_ty;
 use uuid::Uuid;
 
 use super::{
