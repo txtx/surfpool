@@ -4,13 +4,14 @@ use jsonrpc_derive::rpc;
 use solana_account::Account;
 use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_response::RpcResponseContext;
-use solana_clock::Slot;
+use solana_clock::{Clock, Epoch, Slot};
 use solana_commitment_config::CommitmentConfig;
+use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{program_option::COption, system_program, transaction::VersionedTransaction};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    Idl, SimnetEvent,
+    ClockCommand, Idl, SimnetCommand, SimnetEvent,
     types::{
         AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate,
         UuidOrSignature,
@@ -27,6 +28,21 @@ use crate::{
     surfnet::{GetAccountResult, locker::SvmAccessContext},
     types::TokenAccount,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TimeTravelConfig {
+    Reset,
+    Epoch(Epoch),
+    AbsoluteSlot(Slot),
+    Timestamp(i64),
+}
+
+impl Default for TimeTravelConfig {
+    fn default() -> Self {
+        Self::Reset
+    }
+}
 
 pub trait AccountUpdateExt {
     fn is_full_account_data_ext(&self) -> bool;
@@ -128,7 +144,7 @@ impl TokenAccountUpdateExt for TokenAccountUpdate {
 }
 
 #[rpc]
-pub trait SvmTricksRpc {
+pub trait SurfnetCheatcodes {
     type Metadata;
 
     /// A "cheat code" method for developers to set or update an account in Surfpool.
@@ -570,11 +586,126 @@ pub trait SvmTricksRpc {
         program_id: String,
         slot: Option<Slot>,
     ) -> Result<RpcResponse<Option<Idl>>>;
+
+    /// A cheat code to jump forward or backward in time on the local network.
+    /// Useful for testing epoch-based or time-sensitive logic.
+    ///
+    /// ## Parameters
+    /// - `config` (optional): A `TimeTravelConfig` specifying how to modify the clock:
+    ///   - `reset`: Resets the clock to match mainnet.
+    ///   - `timestamp(u64)`: Moves time to the specified UNIX timestamp.
+    ///   - `absoluteSlot(u64)`: Moves to the specified absolute slot.
+    ///   - `epoch(u64)`: Advances time to the specified epoch (each epoch = 432,000 slots).
+    ///
+    /// ## Returns
+    /// An `EpochInfo` object reflecting the updated clock state.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_timeTravel",
+    ///   "params": [ { "epoch": 512 } ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "epoch": 512,
+    ///     "slot_index": 0,
+    ///     "slots_in_epoch": 432000,
+    ///     "absolute_slot": 221184000,
+    ///     "block_height": 650000000,
+    ///     "transaction_count": 923472834
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```    #[rpc(meta, name = "surfnet_timeTravel")]
+    fn time_travel(
+        &self,
+        meta: Self::Metadata,
+        config: Option<TimeTravelConfig>,
+    ) -> Result<EpochInfo>;
+
+    /// A cheat code to freeze the Surfnet clock on the local network.
+    /// All time progression halts until resumed.
+    ///
+    /// ## Returns
+    /// An `EpochInfo` object showing the current clock state at the moment of pause.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_pauseClock",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "epoch": 512,
+    ///     "slot_index": 0,
+    ///     "slots_in_epoch": 432000,
+    ///     "absolute_slot": 221184000,
+    ///     "block_height": 650000000,
+    ///     "transaction_count": 923472834
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_pauseClock")]
+    fn pause_clock(&self, meta: Self::Metadata) -> Result<EpochInfo>;
+
+    /// A cheat code to resume Solana clock progression after it was paused.
+    /// The validator will start producing new slots again.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    ///
+    /// ## Returns
+    /// An `EpochInfo` object reflecting the resumed clock state.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_resumeClock",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "epoch": 512,
+    ///     "slot_index": 0,
+    ///     "slots_in_epoch": 432000,
+    ///     "absolute_slot": 221184000,
+    ///     "block_height": 650000000,
+    ///     "transaction_count": 923472834
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_resumeClock")]
+    fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo>;
 }
 
 #[derive(Clone)]
 pub struct SurfnetCheatcodesRpc;
-impl SvmTricksRpc for SurfnetCheatcodesRpc {
+impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
     type Metadata = Option<RunloopContext>;
 
     fn set_account(
@@ -992,5 +1123,56 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             context: RpcResponseContext::new(slot),
             value: idl,
         })
+    }
+
+    fn pause_clock(&self, meta: Self::Metadata) -> Result<EpochInfo> {
+        let surfnet_command_tx: crossbeam_channel::Sender<SimnetCommand> =
+            meta.get_surfnet_command_tx()?;
+        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(ClockCommand::Pause));
+        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
+            .map_err(Into::into)
+    }
+
+    fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo> {
+        let surfnet_command_tx: crossbeam_channel::Sender<SimnetCommand> =
+            meta.get_surfnet_command_tx()?;
+        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(ClockCommand::Resume));
+        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
+            .map_err(Into::into)
+    }
+
+    fn time_travel(
+        &self,
+        meta: Self::Metadata,
+        config: Option<TimeTravelConfig>,
+    ) -> Result<EpochInfo> {
+        let surfnet_command_tx = meta.get_surfnet_command_tx()?;
+        let current_epoch_info =
+            meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())?;
+
+        let behavior = config.unwrap_or_default();
+        let clock_update: Clock = match behavior {
+            TimeTravelConfig::Reset => {
+                // Reset to mainnet
+                unimplemented!()
+            }
+            TimeTravelConfig::Timestamp(timestamp) => {
+                // If the timestamp is passed, we compute the difference between now and the target, deduct the amount of epochs + slot elapsed and updated the clock accordingly
+                unimplemented!()
+            }
+            TimeTravelConfig::AbsoluteSlot(slot) => {
+                // If the absolute slot is passed, we compute the corresponding epoch + timestamp, and update the clock accordingly
+                unimplemented!()
+            }
+            TimeTravelConfig::Epoch(epoch) => {
+                // If the epoch is passed, we multiply it by 432,000, and set the absolute slot + timestamp accordingly (based on the block blocktime)
+                unimplemented!()
+            }
+        };
+        let new_epoch_info = unimplemented!();
+
+        let _ = surfnet_command_tx.send(SimnetCommand::UpdateInternalClock(clock_update));
+
+        Ok(new_epoch_info)
     }
 }

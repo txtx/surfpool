@@ -45,7 +45,7 @@ use crate::{
         self, RunloopContext, SurfpoolMiddleware, SurfpoolWebsocketMeta,
         SurfpoolWebsocketMiddleware, accounts_data::AccountsData, accounts_scan::AccountsScan,
         admin::AdminRpc, bank_data::BankData, full::Full, minimal::Minimal,
-        surfnet_cheatcodes::SvmTricksRpc, ws::Rpc,
+        surfnet_cheatcodes::SurfnetCheatcodes, ws::Rpc,
     },
     surfnet::{GeyserEvent, locker::SurfnetSvmLocker, remote::SurfnetRemoteClient},
 };
@@ -164,9 +164,12 @@ pub async fn start_block_production_runloop(
                     SimnetCommand::SlotBackward(_key) => {
 
                     }
-                    SimnetCommand::UpdateClock(update) => {
+                    SimnetCommand::CommandClock(update) => {
                         let _ = clock_command_tx.send(update);
                         continue
+                    }
+                    SimnetCommand::UpdateInternalClock(clock) => {
+                        unimplemented!()
                     }
                     SimnetCommand::UpdateBlockProductionMode(update) => {
                         block_production_mode = update;

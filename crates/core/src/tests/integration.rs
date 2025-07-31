@@ -37,7 +37,7 @@ use crate::{
         RunloopContext,
         full::FullClient,
         minimal::MinimalClient,
-        surfnet_cheatcodes::{SurfnetCheatcodesRpc, SvmTricksRpc},
+        surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
     runloops::start_local_surfnet_runloop,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},

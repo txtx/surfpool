@@ -95,9 +95,9 @@ impl SurfpoolError {
         Self(error)
     }
 
-    pub fn no_locker() -> Self {
+    pub fn missing_context() -> Self {
         let mut error = Error::internal_error();
-        error.data = Some(json!("Failed to access internal SVM state"));
+        error.data = Some(json!("Failed to access internal Surfnet context"));
         Self(error)
     }
 
