@@ -125,6 +125,7 @@ pub async fn start_block_production_runloop(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut next_scheduled_expiry_check: Option<u64> =
         expiry_duration_ms.map(|expiry_val| Utc::now().timestamp_millis() as u64 + expiry_val);
+    let sigverify = true; // always verify signatures during block production 
     loop {
         let mut do_produce_block = false;
 
@@ -173,7 +174,7 @@ pub async fn start_block_production_runloop(
                         continue
                     }
                     SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
-                       if let Err(e) = svm_locker.process_transaction(remote_rpc_client, transaction, status_tx, skip_preflight).await {
+                       if let Err(e) = svm_locker.process_transaction(remote_rpc_client, transaction, status_tx, skip_preflight, sigverify).await {
                             let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!("Failed to process transaction: {}", e)));
                        }
                     }

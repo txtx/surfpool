@@ -12,7 +12,7 @@ use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
     Idl, SimnetEvent,
     types::{
-        AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate,
+        AccountUpdate, KeyedProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate,
         UuidOrSignature,
     },
 };
@@ -266,7 +266,7 @@ pub trait SvmTricksRpc {
         transaction_data: String, // Base64 encoded VersionedTransaction
         tag: Option<String>,      // Optional tag for the transaction
         encoding: Option<UiAccountEncoding>,
-    ) -> BoxFuture<Result<RpcResponse<ProfileResult>>>;
+    ) -> BoxFuture<Result<RpcResponse<KeyedProfileResult>>>;
 
     /// Retrieves all profiling results for a given tag.
     ///
@@ -281,7 +281,7 @@ pub trait SvmTricksRpc {
         &self,
         meta: Self::Metadata,
         tag: String,
-    ) -> BoxFuture<Result<RpcResponse<Option<Vec<ProfileResult>>>>>;
+    ) -> BoxFuture<Result<RpcResponse<Option<Vec<KeyedProfileResult>>>>>;
 
     /// A "cheat code" method for developers to set or update the network supply information in Surfpool.
     ///
@@ -417,7 +417,7 @@ pub trait SvmTricksRpc {
         &self,
         meta: Self::Metadata,
         signature_or_uuid: UuidOrSignature,
-    ) -> BoxFuture<Result<RpcResponse<Option<ProfileResult>>>>;
+    ) -> BoxFuture<Result<RpcResponse<Option<KeyedProfileResult>>>>;
 
     /// A cheat code to register an IDL for a given program in memory.
     ///
@@ -793,7 +793,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         transaction_data_b64: String,
         tag: Option<String>,
         encoding: Option<UiAccountEncoding>,
-    ) -> BoxFuture<Result<RpcResponse<ProfileResult>>> {
+    ) -> BoxFuture<Result<RpcResponse<KeyedProfileResult>>> {
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
@@ -833,7 +833,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         &self,
         meta: Self::Metadata,
         tag: String,
-    ) -> BoxFuture<Result<RpcResponse<Option<Vec<ProfileResult>>>>> {
+    ) -> BoxFuture<Result<RpcResponse<Option<Vec<KeyedProfileResult>>>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
@@ -937,7 +937,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         &self,
         meta: Self::Metadata,
         signature_or_uuid: UuidOrSignature,
-    ) -> BoxFuture<Result<RpcResponse<Option<ProfileResult>>>> {
+    ) -> BoxFuture<Result<RpcResponse<Option<KeyedProfileResult>>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),

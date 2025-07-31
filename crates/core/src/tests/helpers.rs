@@ -110,7 +110,7 @@ where
             let _ = self
                 .context
                 .svm_locker
-                .process_transaction(&None, tx.clone(), status_tx.clone(), true)
+                .process_transaction(&None, tx.clone(), status_tx.clone(), true, true)
                 .await
                 .unwrap();
         }

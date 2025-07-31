@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -32,16 +32,18 @@ use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_message::{
-    SimpleAddressLoader, VersionedMessage,
+    Message, MessageHeader, SimpleAddressLoader, VersionedMessage,
     v0::{LoadedAddresses, MessageAddressTableLookup},
 };
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     bpf_loader_upgradeable::{UpgradeableLoaderState, get_program_data_address},
+    instruction::CompiledInstruction,
     transaction::{SanitizedTransaction, VersionedTransaction},
 };
 use solana_signature::Signature;
+use solana_transaction::Transaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta,
@@ -49,8 +51,9 @@ use solana_transaction_status::{
     UiTransactionEncoding,
 };
 use surfpool_types::{
-    ComputeUnitsEstimationResult, Idl, ProfileResult, ProfileState, SimnetEvent,
-    TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature, VersionedIdl,
+    ComputeUnitsEstimationResult, Idl, KeyedProfileResult, ProfileResult, ProfileState,
+    SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent, UuidOrSignature,
+    VersionedIdl,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -713,14 +716,17 @@ impl SurfnetSvmLocker {
         transaction: VersionedTransaction,
         status_tx: Sender<TransactionStatusEvent>,
         skip_preflight: bool,
+        sigverify: bool,
     ) -> SurfpoolContextualizedResult<()> {
         let remote_ctx = &remote_ctx.get_remote_ctx(CommitmentConfig::confirmed());
+        let signature = transaction.signatures[0];
+
         let (latest_absolute_slot, latest_epoch_info, latest_blockhash) =
             self.with_svm_writer(|svm_writer| {
                 let latest_absolute_slot = svm_writer.get_latest_absolute_slot();
                 svm_writer.notify_signature_subscribers(
                     SignatureSubscriptionType::received(),
-                    &transaction.signatures[0],
+                    &signature,
                     latest_absolute_slot,
                     None,
                 );
@@ -730,8 +736,6 @@ impl SurfnetSvmLocker {
                     svm_writer.latest_blockhash(),
                 )
             });
-
-        let signature = transaction.signatures[0];
 
         // find accounts that are needed for this transaction but are missing from the local
         // svm cache, fetch them from the RPC, and insert them locally
@@ -797,7 +801,7 @@ impl SurfnetSvmLocker {
 
             // if not skipping preflight, simulate the transaction
             if !skip_preflight {
-                match svm_writer.simulate_transaction(transaction.clone(), true) {
+                match svm_writer.simulate_transaction(transaction.clone(), sigverify) {
                     Ok(_) => {}
                     Err(res) => {
                         let _ = svm_writer
@@ -829,9 +833,11 @@ impl SurfnetSvmLocker {
                 }
             }
             // send the transaction to the SVM
-            let err = match svm_writer
-                .send_transaction(transaction.clone(), false /* cu_analysis_enabled */)
-            {
+            let err = match svm_writer.send_transaction(
+                transaction.clone(),
+                false, /* cu_analysis_enabled */
+                sigverify,
+            ) {
                 Ok(res) => {
                     logs = res.logs.clone();
                     let accounts_after = pubkeys_from_message
@@ -921,13 +927,13 @@ impl SurfnetSvmLocker {
                         })
                         .collect::<Result<Vec<_>, SurfpoolError>>()?;
 
-                    let profile_result = ProfileResult::success(
+                    let profile_result = KeyedProfileResult::success(
                         res.compute_units_consumed,
                         res.logs.clone(),
                         pre_execution_capture.clone(),
                         post_execution_capture,
                         latest_absolute_slot,
-                        Some(Uuid::new_v4()),
+                        UuidOrSignature::Uuid(Uuid::new_v4()),
                     );
                     svm_writer.write_executed_profile_result(signature, profile_result);
 
@@ -1465,21 +1471,307 @@ impl SurfnetSvmLocker {
             svm_reader.estimate_compute_units(transaction)
         })
     }
+
+    /// Creates a partial transaction for instruction profiling by extracting and remapping
+    /// a subset of instructions from the original transaction.
+    ///
+    /// This helper function handles the complex logic of:
+    /// - Collecting all accounts referenced by the instruction subset
+    /// - Categorizing accounts based on their original roles (signers vs non-signers)
+    /// - Building a new account key list in the correct order
+    /// - Remapping instruction account indices to match the new account list
+    /// - Creating a valid partial transaction with appropriate signatures
+    ///
+    /// # Arguments
+    /// * `instructions` - All instructions from the original transaction
+    /// * `message_accounts` - Account keys from the original transaction
+    /// * `mutable_signers` - Mutable signer accounts from original transaction
+    /// * `readonly_signers` - Readonly signer accounts from original transaction
+    /// * `mutable_non_signers` - Mutable non-signer accounts from original transaction
+    /// * `transaction` - The original transaction for reference
+    /// * `idx` - Number of instructions to include in the partial transaction
+    ///
+    /// # Returns
+    /// A partial transaction containing the first `idx` instructions, or None if creation fails
+    fn create_partial_transaction(
+        &self,
+        instructions: &[CompiledInstruction],
+        message_accounts: &[Pubkey],
+        mutable_signers: &[Pubkey],
+        readonly_signers: &[Pubkey],
+        mutable_non_signers: &[Pubkey],
+        transaction: &VersionedTransaction,
+        idx: usize,
+    ) -> Option<VersionedTransaction> {
+        let ixs_for_tx = instructions[0..idx].to_vec();
+
+        // Collect all required accounts for the partial transaction
+        let mut all_required_accounts = HashSet::new();
+        for ix in &ixs_for_tx {
+            // Add instruction accounts
+            for &account_idx in &ix.accounts {
+                if account_idx < message_accounts.len() as u8 {
+                    all_required_accounts.insert(message_accounts[account_idx as usize]);
+                }
+            }
+            // Add program ID
+            if ix.program_id_index < message_accounts.len() as u8 {
+                all_required_accounts.insert(message_accounts[ix.program_id_index as usize]);
+            }
+        }
+
+        // Categorize accounts based on their original positions
+        let mut new_mutable_signers = HashSet::new();
+        let mut new_readonly_signers = HashSet::new();
+        let mut new_mutable_non_signers = HashSet::new();
+        let mut new_readonly_non_signers = HashSet::new();
+
+        println!("All required accounts: {:?}", all_required_accounts);
+        for &account in &all_required_accounts {
+            if let Some(idx) = message_accounts.iter().position(|pk| pk == &account) {
+                match idx {
+                    i if i < mutable_signers.len() => new_mutable_signers.insert(account),
+                    i if i < mutable_signers.len() + readonly_signers.len() => {
+                        new_readonly_signers.insert(account)
+                    }
+                    i if i < mutable_signers.len()
+                        + readonly_signers.len()
+                        + mutable_non_signers.len() =>
+                    {
+                        new_mutable_non_signers.insert(account)
+                    }
+                    _ => new_readonly_non_signers.insert(account),
+                };
+            }
+        }
+        println!("New tx values:");
+        println!("New Mutable signers: {:?}", new_mutable_signers);
+        println!("New Readonly signers: {:?}", new_readonly_signers);
+        println!("New Mutable non-signers: {:?}", new_mutable_non_signers);
+        println!("New Readonly non-signers: {:?}", new_readonly_non_signers);
+
+        // Build account keys in correct order: signers first, then non-signers
+        let mut new_account_keys = Vec::new();
+        for &account in &all_required_accounts {
+            if new_mutable_signers.contains(&account) {
+                new_account_keys.push(account);
+            }
+        }
+        for &account in &all_required_accounts {
+            if new_readonly_signers.contains(&account) {
+                new_account_keys.push(account);
+            }
+        }
+        for &account in &all_required_accounts {
+            if new_mutable_non_signers.contains(&account) {
+                new_account_keys.push(account);
+            }
+        }
+        for &account in &all_required_accounts {
+            if new_readonly_non_signers.contains(&account) {
+                new_account_keys.push(account);
+            }
+        }
+
+        // Create account index mapping
+        let mut account_index_mapping = HashMap::new();
+        for (new_idx, pubkey) in new_account_keys.iter().enumerate() {
+            if let Some(old_idx) = message_accounts.iter().position(|pk| pk == pubkey) {
+                account_index_mapping.insert(old_idx, new_idx);
+            }
+        }
+
+        // Remap instructions
+        let mut remapped_instructions = Vec::new();
+        for ix in ixs_for_tx {
+            let mut remapped_accounts = Vec::new();
+            for &account_idx in &ix.accounts {
+                if let Some(&new_idx) = account_index_mapping.get(&(account_idx as usize)) {
+                    remapped_accounts.push(new_idx as u8);
+                } else {
+                    continue; // Skip instructions with unmappable accounts
+                }
+            }
+
+            if remapped_accounts.len() == ix.accounts.len() {
+                let new_program_id_idx = account_index_mapping
+                    .get(&(ix.program_id_index as usize))
+                    .copied()
+                    .unwrap_or(0) as u8;
+
+                remapped_instructions.push(CompiledInstruction {
+                    program_id_index: new_program_id_idx,
+                    accounts: remapped_accounts,
+                    data: ix.data.clone(),
+                });
+            }
+        }
+
+        if remapped_instructions.is_empty() {
+            return None;
+        }
+
+        // Create new message
+        let num_required_signatures = new_mutable_signers.len() + new_readonly_signers.len();
+        let num_readonly_signed_accounts = new_readonly_signers.len();
+        let num_readonly_unsigned_accounts = new_readonly_non_signers.len();
+
+        let new_message = Message {
+            header: MessageHeader {
+                num_required_signatures: num_required_signatures as u8,
+                num_readonly_signed_accounts: num_readonly_signed_accounts as u8,
+                num_readonly_unsigned_accounts: num_readonly_unsigned_accounts as u8,
+            },
+            account_keys: new_account_keys,
+            recent_blockhash: *transaction.message.recent_blockhash(),
+            instructions: remapped_instructions,
+        };
+
+        println!("Number of required signatures: {}", num_required_signatures);
+        // Create partial transaction with appropriate signatures
+        let signatures_to_use = transaction.signatures[0..num_required_signatures].to_vec();
+
+        let tx = Transaction {
+            signatures: signatures_to_use,
+            message: new_message,
+        };
+
+        Some(VersionedTransaction::from(tx))
+    }
+
+    /// Profiles a transaction by simulating its execution and capturing detailed metrics.
+    ///
+    /// This function performs comprehensive transaction profiling including:
+    /// - Full transaction simulation with compute unit consumption tracking
+    /// - Pre/post execution account state snapshots
+    /// - Individual instruction profiling for multi-instruction transactions
+    /// - Storage of results for later retrieval by UUID or tag
+    ///
+    /// # Arguments
+    /// * `remote_ctx` - Optional remote client for fetching account data
+    /// * `transaction` - The transaction to profile
+    /// * `encoding` - Account data encoding format
+    /// * `tag` - Optional tag for grouping related profiles
+    ///
+    /// # Returns
+    /// A contextualized result containing the profile data with slot and epoch information
     pub async fn profile_transaction(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
         transaction: VersionedTransaction,
         encoding: Option<UiAccountEncoding>,
         tag: Option<String>,
-    ) -> SurfpoolContextualizedResult<ProfileResult> {
-        let SvmAccessContext {
-            slot,
-            latest_epoch_info,
-            latest_blockhash,
-            inner: mut svm_clone,
-        } = self.with_contextualized_svm_reader(|svm_reader| svm_reader.clone());
+    ) -> SurfpoolContextualizedResult<KeyedProfileResult> {
+        let instructions = transaction.message.instructions();
+        let message_accounts = transaction.message.static_account_keys();
 
-        let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
+        // Extract account categories from original transaction
+        let last_signer_index = transaction.message.header().num_required_signatures as usize;
+        let last_mutable_signer_index =
+            last_signer_index - transaction.message.header().num_readonly_signed_accounts as usize;
+        let last_mutable_non_signer_index = message_accounts.len()
+            - transaction.message.header().num_readonly_unsigned_accounts as usize;
+
+        println!("Message accounts: {:?}", message_accounts);
+        println!("Last signer index: {}", last_signer_index);
+        println!("Last mutable signer index: {}", last_mutable_signer_index);
+        println!(
+            "Last mutable non-signer index: {}",
+            last_mutable_non_signer_index
+        );
+        let mutable_signers = &message_accounts[0..last_mutable_signer_index];
+        let readonly_signers = &message_accounts[last_mutable_signer_index..last_signer_index];
+        let mutable_non_signers =
+            &message_accounts[last_signer_index..last_mutable_non_signer_index];
+
+        println!("Last signer index: {}", last_signer_index);
+        let do_profile_ixs = true;
+
+        // Generate instruction profiles if transaction has signers
+        let ix_profiles = if do_profile_ixs {
+            println!("ix_count = {}", instructions.len());
+            let mut ix_profile_results = vec![];
+            let ix_count = instructions.len();
+            let ix_to_process_index = ix_count.saturating_sub(1);
+            println!("ix_to_process_index = {}", ix_to_process_index);
+
+            for idx in 0..=ix_to_process_index {
+                println!("Processing instruction {}", idx);
+                if let Some(partial_tx) = self.create_partial_transaction(
+                    instructions,
+                    message_accounts,
+                    mutable_signers,
+                    readonly_signers,
+                    mutable_non_signers,
+                    &transaction,
+                    idx,
+                ) {
+                    println!(
+                        "Created partial transaction for instruction {:?}",
+                        partial_tx
+                    );
+                    let mut profile_result = self
+                        .inner_profile_transaction(remote_ctx, partial_tx, encoding, None)
+                        .await?;
+                    profile_result.instructions = Some((0..idx).collect());
+                    ix_profile_results.push(profile_result);
+                }
+            }
+
+            if ix_profile_results.is_empty() {
+                None
+            } else {
+                Some(ix_profile_results)
+            }
+        } else {
+            None
+        };
+
+        // Profile the full transaction
+        let transaction_profile = self
+            .inner_profile_transaction(remote_ctx, transaction, encoding, tag.clone())
+            .await?;
+
+        // Create the final transaction profile result with instruction profiles
+        let uuid = Uuid::new_v4();
+        let final_profile_result = KeyedProfileResult {
+            instruction_profiles: ix_profiles,
+            transaction_profile,
+            slot: self.get_latest_absolute_slot(),
+            key: UuidOrSignature::Uuid(uuid),
+        };
+
+        // Store in SVM for later retrieval
+        self.with_svm_writer(|svm| {
+            svm.simulated_transaction_profiles
+                .insert(uuid, final_profile_result.clone());
+            svm.profile_tag_map
+                .entry(tag.clone().unwrap_or(uuid.to_string()))
+                .or_default()
+                .push(UuidOrSignature::Uuid(uuid));
+        });
+
+        let epoch_info = self.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info());
+        let latest_blockhash = self.with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        Ok(SvmAccessContext::new(
+            self.get_latest_absolute_slot(),
+            epoch_info,
+            latest_blockhash,
+            final_profile_result,
+        ))
+    }
+
+    pub async fn inner_profile_transaction(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+        transaction: VersionedTransaction,
+        encoding: Option<UiAccountEncoding>,
+        _tag: Option<String>,
+    ) -> SurfpoolResult<ProfileResult> {
+        let mut svm_clone = self.with_svm_reader(|svm_reader| svm_reader.clone());
+
+        let (dummy_simnet_tx, simnet_event_rx) = crossbeam_channel::bounded(1);
         let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
         svm_clone.simnet_events_tx = dummy_simnet_tx;
         svm_clone.geyser_events_tx = dummy_geyser_tx;
@@ -1509,12 +1801,14 @@ impl SurfnetSvmLocker {
             capture
         };
 
-        let compute_units_estimation_result = svm_locker.estimate_compute_units(&transaction).inner;
+        // let compute_units_estimation_result = svm_locker.estimate_compute_units(&transaction).inner;
 
         let (status_tx, status_rx) = crossbeam_channel::unbounded();
+
         let signature = transaction.signatures[0];
+        let sigverify = false; // don't verify signatures during profiling
         let _ = svm_locker
-            .process_transaction(remote_ctx, transaction, status_tx, true)
+            .process_transaction(remote_ctx, transaction, status_tx, true, sigverify)
             .await?;
 
         let simnet_events_tx = self.simnet_events_tx();
@@ -1553,6 +1847,20 @@ impl SurfnetSvmLocker {
             }
         }
 
+        let (tx_meta, tx_err) = loop {
+            if let Ok(event) = simnet_event_rx.try_recv() {
+                match event {
+                    SimnetEvent::TransactionProcessed(_, tx_meta, err) => {
+                        break (tx_meta, err);
+                    }
+                    event => {
+                        println!("received event: {:?}", event);
+                        continue;
+                    }
+                }
+            }
+        };
+
         let post_execution_capture = {
             let mut capture = BTreeMap::new();
             for pubkey in &account_keys {
@@ -1565,36 +1873,22 @@ impl SurfnetSvmLocker {
             capture
         };
 
-        let uuid = Uuid::new_v4();
         let profile_result = ProfileResult {
-            compute_units: compute_units_estimation_result,
             state: ProfileState::new(pre_execution_capture, post_execution_capture),
-            slot,
-            uuid: Some(uuid),
+            compute_units_consumed: tx_meta.compute_units_consumed,
+            log_messages: Some(tx_meta.logs),
+            error_message: tx_err.map(|e| e.to_string()),
+            instructions: None,
         };
 
-        self.with_svm_writer(|svm| {
-            svm.simulated_transaction_profiles
-                .insert(uuid, profile_result.clone());
-            svm.profile_tag_map
-                .entry(tag.clone().unwrap_or(uuid.to_string()))
-                .or_default()
-                .push(UuidOrSignature::Uuid(uuid));
-        });
-
-        Ok(SvmAccessContext::new(
-            slot,
-            latest_epoch_info,
-            latest_blockhash,
-            profile_result,
-        ))
+        Ok(profile_result)
     }
 
     /// Returns the profile result for a given signature or UUID, and whether it exists in the SVM.
     pub fn get_profile_result(
         &self,
         signature_or_uuid: UuidOrSignature,
-    ) -> SurfpoolResult<Option<ProfileResult>> {
+    ) -> SurfpoolResult<Option<KeyedProfileResult>> {
         match &signature_or_uuid {
             UuidOrSignature::Signature(signature) => {
                 let profile = self.with_svm_reader(|svm| {
@@ -1620,7 +1914,7 @@ impl SurfnetSvmLocker {
     pub fn get_profile_results_by_tag(
         &self,
         tag: String,
-    ) -> SurfpoolResult<Option<Vec<ProfileResult>>> {
+    ) -> SurfpoolResult<Option<Vec<KeyedProfileResult>>> {
         let tag_map = self.with_svm_reader(|svm| svm.profile_tag_map.get(&tag).cloned());
         match tag_map {
             None => Ok(None),

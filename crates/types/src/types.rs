@@ -104,32 +104,45 @@ pub struct ComputeUnitsEstimationResult {
 /// The struct for storing the profiling results.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct ProfileResult {
-    pub compute_units: ComputeUnitsEstimationResult,
-    pub state: ProfileState,
+pub struct KeyedProfileResult {
     pub slot: u64,
-    pub uuid: Option<Uuid>,
+    pub key: UuidOrSignature,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instruction_profiles: Option<Vec<ProfileResult>>,
+    pub transaction_profile: ProfileResult,
 }
 
-impl ProfileResult {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileResult {
+    pub state: ProfileState,
+    pub compute_units_consumed: u64,
+    pub log_messages: Option<Vec<String>>,
+    pub error_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<Vec<usize>>,
+}
+
+impl KeyedProfileResult {
     pub fn success(
         compute_units_consumed: u64,
         logs: Vec<String>,
         pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
         post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
         slot: u64,
-        uuid: Option<Uuid>,
+        key: UuidOrSignature,
     ) -> Self {
         Self {
-            compute_units: ComputeUnitsEstimationResult {
-                success: true,
+            instruction_profiles: None,
+            transaction_profile: ProfileResult {
+                state: ProfileState::new(pre_execution, post_execution),
                 compute_units_consumed,
                 log_messages: Some(logs),
                 error_message: None,
+                instructions: None,
             },
-            state: ProfileState::new(pre_execution, post_execution),
             slot,
-            uuid,
+            key,
         }
     }
 }
@@ -218,7 +231,7 @@ pub enum SimnetEvent {
     ),
     AccountUpdate(DateTime<Local>, Pubkey),
     TaggedProfile {
-        result: ProfileResult,
+        result: KeyedProfileResult,
         tag: String,
         timestamp: DateTime<Local>,
     },
@@ -267,7 +280,7 @@ impl SimnetEvent {
         Self::AccountUpdate(Local::now(), pubkey)
     }
 
-    pub fn tagged_profile(result: ProfileResult, tag: String) -> Self {
+    pub fn tagged_profile(result: KeyedProfileResult, tag: String) -> Self {
         Self::TaggedProfile {
             result,
             tag,
@@ -612,7 +625,7 @@ pub struct SupplyUpdate {
     pub non_circulating_accounts: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum UuidOrSignature {
     Uuid(Uuid),
     Signature(Signature),
@@ -636,6 +649,20 @@ impl<'de> Deserialize<'de> for UuidOrSignature {
         Err(serde::de::Error::custom(
             "expected a Uuid or a valid Solana Signature",
         ))
+    }
+}
+
+impl<'de> Serialize for UuidOrSignature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            UuidOrSignature::Uuid(uuid) => serializer.serialize_str(&uuid.to_string()),
+            UuidOrSignature::Signature(signature) => {
+                serializer.serialize_str(&signature.to_string())
+            }
+        }
     }
 }
 
