@@ -716,16 +716,10 @@ impl SurfnetSvmLocker {
         transaction: VersionedTransaction,
         status_tx: Sender<TransactionStatusEvent>,
         skip_preflight: bool,
+        sigverify: bool,
     ) -> SurfpoolContextualizedResult<()> {
         let remote_ctx = &remote_ctx.get_remote_ctx(CommitmentConfig::confirmed());
-        // Get the signature safely, using a default if no signatures are available
-        let signature = if !transaction.signatures.is_empty() {
-            transaction.signatures[0]
-        } else {
-            // Generate a default signature for transactions without signatures
-            // This is a specific case for instruction profiling where we don't have a signature, that may happen with partial transactions
-            Signature::default()
-        };
+        let signature = transaction.signatures[0];
 
         let (latest_absolute_slot, latest_epoch_info, latest_blockhash) =
             self.with_svm_writer(|svm_writer| {
@@ -807,7 +801,7 @@ impl SurfnetSvmLocker {
 
             // if not skipping preflight, simulate the transaction
             if !skip_preflight {
-                match svm_writer.simulate_transaction(transaction.clone(), true) {
+                match svm_writer.simulate_transaction(transaction.clone(), sigverify) {
                     Ok(_) => {}
                     Err(res) => {
                         let _ = svm_writer
@@ -839,9 +833,11 @@ impl SurfnetSvmLocker {
                 }
             }
             // send the transaction to the SVM
-            let err = match svm_writer
-                .send_transaction(transaction.clone(), false /* cu_analysis_enabled */)
-            {
+            let err = match svm_writer.send_transaction(
+                transaction.clone(),
+                false, /* cu_analysis_enabled */
+                sigverify,
+            ) {
                 Ok(res) => {
                     logs = res.logs.clone();
                     let accounts_after = pubkeys_from_message
@@ -1530,6 +1526,7 @@ impl SurfnetSvmLocker {
         let mut new_mutable_non_signers = HashSet::new();
         let mut new_readonly_non_signers = HashSet::new();
 
+        println!("All required accounts: {:?}", all_required_accounts);
         for &account in &all_required_accounts {
             if let Some(idx) = message_accounts.iter().position(|pk| pk == &account) {
                 match idx {
@@ -1547,6 +1544,11 @@ impl SurfnetSvmLocker {
                 };
             }
         }
+        println!("New tx values:");
+        println!("New Mutable signers: {:?}", new_mutable_signers);
+        println!("New Readonly signers: {:?}", new_readonly_signers);
+        println!("New Mutable non-signers: {:?}", new_mutable_non_signers);
+        println!("New Readonly non-signers: {:?}", new_readonly_non_signers);
 
         // Build account keys in correct order: signers first, then non-signers
         let mut new_account_keys = Vec::new();
@@ -1625,14 +1627,9 @@ impl SurfnetSvmLocker {
             instructions: remapped_instructions,
         };
 
+        println!("Number of required signatures: {}", num_required_signatures);
         // Create partial transaction with appropriate signatures
-        let signatures_to_use = if num_required_signatures > 0
-            && num_required_signatures <= transaction.signatures.len()
-        {
-            transaction.signatures[0..num_required_signatures].to_vec()
-        } else {
-            vec![]
-        };
+        let signatures_to_use = transaction.signatures[0..num_required_signatures].to_vec();
 
         let tx = Transaction {
             signatures: signatures_to_use,
@@ -1669,28 +1666,37 @@ impl SurfnetSvmLocker {
         let message_accounts = transaction.message.static_account_keys();
 
         // Extract account categories from original transaction
-        let last_signer_index = transaction.message.header().num_required_signatures as usize - 1;
+        let last_signer_index = transaction.message.header().num_required_signatures as usize;
         let last_mutable_signer_index =
             last_signer_index - transaction.message.header().num_readonly_signed_accounts as usize;
         let last_mutable_non_signer_index = message_accounts.len()
             - transaction.message.header().num_readonly_unsigned_accounts as usize;
 
+        println!("Message accounts: {:?}", message_accounts);
+        println!("Last signer index: {}", last_signer_index);
+        println!("Last mutable signer index: {}", last_mutable_signer_index);
+        println!(
+            "Last mutable non-signer index: {}",
+            last_mutable_non_signer_index
+        );
         let mutable_signers = &message_accounts[0..last_mutable_signer_index];
         let readonly_signers = &message_accounts[last_mutable_signer_index..last_signer_index];
         let mutable_non_signers =
             &message_accounts[last_signer_index..last_mutable_non_signer_index];
 
+        println!("Last signer index: {}", last_signer_index);
+        let do_profile_ixs = true;
+
         // Generate instruction profiles if transaction has signers
-        let ix_profiles = if last_signer_index > 0 {
+        let ix_profiles = if do_profile_ixs {
+            println!("ix_count = {}", instructions.len());
             let mut ix_profile_results = vec![];
             let ix_count = instructions.len();
-            let ix_to_process_index = if ix_count > 2 {
-                ix_count.saturating_sub(2)
-            } else {
-                0
-            };
+            let ix_to_process_index = ix_count.saturating_sub(1);
+            println!("ix_to_process_index = {}", ix_to_process_index);
 
-            for idx in 1..=ix_to_process_index {
+            for idx in 0..=ix_to_process_index {
+                println!("Processing instruction {}", idx);
                 if let Some(partial_tx) = self.create_partial_transaction(
                     instructions,
                     message_accounts,
@@ -1700,6 +1706,10 @@ impl SurfnetSvmLocker {
                     &transaction,
                     idx,
                 ) {
+                    println!(
+                        "Created partial transaction for instruction {:?}",
+                        partial_tx
+                    );
                     let mut profile_result = self
                         .inner_profile_transaction(remote_ctx, partial_tx, encoding, None)
                         .await?;
@@ -1761,7 +1771,7 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolResult<ProfileResult> {
         let mut svm_clone = self.with_svm_reader(|svm_reader| svm_reader.clone());
 
-        let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
+        let (dummy_simnet_tx, simnet_event_rx) = crossbeam_channel::bounded(1);
         let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
         svm_clone.simnet_events_tx = dummy_simnet_tx;
         svm_clone.geyser_events_tx = dummy_geyser_tx;
@@ -1791,20 +1801,14 @@ impl SurfnetSvmLocker {
             capture
         };
 
-        let compute_units_estimation_result = svm_locker.estimate_compute_units(&transaction).inner;
+        // let compute_units_estimation_result = svm_locker.estimate_compute_units(&transaction).inner;
 
         let (status_tx, status_rx) = crossbeam_channel::unbounded();
 
-        // Get the signature safely, using a default if no signatures are available
-        let signature = if !transaction.signatures.is_empty() {
-            transaction.signatures[0]
-        } else {
-            // Generate a default signature for transactions without signatures
-            // This is a specific case for instruction profiling where we don't have a signature, that may happen with partial transactions
-            Signature::default()
-        };
+        let signature = transaction.signatures[0];
+        let sigverify = false; // don't verify signatures during profiling
         let _ = svm_locker
-            .process_transaction(remote_ctx, transaction, status_tx, true)
+            .process_transaction(remote_ctx, transaction, status_tx, true, sigverify)
             .await?;
 
         let simnet_events_tx = self.simnet_events_tx();
@@ -1843,6 +1847,20 @@ impl SurfnetSvmLocker {
             }
         }
 
+        let (tx_meta, tx_err) = loop {
+            if let Ok(event) = simnet_event_rx.try_recv() {
+                match event {
+                    SimnetEvent::TransactionProcessed(_, tx_meta, err) => {
+                        break (tx_meta, err);
+                    }
+                    event => {
+                        println!("received event: {:?}", event);
+                        continue;
+                    }
+                }
+            }
+        };
+
         let post_execution_capture = {
             let mut capture = BTreeMap::new();
             for pubkey in &account_keys {
@@ -1857,9 +1875,9 @@ impl SurfnetSvmLocker {
 
         let profile_result = ProfileResult {
             state: ProfileState::new(pre_execution_capture, post_execution_capture),
-            compute_units_consumed: compute_units_estimation_result.compute_units_consumed,
-            log_messages: compute_units_estimation_result.log_messages,
-            error_message: compute_units_estimation_result.error_message,
+            compute_units_consumed: tx_meta.compute_units_consumed,
+            log_messages: Some(tx_meta.logs),
+            error_message: tx_err.map(|e| e.to_string()),
             instructions: None,
         };
 

@@ -930,7 +930,7 @@ async fn test_surfnet_estimate_compute_units() {
         VersionedTransaction::try_new(VersionedMessage::Legacy(message_for_send), &[&payer])
             .unwrap();
 
-    let _send_result = svm_for_send.send_transaction(tx_for_send, true);
+    let _send_result = svm_for_send.send_transaction(tx_for_send, true, true);
 
     let mut found_cu_event = false;
     for _ in 0..10 {
@@ -1227,7 +1227,7 @@ async fn test_get_transaction_profile() {
     let (status_tx, status_rx) = crossbeam_unbounded();
 
     svm_locker_for_context
-        .process_transaction(&None, tx.clone(), status_tx, false)
+        .process_transaction(&None, tx.clone(), status_tx, false, true)
         .await
         .unwrap();
 
@@ -1719,6 +1719,11 @@ async fn test_profile_transaction_multi_instruction_basic() {
     };
     println!("Generated UUID: {}", uuid);
 
+    println!(
+        "Profile result: {}",
+        serde_json::to_string_pretty(&profile_result.inner).unwrap()
+    );
+
     // Verify transaction profile
     assert!(
         profile_result
@@ -1818,6 +1823,7 @@ async fn test_profile_transaction_with_tag() {
         .profile_transaction(&None, transaction.clone(), None, Some(tag.clone()))
         .await
         .unwrap();
+    println!("Profile result: {:?}", profile_result.inner);
 
     // Verify UUID generation
     let UuidOrSignature::Uuid(uuid) = profile_result.inner.key else {

@@ -584,8 +584,9 @@ impl SurfnetSvm {
         &mut self,
         tx: VersionedTransaction,
         cu_analysis_enabled: bool,
+        sigverify: bool,
     ) -> TransactionResult {
-        if tx.verify_with_results().iter().any(|valid| !*valid) {
+        if sigverify && tx.verify_with_results().iter().any(|valid| !*valid) {
             return Err(FailedTransactionMetadata {
                 err: TransactionError::SignatureFailure,
                 meta: TransactionMetadata::default(),

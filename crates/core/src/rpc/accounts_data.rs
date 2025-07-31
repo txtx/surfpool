@@ -1177,7 +1177,7 @@ mod tests {
         client
             .context
             .svm_locker
-            .process_transaction(&None, transaction.into(), status_tx.clone(), false)
+            .process_transaction(&None, transaction.into(), status_tx.clone(), false, true)
             .await
             .unwrap();
 
@@ -1223,7 +1223,7 @@ mod tests {
         client
             .context
             .svm_locker
-            .process_transaction(&None, transaction.clone().into(), status_tx, true)
+            .process_transaction(&None, transaction.clone().into(), status_tx, true, true)
             .await
             .unwrap();
 
@@ -1391,7 +1391,7 @@ mod tests {
         client
             .context
             .svm_locker
-            .process_transaction(&None, transaction.clone().into(), status_tx, true)
+            .process_transaction(&None, transaction.clone().into(), status_tx, true, true)
             .await
             .unwrap();
 
@@ -1438,7 +1438,7 @@ mod tests {
         client
             .context
             .svm_locker
-            .process_transaction(&None, transaction.clone().into(), status_tx, true)
+            .process_transaction(&None, transaction.clone().into(), status_tx, true, true)
             .await
             .unwrap();
 
