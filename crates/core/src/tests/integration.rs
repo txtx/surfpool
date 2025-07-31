@@ -29,6 +29,7 @@ use surfpool_types::{
     },
 };
 use tokio::{sync::RwLock, task};
+use uuid::Uuid;
 
 use crate::{
     PluginManagerCommand,
@@ -1588,4 +1589,355 @@ async fn test_register_and_get_same_idl_with_different_slots() {
     }
 
     println!("All IDL registration and retrieval tests at different slots passed successfully!");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_profile_transaction_basic() {
+    // Set up test environment
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // Set up test accounts
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 1_000_000;
+
+    // Airdrop SOL to payer
+    svm_locker
+        .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 2))
+        .unwrap();
+
+    // Create a simple transfer transaction
+    let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let latest_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let transaction =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
+
+    // Test basic profiling without tag
+    println!("Testing basic transaction profiling");
+    let profile_result = svm_locker
+        .profile_transaction(&None, transaction.clone(), None, None)
+        .await
+        .unwrap();
+
+    // Verify UUID generation
+    let UuidOrSignature::Uuid(uuid) = profile_result.inner.key else {
+        panic!(
+            "Expected a UUID from the profile result, got: {:?}",
+            profile_result.inner.key
+        );
+    };
+    println!("Generated UUID: {}", uuid);
+
+    // Verify transaction profile
+    assert!(
+        profile_result
+            .inner
+            .transaction_profile
+            .error_message
+            .is_none(),
+        "Transaction profiling should succeed"
+    );
+    assert!(
+        profile_result
+            .inner
+            .transaction_profile
+            .compute_units_consumed
+            > 0,
+        "Transaction should consume compute units"
+    );
+
+    // Verify slot and context
+    assert_eq!(
+        profile_result.slot,
+        svm_locker.get_latest_absolute_slot(),
+        "Profile slot should match current slot"
+    );
+
+    // Verify storage in SVM
+    let stored_profile = svm_locker
+        .get_profile_result(UuidOrSignature::Uuid(uuid))
+        .unwrap();
+    assert!(stored_profile.is_some(), "Profile should be stored in SVM");
+
+    let stored = stored_profile.unwrap();
+    assert_eq!(
+        stored.transaction_profile.compute_units_consumed,
+        profile_result
+            .inner
+            .transaction_profile
+            .compute_units_consumed,
+        "Stored profile should match returned profile"
+    );
+
+    println!("Basic transaction profiling test passed successfully!");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_profile_transaction_multi_instruction_basic() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let lamports_to_send = 1_000_000;
+
+    svm_locker
+        .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 4))
+        .unwrap();
+
+    // Create a multi-instruction transaction: 3 transfers to different recipients
+    let recipient = Pubkey::new_unique();
+    let recipient2 = Pubkey::new_unique();
+    let recipient3 = Pubkey::new_unique();
+
+    let transfer_ix = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let transfer_ix2 = transfer(&payer.pubkey(), &recipient2, lamports_to_send);
+    let transfer_ix3 = transfer(&payer.pubkey(), &recipient3, lamports_to_send);
+
+    let latest_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let message = Message::new_with_blockhash(
+        &[transfer_ix, transfer_ix2, transfer_ix3],
+        Some(&payer.pubkey()),
+        &latest_blockhash,
+    );
+    let transaction =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
+
+    let profile_result = svm_locker
+        .profile_transaction(&None, transaction.clone(), None, None)
+        .await
+        .unwrap();
+
+    // Verify UUID generation
+    let UuidOrSignature::Uuid(uuid) = profile_result.inner.key else {
+        panic!(
+            "Expected a UUID from the profile result, got: {:?}",
+            profile_result.inner.key
+        );
+    };
+    println!("Generated UUID: {}", uuid);
+
+    // Verify transaction profile
+    assert!(
+        profile_result
+            .inner
+            .transaction_profile
+            .error_message
+            .is_none(),
+        "Transaction profiling should succeed"
+    );
+    assert!(
+        profile_result
+            .inner
+            .transaction_profile
+            .compute_units_consumed
+            > 0,
+        "Transaction should consume compute units"
+    );
+
+    // Verify that the transaction consumes compute units
+    assert!(
+        profile_result
+            .inner
+            .transaction_profile
+            .compute_units_consumed
+            > 0,
+        "Transaction should consume compute units"
+    );
+
+    // Verify state snapshots exist
+    assert!(
+        !profile_result
+            .inner
+            .transaction_profile
+            .state
+            .pre_execution
+            .is_empty(),
+        "Pre-execution state should be captured"
+    );
+    assert!(
+        !profile_result
+            .inner
+            .transaction_profile
+            .state
+            .post_execution
+            .is_empty(),
+        "Post-execution state should be captured"
+    );
+
+    // Verify storage in SVM
+    let stored_profile = svm_locker
+        .get_profile_result(UuidOrSignature::Uuid(uuid))
+        .unwrap();
+    assert!(stored_profile.is_some(), "Profile should be stored in SVM");
+
+    let stored = stored_profile.unwrap();
+    assert_eq!(
+        stored.transaction_profile.compute_units_consumed,
+        profile_result
+            .inner
+            .transaction_profile
+            .compute_units_consumed,
+        "Stored profile should match returned profile"
+    );
+
+    println!("Multi-instruction transaction basic profiling test passed successfully!");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_profile_transaction_with_tag() {
+    // Set up test environment
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // Set up test accounts
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 1_000_000;
+
+    // Airdrop SOL to payer
+    svm_locker
+        .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 3))
+        .unwrap();
+
+    // Create a simple transfer transaction
+    let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let latest_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let transaction =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
+
+    // Test profiling with a tag
+    let tag = "test_profile_transaction_tag".to_string();
+    println!("Testing transaction profiling with tag: {}", tag);
+
+    let profile_result = svm_locker
+        .profile_transaction(&None, transaction.clone(), None, Some(tag.clone()))
+        .await
+        .unwrap();
+
+    // Verify UUID generation
+    let UuidOrSignature::Uuid(uuid) = profile_result.inner.key else {
+        panic!(
+            "Expected a UUID from the profile result, got: {:?}",
+            profile_result.inner.key
+        );
+    };
+    println!("Generated UUID: {}", uuid);
+
+    // Verify transaction profile
+    assert!(
+        profile_result
+            .inner
+            .transaction_profile
+            .error_message
+            .is_none(),
+        "Transaction profiling should succeed"
+    );
+
+    // Verify tag-based retrieval
+    let tagged_results = svm_locker.get_profile_results_by_tag(tag.clone()).unwrap();
+    assert!(tagged_results.is_some(), "Tagged results should be found");
+
+    let tagged_profiles = tagged_results.unwrap();
+    assert_eq!(
+        tagged_profiles.len(),
+        1,
+        "Should have exactly one profile for this tag"
+    );
+
+    let tagged_profile = &tagged_profiles[0];
+    assert_eq!(
+        tagged_profile.key,
+        UuidOrSignature::Uuid(uuid),
+        "Tagged profile should have the same UUID"
+    );
+
+    // Test multiple profiles with the same tag
+    println!("Testing multiple profiles with the same tag");
+
+    // Create another transaction
+    let recipient2 = Pubkey::new_unique();
+    let instruction2 = transfer(&payer.pubkey(), &recipient2, lamports_to_send);
+    let message2 =
+        Message::new_with_blockhash(&[instruction2], Some(&payer.pubkey()), &latest_blockhash);
+    let transaction2 =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(message2), &[&payer]).unwrap();
+
+    let profile_result2 = svm_locker
+        .profile_transaction(&None, transaction2, None, Some(tag.clone()))
+        .await
+        .unwrap();
+
+    let UuidOrSignature::Uuid(uuid2) = profile_result2.inner.key else {
+        panic!("Expected a UUID from the second profile result");
+    };
+    println!("Generated second UUID: {}", uuid2);
+
+    // Verify both profiles are now associated with the tag
+    let tagged_results_updated = svm_locker.get_profile_results_by_tag(tag.clone()).unwrap();
+    assert!(
+        tagged_results_updated.is_some(),
+        "Tagged results should still be found after adding second profile"
+    );
+
+    let tagged_profiles_updated = tagged_results_updated.unwrap();
+    assert_eq!(
+        tagged_profiles_updated.len(),
+        2,
+        "Should have exactly two profiles for this tag"
+    );
+
+    // Verify both UUIDs are present
+    let uuids: Vec<Uuid> = tagged_profiles_updated
+        .iter()
+        .filter_map(|profile| {
+            if let UuidOrSignature::Uuid(uuid) = profile.key {
+                Some(uuid)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert!(
+        uuids.contains(&uuid),
+        "First UUID should be in tagged results"
+    );
+    assert!(
+        uuids.contains(&uuid2),
+        "Second UUID should be in tagged results"
+    );
+
+    // Test retrieval with non-existent tag
+    let non_existent_tag = "non_existent_tag".to_string();
+    let non_existent_results = svm_locker
+        .get_profile_results_by_tag(non_existent_tag)
+        .unwrap();
+    assert!(
+        non_existent_results.is_none(),
+        "Non-existent tag should return None"
+    );
+
+    // Test retrieval by individual UUIDs
+    let stored_profile1 = svm_locker
+        .get_profile_result(UuidOrSignature::Uuid(uuid))
+        .unwrap();
+    assert!(
+        stored_profile1.is_some(),
+        "First profile should be retrievable by UUID"
+    );
+
+    let stored_profile2 = svm_locker
+        .get_profile_result(UuidOrSignature::Uuid(uuid2))
+        .unwrap();
+    assert!(
+        stored_profile2.is_some(),
+        "Second profile should be retrievable by UUID"
+    );
+
+    println!("Tag-based transaction profiling test passed successfully!");
 }

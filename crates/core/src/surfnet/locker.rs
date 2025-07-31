@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -39,6 +39,7 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     bpf_loader_upgradeable::{UpgradeableLoaderState, get_program_data_address},
+    instruction::CompiledInstruction,
     transaction::{SanitizedTransaction, VersionedTransaction},
 };
 use solana_signature::Signature;
@@ -717,12 +718,21 @@ impl SurfnetSvmLocker {
         skip_preflight: bool,
     ) -> SurfpoolContextualizedResult<()> {
         let remote_ctx = &remote_ctx.get_remote_ctx(CommitmentConfig::confirmed());
+        // Get the signature safely, using a default if no signatures are available
+        let signature = if !transaction.signatures.is_empty() {
+            transaction.signatures[0]
+        } else {
+            // Generate a default signature for transactions without signatures
+            // This is a specific case for instruction profiling where we don't have a signature, that may happen with partial transactions
+            Signature::default()
+        };
+
         let (latest_absolute_slot, latest_epoch_info, latest_blockhash) =
             self.with_svm_writer(|svm_writer| {
                 let latest_absolute_slot = svm_writer.get_latest_absolute_slot();
                 svm_writer.notify_signature_subscribers(
                     SignatureSubscriptionType::received(),
-                    &transaction.signatures[0],
+                    &signature,
                     latest_absolute_slot,
                     None,
                 );
@@ -732,8 +742,6 @@ impl SurfnetSvmLocker {
                     svm_writer.latest_blockhash(),
                 )
             });
-
-        let signature = transaction.signatures[0];
 
         // find accounts that are needed for this transaction but are missing from the local
         // svm cache, fetch them from the RPC, and insert them locally
@@ -1468,40 +1476,188 @@ impl SurfnetSvmLocker {
         })
     }
 
-    /// Tx with IXs A, B, C
-    /// A -> P1, P2, SP. P1 -> Signer
-    /// B -> P3, P4, SP. P3 -> Signer
-    /// C -> P5, P6, SP. P5 -> Signer
+    /// Creates a partial transaction for instruction profiling by extracting and remapping
+    /// a subset of instructions from the original transaction.
     ///
-    /// Message:
-    /// acc_keys: [P1, P3, P5, // P2, P4, P6, SP]
+    /// This helper function handles the complex logic of:
+    /// - Collecting all accounts referenced by the instruction subset
+    /// - Categorizing accounts based on their original roles (signers vs non-signers)
+    /// - Building a new account key list in the correct order
+    /// - Remapping instruction account indices to match the new account list
+    /// - Creating a valid partial transaction with appropriate signatures
     ///
-    /// mutable_signers: [P1, P3, P5]
-    /// readonly_signers: []
-    /// mutable_non_signers: [P2, P4, P6]
-    /// readonly_non_signers: [SP]
+    /// # Arguments
+    /// * `instructions` - All instructions from the original transaction
+    /// * `message_accounts` - Account keys from the original transaction
+    /// * `mutable_signers` - Mutable signer accounts from original transaction
+    /// * `readonly_signers` - Readonly signer accounts from original transaction
+    /// * `mutable_non_signers` - Mutable non-signer accounts from original transaction
+    /// * `transaction` - The original transaction for reference
+    /// * `idx` - Number of instructions to include in the partial transaction
     ///
-    /// num_required_signatures: 3
-    /// num_readonly_signed_accounts: 0
-    /// num_readonly_unsigned_accounts: 1
-    ///
-    /// Ix A:
-    ///   program_id_index: 6
-    ///   account_keys: [0, 3]
-    ///
-    /// Create a Tx with just IX A
-    /// Message:
-    /// new_acc_keys: [SP, P1, P2]
-    /// let mut new_ordered_acc_keys
-    /// let mut new_num_required_signatures = 0
-    ///  for key in new_acc_keys
-    ///    if acc_keys.index_of(key) < num_required_signatures
-    ///      new_num_required_signatures++
-    ///    if acc_keys.index_of(key) > num_required_signatures
-    ///        && acc_keys.index_of(key)  (num_required_signatures + num_readonly_signed_accounts)
-    ///    
-    ///
+    /// # Returns
+    /// A partial transaction containing the first `idx` instructions, or None if creation fails
+    fn create_partial_transaction(
+        &self,
+        instructions: &[CompiledInstruction],
+        message_accounts: &[Pubkey],
+        mutable_signers: &[Pubkey],
+        readonly_signers: &[Pubkey],
+        mutable_non_signers: &[Pubkey],
+        transaction: &VersionedTransaction,
+        idx: usize,
+    ) -> Option<VersionedTransaction> {
+        let ixs_for_tx = instructions[0..idx].to_vec();
 
+        // Collect all required accounts for the partial transaction
+        let mut all_required_accounts = HashSet::new();
+        for ix in &ixs_for_tx {
+            // Add instruction accounts
+            for &account_idx in &ix.accounts {
+                if account_idx < message_accounts.len() as u8 {
+                    all_required_accounts.insert(message_accounts[account_idx as usize]);
+                }
+            }
+            // Add program ID
+            if ix.program_id_index < message_accounts.len() as u8 {
+                all_required_accounts.insert(message_accounts[ix.program_id_index as usize]);
+            }
+        }
+
+        // Categorize accounts based on their original positions
+        let mut new_mutable_signers = HashSet::new();
+        let mut new_readonly_signers = HashSet::new();
+        let mut new_mutable_non_signers = HashSet::new();
+        let mut new_readonly_non_signers = HashSet::new();
+
+        for &account in &all_required_accounts {
+            if let Some(idx) = message_accounts.iter().position(|pk| pk == &account) {
+                match idx {
+                    i if i < mutable_signers.len() => new_mutable_signers.insert(account),
+                    i if i < mutable_signers.len() + readonly_signers.len() => {
+                        new_readonly_signers.insert(account)
+                    }
+                    i if i < mutable_signers.len()
+                        + readonly_signers.len()
+                        + mutable_non_signers.len() =>
+                    {
+                        new_mutable_non_signers.insert(account)
+                    }
+                    _ => new_readonly_non_signers.insert(account),
+                };
+            }
+        }
+
+        // Build account keys in correct order: signers first, then non-signers
+        let mut new_account_keys = Vec::new();
+        for &account in &all_required_accounts {
+            if new_mutable_signers.contains(&account) {
+                new_account_keys.push(account);
+            }
+        }
+        for &account in &all_required_accounts {
+            if new_readonly_signers.contains(&account) {
+                new_account_keys.push(account);
+            }
+        }
+        for &account in &all_required_accounts {
+            if new_mutable_non_signers.contains(&account) {
+                new_account_keys.push(account);
+            }
+        }
+        for &account in &all_required_accounts {
+            if new_readonly_non_signers.contains(&account) {
+                new_account_keys.push(account);
+            }
+        }
+
+        // Create account index mapping
+        let mut account_index_mapping = HashMap::new();
+        for (new_idx, pubkey) in new_account_keys.iter().enumerate() {
+            if let Some(old_idx) = message_accounts.iter().position(|pk| pk == pubkey) {
+                account_index_mapping.insert(old_idx, new_idx);
+            }
+        }
+
+        // Remap instructions
+        let mut remapped_instructions = Vec::new();
+        for ix in ixs_for_tx {
+            let mut remapped_accounts = Vec::new();
+            for &account_idx in &ix.accounts {
+                if let Some(&new_idx) = account_index_mapping.get(&(account_idx as usize)) {
+                    remapped_accounts.push(new_idx as u8);
+                } else {
+                    continue; // Skip instructions with unmappable accounts
+                }
+            }
+
+            if remapped_accounts.len() == ix.accounts.len() {
+                let new_program_id_idx = account_index_mapping
+                    .get(&(ix.program_id_index as usize))
+                    .copied()
+                    .unwrap_or(0) as u8;
+
+                remapped_instructions.push(CompiledInstruction {
+                    program_id_index: new_program_id_idx,
+                    accounts: remapped_accounts,
+                    data: ix.data.clone(),
+                });
+            }
+        }
+
+        if remapped_instructions.is_empty() {
+            return None;
+        }
+
+        // Create new message
+        let num_required_signatures = new_mutable_signers.len() + new_readonly_signers.len();
+        let num_readonly_signed_accounts = new_readonly_signers.len();
+        let num_readonly_unsigned_accounts = new_readonly_non_signers.len();
+
+        let new_message = Message {
+            header: MessageHeader {
+                num_required_signatures: num_required_signatures as u8,
+                num_readonly_signed_accounts: num_readonly_signed_accounts as u8,
+                num_readonly_unsigned_accounts: num_readonly_unsigned_accounts as u8,
+            },
+            account_keys: new_account_keys,
+            recent_blockhash: *transaction.message.recent_blockhash(),
+            instructions: remapped_instructions,
+        };
+
+        // Create partial transaction with appropriate signatures
+        let signatures_to_use = if num_required_signatures > 0
+            && num_required_signatures <= transaction.signatures.len()
+        {
+            transaction.signatures[0..num_required_signatures].to_vec()
+        } else {
+            vec![]
+        };
+
+        let tx = Transaction {
+            signatures: signatures_to_use,
+            message: new_message,
+        };
+
+        Some(VersionedTransaction::from(tx))
+    }
+
+    /// Profiles a transaction by simulating its execution and capturing detailed metrics.
+    ///
+    /// This function performs comprehensive transaction profiling including:
+    /// - Full transaction simulation with compute unit consumption tracking
+    /// - Pre/post execution account state snapshots
+    /// - Individual instruction profiling for multi-instruction transactions
+    /// - Storage of results for later retrieval by UUID or tag
+    ///
+    /// # Arguments
+    /// * `remote_ctx` - Optional remote client for fetching account data
+    /// * `transaction` - The transaction to profile
+    /// * `encoding` - Account data encoding format
+    /// * `tag` - Optional tag for grouping related profiles
+    ///
+    /// # Returns
+    /// A contextualized result containing the profile data with slot and epoch information
     pub async fn profile_transaction(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
@@ -1510,95 +1666,58 @@ impl SurfnetSvmLocker {
         tag: Option<String>,
     ) -> SurfpoolContextualizedResult<KeyedProfileResult> {
         let instructions = transaction.message.instructions();
-
-        let ix_count = instructions.len();
-        let ix_to_process_index = ix_count.saturating_sub(2); // last instruction is the one we want to profile
         let message_accounts = transaction.message.static_account_keys();
 
+        // Extract account categories from original transaction
         let last_signer_index = transaction.message.header().num_required_signatures as usize - 1;
-        let last_mutable_signer_index: usize =
+        let last_mutable_signer_index =
             last_signer_index - transaction.message.header().num_readonly_signed_accounts as usize;
-        let accounts_len = message_accounts.len();
-        let last_mutable_non_signer_index: usize =
-            accounts_len - transaction.message.header().num_readonly_unsigned_accounts as usize;
+        let last_mutable_non_signer_index = message_accounts.len()
+            - transaction.message.header().num_readonly_unsigned_accounts as usize;
 
         let mutable_signers = &message_accounts[0..last_mutable_signer_index];
         let readonly_signers = &message_accounts[last_mutable_signer_index..last_signer_index];
         let mutable_non_signers =
             &message_accounts[last_signer_index..last_mutable_non_signer_index];
-        let readonly_non_signers = &message_accounts[last_mutable_non_signer_index..];
 
-        let do_profile_ixs = true; // get from the svm locker with something like self.do_profile_instructions()
-
-        let ix_profiles = if do_profile_ixs {
+        // Generate instruction profiles if transaction has signers
+        let ix_profiles = if last_signer_index > 0 {
             let mut ix_profile_results = vec![];
-            for idx in 0..ix_to_process_index {
-                let ixs_for_tx = instructions[0..idx].to_vec();
+            let ix_count = instructions.len();
+            let ix_to_process_index = if ix_count > 2 {
+                ix_count.saturating_sub(2)
+            } else {
+                0
+            };
 
-                let mut new_mutable_signers = HashSet::new();
-                let mut new_readonly_signers = HashSet::new();
-                let mut new_mutable_non_signers = HashSet::new();
-                let mut new_readonly_non_signers = HashSet::new();
-
-                for ix in ixs_for_tx.clone() {
-                    let mut all_accounts_indexes = ix.accounts.clone();
-                    all_accounts_indexes.push(ix.program_id_index);
-                    for account_idx in ix.accounts {
-                        if let Some(acc) = mutable_signers.get(account_idx as usize) {
-                            new_mutable_signers.insert(*acc);
-                        }
-                        if let Some(acc) = readonly_signers.get(account_idx as usize) {
-                            new_readonly_signers.insert(*acc);
-                        }
-                        if let Some(acc) = mutable_non_signers.get(account_idx as usize) {
-                            new_mutable_non_signers.insert(*acc);
-                        }
-                        if let Some(acc) = readonly_non_signers.get(account_idx as usize) {
-                            new_readonly_non_signers.insert(*acc);
-                        }
-                    }
+            for idx in 1..=ix_to_process_index {
+                if let Some(partial_tx) = self.create_partial_transaction(
+                    instructions,
+                    message_accounts,
+                    mutable_signers,
+                    readonly_signers,
+                    mutable_non_signers,
+                    &transaction,
+                    idx,
+                ) {
+                    let mut profile_result = self
+                        .inner_profile_transaction(remote_ctx, partial_tx, encoding, None)
+                        .await?;
+                    profile_result.instructions = Some((0..idx).collect());
+                    ix_profile_results.push(profile_result);
                 }
-
-                let num_required_signatures: usize =
-                    new_mutable_signers.len() + new_readonly_signers.len();
-                let num_readonly_signed_accounts: usize = new_readonly_signers.len();
-                let num_readonly_unsigned_accounts: usize = new_readonly_non_signers.len();
-
-                new_mutable_signers.extend(new_readonly_signers);
-                new_mutable_signers.extend(new_mutable_non_signers);
-                new_mutable_signers.extend(new_readonly_non_signers);
-
-                let new_account_keys = new_mutable_signers.iter().cloned().collect::<Vec<_>>();
-
-                let new_message = Message {
-                    header: MessageHeader {
-                        num_required_signatures: num_required_signatures as u8,
-                        num_readonly_signed_accounts: num_readonly_signed_accounts as u8,
-                        num_readonly_unsigned_accounts: num_readonly_unsigned_accounts as u8,
-                    },
-                    account_keys: new_account_keys,
-                    recent_blockhash: *transaction.message.recent_blockhash(),
-                    instructions: ixs_for_tx,
-                };
-
-                let tx = Transaction {
-                    signatures: transaction.signatures[0..num_required_signatures].to_vec(),
-                    message: new_message,
-                };
-
-                let versioned_tx = VersionedTransaction::from(tx);
-                let mut profile_result = self
-                    .inner_profile_transaction(remote_ctx, versioned_tx, encoding, None)
-                    .await?;
-
-                profile_result.instructions = Some((0..idx).collect());
-                ix_profile_results.push(profile_result)
             }
-            Some(ix_profile_results)
+
+            if ix_profile_results.is_empty() {
+                None
+            } else {
+                Some(ix_profile_results)
+            }
         } else {
             None
         };
 
+        // Profile the full transaction
         let transaction_profile = self
             .inner_profile_transaction(remote_ctx, transaction, encoding, tag.clone())
             .await?;
@@ -1612,7 +1731,7 @@ impl SurfnetSvmLocker {
             key: UuidOrSignature::Uuid(uuid),
         };
 
-        // Store the result
+        // Store in SVM for later retrieval
         self.with_svm_writer(|svm| {
             svm.simulated_transaction_profiles
                 .insert(uuid, final_profile_result.clone());
@@ -1638,7 +1757,7 @@ impl SurfnetSvmLocker {
         remote_ctx: &Option<SurfnetRemoteClient>,
         transaction: VersionedTransaction,
         encoding: Option<UiAccountEncoding>,
-        tag: Option<String>,
+        _tag: Option<String>,
     ) -> SurfpoolResult<ProfileResult> {
         let mut svm_clone = self.with_svm_reader(|svm_reader| svm_reader.clone());
 
@@ -1675,7 +1794,15 @@ impl SurfnetSvmLocker {
         let compute_units_estimation_result = svm_locker.estimate_compute_units(&transaction).inner;
 
         let (status_tx, status_rx) = crossbeam_channel::unbounded();
-        let signature = transaction.signatures[0];
+
+        // Get the signature safely, using a default if no signatures are available
+        let signature = if !transaction.signatures.is_empty() {
+            transaction.signatures[0]
+        } else {
+            // Generate a default signature for transactions without signatures
+            // This is a specific case for instruction profiling where we don't have a signature, that may happen with partial transactions
+            Signature::default()
+        };
         let _ = svm_locker
             .process_transaction(remote_ctx, transaction, status_tx, true)
             .await?;
