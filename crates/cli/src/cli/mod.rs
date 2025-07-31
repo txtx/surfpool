@@ -180,9 +180,9 @@ pub struct StartSimnet {
     /// List of geyser plugins to load
     #[arg(long = "geyser-plugin-config", short = 'g')]
     pub plugin_config_path: Vec<String>,
-    /// Path to subgraph's sqlite database (default: :memory:)
-    #[arg(long = "subgraph-database-path", short = 'd')]
-    pub subgraph_database_path: Option<String>,
+    /// Subgraph database connection URL (default to sqlite ":memory:", also supports postgres: "postgres://postgres:posgres@e127.0.0.1:5432/surfpool")
+    #[arg(long = "subgraph-db", short = 'd')]
+    pub subgraph_db: Option<String>,
     /// Disable Studio (default: false)
     #[clap(long = "studio", action=ArgAction::SetFalse)]
     pub studio: bool,
