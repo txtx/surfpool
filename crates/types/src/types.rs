@@ -202,7 +202,8 @@ pub enum SimnetEvent {
     Connected(String),
     Aborted(String),
     Shutdown,
-    ClockUpdate(Clock),
+    InternalClockUpdated(Clock),
+    ClockUpdate(ClockCommand),
     EpochInfoUpdate(EpochInfo),
     BlockHashExpired,
     InfoLog(DateTime<Local>, String),
@@ -307,10 +308,10 @@ impl SimnetEvent {
 
     pub fn clock_update_msg(&self) -> String {
         match self {
-            SimnetEvent::ClockUpdate(clock) => {
+            SimnetEvent::InternalClockUpdated(clock) => {
                 format!("Clock ticking (epoch {}, slot {})", clock.epoch, clock.slot)
             }
-            _ => unreachable!("This function should only be called for ClockUpdate events"),
+            _ => unreachable!("This function should only be called for InternalClockUpdated events"),
         }
     }
 }
@@ -384,7 +385,7 @@ impl Default for SimnetConfig {
     fn default() -> Self {
         Self {
             remote_rpc_url: DEFAULT_RPC_URL.to_string(),
-            slot_time: 0,
+            slot_time: 400, // Default to 400ms to match CLI default
             block_production_mode: BlockProductionMode::Clock,
             airdrop_addresses: vec![],
             airdrop_token_amount: 0,

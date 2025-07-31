@@ -895,7 +895,7 @@ impl SurfnetSvm {
 
         let _ = self
             .simnet_events_tx
-            .send(SimnetEvent::ClockUpdate(clock.clone()));
+            .send(SimnetEvent::InternalClockUpdated(clock.clone()));
         self.inner.set_sysvar(&clock);
 
         self.finalize_transactions()?;

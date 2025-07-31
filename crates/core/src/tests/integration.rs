@@ -141,7 +141,7 @@ async fn test_simnet_ticks() {
         let mut ticks = 0;
         loop {
             match simnet_events_rx.recv() {
-                Ok(SimnetEvent::ClockUpdate(_)) => ticks += 1,
+                Ok(SimnetEvent::InternalClockUpdated(_)) => ticks += 1,
                 _ => (),
             }
 
@@ -416,7 +416,7 @@ async fn test_add_alt_entries_fetching() {
                     alt_updated = true;
                 }
             }
-            Ok(SimnetEvent::ClockUpdate(_)) => {
+            Ok(SimnetEvent::InternalClockUpdated(_)) => {
                 // do nothing
             }
             other => println!("Unexpected event: {:?}", other),

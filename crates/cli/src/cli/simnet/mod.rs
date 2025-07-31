@@ -249,11 +249,12 @@ fn log_events(
                     SimnetEvent::EpochInfoUpdate(_) => {
                         info!(ctx.expect_logger(), "{}", event.epoch_info_update_msg());
                     }
-                    SimnetEvent::ClockUpdate(_) => {
+                    SimnetEvent::InternalClockUpdated(_) => {
                         if include_debug_logs {
                             info!(ctx.expect_logger(), "{}", event.clock_update_msg());
                         }
                     }
+                    SimnetEvent::ClockUpdate(_) => {}
                     SimnetEvent::ErrorLog(_dt, log) => {
                         error!(ctx.expect_logger(), "{}", log);
                     }

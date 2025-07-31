@@ -96,7 +96,7 @@ pub async fn start_local_surfnet_runloop(
         }
     };
 
-    let (clock_event_rx, clock_command_tx) = start_clock_runloop(simnet_config.slot_time);
+    let (clock_event_rx, clock_command_tx) = start_clock_runloop(simnet_config.slot_time, simnet_events_tx_cc.clone());
 
     let _ = simnet_events_tx_cc.send(SimnetEvent::Ready);
 
@@ -197,7 +197,7 @@ pub async fn start_block_production_runloop(
     Ok(())
 }
 
-pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {
+pub fn start_clock_runloop(mut slot_time: u64, simnet_events_tx: Sender<SimnetEvent>) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {
     let (clock_event_tx, clock_event_rx) = unbounded::<ClockEvent>();
     let (clock_command_tx, clock_command_rx) = unbounded::<ClockCommand>();
 
@@ -209,12 +209,15 @@ pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<
             match clock_command_rx.try_recv() {
                 Ok(ClockCommand::Pause) => {
                     enabled = false;
+                    let _ = simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Pause));
                 }
                 Ok(ClockCommand::Resume) => {
                     enabled = true;
+                    let _ = simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Resume));
                 }
                 Ok(ClockCommand::Toggle) => {
                     enabled = !enabled;
+                    let _ = simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Toggle));
                 }
                 Ok(ClockCommand::UpdateSlotInterval(updated_slot_time)) => {
                     slot_time = updated_slot_time;
