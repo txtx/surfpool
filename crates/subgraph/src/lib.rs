@@ -272,134 +272,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
         let Some(ref subgraph_request) = self.subgraph_request else {
             return Ok(());
         };
-        let mut entries = vec![];
-        match transaction {
-            ReplicaTransactionInfoVersions::V0_0_2(data) => {
-                if data.is_vote {
-                    return Ok(());
-                }
-
-                let transaction = data.transaction;
-                let account_keys = transaction.message().account_keys();
-                let account_pubkeys = account_keys.iter().cloned().collect::<Vec<_>>();
-                let is_program_id_match = transaction.message().instructions().iter().any(|ix| {
-                    ix.program_id(account_pubkeys.as_ref())
-                        .eq(&subgraph_request.program_id)
-                });
-                if !is_program_id_match {
-                    return Ok(());
-                }
-
-                match &subgraph_request.data_source {
-                    IndexedSubgraphSourceType::Instruction(_) => return Ok(()),
-                    IndexedSubgraphSourceType::Event(event_source) =>
-                    // Check inner instructions
-                    {
-                        if let Some(ref inner_instructions) =
-                            data.transaction_status_meta.inner_instructions
-                        {
-                            for inner_instructions in inner_instructions.iter() {
-                                for instruction in inner_instructions.instructions.iter() {
-                                    let instruction = &instruction.instruction;
-                                    // it's not valid cpi event data if there isn't an 8-byte signature
-                                    // well, that ^ is what I thought, but it looks like the _second_ 8 bytes
-                                    // are matching the discriminator
-                                    if instruction.data.len() < 16 {
-                                        continue;
-                                    }
-
-                                    let eight_bytes = instruction.data[8..16].to_vec();
-                                    let rest = instruction.data[16..].to_vec();
-
-                                    if event_source.event.discriminator.eq(eight_bytes.as_slice()) {
-                                        let parsed_value =
-                                            parse_bytes_to_value_with_expected_idl_type_def_ty(
-                                                &rest,
-                                                &event_source.ty.ty,
-                                            )
-                                            .unwrap();
-
-                                        let obj = parsed_value.as_object().unwrap().clone();
-                                        let mut entry = HashMap::new();
-                                        for field in subgraph_request.defined_fields.iter() {
-                                            if let Some(v) = obj.get(&field.source_key) {
-                                                entry.insert(field.display_name.clone(), v.clone());
-                                            }
-                                        }
-
-                                        subgraph_request.intrinsic_fields.iter().for_each(
-                                            |field| {
-                                                if let Some((entry_key, entry_value)) = field
-                                                    .extract_intrinsic(
-                                                        Some(slot),
-                                                        Some(transaction.signature().clone()),
-                                                        None,
-                                                        None,
-                                                        None,
-                                                        None,
-                                                    )
-                                                {
-                                                    entry.insert(entry_key, entry_value);
-                                                }
-                                            },
-                                        );
-
-                                        entries.push(entry);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    IndexedSubgraphSourceType::Pda(pda_source) => {
-                        for instruction in transaction.message().instructions() {
-                            let Some((matching_idl_instruction, idl_instruction_account)) =
-                                pda_source.instruction_accounts.iter().find_map(
-                                    |(ix, ix_account)| {
-                                        if instruction.data.starts_with(&ix.discriminator) {
-                                            Some((ix, ix_account))
-                                        } else {
-                                            None
-                                        }
-                                    },
-                                )
-                            else {
-                                continue;
-                            };
-
-                            let idl_accounts = match_idl_accounts(
-                                matching_idl_instruction,
-                                &instruction.accounts,
-                                &account_pubkeys,
-                            );
-                            let Some(pda) = idl_accounts.iter().find_map(|(name, pubkey)| {
-                                if idl_instruction_account.name.eq(name) {
-                                    Some(pubkey)
-                                } else {
-                                    None
-                                }
-                            }) else {
-                                continue;
-                            };
-
-                            self.release_account(
-                                pda,
-                                ParsablePdaData {
-                                    account: pda_source.account.clone(),
-                                    account_type: pda_source.account_type.clone(),
-                                },
-                                subgraph_request,
-                                transaction.signature().clone(),
-                                tx,
-                            )
-                            .unwrap();
-                        }
-                    }
-                }
-            }
-            ReplicaTransactionInfoVersions::V0_0_1(_) => {
-                todo!()
-            }
-        };
+        let entries = probe_transaction(transaction, u64::from(slot), subgraph_request);
         if !entries.is_empty() {
             let data = serde_json::to_vec(&entries).unwrap();
             let _ = tx.send(DataIndexingCommand::ProcessCollectionEntriesPack(
@@ -428,6 +301,140 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
     fn entry_notifications_enabled(&self) -> bool {
         false
     }
+}
+
+pub fn probe_transaction(
+    transaction: ReplicaTransactionInfoVersions,
+    slot: u64,
+    subgraph_request: &SubgraphRequest,
+) -> Vec<HashMap<String, TxtxValue>> {
+    let mut entries = vec![];
+    match transaction {
+        ReplicaTransactionInfoVersions::V0_0_2(data) => {
+            if data.is_vote {
+                return entries;
+            }
+
+            let transaction = data.transaction;
+            let account_keys = transaction.message().account_keys();
+            let account_pubkeys = account_keys.iter().cloned().collect::<Vec<_>>();
+            let is_program_id_match = transaction.message().instructions().iter().any(|ix| {
+                ix.program_id(account_pubkeys.as_ref())
+                    .eq(&subgraph_request.program_id)
+            });
+            if !is_program_id_match {
+                return entries;
+            }
+
+            match &subgraph_request.data_source {
+                IndexedSubgraphSourceType::Instruction(_) => return entries,
+                IndexedSubgraphSourceType::Event(event_source) =>
+                // Check inner instructions
+                {
+                    if let Some(ref inner_instructions) =
+                        data.transaction_status_meta.inner_instructions
+                    {
+                        for inner_instructions in inner_instructions.iter() {
+                            for instruction in inner_instructions.instructions.iter() {
+                                let instruction = &instruction.instruction;
+                                // it's not valid cpi event data if there isn't an 8-byte signature
+                                // well, that ^ is what I thought, but it looks like the _second_ 8 bytes
+                                // are matching the discriminator
+                                if instruction.data.len() < 16 {
+                                    continue;
+                                }
+
+                                let eight_bytes = instruction.data[8..16].to_vec();
+                                let rest = instruction.data[16..].to_vec();
+
+                                if event_source.event.discriminator.eq(eight_bytes.as_slice()) {
+                                    let parsed_value =
+                                        parse_bytes_to_value_with_expected_idl_type_def_ty(
+                                            &rest,
+                                            &event_source.ty.ty,
+                                        )
+                                        .unwrap();
+
+                                    let obj = parsed_value.as_object().unwrap().clone();
+                                    let mut entry = HashMap::new();
+                                    for field in subgraph_request.defined_fields.iter() {
+                                        if let Some(v) = obj.get(&field.source_key) {
+                                            entry.insert(field.display_name.clone(), v.clone());
+                                        }
+                                    }
+
+                                    subgraph_request.intrinsic_fields.iter().for_each(|field| {
+                                        if let Some((entry_key, entry_value)) = field
+                                            .extract_intrinsic(
+                                                Some(slot),
+                                                Some(transaction.signature().clone()),
+                                                None,
+                                                None,
+                                                None,
+                                                None,
+                                            )
+                                        {
+                                            entry.insert(entry_key, entry_value);
+                                        }
+                                    });
+
+                                    entries.push(entry);
+                                }
+                            }
+                        }
+                    }
+                }
+                IndexedSubgraphSourceType::Pda(pda_source) => {
+                    for instruction in transaction.message().instructions() {
+                        let Some((matching_idl_instruction, idl_instruction_account)) = pda_source
+                            .instruction_accounts
+                            .iter()
+                            .find_map(|(ix, ix_account)| {
+                                if instruction.data.starts_with(&ix.discriminator) {
+                                    Some((ix, ix_account))
+                                } else {
+                                    None
+                                }
+                            })
+                        else {
+                            continue;
+                        };
+
+                        let idl_accounts = match_idl_accounts(
+                            matching_idl_instruction,
+                            &instruction.accounts,
+                            &account_pubkeys,
+                        );
+                        let Some(pda) = idl_accounts.iter().find_map(|(name, pubkey)| {
+                            if idl_instruction_account.name.eq(name) {
+                                Some(pubkey)
+                            } else {
+                                None
+                            }
+                        }) else {
+                            continue;
+                        };
+
+                        // self.release_account(
+                        //     pda,
+                        //     ParsablePdaData {
+                        //         account: pda_source.account.clone(),
+                        //         account_type: pda_source.account_type.clone(),
+                        //     },
+                        //     subgraph_request,
+                        //     transaction.signature().clone(),
+                        //     tx,
+                        // )
+                        // .unwrap();
+                    }
+                }
+            }
+        }
+        ReplicaTransactionInfoVersions::V0_0_1(_) => {
+            todo!()
+        }
+    };
+    entries
 }
 
 #[unsafe(no_mangle)]

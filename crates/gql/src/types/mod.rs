@@ -236,7 +236,6 @@ impl CollectionEntryData {
         entry_bytes: Vec<u8>,
     ) -> Result<Vec<Self>, String> {
         let err_ctx = "Failed to apply new database entry to subgraph";
-        let mut result = vec![];
         let entries: Vec<HashMap<String, TxtxValue>> = serde_json::from_slice(&entry_bytes)
             .map_err(|e| {
                 format!(
@@ -244,13 +243,18 @@ impl CollectionEntryData {
                     subgraph_uuid, e
                 )
             })?;
+        Ok(Self::from_raw_entries(entries))
+    }
+
+    pub fn from_raw_entries(entries: Vec<HashMap<String, TxtxValue>>) -> Vec<Self> {
+        let mut result = vec![];
         for entry in entries.into_iter() {
             result.push(Self::new(
                 Uuid::new_v4(),
                 convert_txtx_values_to_juniper_values(entry),
             ));
         }
-        Ok(result)
+        result
     }
 
     pub fn new(id: Uuid, values: HashMap<String, Value>) -> Self {
