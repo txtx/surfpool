@@ -45,6 +45,10 @@ Install pre-built binaries:
 # macOS (Homebrew)
 brew install txtx/taps/surfpool
 
+# Updating surfpool for Homebrew users
+brew tap txtx/taps
+brew reinstall surfpool
+
 # Linux (Snapstore)
 snap install surfpool
 ```
