@@ -12,8 +12,8 @@ use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
     Idl, SimnetEvent,
     types::{
-        AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate,
-        UuidOrSignature,
+        AccountUpdate, LocalSignature, ProfileResult, SetSomeAccount, SupplyUpdate,
+        TokenAccountUpdate, UuidOrSignature,
     },
 };
 
@@ -570,6 +570,34 @@ pub trait SvmTricksRpc {
         program_id: String,
         slot: Option<Slot>,
     ) -> Result<RpcResponse<Option<Idl>>>;
+
+    /// A cheat code to get the last 50 local signatures from the local network.
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_getLocalSignatures",
+    ///   "params": [ { "limit": 50 } ]
+    /// }
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "signature": String,
+    ///     "err": Option<TransactionError>,
+    ///     "slot": u64,
+    ///   },
+    ///   "id": 1
+    /// }
+    #[rpc(meta, name = "surfnet_getLocalSignatures")]
+    fn get_local_signatures(
+        &self,
+        meta: Self::Metadata,
+        limit: Option<u64>,
+    ) -> BoxFuture<Result<RpcResponse<Vec<LocalSignature>>>>;
 }
 
 #[derive(Clone)]
@@ -991,6 +1019,66 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         Ok(RpcResponse {
             context: RpcResponseContext::new(slot),
             value: idl,
+        })
+    }
+
+    fn get_local_signatures(
+        &self,
+        meta: Self::Metadata,
+        limit: Option<u64>,
+    ) -> BoxFuture<Result<RpcResponse<Vec<LocalSignature>>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        let signatures = svm_locker.with_svm_reader(|svm_reader| {
+            let limit = limit.unwrap_or_else(|| 50);
+            let mut signatures = Vec::new();
+
+            // Get all block slots and sort them in descending order (most recent first)
+            let mut block_slots: Vec<Slot> = svm_reader.blocks.keys().cloned().collect();
+            block_slots.sort_by(|a, b| b.cmp(a)); // Sort in descending order
+
+            // Iterate through block slots in descending order until we reach the signature limit
+            for slot in block_slots {
+                if signatures.len() >= limit as usize {
+                    break;
+                }
+
+                if let Some(block_header) = svm_reader.blocks.get(&slot) {
+                    // Add signatures from this block until we reach the limit
+                    for signature in &block_header.signatures {
+                        if signatures.len() >= limit as usize {
+                            break;
+                        }
+
+                        let err = svm_reader.transactions.get(signature).and_then(|status| {
+                            status
+                                .expect_processed()
+                                .meta
+                                .status
+                                .as_ref()
+                                .err()
+                                .cloned()
+                        });
+
+                        signatures.push(LocalSignature {
+                            signature: *signature,
+                            err,
+                            slot,
+                        });
+                    }
+                }
+            }
+            signatures
+        });
+
+        Box::pin(async move {
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+                value: signatures,
+            })
         })
     }
 }

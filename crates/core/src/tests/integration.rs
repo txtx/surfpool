@@ -17,15 +17,15 @@ use solana_message::{
 use solana_native_token::LAMPORTS_PER_SOL;
 use solana_pubkey::{Pubkey, pubkey};
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::system_instruction::transfer;
+use solana_sdk::{system_instruction::transfer, transaction::Transaction};
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
-    Idl, SimnetCommand, SimnetEvent, SurfpoolConfig,
+    Idl, LocalSignature, SimnetCommand, SimnetEvent, SurfpoolConfig, TransactionStatusEvent,
     types::{
         BlockProductionMode, ProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig,
-        TransactionStatusEvent, UuidOrSignature,
+        UuidOrSignature,
     },
 };
 use tokio::{sync::RwLock, task};
@@ -1521,4 +1521,231 @@ async fn test_register_and_get_same_idl_with_different_slots() {
     }
 
     println!("All IDL registration and retrieval tests at different slots passed successfully!");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_local_signatures_without_limit() {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
+
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    let payer = Keypair::new();
+    let recipient = Keypair::new();
+    let lamports_to_send = 1_000_000;
+
+    svm_locker_for_context
+        .airdrop(&payer.pubkey(), lamports_to_send * 2)
+        .unwrap();
+
+    svm_locker_for_context.confirm_current_block().unwrap();
+
+    let create_account_instruction = system_instruction::create_account(
+        &payer.pubkey(),
+        &recipient.pubkey(),
+        lamports_to_send / 2,
+        0,
+        &solana_sdk::system_program::id(),
+    );
+
+    let create_account_tx = Transaction::new_signed_with_payer(
+        &[create_account_instruction],
+        Some(&payer.pubkey()),
+        &[&payer, &recipient],
+        svm_locker_for_context.with_svm_reader(|svm| svm.latest_blockhash()),
+    );
+
+    let (create_status_tx, _create_status_rx) = crossbeam_channel::bounded(1);
+    svm_locker_for_context
+        .process_transaction(&None, create_account_tx.into(), create_status_tx, false)
+        .await
+        .unwrap();
+    // Confirm the block after creating the account
+    svm_locker_for_context.confirm_current_block().unwrap();
+
+    // Now create the transfer transaction
+    let instruction = transfer(&payer.pubkey(), &recipient.pubkey(), lamports_to_send);
+    let latest_blockhash = svm_locker_for_context.with_svm_reader(|svm| svm.latest_blockhash());
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message.clone()), &[&payer])
+        .unwrap();
+
+    let (status_tx, _status_rx) = crossbeam_channel::bounded(1);
+
+    svm_locker_for_context
+        .process_transaction(&None, tx.clone(), status_tx, false)
+        .await
+        .unwrap();
+
+    // Confirm the current block to create a block with the transaction signature
+    svm_locker_for_context.confirm_current_block().unwrap();
+
+    let get_local_signatures_response: JsonRpcResult<RpcResponse<Vec<LocalSignature>>> = rpc_server
+        .get_local_signatures(Some(runloop_context.clone()), None)
+        .await;
+
+    assert!(
+        get_local_signatures_response.is_ok(),
+        "Get local signatures failed: {:?}",
+        get_local_signatures_response.err()
+    );
+
+    let local_signatures = get_local_signatures_response.unwrap().value;
+    assert!(local_signatures.len() > 0);
+
+    // Check that the first signature (most recent) has slot > 0
+    assert!(
+        local_signatures[0].slot > 0,
+        "Most recent signature should have slot > 0"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_local_signatures_with_limit() {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
+
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    let payer = Keypair::new();
+    let _recipient = Keypair::new();
+    let lamports_to_send = 1_000_000;
+
+    svm_locker_for_context
+        .airdrop(&payer.pubkey(), lamports_to_send * 10)
+        .unwrap();
+
+    svm_locker_for_context.confirm_current_block().unwrap();
+
+    // Get the initial number of signatures to establish a baseline
+    let initial_signatures_response: JsonRpcResult<RpcResponse<Vec<LocalSignature>>> = rpc_server
+        .get_local_signatures(Some(runloop_context.clone()), None)
+        .await;
+
+    let initial_count = initial_signatures_response.unwrap().value.len();
+
+    // Create multiple transactions to test limit functionality
+    let num_transactions = 10;
+    let mut transaction_signatures = Vec::new();
+
+    for _i in 0..num_transactions {
+        // Create a unique recipient for each transaction
+        let unique_recipient = Keypair::new();
+
+        let instruction = transfer(
+            &payer.pubkey(),
+            &unique_recipient.pubkey(),
+            lamports_to_send / num_transactions as u64,
+        );
+        let latest_blockhash = svm_locker_for_context.with_svm_reader(|svm| svm.latest_blockhash());
+        let message =
+            Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+        let tx =
+            VersionedTransaction::try_new(VersionedMessage::Legacy(message.clone()), &[&payer])
+                .unwrap();
+
+        let (status_tx, _status_rx) = crossbeam_channel::bounded(1);
+
+        svm_locker_for_context
+            .process_transaction(&None, tx.clone(), status_tx, false)
+            .await
+            .unwrap();
+
+        // Store the signature for verification
+        transaction_signatures.push(tx.signatures[0]);
+
+        // Confirm the current block to create a new block with this transaction
+        svm_locker_for_context.confirm_current_block().unwrap();
+    }
+
+    // Test with different limit values
+    let test_limits = vec![1, 3, 5, 10, 15];
+
+    for limit in test_limits {
+        let get_local_signatures_response: JsonRpcResult<RpcResponse<Vec<LocalSignature>>> =
+            rpc_server
+                .get_local_signatures(Some(runloop_context.clone()), Some(limit))
+                .await;
+
+        assert!(
+            get_local_signatures_response.is_ok(),
+            "Get local signatures with limit {} failed: {:?}",
+            limit,
+            get_local_signatures_response.err()
+        );
+
+        let local_signatures = get_local_signatures_response.unwrap().value;
+
+        // Verify that the number of returned signatures respects the limit
+        assert!(
+            local_signatures.len() <= limit as usize,
+            "Expected at most {} signatures, but got {}",
+            limit,
+            local_signatures.len()
+        );
+
+        // Verify that we get the expected number of signatures
+        // The total expected count should be min(limit, initial_count + num_transactions)
+        let total_expected_signatures = initial_count + num_transactions;
+        let expected_count = std::cmp::min(limit as usize, total_expected_signatures);
+
+        assert!(
+            local_signatures.len() == expected_count,
+            "Expected {} signatures with limit {}, but got {} (initial: {}, new: {})",
+            expected_count,
+            limit,
+            local_signatures.len(),
+            initial_count,
+            num_transactions
+        );
+
+        // Verify that signatures are returned in descending order (most recent first)
+        for i in 1..local_signatures.len() {
+            assert!(
+                local_signatures[i - 1].slot >= local_signatures[i].slot,
+                "Signatures should be in descending order by slot"
+            );
+        }
+    }
+
+    // Test with limit = 0 (should return empty list)
+    let get_local_signatures_response: JsonRpcResult<RpcResponse<Vec<LocalSignature>>> = rpc_server
+        .get_local_signatures(Some(runloop_context.clone()), Some(0))
+        .await;
+
+    assert!(
+        get_local_signatures_response.is_ok(),
+        "Get local signatures with limit 0 failed: {:?}",
+        get_local_signatures_response.err()
+    );
+
+    let local_signatures = get_local_signatures_response.unwrap().value;
+    assert!(
+        local_signatures.is_empty(),
+        "Expected empty list with limit 0, but got {} signatures",
+        local_signatures.len()
+    );
 }
