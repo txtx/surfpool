@@ -4346,7 +4346,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_minimum_ledger_slot_no_context_fails() {
+    async fn test_minimum_ledger_slot_missing_context_fails() {
         // fail gracefully when called without metadata context
         let setup = TestSetup::new(SurfpoolFullRpc);
 

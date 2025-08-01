@@ -844,7 +844,7 @@ mod tests {
         let result = setup.rpc.get_block_commitment(None, 123);
 
         assert!(result.is_err());
-        // This should fail because meta is None, triggering the SurfpoolError::no_locker() path
+        // This should fail because meta is None, triggering the SurfpoolError::missing_context() path
     }
 
     #[test]

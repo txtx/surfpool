@@ -747,7 +747,7 @@ mod tests {
 
     use super::{AccountsScan, SurfpoolAccountsScanRpc};
     use crate::{
-        rpc::surfnet_cheatcodes::{SurfnetCheatcodesRpc, SvmTricksRpc},
+        rpc::surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
         tests::helpers::TestSetup,
     };
 
