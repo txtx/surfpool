@@ -669,3 +669,10 @@ impl Ord for VersionedIdl {
         self.0.cmp(&other.0)
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalSignature {
+    pub signature: Signature,
+    pub err: Option<TransactionError>,
+    pub slot: u64,
+}
