@@ -24,6 +24,7 @@ pub const DEFAULT_WS_PORT: u16 = 8900;
 pub const DEFAULT_STUDIO_PORT: u16 = 8488;
 pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
+pub const DEFAULT_SLOT_TIME_MS: u64 = 400;
 pub type Idl = anchor_lang_idl::types::Idl;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -311,7 +312,9 @@ impl SimnetEvent {
             SimnetEvent::InternalClockUpdated(clock) => {
                 format!("Clock ticking (epoch {}, slot {})", clock.epoch, clock.slot)
             }
-            _ => unreachable!("This function should only be called for InternalClockUpdated events"),
+            _ => {
+                unreachable!("This function should only be called for InternalClockUpdated events")
+            }
         }
     }
 }
@@ -360,6 +363,8 @@ pub struct SanitizedConfig {
     pub rpc_datasource_url: String,
     pub studio_url: String,
     pub graphql_query_route_url: String,
+    pub version: String,
+    pub workspace: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]

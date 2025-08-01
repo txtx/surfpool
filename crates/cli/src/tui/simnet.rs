@@ -1,4 +1,8 @@
-use std::{error::Error, io, time::{Duration, Instant}};
+use std::{
+    error::Error,
+    io,
+    time::{Duration, Instant},
+};
 
 use chrono::{DateTime, Local};
 use crossbeam::channel::{Select, Sender, unbounded};

@@ -77,6 +77,8 @@ pub async fn handle_start_local_surfnet_command(
         rpc_datasource_url,
         studio_url,
         graphql_query_route_url,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        workspace: None,
     };
 
     let subgraph_database_path = cmd

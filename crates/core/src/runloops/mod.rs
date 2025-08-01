@@ -67,7 +67,9 @@ pub async fn start_local_surfnet_runloop(
 
     let remote_rpc_client = Some(SurfnetRemoteClient::new(&simnet.remote_rpc_url));
 
-    let _ = svm_locker.initialize(&remote_rpc_client).await?;
+    let _ = svm_locker
+        .initialize(simnet.slot_time, &remote_rpc_client)
+        .await?;
 
     svm_locker.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
     let simnet_events_tx_cc = svm_locker.simnet_events_tx();
@@ -96,7 +98,8 @@ pub async fn start_local_surfnet_runloop(
         }
     };
 
-    let (clock_event_rx, clock_command_tx) = start_clock_runloop(simnet_config.slot_time, simnet_events_tx_cc.clone());
+    let (clock_event_rx, clock_command_tx) =
+        start_clock_runloop(simnet_config.slot_time, simnet_events_tx_cc.clone());
 
     let _ = simnet_events_tx_cc.send(SimnetEvent::Ready);
 
@@ -165,11 +168,24 @@ pub async fn start_block_production_runloop(
 
                     }
                     SimnetCommand::CommandClock(update) => {
+                        if let ClockCommand::UpdateSlotInterval(updated_slot_time) = update {
+                            svm_locker.with_svm_writer(|svm_writer| {
+                                svm_writer.slot_time = updated_slot_time;
+                            });
+                        }
                         let _ = clock_command_tx.send(update);
                         continue
                     }
                     SimnetCommand::UpdateInternalClock(clock) => {
-                        unimplemented!()
+                        svm_locker.with_svm_writer(|svm_writer| {
+                            svm_writer.inner.set_sysvar(&clock);
+                            svm_writer.updated_at = clock.unix_timestamp as u64;
+                            svm_writer.latest_epoch_info.absolute_slot = clock.slot;
+                            svm_writer.latest_epoch_info.epoch = clock.epoch;
+                            svm_writer.latest_epoch_info.slot_index = clock.slot;
+                            svm_writer.latest_epoch_info.epoch = clock.epoch;
+                            svm_writer.latest_epoch_info.absolute_slot = clock.slot + clock.epoch * svm_writer.latest_epoch_info.slots_in_epoch;
+                        });
                     }
                     SimnetCommand::UpdateBlockProductionMode(update) => {
                         block_production_mode = update;
@@ -197,7 +213,10 @@ pub async fn start_block_production_runloop(
     Ok(())
 }
 
-pub fn start_clock_runloop(mut slot_time: u64, simnet_events_tx: Sender<SimnetEvent>) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {
+pub fn start_clock_runloop(
+    mut slot_time: u64,
+    simnet_events_tx: Sender<SimnetEvent>,
+) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {
     let (clock_event_tx, clock_event_rx) = unbounded::<ClockEvent>();
     let (clock_command_tx, clock_command_rx) = unbounded::<ClockCommand>();
 

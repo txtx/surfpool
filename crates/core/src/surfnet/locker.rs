@@ -178,6 +178,7 @@ impl SurfnetSvmLocker {
     /// then calling its `initialize` method. Returns the epoch info on success.
     pub async fn initialize(
         &self,
+        slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
     ) -> SurfpoolResult<EpochInfo> {
         let epoch_info = if let Some(remote_client) = remote_ctx {
@@ -194,7 +195,7 @@ impl SurfnetSvmLocker {
         };
 
         self.with_svm_writer(|svm_writer| {
-            svm_writer.initialize(epoch_info.clone(), remote_ctx);
+            svm_writer.initialize(epoch_info.clone(), slot_time, remote_ctx);
         });
         Ok(epoch_info)
     }
