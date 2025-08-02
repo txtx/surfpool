@@ -27,7 +27,7 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{
     compute_budget::{self, ComputeBudgetInstruction},
     instruction::CompiledInstruction,
-    system_program,
+    system_program, transaction::TransactionVersion,
 };
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
@@ -2028,7 +2028,13 @@ impl Full for SurfpoolFullRpc {
         signature_str: String,
         config: Option<RpcEncodingConfigWrapper<RpcTransactionConfig>>,
     ) -> BoxFuture<Result<Option<EncodedConfirmedTransactionWithStatusMeta>>> {
-        let config = config.map(|c| c.convert_to_current()).unwrap_or_default();
+        let config = config.map(|c| c.convert_to_current()).unwrap_or_else(|| {
+            RpcTransactionConfig {
+                encoding: Some(UiTransactionEncoding::Json),
+                commitment: Some(CommitmentConfig::default()),
+                max_supported_transaction_version: Some(0),
+            }
+        });
 
         Box::pin(async move {
             let signature = Signature::from_str(&signature_str)
