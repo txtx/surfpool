@@ -958,7 +958,10 @@ impl SurfnetSvmLocker {
 
                     let _ = svm_writer
                         .geyser_events_tx
-                        .send(GeyserEvent::NotifyTransaction(transaction_with_status_meta));
+                        .send(GeyserEvent::NotifyTransaction(
+                            transaction_with_status_meta,
+                            sanitized_transaction,
+                        ));
 
                     let _ = status_tx.try_send(TransactionStatusEvent::Success(
                         TransactionConfirmationStatus::Processed,
