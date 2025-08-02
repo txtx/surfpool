@@ -268,6 +268,8 @@ fn start_geyser_runloop(
     geyser_events_rx: Receiver<GeyserEvent>,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let handle: JoinHandle<Result<(), String>> = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
+        let mut indexing_enabled = false;
+
         #[cfg(feature = "geyser-plugin")]
         let mut plugin_manager = GeyserPluginManager::new();
         #[cfg(not(feature = "geyser-plugin"))]
@@ -313,6 +315,7 @@ fn start_geyser_runloop(
                 let plugin_raw = constructor();
                 (Box::from_raw(plugin_raw), lib)
             };
+            indexing_enabled = true;
             plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.to_string())));
         }
 
@@ -354,6 +357,9 @@ fn start_geyser_runloop(
                                         let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver::<DataIndexingCommand>(rx);
                                         let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveCollection(subgraph_rx));
                                     };
+
+                                    indexing_enabled = true;
+
                                     let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
                                     surfpool_plugin_manager.push(plugin);
                                     let _ = simnet_events_tx.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
@@ -369,18 +375,16 @@ fn start_geyser_runloop(
                     Err(e) => {
                         break format!("Failed to read new transaction to send to Geyser plugin: {e}");
                     },
-                    Ok(GeyserEvent::NotifyTransaction(transaction_with_status_meta)) => {
+                    Ok(GeyserEvent::NotifyTransaction(transaction_with_status_meta, sanitized_transaction)) => {
 
-                        let transaction = match SanitizedTransaction::try_create(
-                            transaction_with_status_meta.transaction,
-                            MessageHash::Compute,
-                            None,
-                            SimpleAddressLoader::Disabled,
-                            &HashSet::new()
-                        ) {
-                            Ok(tx) => tx,
-                            Err(e) => {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: failed to serialize transaction: {:?}", e)));
+                        if !indexing_enabled {
+                            continue;
+                        }
+
+                        let transaction = match sanitized_transaction {
+                            Some(tx) => tx,
+                            None => {
+                                let _ = simnet_events_tx.send(SimnetEvent::warn(format!("Unable to index sanitized transaction")));
                                 continue;
                             }
                         };
