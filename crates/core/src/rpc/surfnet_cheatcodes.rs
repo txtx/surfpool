@@ -3,7 +3,7 @@ use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
 use solana_account::Account;
 use solana_account_decoder::UiAccountEncoding;
-use solana_client::rpc_response::RpcResponseContext;
+use solana_client::rpc_response::{RpcLogsResponse, RpcResponseContext};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -12,8 +12,8 @@ use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
     Idl, SimnetEvent,
     types::{
-        AccountUpdate, LocalSignature, ProfileResult, SetSomeAccount, SupplyUpdate,
-        TokenAccountUpdate, UuidOrSignature,
+        AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate,
+        UuidOrSignature,
     },
 };
 
@@ -597,7 +597,7 @@ pub trait SvmTricksRpc {
         &self,
         meta: Self::Metadata,
         limit: Option<u64>,
-    ) -> BoxFuture<Result<RpcResponse<Vec<LocalSignature>>>>;
+    ) -> BoxFuture<Result<RpcResponse<Vec<RpcLogsResponse>>>>;
 }
 
 #[derive(Clone)]
@@ -1026,7 +1026,7 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
         &self,
         meta: Self::Metadata,
         limit: Option<u64>,
-    ) -> BoxFuture<Result<RpcResponse<Vec<LocalSignature>>>> {
+    ) -> BoxFuture<Result<RpcResponse<Vec<RpcLogsResponse>>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
@@ -1063,10 +1063,10 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                                 .cloned()
                         });
 
-                        signatures.push(LocalSignature {
-                            signature: *signature,
+                        signatures.push(RpcLogsResponse {
+                            signature: signature.to_string(),
                             err,
-                            slot,
+                            logs: vec![],
                         });
                     }
                 }

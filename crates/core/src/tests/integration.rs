@@ -7,6 +7,7 @@ use jsonrpc_core::{
     futures::future::{self, join_all},
 };
 use jsonrpc_core_client::transports::http;
+use solana_client::rpc_response::RpcLogsResponse;
 use solana_clock::Slot;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
@@ -22,7 +23,7 @@ use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
-    Idl, LocalSignature, SimnetCommand, SimnetEvent, SurfpoolConfig, TransactionStatusEvent,
+    Idl, SimnetCommand, SimnetEvent, SurfpoolConfig, TransactionStatusEvent,
     types::{
         BlockProductionMode, ProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig,
         UuidOrSignature,
@@ -1592,9 +1593,10 @@ async fn test_get_local_signatures_without_limit() {
     // Confirm the current block to create a block with the transaction signature
     svm_locker_for_context.confirm_current_block().unwrap();
 
-    let get_local_signatures_response: JsonRpcResult<RpcResponse<Vec<LocalSignature>>> = rpc_server
-        .get_local_signatures(Some(runloop_context.clone()), None)
-        .await;
+    let get_local_signatures_response: JsonRpcResult<RpcResponse<Vec<RpcLogsResponse>>> =
+        rpc_server
+            .get_local_signatures(Some(runloop_context.clone()), None)
+            .await;
 
     assert!(
         get_local_signatures_response.is_ok(),
@@ -1604,12 +1606,6 @@ async fn test_get_local_signatures_without_limit() {
 
     let local_signatures = get_local_signatures_response.unwrap().value;
     assert!(local_signatures.len() > 0);
-
-    // Check that the first signature (most recent) has slot > 0
-    assert!(
-        local_signatures[0].slot > 0,
-        "Most recent signature should have slot > 0"
-    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1641,7 +1637,7 @@ async fn test_get_local_signatures_with_limit() {
     svm_locker_for_context.confirm_current_block().unwrap();
 
     // Get the initial number of signatures to establish a baseline
-    let initial_signatures_response: JsonRpcResult<RpcResponse<Vec<LocalSignature>>> = rpc_server
+    let initial_signatures_response: JsonRpcResult<RpcResponse<Vec<RpcLogsResponse>>> = rpc_server
         .get_local_signatures(Some(runloop_context.clone()), None)
         .await;
 
@@ -1685,7 +1681,7 @@ async fn test_get_local_signatures_with_limit() {
     let test_limits = vec![1, 3, 5, 10, 15];
 
     for limit in test_limits {
-        let get_local_signatures_response: JsonRpcResult<RpcResponse<Vec<LocalSignature>>> =
+        let get_local_signatures_response: JsonRpcResult<RpcResponse<Vec<RpcLogsResponse>>> =
             rpc_server
                 .get_local_signatures(Some(runloop_context.clone()), Some(limit))
                 .await;
@@ -1721,20 +1717,13 @@ async fn test_get_local_signatures_with_limit() {
             initial_count,
             num_transactions
         );
-
-        // Verify that signatures are returned in descending order (most recent first)
-        for i in 1..local_signatures.len() {
-            assert!(
-                local_signatures[i - 1].slot >= local_signatures[i].slot,
-                "Signatures should be in descending order by slot"
-            );
-        }
     }
 
     // Test with limit = 0 (should return empty list)
-    let get_local_signatures_response: JsonRpcResult<RpcResponse<Vec<LocalSignature>>> = rpc_server
-        .get_local_signatures(Some(runloop_context.clone()), Some(0))
-        .await;
+    let get_local_signatures_response: JsonRpcResult<RpcResponse<Vec<RpcLogsResponse>>> =
+        rpc_server
+            .get_local_signatures(Some(runloop_context.clone()), Some(0))
+            .await;
 
     assert!(
         get_local_signatures_response.is_ok(),
