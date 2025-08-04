@@ -2,7 +2,6 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
 use solana_account::Account;
-use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_response::RpcResponseContext;
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -11,12 +10,8 @@ use solana_sdk::{program_option::COption, system_program, transaction::Versioned
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
     Idl, RpcProfileResultConfig, SimnetEvent, UiKeyedProfileResult,
-    types::{
-        AccountUpdate, KeyedProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate,
-        UuidOrSignature,
-    },
+    types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
-use uuid::Uuid;
 
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
@@ -991,20 +986,18 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
 
 #[cfg(test)]
 mod tests {
-    use solana_account::Account;
-    use solana_account_decoder::{UiAccountData, parse_account_data::ParsedAccount};
-    use solana_keypair::Keypair;
-    use solana_pubkey::Pubkey;
-    use solana_sdk::{
-        program_option::COption, program_pack::Pack, system_instruction::create_account,
+    use solana_account_decoder::{
+        UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount,
     };
+    use solana_keypair::Keypair;
+    use solana_sdk::{program_pack::Pack, system_instruction::create_account};
     use solana_signer::Signer;
     use solana_transaction::Transaction;
     use spl_associated_token_account::{
         get_associated_token_address_with_program_id, instruction::create_associated_token_account,
     };
-    use spl_token::state::{Account as TokenAccount, AccountState, Mint};
-    use spl_token_2022::instruction::{initialize_mint2, mint_to, transfer_checked};
+    use spl_token::state::Mint;
+    use spl_token_2022::instruction::{initialize_mint2, mint_to};
     use surfpool_types::{RpcProfileDepth, UiAccountChange, UiAccountProfileState};
 
     use super::*;
