@@ -65,9 +65,12 @@ pub async fn start_local_surfnet_runloop(
     };
     let block_production_mode = simnet.block_production_mode.clone();
 
-    let remote_rpc_client = Some(SurfnetRemoteClient::new(&simnet.remote_rpc_url));
+    let remote_rpc_client = match simnet.offline_mode {
+        true => None,
+        false => Some(SurfnetRemoteClient::new(&simnet.remote_rpc_url)),
+    };
 
-    let _ = svm_locker.initialize(&remote_rpc_client).await?;
+    svm_locker.initialize(&remote_rpc_client).await?;
 
     svm_locker.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
     let simnet_events_tx_cc = svm_locker.simnet_events_tx();

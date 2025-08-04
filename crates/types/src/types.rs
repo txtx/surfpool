@@ -355,7 +355,7 @@ pub enum ClockEvent {
 pub struct SanitizedConfig {
     pub rpc_url: String,
     pub ws_url: String,
-    pub rpc_datasource_url: String,
+    pub rpc_datasource_url: Option<String>,
     pub studio_url: String,
     pub graphql_query_route_url: String,
 }
@@ -371,6 +371,7 @@ pub struct SurfpoolConfig {
 
 #[derive(Clone, Debug)]
 pub struct SimnetConfig {
+    pub offline_mode: bool,
     pub remote_rpc_url: String,
     pub slot_time: u64,
     pub block_production_mode: BlockProductionMode,
@@ -382,6 +383,7 @@ pub struct SimnetConfig {
 impl Default for SimnetConfig {
     fn default() -> Self {
         Self {
+            offline_mode: false,
             remote_rpc_url: DEFAULT_RPC_URL.to_string(),
             slot_time: 0,
             block_production_mode: BlockProductionMode::Clock,

@@ -120,7 +120,12 @@ impl App {
         events.push((
             EventType::Info,
             Local::now(),
-            format!("Connecting surfnet to datasource {datasource}..."),
+            match &datasource {
+                Some(url) if !url.is_empty() => {
+                    format!("Connecting surfnet to datasource {url}...")
+                }
+                Some(_) | None => "No datasource configured, working in offline mode".to_string(),
+            },
         ));
 
         App {
@@ -569,27 +574,28 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
 fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
     let infos = match app.displayed_url {
         DisplayedUrl::Datasource(ref config) => {
-            vec![
-                Line::from(vec![
-                    Span::styled("۬", app.colors.white),
-                    Span::styled("Surfnet   ", app.colors.light_gray),
-                    Span::styled(&config.rpc_url, app.colors.white),
-                ]),
-                Line::from(vec![
+            let mut lines = vec![Line::from(vec![
+                Span::styled("۬", app.colors.white),
+                Span::styled("Surfnet   ", app.colors.light_gray),
+                Span::styled(&config.rpc_url, app.colors.white),
+            ])];
+            if let Some(datasource_url) = &config.rpc_datasource_url {
+                lines.push(Line::from(vec![
                     Span::styled("۬", app.colors.white),
                     Span::styled("Provider  ", app.colors.light_gray),
-                    Span::styled(&config.rpc_datasource_url, app.colors.white),
-                ]),
-                Line::from(vec![Span::styled("۬-", app.colors.light_gray)]),
-                Line::from(vec![
-                    Span::styled("۬", app.colors.white),
-                    Span::styled(
-                        format!("{} ", app.successful_transactions),
-                        app.colors.accent,
-                    ),
-                    Span::styled("transactions processed", app.colors.white),
-                ]),
-            ]
+                    Span::styled(datasource_url, app.colors.white),
+                ]));
+            }
+            lines.push(Line::from(vec![Span::styled("۬-", app.colors.light_gray)]));
+            lines.push(Line::from(vec![
+                Span::styled("۬", app.colors.white),
+                Span::styled(
+                    format!("{} ", app.successful_transactions),
+                    app.colors.accent,
+                ),
+                Span::styled("transactions processed", app.colors.white),
+            ]));
+            lines
         }
         DisplayedUrl::Studio(ref config) => {
             vec![
