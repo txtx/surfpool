@@ -4,7 +4,7 @@ use jsonrpc_derive::rpc;
 use solana_account::Account;
 use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_response::{RpcLogsResponse, RpcResponseContext};
-use solana_clock::{Clock, Slot};
+use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -21,7 +21,6 @@ use surfpool_types::{
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     error::SurfpoolError,
-    helpers::time_travel::calculate_time_travel_clock,
     rpc::{
         State,
         utils::{verify_pubkey, verify_pubkeys},
@@ -1217,26 +1216,11 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         meta: Self::Metadata,
         config: Option<TimeTravelConfig>,
     ) -> Result<EpochInfo> {
-        let surfnet_command_tx = meta.get_surfnet_command_tx()?;
-        let (mut epoch_info, slot_time, updated_at) = meta.with_svm_reader(|svm_reader| {
-            (
-                svm_reader.latest_epoch_info.clone(),
-                svm_reader.slot_time,
-                svm_reader.updated_at,
-            )
-        })?;
+        let time_travel_config = config.unwrap_or_default();
+        let simnet_command_tx = meta.get_surfnet_command_tx()?;
+        let svm_locker = meta.get_svm_locker()?;
 
-        let behavior = config.unwrap_or_default();
-        let clock_update: Clock =
-            calculate_time_travel_clock(&behavior, updated_at, slot_time, &epoch_info)
-                .map_err(|e| Error::invalid_params(e.to_string()))?;
-
-        epoch_info.slot_index = clock_update.slot;
-        epoch_info.epoch = clock_update.epoch;
-        epoch_info.absolute_slot =
-            clock_update.slot + clock_update.epoch * epoch_info.slots_in_epoch;
-
-        let _ = surfnet_command_tx.send(SimnetCommand::UpdateInternalClock(clock_update));
+        let epoch_info = svm_locker.time_travel(simnet_command_tx, time_travel_config)?;
 
         Ok(epoch_info)
     }
