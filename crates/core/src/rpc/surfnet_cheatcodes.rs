@@ -1,11 +1,10 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use chrono::Utc;
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
 use solana_account::Account;
 use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_response::{RpcLogsResponse, RpcResponseContext};
-use solana_clock::{Clock, Epoch, Slot};
+use solana_clock::{Clock, Slot};
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -22,28 +21,14 @@ use surfpool_types::{
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     error::SurfpoolError,
+    helpers::time_travel::calculate_time_travel_clock,
     rpc::{
         State,
         utils::{verify_pubkey, verify_pubkeys},
     },
     surfnet::{GetAccountResult, locker::SvmAccessContext},
-    types::TokenAccount,
+    types::{TimeTravelConfig, TokenAccount},
 };
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum TimeTravelConfig {
-    AbsoluteEpoch(Epoch),
-    AbsoluteSlot(Slot),
-    AbsoluteTimestamp(u64),
-}
-
-impl Default for TimeTravelConfig {
-    fn default() -> Self {
-        // chrono timestamp in ms, 1 hour from now
-        Self::AbsoluteTimestamp(Utc::now().timestamp_millis() as u64 + 3600000)
-    }
-}
 
 pub trait AccountUpdateExt {
     fn is_full_account_data_ext(&self) -> bool;
@@ -1242,69 +1227,9 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         })?;
 
         let behavior = config.unwrap_or_default();
-        let clock_update: Clock = match behavior {
-            TimeTravelConfig::AbsoluteTimestamp(timestamp_target) => {
-                // If the timestamp is passed, we compute the difference between now and the target, deduct the amount of epochs + slot elapsed and updated the clock accordingly
-                // Ensure the timestamp is in the future
-                if timestamp_target < updated_at {
-                    unimplemented!()
-                }
-
-                let time_jump_in_ms = timestamp_target - updated_at;
-                let time_jump_in_absolute_slots = time_jump_in_ms / slot_time;
-                let remaining_slots_for_current_epoch =
-                    epoch_info.slots_in_epoch - epoch_info.slot_index;
-                let time_jump_in_epochs = (time_jump_in_absolute_slots
-                    - remaining_slots_for_current_epoch)
-                    / epoch_info.slots_in_epoch;
-                let time_jump_in_relative_slots =
-                    time_jump_in_absolute_slots - (time_jump_in_epochs * epoch_info.slots_in_epoch);
-                Clock {
-                    slot: time_jump_in_relative_slots,
-                    epoch_start_timestamp: timestamp_target as i64,
-                    epoch: epoch_info.epoch + time_jump_in_epochs,
-                    leader_schedule_epoch: 0,
-                    unix_timestamp: timestamp_target as i64,
-                }
-            }
-            TimeTravelConfig::AbsoluteSlot(new_absolute_slot) => {
-                // If the absolute slot is passed, we compute the corresponding epoch + timestamp, and update the clock accordingly
-                if new_absolute_slot < epoch_info.absolute_slot {
-                    unimplemented!()
-                }
-
-                let time_jump_in_absolute_slots = new_absolute_slot - epoch_info.absolute_slot;
-                let time_jump_in_ms = time_jump_in_absolute_slots * slot_time;
-                let timestamp_target = updated_at + time_jump_in_ms;
-                let epoch = new_absolute_slot / epoch_info.slots_in_epoch;
-                let slot = new_absolute_slot - epoch * epoch_info.slots_in_epoch;
-                Clock {
-                    slot,
-                    epoch_start_timestamp: timestamp_target as i64,
-                    epoch,
-                    leader_schedule_epoch: 0,
-                    unix_timestamp: timestamp_target as i64,
-                }
-            }
-            TimeTravelConfig::AbsoluteEpoch(new_epoch) => {
-                // If the epoch is passed, we multiply it by 432,000, and set the absolute slot + timestamp accordingly (based on the block blocktime)
-                if new_epoch < epoch_info.epoch {
-                    unimplemented!()
-                }
-
-                let new_absolute_slot = new_epoch * epoch_info.slots_in_epoch;
-                let time_jump_in_absolute_slots = new_absolute_slot - epoch_info.absolute_slot;
-                let time_jump_in_ms = time_jump_in_absolute_slots * slot_time;
-                let timestamp_target = updated_at + time_jump_in_ms;
-                Clock {
-                    slot: 0,
-                    epoch_start_timestamp: timestamp_target as i64,
-                    epoch: new_epoch,
-                    leader_schedule_epoch: 0,
-                    unix_timestamp: timestamp_target as i64,
-                }
-            }
-        };
+        let clock_update: Clock =
+            calculate_time_travel_clock(&behavior, updated_at, slot_time, &epoch_info)
+                .map_err(|e| Error::invalid_params(e.to_string()))?;
 
         epoch_info.slot_index = clock_update.slot;
         epoch_info.epoch = clock_update.epoch;

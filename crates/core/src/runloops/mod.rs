@@ -185,6 +185,7 @@ pub async fn start_block_production_runloop(
                             svm_writer.latest_epoch_info.slot_index = clock.slot;
                             svm_writer.latest_epoch_info.epoch = clock.epoch;
                             svm_writer.latest_epoch_info.absolute_slot = clock.slot + clock.epoch * svm_writer.latest_epoch_info.slots_in_epoch;
+                            let _ = svm_writer.simnet_events_tx.send(SimnetEvent::SystemClockUpdated(clock));
                         });
                     }
                     SimnetCommand::UpdateBlockProductionMode(update) => {

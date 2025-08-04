@@ -251,7 +251,7 @@ fn log_events(
                     SimnetEvent::EpochInfoUpdate(_) => {
                         info!(ctx.expect_logger(), "{}", event.epoch_info_update_msg());
                     }
-                    SimnetEvent::InternalClockUpdated(_) => {
+                    SimnetEvent::SystemClockUpdated(_) => {
                         if include_debug_logs {
                             info!(ctx.expect_logger(), "{}", event.clock_update_msg());
                         }

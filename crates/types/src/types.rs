@@ -203,7 +203,7 @@ pub enum SimnetEvent {
     Connected(String),
     Aborted(String),
     Shutdown,
-    InternalClockUpdated(Clock),
+    SystemClockUpdated(Clock),
     ClockUpdate(ClockCommand),
     EpochInfoUpdate(EpochInfo),
     BlockHashExpired,
@@ -309,11 +309,11 @@ impl SimnetEvent {
 
     pub fn clock_update_msg(&self) -> String {
         match self {
-            SimnetEvent::InternalClockUpdated(clock) => {
+            SimnetEvent::SystemClockUpdated(clock) => {
                 format!("Clock ticking (epoch {}, slot {})", clock.epoch, clock.slot)
             }
             _ => {
-                unreachable!("This function should only be called for InternalClockUpdated events")
+                unreachable!("This function should only be called for SystemClockUpdated events")
             }
         }
     }

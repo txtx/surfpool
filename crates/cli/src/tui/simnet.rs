@@ -306,7 +306,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     event.epoch_info_update_msg(),
                                 ));
                             }
-                            SimnetEvent::InternalClockUpdated(clock) => {
+                            SimnetEvent::SystemClockUpdated(clock) => {
                                 app.clock = clock.clone();
                                 if app.include_debug_logs {
                                     new_events.push((
