@@ -18,7 +18,6 @@ use surfpool_types::{
     },
 };
 
-
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     error::SurfpoolError,
