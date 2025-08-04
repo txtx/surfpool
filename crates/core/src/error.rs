@@ -433,4 +433,10 @@ impl SurfpoolError {
         error.message = format!("Profile result associated with tag '{tag}' not found in the SVM");
         Self(error)
     }
+
+    pub(crate) fn expected_profile_not_found(key: &surfpool_types::UuidOrSignature) -> Self {
+        let mut error = Error::internal_error();
+        error.message = format!("Expected profile not found for key {key}");
+        Self(error)
+    }
 }

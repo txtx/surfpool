@@ -11337,6 +11337,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_with",
+ "solana-account",
  "solana-account-decoder-client-types",
  "solana-blake3-hasher",
  "solana-clock",

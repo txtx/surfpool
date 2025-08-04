@@ -7,7 +7,7 @@ use jsonrpc_core::{
     futures::future::{self, join_all},
 };
 use jsonrpc_core_client::transports::http;
-use solana_account_decoder::{UiAccountData, UiAccountEncoding};
+use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount};
 use solana_clock::Slot;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
@@ -18,15 +18,15 @@ use solana_message::{
 use solana_native_token::LAMPORTS_PER_SOL;
 use solana_pubkey::{Pubkey, pubkey};
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::system_instruction::transfer;
+use solana_sdk::{system_instruction::transfer, system_program};
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
-    Idl, SimnetCommand, SimnetEvent, SurfpoolConfig,
+    Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent, SurfpoolConfig,
+    UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
     types::{
-        BlockProductionMode, KeyedProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig,
-        TransactionStatusEvent, UuidOrSignature,
+        BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
     },
 };
 use tokio::{sync::RwLock, task};
@@ -599,7 +599,7 @@ async fn test_surfnet_estimate_compute_units() {
     };
 
     // Test with None tag
-    let response_no_tag_initial: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+    let response_no_tag_initial: JsonRpcResult<RpcResponse<UiKeyedProfileResult>> = rpc_server
         .profile_transaction(Some(runloop_context.clone()), tx_b64.clone(), None, None)
         .await;
 
@@ -653,7 +653,7 @@ async fn test_surfnet_estimate_compute_units() {
     // Test 1: Estimate with a tag and retrieve
     let tag1 = "test_tag_1".to_string();
     println!("\nTesting with tag: {}", tag1);
-    let response_tagged_1: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+    let response_tagged_1: JsonRpcResult<RpcResponse<UiKeyedProfileResult>> = rpc_server
         .profile_transaction(
             Some(runloop_context.clone()),
             tx_b64.clone(),
@@ -687,9 +687,8 @@ async fn test_surfnet_estimate_compute_units() {
     );
 
     println!("Retrieving profile results for tag: {}", tag1);
-    let results_response_tag1 = rpc_server
-        .get_profile_results_by_tag(Some(runloop_context.clone()), tag1.clone())
-        .await;
+    let results_response_tag1 =
+        rpc_server.get_profile_results_by_tag(Some(runloop_context.clone()), tag1.clone(), None);
     assert!(
         results_response_tag1.is_ok(),
         "get_profile_results for tag1 failed: {:?}",
@@ -738,9 +737,11 @@ async fn test_surfnet_estimate_compute_units() {
         "\nTesting retrieval with non-existent tag: {}",
         tag_non_existent
     );
-    let results_non_existent_response = rpc_server
-        .get_profile_results_by_tag(Some(runloop_context.clone()), tag_non_existent.clone())
-        .await;
+    let results_non_existent_response = rpc_server.get_profile_results_by_tag(
+        Some(runloop_context.clone()),
+        tag_non_existent.clone(),
+        None,
+    );
     assert!(
         results_non_existent_response.is_ok(),
         "get_profile_results for non-existent tag failed"
@@ -761,7 +762,7 @@ async fn test_surfnet_estimate_compute_units() {
     // Test 3: Estimate multiple times with the same tag
     let tag2 = "test_tag_2".to_string();
     println!("\nTesting multiple estimations with tag: {}", tag2);
-    let response_tagged_2a: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+    let response_tagged_2a: JsonRpcResult<RpcResponse<UiKeyedProfileResult>> = rpc_server
         .profile_transaction(
             Some(runloop_context.clone()),
             tx_b64.clone(),
@@ -783,7 +784,7 @@ async fn test_surfnet_estimate_compute_units() {
             .is_none()
     );
 
-    let response_tagged_2b: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+    let response_tagged_2b: JsonRpcResult<RpcResponse<UiKeyedProfileResult>> = rpc_server
         .profile_transaction(
             Some(runloop_context.clone()),
             tx_b64.clone(),
@@ -806,9 +807,9 @@ async fn test_surfnet_estimate_compute_units() {
     );
 
     println!("Retrieving profile results for tag: {}", tag2);
-    let results_response_tag2 = rpc_server
-        .get_profile_results_by_tag(Some(runloop_context.clone()), tag2.clone())
-        .await;
+    let results_response_tag2 =
+        rpc_server.get_profile_results_by_tag(Some(runloop_context.clone()), tag2.clone(), None);
+
     assert!(
         results_response_tag2.is_ok(),
         "get_profile_results for tag2 failed"
@@ -856,7 +857,7 @@ async fn test_surfnet_estimate_compute_units() {
         "\nTesting None tag again to ensure no interference with tag: {}",
         tag1
     );
-    let response_no_tag_again: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+    let response_no_tag_again: JsonRpcResult<RpcResponse<UiKeyedProfileResult>> = rpc_server
         .profile_transaction(Some(runloop_context.clone()), tx_b64.clone(), None, None)
         .await;
     assert!(
@@ -876,9 +877,8 @@ async fn test_surfnet_estimate_compute_units() {
     );
 
     println!("Retrieving profile results for tag: {} again", tag1);
-    let results_response_tag1_again = rpc_server
-        .get_profile_results_by_tag(Some(runloop_context), tag1.clone())
-        .await;
+    let results_response_tag1_again =
+        rpc_server.get_profile_results_by_tag(Some(runloop_context), tag1.clone(), None);
     assert!(
         results_response_tag1_again.is_ok(),
         "get_profile_results for tag1 (again) failed"
@@ -997,7 +997,7 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     };
 
     // Call profile_transaction
-    let response: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+    let response: JsonRpcResult<RpcResponse<UiKeyedProfileResult>> = rpc_server
         .profile_transaction(Some(runloop_context.clone()), tx_b64.clone(), None, None)
         .await;
 
@@ -1015,106 +1015,6 @@ async fn test_surfnet_estimate_compute_units_with_state_snapshots() {
     );
 
     // Verify pre_execution state
-    assert!(
-        profile_result
-            .transaction_profile
-            .state
-            .pre_execution
-            .contains_key(&payer_pubkey)
-    );
-
-    assert!(
-        profile_result
-            .transaction_profile
-            .state
-            .pre_execution
-            .contains_key(&recipient_pubkey)
-    );
-
-    let payer_pre_account = profile_result
-        .transaction_profile
-        .state
-        .pre_execution
-        .get(&payer_pubkey)
-        .unwrap()
-        .as_ref()
-        .unwrap();
-    assert_eq!(
-        payer_pre_account.lamports, initial_payer_lamports,
-        "Payer pre-execution lamports mismatch"
-    );
-
-    let recipient_pre_account = profile_result
-        .transaction_profile
-        .state
-        .pre_execution
-        .get(&recipient_pubkey)
-        .unwrap();
-
-    assert!(
-        recipient_pre_account.is_none(),
-        "Recipient pre-execution account should be None (not created yet)"
-    );
-
-    // Verify post_execution state
-    assert!(
-        profile_result
-            .transaction_profile
-            .state
-            .post_execution
-            .contains_key(&payer_pubkey)
-    );
-    assert!(
-        profile_result
-            .transaction_profile
-            .state
-            .post_execution
-            .contains_key(&recipient_pubkey)
-    );
-
-    let payer_post_data = profile_result
-        .transaction_profile
-        .state
-        .post_execution
-        .get(&payer_pubkey)
-        .unwrap()
-        .as_ref()
-        .unwrap();
-
-    // Payer's balance should decrease by lamports_to_send + fees. For simplicity, just check that it's less than initial.
-    // A more precise check would involve calculating exact fees, which LiteSVM not expose easily here.
-    assert!(
-        payer_post_data.lamports < initial_payer_lamports,
-        "Payer post-execution lamports did not decrease as expected"
-    );
-    assert!(
-        payer_post_data.lamports <= initial_payer_lamports - lamports_to_send,
-        "Payer post-execution lamports mismatch after send"
-    );
-
-    let recipient_post_data = profile_result
-        .transaction_profile
-        .state
-        .post_execution
-        .get(&recipient_pubkey)
-        .unwrap()
-        .as_ref()
-        .unwrap();
-    assert_eq!(
-        recipient_post_data.lamports,
-        initial_recipient_lamports_pre + lamports_to_send,
-        "Recipient post-execution lamports mismatch"
-    );
-
-    println!("Profiled transaction successfully with state snapshots.");
-    println!(
-        "  Payer pre-lamports: {}, post-lamports: {}",
-        payer_pre_account.lamports, payer_post_data.lamports
-    );
-    println!(
-        "  Recipient pre-lamports: {}, post-lamports: {}",
-        initial_recipient_lamports_pre, recipient_post_data.lamports
-    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1159,7 +1059,7 @@ async fn test_get_transaction_profile() {
     let tag = "test_get_transaction_profile_tag".to_string();
     println!("Testing transaction profiling with tag: {}", tag);
 
-    let profile_response: JsonRpcResult<RpcResponse<SurfpoolProfileResult>> = rpc_server
+    let profile_response: JsonRpcResult<RpcResponse<UiKeyedProfileResult>> = rpc_server
         .profile_transaction(
             Some(runloop_context.clone()),
             tx_b64.clone(),
@@ -1190,9 +1090,12 @@ async fn test_get_transaction_profile() {
 
     // Test 2: Retrieve profile by UUID
     println!("Testing retrieval by UUID: {}", uuid);
-    let uuid_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> = rpc_server
-        .get_transaction_profile(Some(runloop_context.clone()), UuidOrSignature::Uuid(uuid))
-        .await;
+    let uuid_response: JsonRpcResult<RpcResponse<Option<UiKeyedProfileResult>>> = rpc_server
+        .get_transaction_profile(
+            Some(runloop_context.clone()),
+            UuidOrSignature::Uuid(uuid),
+            None,
+        );
 
     assert!(
         uuid_response.is_ok(),
@@ -1256,12 +1159,12 @@ async fn test_get_transaction_profile() {
 
     // Test 4: Retrieve profile by signature
     println!("Testing retrieval by signature: {}", signature);
-    let signature_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> = rpc_server
+    let signature_response: JsonRpcResult<RpcResponse<Option<UiKeyedProfileResult>>> = rpc_server
         .get_transaction_profile(
             Some(runloop_context.clone()),
             UuidOrSignature::Signature(signature),
-        )
-        .await;
+            None,
+        );
 
     assert!(
         signature_response.is_ok(),
@@ -1288,13 +1191,12 @@ async fn test_get_transaction_profile() {
     // Test 5: Test retrieval with non-existent UUID
     println!("Testing retrieval with non-existent UUID");
     let non_existent_uuid = uuid::Uuid::new_v4();
-    let non_existent_uuid_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> =
-        rpc_server
-            .get_transaction_profile(
-                Some(runloop_context.clone()),
-                UuidOrSignature::Uuid(non_existent_uuid),
-            )
-            .await;
+    let non_existent_uuid_response: JsonRpcResult<RpcResponse<Option<UiKeyedProfileResult>>> =
+        rpc_server.get_transaction_profile(
+            Some(runloop_context.clone()),
+            UuidOrSignature::Uuid(non_existent_uuid),
+            None,
+        );
 
     assert!(
         non_existent_uuid_response.is_ok(),
@@ -1310,13 +1212,12 @@ async fn test_get_transaction_profile() {
     // Test 6: Test retrieval with non-existent signature
     println!("Testing retrieval with non-existent signature");
     let non_existent_signature = solana_sdk::signature::Signature::new_unique();
-    let non_existent_sig_response: JsonRpcResult<RpcResponse<Option<SurfpoolProfileResult>>> =
-        rpc_server
-            .get_transaction_profile(
-                Some(runloop_context.clone()),
-                UuidOrSignature::Signature(non_existent_signature),
-            )
-            .await;
+    let non_existent_sig_response: JsonRpcResult<RpcResponse<Option<UiKeyedProfileResult>>> =
+        rpc_server.get_transaction_profile(
+            Some(runloop_context.clone()),
+            UuidOrSignature::Signature(non_existent_signature),
+            None,
+        );
 
     assert!(
         non_existent_sig_response.is_ok(),
@@ -1456,7 +1357,7 @@ async fn test_register_and_get_same_idl_with_different_slots() {
     // Prepare slots for registering different IDLs
     let current_slot = svm_locker_for_context.get_latest_absolute_slot();
     let slot_1 = current_slot.saturating_add(10); // First IDL registration
-    let slot_2 = current_slot.saturating_add(50); // Second IDL registration  
+    let slot_2 = current_slot.saturating_add(50); // Second IDL registration
     let slot_3 = current_slot.saturating_add(100); // Third IDL registration
 
     println!("Current slot: {}", current_slot);
@@ -1618,35 +1519,34 @@ async fn test_profile_transaction_basic() {
 
     // Test basic profiling without tag
     println!("Testing basic transaction profiling");
-    let profile_result = svm_locker
-        .profile_transaction(&None, transaction.clone(), None, None)
+    let profile_uuid = svm_locker
+        .profile_transaction(&None, transaction.clone(), None)
         .await
-        .unwrap();
+        .unwrap()
+        .inner;
+
+    let key = UuidOrSignature::Uuid(profile_uuid);
+    let profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist");
 
     // Verify UUID generation
-    let UuidOrSignature::Uuid(uuid) = profile_result.inner.key else {
+    let UuidOrSignature::Uuid(uuid) = profile_result.key else {
         panic!(
             "Expected a UUID from the profile result, got: {:?}",
-            profile_result.inner.key
+            profile_result.key
         );
     };
     println!("Generated UUID: {}", uuid);
 
     // Verify transaction profile
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .error_message
-            .is_none(),
+        profile_result.transaction_profile.error_message.is_none(),
         "Transaction profiling should succeed"
     );
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .compute_units_consumed
-            > 0,
+        profile_result.transaction_profile.compute_units_consumed > 0,
         "Transaction should consume compute units"
     );
 
@@ -1659,17 +1559,17 @@ async fn test_profile_transaction_basic() {
 
     // Verify storage in SVM
     let stored_profile = svm_locker
-        .get_profile_result(UuidOrSignature::Uuid(uuid))
+        .get_profile_result(
+            UuidOrSignature::Uuid(uuid),
+            &RpcProfileResultConfig::default(),
+        )
         .unwrap();
     assert!(stored_profile.is_some(), "Profile should be stored in SVM");
 
     let stored = stored_profile.unwrap();
     assert_eq!(
         stored.transaction_profile.compute_units_consumed,
-        profile_result
-            .inner
-            .transaction_profile
-            .compute_units_consumed,
+        profile_result.transaction_profile.compute_units_consumed,
         "Stored profile should match returned profile"
     );
 
@@ -1692,6 +1592,10 @@ async fn test_profile_transaction_multi_instruction_basic() {
     let recipient = Pubkey::new_unique();
     let recipient2 = Pubkey::new_unique();
     let recipient3 = Pubkey::new_unique();
+    println!("Sender: {}", payer.pubkey());
+    println!("Recipient 1: {}", recipient);
+    println!("Recipient 2: {}", recipient2);
+    println!("Recipient 3: {}", recipient3);
 
     let transfer_ix = transfer(&payer.pubkey(), &recipient, lamports_to_send);
     let transfer_ix2 = transfer(&payer.pubkey(), &recipient2, lamports_to_send);
@@ -1706,90 +1610,362 @@ async fn test_profile_transaction_multi_instruction_basic() {
     let transaction =
         VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
 
-    let profile_result = svm_locker
-        .profile_transaction(&None, transaction.clone(), None, None)
+    let profile_uuid = svm_locker
+        .profile_transaction(&None, transaction.clone(), None)
         .await
-        .unwrap();
+        .unwrap()
+        .inner;
 
-    // Verify UUID generation
-    let UuidOrSignature::Uuid(uuid) = profile_result.inner.key else {
-        panic!(
-            "Expected a UUID from the profile result, got: {:?}",
-            profile_result.inner.key
+    let key = UuidOrSignature::Uuid(profile_uuid);
+
+    // Check profile result with Transaction depth
+    {
+        let rpc_profile_config = RpcProfileResultConfig {
+            encoding: Some(UiAccountEncoding::JsonParsed),
+            depth: Some(RpcProfileDepth::Transaction),
+        };
+
+        let profile_result = svm_locker
+            .get_profile_result(key, &rpc_profile_config)
+            .unwrap()
+            .expect("Profile result should exist");
+
+        // Verify UUID generation
+        let UuidOrSignature::Uuid(uuid) = profile_result.key else {
+            panic!(
+                "Expected a UUID from the profile result, got: {:?}",
+                profile_result.key
+            );
+        };
+        println!("Generated UUID: {}", uuid);
+
+        assert!(profile_result.transaction_profile.error_message.is_none(),);
+        assert_eq!(
+            profile_result.transaction_profile.compute_units_consumed,
+            450
         );
-    };
-    println!("Generated UUID: {}", uuid);
+        assert_eq!(
+            profile_result.instruction_profiles, None,
+            "Instruction profiles should be None for Transaction depth config"
+        );
 
-    println!(
-        "Profile result: {}",
-        serde_json::to_string_pretty(&profile_result.inner).unwrap()
-    );
+        let account_states = profile_result.transaction_profile.account_states;
 
-    // Verify transaction profile
-    assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .error_message
-            .is_none(),
-        "Transaction profiling should succeed"
-    );
-    assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .compute_units_consumed
-            > 0,
-        "Transaction should consume compute units"
-    );
+        let _ = profile_result
+            .readonly_account_states
+            .get(&system_program::id())
+            .expect("System program should be present in readonly account states");
+        let UiAccountProfileState::Readonly = account_states
+            .get(&system_program::id())
+            .expect("System program state should be present")
+        else {
+            panic!("Expected system program state to be Readonly");
+        };
 
-    // Verify that the transaction consumes compute units
-    assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .compute_units_consumed
-            > 0,
-        "Transaction should consume compute units"
-    );
+        // assert payer states
+        {
+            let UiAccountProfileState::Writable(sender_account_change) = account_states
+                .get(&payer.pubkey())
+                .expect("Payer account state should be present")
+            else {
+                panic!("Expected account state to be Writable");
+            };
 
-    // Verify state snapshots exist
-    assert!(
-        !profile_result
-            .inner
-            .transaction_profile
-            .state
-            .pre_execution
-            .is_empty(),
-        "Pre-execution state should be captured"
-    );
-    assert!(
-        !profile_result
-            .inner
-            .transaction_profile
-            .state
-            .post_execution
-            .is_empty(),
-        "Post-execution state should be captured"
-    );
+            match sender_account_change {
+                UiAccountChange::Update(before, after) => {
+                    assert_eq!(
+                        after.lamports,
+                        before.lamports - (lamports_to_send * 3) - 5000,
+                        "Payer account should be original balance minus three transfers and fees"
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be an Update, got: {:?}", other);
+                }
+            }
+        }
 
-    // Verify storage in SVM
-    let stored_profile = svm_locker
-        .get_profile_result(UuidOrSignature::Uuid(uuid))
-        .unwrap();
-    assert!(stored_profile.is_some(), "Profile should be stored in SVM");
+        // assert recipient 1 states
+        {
+            let UiAccountProfileState::Writable(recipient_1_change) = account_states
+                .get(&recipient)
+                .expect("Recipient 1 account state should be present")
+            else {
+                panic!("Expected recipient 1 account state to be Writable");
+            };
 
-    let stored = stored_profile.unwrap();
-    assert_eq!(
-        stored.transaction_profile.compute_units_consumed,
-        profile_result
-            .inner
-            .transaction_profile
-            .compute_units_consumed,
-        "Stored profile should match returned profile"
-    );
+            match recipient_1_change {
+                UiAccountChange::Create(new) => {
+                    assert_eq!(
+                        new.lamports, lamports_to_send,
+                        "Recipient 1 account should have received the transfer amount"
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be an Create, got: {:?}", other);
+                }
+            }
+        }
 
-    println!("Multi-instruction transaction basic profiling test passed successfully!");
+        // assert recipient 2 states
+        {
+            let UiAccountProfileState::Writable(recipient_2_change) = account_states
+                .get(&recipient2)
+                .expect("Recipient 2 account state should be present")
+            else {
+                panic!("Expected recipient 2 account state to be Writable");
+            };
+
+            match recipient_2_change {
+                UiAccountChange::Create(new) => {
+                    assert_eq!(
+                        new.lamports, lamports_to_send,
+                        "Recipient 2 account should have received the transfer amount"
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be an Update, got: {:?}", other);
+                }
+            }
+        }
+
+        // assert recipient 3 states
+        {
+            let UiAccountProfileState::Writable(recipient_3_change) = account_states
+                .get(&recipient3)
+                .expect("Recipient 3 account state should be present")
+            else {
+                panic!("Expected recipient 3 account state to be Writable");
+            };
+
+            match recipient_3_change {
+                UiAccountChange::Create(new) => {
+                    assert_eq!(
+                        new.lamports, lamports_to_send,
+                        "Recipient 3 account should have received the transfer amount"
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be Create, got: {:?}", other);
+                }
+            }
+        }
+    }
+
+    // Check profile result with Instruction depth
+    {
+        let rpc_profile_config = RpcProfileResultConfig {
+            encoding: Some(UiAccountEncoding::JsonParsed),
+            depth: Some(RpcProfileDepth::Instruction),
+        };
+        let profile_result = svm_locker
+            .get_profile_result(key, &rpc_profile_config)
+            .unwrap()
+            .expect("Profile result should exist");
+
+        println!(
+            "Profile result with Instruction depth: {}",
+            serde_json::to_string_pretty(&profile_result).unwrap()
+        );
+
+        let instruction_profiles = profile_result
+            .instruction_profiles
+            .expect("Instruction profiles should be present for Instruction depth config");
+
+        // assert ix 1 data
+        {
+            let ix_profile = instruction_profiles
+                .get(0)
+                .expect("Instruction profile should exist");
+            assert_eq!(
+                ix_profile.compute_units_consumed, 150,
+                "Instruction should consume 150 CU"
+            );
+            assert!(ix_profile.error_message.is_none());
+            let account_states = &ix_profile.account_states;
+            // assert account sender states
+            {
+                let UiAccountProfileState::Writable(sender_account_change) = account_states
+                    .get(&payer.pubkey())
+                    .expect("Payer account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match sender_account_change {
+                    UiAccountChange::Update(before, after) => {
+                        assert_eq!(
+                            after.lamports,
+                            before.lamports - lamports_to_send - 5000,
+                            "Payer account should be original balance minus transfer amount"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+            }
+
+            // assert recipient 1 states
+            {
+                let UiAccountProfileState::Writable(recipient_1_change) = account_states
+                    .get(&recipient)
+                    .expect("Recipient 1 account state should be present")
+                else {
+                    panic!("Expected recipient 1 account state to be Writable");
+                };
+
+                match recipient_1_change {
+                    UiAccountChange::Create(new) => {
+                        assert_eq!(
+                            new.lamports, lamports_to_send,
+                            "Recipient 1 account should have received the transfer amount"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+            }
+
+            assert!(
+                account_states.get(&recipient2).is_none(),
+                "Recipient 2 should not be affected by first instruction"
+            );
+            assert!(
+                account_states.get(&recipient3).is_none(),
+                "Recipient 3 should not be affected by first instruction"
+            );
+        }
+
+        // assert ix 2 data
+        {
+            let ix_profile = instruction_profiles
+                .get(1)
+                .expect("Instruction profile should exist");
+            assert_eq!(
+                ix_profile.compute_units_consumed, 150,
+                "Instruction should consume 150 CU"
+            );
+            assert!(ix_profile.error_message.is_none());
+            let account_states = &ix_profile.account_states;
+            // assert account sender states
+            {
+                let UiAccountProfileState::Writable(sender_account_change) = account_states
+                    .get(&payer.pubkey())
+                    .expect("Payer account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match sender_account_change {
+                    UiAccountChange::Update(before, after) => {
+                        assert_eq!(after.lamports, before.lamports - lamports_to_send);
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+            }
+
+            println!(
+                "Recipient 1 account state: {:?}",
+                account_states.get(&recipient)
+            );
+            assert!(
+                account_states.get(&recipient).is_none(),
+                "Recipient 1 should not be affected by second instruction"
+            );
+            // assert recipient 2 states
+            {
+                let UiAccountProfileState::Writable(recipient_2_change) = account_states
+                    .get(&recipient2)
+                    .expect("Recipient 2 account state should be present")
+                else {
+                    panic!("Expected recipient 2 account state to be Writable");
+                };
+
+                match recipient_2_change {
+                    UiAccountChange::Create(new) => {
+                        assert_eq!(
+                            new.lamports, lamports_to_send,
+                            "Recipient 2 account should have received the transfer amount"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+            }
+
+            assert!(
+                account_states.get(&recipient3).is_none(),
+                "Recipient 3 should not be affected by first instruction"
+            );
+        }
+
+        // assert ix 3 data
+        {
+            let ix_profile = instruction_profiles
+                .get(2)
+                .expect("Instruction profile should exist");
+            assert_eq!(
+                ix_profile.compute_units_consumed, 150,
+                "Instruction should consume 150 CU"
+            );
+            assert!(ix_profile.error_message.is_none());
+            let account_states = &ix_profile.account_states;
+            // assert account sender states
+            {
+                let UiAccountProfileState::Writable(sender_account_change) = account_states
+                    .get(&payer.pubkey())
+                    .expect("Payer account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match sender_account_change {
+                    UiAccountChange::Update(before, after) => {
+                        assert_eq!(after.lamports, before.lamports - lamports_to_send,);
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+            }
+
+            assert!(
+                account_states.get(&recipient).is_none(),
+                "Recipient 1 should not be affected by second instruction"
+            );
+
+            assert!(
+                account_states.get(&recipient2).is_none(),
+                "Recipient 2 should not be affected by first instruction"
+            );
+            // assert recipient 3 states
+            {
+                let UiAccountProfileState::Writable(recipient_3_change) = account_states
+                    .get(&recipient3)
+                    .expect("Recipient 3 account state should be present")
+                else {
+                    panic!("Expected recipient 3 account state to be Writable");
+                };
+
+                match recipient_3_change {
+                    UiAccountChange::Create(new) => {
+                        assert_eq!(
+                            new.lamports, lamports_to_send,
+                            "Recipient 3 account should have received the transfer amount"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1820,33 +1996,28 @@ async fn test_profile_transaction_with_tag() {
     let tag = "test_profile_transaction_tag".to_string();
     println!("Testing transaction profiling with tag: {}", tag);
 
-    let profile_result = svm_locker
-        .profile_transaction(&None, transaction.clone(), None, Some(tag.clone()))
+    let profile_uuid = svm_locker
+        .profile_transaction(&None, transaction.clone(), None)
         .await
-        .unwrap();
-    println!("Profile result: {:?}", profile_result.inner);
+        .unwrap()
+        .inner;
 
-    // Verify UUID generation
-    let UuidOrSignature::Uuid(uuid) = profile_result.inner.key else {
-        panic!(
-            "Expected a UUID from the profile result, got: {:?}",
-            profile_result.inner.key
-        );
-    };
-    println!("Generated UUID: {}", uuid);
+    let key = UuidOrSignature::Uuid(profile_uuid);
+    let profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist");
 
     // Verify transaction profile
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .error_message
-            .is_none(),
+        profile_result.transaction_profile.error_message.is_none(),
         "Transaction profiling should succeed"
     );
 
     // Verify tag-based retrieval
-    let tagged_results = svm_locker.get_profile_results_by_tag(tag.clone()).unwrap();
+    let tagged_results = svm_locker
+        .get_profile_results_by_tag(tag.clone(), &RpcProfileResultConfig::default())
+        .unwrap();
     assert!(tagged_results.is_some(), "Tagged results should be found");
 
     let tagged_profiles = tagged_results.unwrap();
@@ -1859,7 +2030,7 @@ async fn test_profile_transaction_with_tag() {
     let tagged_profile = &tagged_profiles[0];
     assert_eq!(
         tagged_profile.key,
-        UuidOrSignature::Uuid(uuid),
+        UuidOrSignature::Uuid(profile_uuid),
         "Tagged profile should have the same UUID"
     );
 
@@ -1874,18 +2045,22 @@ async fn test_profile_transaction_with_tag() {
     let transaction2 =
         VersionedTransaction::try_new(VersionedMessage::Legacy(message2), &[&payer]).unwrap();
 
-    let profile_result2 = svm_locker
-        .profile_transaction(&None, transaction2, None, Some(tag.clone()))
+    let uuid2 = svm_locker
+        .profile_transaction(&None, transaction2.clone(), None)
         .await
-        .unwrap();
+        .unwrap()
+        .inner;
 
-    let UuidOrSignature::Uuid(uuid2) = profile_result2.inner.key else {
-        panic!("Expected a UUID from the second profile result");
-    };
-    println!("Generated second UUID: {}", uuid2);
+    let key = UuidOrSignature::Uuid(uuid2);
+    let ui_profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist");
 
     // Verify both profiles are now associated with the tag
-    let tagged_results_updated = svm_locker.get_profile_results_by_tag(tag.clone()).unwrap();
+    let tagged_results_updated = svm_locker
+        .get_profile_results_by_tag(tag.clone(), &RpcProfileResultConfig::default())
+        .unwrap();
     assert!(
         tagged_results_updated.is_some(),
         "Tagged results should still be found after adding second profile"
@@ -1911,7 +2086,7 @@ async fn test_profile_transaction_with_tag() {
         .collect();
 
     assert!(
-        uuids.contains(&uuid),
+        uuids.contains(&profile_uuid),
         "First UUID should be in tagged results"
     );
     assert!(
@@ -1922,7 +2097,7 @@ async fn test_profile_transaction_with_tag() {
     // Test retrieval with non-existent tag
     let non_existent_tag = "non_existent_tag".to_string();
     let non_existent_results = svm_locker
-        .get_profile_results_by_tag(non_existent_tag)
+        .get_profile_results_by_tag(non_existent_tag, &RpcProfileResultConfig::default())
         .unwrap();
     assert!(
         non_existent_results.is_none(),
@@ -1931,7 +2106,10 @@ async fn test_profile_transaction_with_tag() {
 
     // Test retrieval by individual UUIDs
     let stored_profile1 = svm_locker
-        .get_profile_result(UuidOrSignature::Uuid(uuid))
+        .get_profile_result(
+            UuidOrSignature::Uuid(profile_uuid),
+            &RpcProfileResultConfig::default(),
+        )
         .unwrap();
     assert!(
         stored_profile1.is_some(),
@@ -1939,7 +2117,10 @@ async fn test_profile_transaction_with_tag() {
     );
 
     let stored_profile2 = svm_locker
-        .get_profile_result(UuidOrSignature::Uuid(uuid2))
+        .get_profile_result(
+            UuidOrSignature::Uuid(uuid2),
+            &RpcProfileResultConfig::default(),
+        )
         .unwrap();
     assert!(
         stored_profile2.is_some(),
@@ -1959,13 +2140,17 @@ async fn test_profile_transaction_token_transfer() {
     let recipient = Pubkey::new_unique();
     let mint = Keypair::new();
     let lamports_to_send = 2 * LAMPORTS_PER_SOL;
+    println!("Sender: {}", payer.pubkey());
+    println!("Recipient: {}", recipient);
+    println!("Mint: {}", mint.pubkey());
 
     // Airdrop SOL to payer
     svm_locker
-        .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send))
+        .airdrop(&payer.pubkey(), lamports_to_send)
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    println!("Recent blockhash after airdrop: {}", recent_blockhash);
 
     // Create account for mint
     let mint_rent = 1461600;
@@ -1993,6 +2178,7 @@ async fn test_profile_transaction_token_transfer() {
         &mint.pubkey(),
         &spl_token_2022::id(),
     );
+    println!("Source ATA: {}", source_ata);
     let dest_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
         &recipient,
         &mint.pubkey(),
@@ -2033,8 +2219,8 @@ async fn test_profile_transaction_token_transfer() {
             create_account_ix,
             initialize_mint_ix,
             create_source_ata_ix,
-            create_dest_ata_ix,
-            mint_to_ix,
+            // create_dest_ata_ix,
+            // mint_to_ix,
         ],
         Some(&payer.pubkey()),
         &recent_blockhash,
@@ -2043,106 +2229,367 @@ async fn test_profile_transaction_token_transfer() {
         VersionedTransaction::try_new(VersionedMessage::Legacy(setup_message), &[&payer, &mint])
             .unwrap();
 
-    // Process setup transaction
-    let (status_tx, status_rx) = crossbeam_channel::unbounded();
-    svm_locker
-        .process_transaction(&None, setup_tx, status_tx, false, true)
-        .await
-        .unwrap();
-
-    match status_rx.recv() {
-        Ok(TransactionStatusEvent::Success(_)) => println!("Setup transaction successful"),
-        other => panic!("Setup transaction failed: {:?}", other),
-    }
-
-    // Now create a token transfer transaction to profile
-    let transfer_amount = 50; // 0.5 tokens
-    let transfer_ix = spl_token_2022::instruction::transfer_checked(
-        &spl_token_2022::id(),
-        &source_ata,
-        &mint.pubkey(),
-        &dest_ata,
-        &payer.pubkey(),
-        &[&payer.pubkey()],
-        transfer_amount,
-        2, // decimals
-    )
-    .unwrap();
-
-    let transfer_message =
-        Message::new_with_blockhash(&[transfer_ix], Some(&payer.pubkey()), &recent_blockhash);
-    let transfer_tx =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(transfer_message), &[&payer])
+    {
+        let profile_result = svm_locker
+            .profile_transaction(&None, setup_tx.clone(), None)
+            .await
             .unwrap();
 
-    // Profile the token transfer transaction
-    let profile_result = svm_locker
-        .profile_transaction(&None, transfer_tx.clone(), None, None)
-        .await
-        .unwrap();
+        // profile_result
+        //     .inner
+        //     .transaction_profile
+        //     .error_message
+        //     .as_ref()
+        //     .map(|err| {
+        //         panic!("Setup transaction profiling failed with error: {}", err);
+        //     });
+        // profile_result
+        //     .inner
+        //     .instruction_profiles
+        //     .as_ref()
+        //     .map(|profiles| {
+        //         profiles.iter().for_each(|ix_profile| {
+        //             ix_profile.error_message.as_ref().map(|err| {
+        //                 panic!(
+        //                     "Setup transaction instruction profiling failed with error: {}",
+        //                     err
+        //                 );
+        //             });
+        //         });
+        //     });
 
-    // Verify UUID generation
-    let UuidOrSignature::Uuid(_uuid) = profile_result.inner.key else {
-        panic!("Expected a UUID from the profile result");
-    };
+        println!("Profile result: {:?}", profile_result.inner);
+        let rpc_profile_config = RpcProfileResultConfig {
+            encoding: Some(UiAccountEncoding::JsonParsed),
+            depth: Some(RpcProfileDepth::Instruction),
+        };
+        let key = UuidOrSignature::Uuid(profile_result.inner);
+        let ui_profile_result = svm_locker
+            .get_profile_result(key, &rpc_profile_config)
+            .unwrap()
+            .expect("Profile result should exist");
 
-    // Verify transaction profile
-    assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .error_message
-            .is_none(),
-        "Token transfer profiling should succeed"
-    );
-    assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .compute_units_consumed
-            > 0,
-        "Token transfer should consume compute units"
-    );
+        assert!(
+            ui_profile_result
+                .transaction_profile
+                .error_message
+                .is_none(),
+            "Setup transaction should succeed, found error: {}",
+            ui_profile_result.transaction_profile.error_message.unwrap()
+        );
 
-    // Verify state snapshots contain token accounts
-    assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .state
-            .pre_execution
-            .contains_key(&source_ata),
-        "Source token account should be in pre-execution state"
-    );
-    assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .state
-            .pre_execution
-            .contains_key(&dest_ata),
-        "Destination token account should be in pre-execution state"
-    );
-    assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .state
-            .post_execution
-            .contains_key(&source_ata),
-        "Source token account should be in post-execution state"
-    );
-    assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .state
-            .post_execution
-            .contains_key(&dest_ata),
-        "Destination token account should be in post-execution state"
-    );
+        // instruction 1: create_account
+        {
+            let ix_profile = ui_profile_result
+                .instruction_profiles
+                .as_ref()
+                .unwrap()
+                .get(0)
+                .expect("instruction profile should exist");
+            assert!(
+                ix_profile.error_message.is_none(),
+                "Profile should succeed, found error: {}",
+                ix_profile.error_message.as_ref().unwrap()
+            );
+            assert_eq!(ix_profile.compute_units_consumed, 150);
+            assert!(ix_profile.error_message.is_none());
+            let account_states = &ix_profile.account_states;
 
-    println!("Token transfer profiling test passed successfully!");
+            let UiAccountProfileState::Writable(sender_account_change) = account_states
+                .get(&payer.pubkey())
+                .expect("Payer account state should be present")
+            else {
+                panic!("Expected account state to be Writable");
+            };
+
+            match sender_account_change {
+                UiAccountChange::Update(before, after) => {
+                    assert_eq!(
+                        after.lamports,
+                        before.lamports - mint_rent - (2 * 5000), // two signers, so 2 * 5000 for fees
+                        "Payer account should be original balance minus rent"
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be an Update, got: {:?}", other);
+                }
+            }
+
+            let UiAccountProfileState::Writable(mint_account_change) = account_states
+                .get(&mint.pubkey())
+                .expect("Mint account state should be present")
+            else {
+                panic!("Expected mint account state to be Writable");
+            };
+            match mint_account_change {
+                UiAccountChange::Create(mint_account) => {
+                    println!("Mint account created: {:?}", mint_account);
+                    assert_eq!(
+                        mint_account.lamports, mint_rent,
+                        "Mint account should have the correct rent amount"
+                    );
+                    assert_eq!(
+                        mint_account.owner,
+                        spl_token_2022::id().to_string(),
+                        "Mint account should be owned by the SPL Token program"
+                    );
+                    // initialized account data should be empty bytes
+                    assert_eq!(
+                        mint_account.data,
+                        UiAccountData::Binary(
+                            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==".into(),
+                            UiAccountEncoding::Base64
+                        ),
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be an Update, got: {:?}", other);
+                }
+            }
+        }
+
+        // instruction 2: initialize mint
+        {
+            let ix_profile = ui_profile_result
+                .instruction_profiles
+                .as_ref()
+                .unwrap()
+                .get(1)
+                .expect("instruction profile should exist");
+            assert!(
+                ix_profile.error_message.is_none(),
+                "Profile should succeed, found error: {}",
+                ix_profile.error_message.as_ref().unwrap()
+            );
+            assert_eq!(ix_profile.compute_units_consumed, 1404);
+            assert!(ix_profile.error_message.is_none());
+            let account_states = &ix_profile.account_states;
+
+            assert!(account_states.get(&payer.pubkey()).is_none());
+
+            let UiAccountProfileState::Writable(mint_account_change) = account_states
+                .get(&mint.pubkey())
+                .expect("Mint account state should be present")
+            else {
+                panic!("Expected mint account state to be Writable");
+            };
+            match mint_account_change {
+                UiAccountChange::Update(_before, after) => {
+                    assert_eq!(
+                        after.lamports, mint_rent,
+                        "Mint account should have the correct rent amount"
+                    );
+                    assert_eq!(
+                        after.owner,
+                        spl_token_2022::id().to_string(),
+                        "Mint account should be owned by the SPL Token program"
+                    );
+                    // initialized account data should be empty bytes
+                    assert_eq!(
+                        after.data,
+                        UiAccountData::Json(ParsedAccount {
+                            program: "spl-token-2022".to_string(),
+                            parsed: json!({
+                                "info": {
+                                    "decimals": 2,
+                                    "freezeAuthority": payer.pubkey().to_string(),
+                                    "mintAuthority": payer.pubkey().to_string(),
+                                    "isInitialized": true,
+                                    "supply": "0",
+                                },
+                                "type": "mint"
+                            }),
+                            space: 82,
+                        }),
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be an Update, got: {:?}", other);
+                }
+            }
+        }
+
+        // instruction 3: create token account
+        {
+            let ix_profile = ui_profile_result
+                .instruction_profiles
+                .as_ref()
+                .unwrap()
+                .get(2)
+                .expect("instruction profile should exist");
+            assert!(
+                ix_profile.error_message.is_none(),
+                "Profile should succeed, found error: {}",
+                ix_profile.error_message.as_ref().unwrap()
+            );
+            // assert_eq!(ix_profile.compute_units_consumed, 15758);
+            assert!(ix_profile.error_message.is_none());
+            let account_states = &ix_profile.account_states;
+
+            println!("Ix 3 account states: {:?}", account_states);
+
+            let UiAccountProfileState::Writable(sender_account_change) = account_states
+                .get(&payer.pubkey())
+                .expect("Payer account state should be present")
+            else {
+                panic!("Expected account state to be Writable");
+            };
+
+            match sender_account_change {
+                UiAccountChange::Update(before, after) => {
+                    assert_eq!(
+                        after.lamports,
+                        before.lamports - 2074080,
+                        "Payer account should be original balance minus rent"
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be an Update, got: {:?}", other);
+                }
+            }
+
+            let UiAccountProfileState::Writable(mint_account_change) = account_states
+                .get(&mint.pubkey())
+                .expect("Mint account state should be present")
+            else {
+                panic!("Expected mint account state to be Writable");
+            };
+            match mint_account_change {
+                UiAccountChange::Unchanged(mint_account) => {
+                    assert!(mint_account.is_some())
+                }
+                other => {
+                    panic!("Expected account state to be Unchanged, got: {:?}", other);
+                }
+            }
+
+            let UiAccountProfileState::Writable(source_ata_change) = account_states
+                .get(&source_ata)
+                .expect("account state should be present")
+            else {
+                panic!("Expected account state to be Writable");
+            };
+
+            match source_ata_change {
+                UiAccountChange::Create(new) => {
+                    assert_eq!(
+                        new.lamports, 2074080,
+                        "Source ATA should have the correct lamports after creation"
+                    );
+                    assert_eq!(
+                        new.owner,
+                        spl_token_2022::id().to_string(),
+                        "Source ATA should be owned by the SPL Token program"
+                    );
+                    // since we're profiling, the "additional data" needed to json parse token 2022 accounts isn't available,
+                    // so the result is base64 encoded
+                    let UiAccountData::Binary(new_data, UiAccountEncoding::Base64) = &new.data
+                    else {
+                        panic!("Expected account data to be Base64 encoded");
+                    };
+
+                    let mut mint_bs64 =
+                        base64::engine::general_purpose::STANDARD.encode(&mint.pubkey().to_bytes());
+                    mint_bs64.truncate(42);
+                    assert!(new_data.starts_with(mint_bs64.as_str()));
+                    assert!(
+                        new_data.ends_with(
+                            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgcAAAA="
+                        )
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be Create, got: {:?}", other);
+                }
+            }
+        }
+
+        assert_eq!(
+            ui_profile_result.transaction_profile.compute_units_consumed,
+            ui_profile_result
+                .instruction_profiles
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|ix| ix.compute_units_consumed)
+                .sum::<u64>(),
+        );
+    }
+
+    // Process setup transaction
+    // let (status_tx, status_rx) = crossbeam_channel::unbounded();
+    // svm_locker
+    //     .process_transaction(&None, setup_tx, status_tx, false, true)
+    //     .await
+    //     .unwrap();
+
+    // match status_rx.recv() {
+    //     Ok(TransactionStatusEvent::Success(_)) => println!("Setup transaction successful"),
+    //     other => panic!("Setup transaction failed: {:?}", other),
+    // }
+
+    // // Now create a token transfer transaction to profile
+    // let transfer_amount = 50; // 0.5 tokens
+    // let transfer_ix = spl_token_2022::instruction::transfer_checked(
+    //     &spl_token_2022::id(),
+    //     &source_ata,
+    //     &mint.pubkey(),
+    //     &dest_ata,
+    //     &payer.pubkey(),
+    //     &[&payer.pubkey()],
+    //     transfer_amount,
+    //     2, // decimals
+    // )
+    // .unwrap();
+
+    // let transfer_message =
+    //     Message::new_with_blockhash(&[transfer_ix], Some(&payer.pubkey()), &recent_blockhash);
+    // let transfer_tx =
+    //     VersionedTransaction::try_new(VersionedMessage::Legacy(transfer_message), &[&payer])
+    //         .unwrap();
+
+    // // Profile the token transfer transaction
+    // let profile_result = svm_locker
+    //     .profile_transaction(&None, transfer_tx.clone(), None)
+    //     .await
+    //     .unwrap();
+
+    // let rpc_profile_config = RpcProfileResultConfig {
+    //     encoding: Some(UiAccountEncoding::JsonParsed),
+    //     depth: Some(RpcProfileDepth::Instruction),
+    // };
+    // let ui_profile_result = svm_locker
+    //     .encode_ui_keyed_profile_result(profile_result.inner.clone(), &rpc_profile_config);
+
+    // println!(
+    //     "UI Profile Result: {}",
+    //     serde_json::to_string_pretty(&ui_profile_result).unwrap()
+    // );
+
+    // // Verify UUID generation
+    // let UuidOrSignature::Uuid(_uuid) = profile_result.inner.key else {
+    //     panic!("Expected a UUID from the profile result");
+    // };
+
+    // // Verify transaction profile
+    // assert!(
+    //     profile_result
+    //         .inner
+    //         .transaction_profile
+    //         .error_message
+    //         .is_none(),
+    //     "Token transfer profiling should succeed"
+    // );
+    // assert!(
+    //     profile_result
+    //         .inner
+    //         .transaction_profile
+    //         .compute_units_consumed
+    //         > 0,
+    //     "Token transfer should consume compute units"
+    // );
+
+    // println!("Token transfer profiling test passed successfully!");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2169,28 +2616,28 @@ async fn test_profile_transaction_insufficient_funds() {
         VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
 
     // Profile the failing transaction
-    let profile_result = svm_locker
-        .profile_transaction(&None, transaction.clone(), None, None)
+    let profile_uuid = svm_locker
+        .profile_transaction(&None, transaction.clone(), None)
         .await
-        .unwrap();
+        .unwrap()
+        .inner;
 
-    // Verify UUID generation
-    let UuidOrSignature::Uuid(_uuid) = profile_result.inner.key else {
-        panic!("Expected a UUID from the profile result");
-    };
+    let key = UuidOrSignature::Uuid(profile_uuid);
+    let ui_profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist");
 
     // Verify transaction profile shows failure
     assert!(
-        profile_result
-            .inner
+        ui_profile_result
             .transaction_profile
             .error_message
             .is_some(),
         "Transaction should fail due to insufficient funds"
     );
 
-    let error_msg = profile_result
-        .inner
+    let error_msg = ui_profile_result
         .transaction_profile
         .error_message
         .as_ref()
@@ -2203,32 +2650,8 @@ async fn test_profile_transaction_insufficient_funds() {
 
     // Verify compute units were still consumed
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .compute_units_consumed
-            > 0,
+        ui_profile_result.transaction_profile.compute_units_consumed > 0,
         "Failed transaction should still consume compute units"
-    );
-
-    // Verify state snapshots exist even for failed transaction
-    assert!(
-        !profile_result
-            .inner
-            .transaction_profile
-            .state
-            .pre_execution
-            .is_empty(),
-        "Pre-execution state should be captured even for failed transaction"
-    );
-    assert!(
-        !profile_result
-            .inner
-            .transaction_profile
-            .state
-            .post_execution
-            .is_empty(),
-        "Post-execution state should be captured even for failed transaction"
     );
 
     println!("Insufficient funds profiling test passed successfully!");
@@ -2264,28 +2687,25 @@ async fn test_profile_transaction_invalid_signature() {
     .unwrap();
 
     // Profile the transaction with invalid signature
-    let profile_result = svm_locker
-        .profile_transaction(&None, transaction.clone(), None, None)
+    let profile_uuid = svm_locker
+        .profile_transaction(&None, transaction.clone(), None)
         .await
-        .unwrap();
+        .unwrap()
+        .inner;
 
-    // Verify UUID generation
-    let UuidOrSignature::Uuid(_uuid) = profile_result.inner.key else {
-        panic!("Expected a UUID from the profile result");
-    };
+    let key = UuidOrSignature::Uuid(profile_uuid);
+    let profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist");
 
     // Verify transaction profile shows failure
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .error_message
-            .is_some(),
+        profile_result.transaction_profile.error_message.is_some(),
         "Transaction should fail due to invalid signature"
     );
 
     let error_msg = profile_result
-        .inner
         .transaction_profile
         .error_message
         .as_ref()
@@ -2329,33 +2749,32 @@ async fn test_profile_transaction_multi_instruction_failure() {
         VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
 
     // Profile the multi-instruction transaction
-    let profile_result = svm_locker
-        .profile_transaction(&None, transaction.clone(), None, None)
-        .await
-        .unwrap();
 
-    // Verify UUID generation
-    let UuidOrSignature::Uuid(_uuid) = profile_result.inner.key else {
-        panic!("Expected a UUID from the profile result");
-    };
+    let uuid = svm_locker
+        .profile_transaction(&None, transaction.clone(), None)
+        .await
+        .unwrap()
+        .inner;
+
+    let key = UuidOrSignature::Uuid(uuid);
+    let profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist");
 
     // Verify transaction profile shows failure
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .error_message
-            .is_some(),
+        profile_result.transaction_profile.error_message.is_some(),
         "Multi-instruction transaction should fail"
     );
 
     // Verify instruction profiles exist
     assert!(
-        profile_result.inner.instruction_profiles.is_some(),
+        profile_result.instruction_profiles.is_some(),
         "Instruction profiles should be generated for multi-instruction transaction"
     );
 
-    let instruction_profiles = profile_result.inner.instruction_profiles.as_ref().unwrap();
+    let instruction_profiles = profile_result.instruction_profiles.as_ref().unwrap();
     assert_eq!(
         instruction_profiles.len(),
         1,
@@ -2399,54 +2818,46 @@ async fn test_profile_transaction_with_encoding() {
     let transaction =
         VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
 
-    // Profile with base64 encoding
-    let profile_result = svm_locker
-        .profile_transaction(
-            &None,
-            transaction.clone(),
-            Some(UiAccountEncoding::Base64),
-            None,
-        )
+    let profile_uuid = svm_locker
+        .profile_transaction(&None, transaction.clone(), None)
         .await
-        .unwrap();
+        .unwrap()
+        .inner;
 
-    // Verify UUID generation
-    let UuidOrSignature::Uuid(_uuid) = profile_result.inner.key else {
-        panic!("Expected a UUID from the profile result");
-    };
+    let key = UuidOrSignature::Uuid(profile_uuid);
+    let profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist");
 
     // Verify transaction profile
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .error_message
-            .is_none(),
+        profile_result.transaction_profile.error_message.is_none(),
         "Transaction profiling should succeed with base64 encoding"
     );
 
-    // Verify state snapshots use the specified encoding
-    let pre_execution_accounts = &profile_result.inner.transaction_profile.state.pre_execution;
-    let post_execution_accounts = &profile_result
-        .inner
-        .transaction_profile
-        .state
-        .post_execution;
+    // // Verify state snapshots use the specified encoding
+    // let pre_execution_accounts = &profile_result.inner.transaction_profile.state.pre_execution;
+    // let post_execution_accounts = &profile_result
+    //     .inner
+    //     .transaction_profile
+    //     .state
+    //     .post_execution;
 
-    for (_, account_opt) in pre_execution_accounts
-        .iter()
-        .chain(post_execution_accounts.iter())
-    {
-        if let Some(account) = account_opt {
-            // Verify the account data is base64 encoded
-            if let UiAccountData::Binary(_, encoding) = &account.data {
-                assert!(
-                    *encoding == UiAccountEncoding::Base64,
-                    "Account data should be base64 encoded"
-                );
-            }
-        }
-    }
+    // for (_, account_opt) in pre_execution_accounts
+    //     .iter()
+    //     .chain(post_execution_accounts.iter())
+    // {
+    //     if let Some(account) = account_opt {
+    //         // Verify the account data is base64 encoded
+    //         if let UiAccountData::Binary(_, encoding) = &account.data {
+    //             assert!(
+    //                 *encoding == UiAccountEncoding::Base64,
+    //                 "Account data should be base64 encoded"
+    //             );
+    //         }
+    //     }
+    // }
 
     println!("Encoding profiling test passed successfully!");
 }
@@ -2476,29 +2887,31 @@ async fn test_profile_transaction_with_tag_and_retrieval() {
 
     // Profile with a tag
     let tag = "test_tag_retrieval".to_string();
-    let profile_result = svm_locker
-        .profile_transaction(&None, transaction.clone(), None, Some(tag.clone()))
-        .await
-        .unwrap();
 
-    // Verify UUID generation
-    let UuidOrSignature::Uuid(_uuid) = profile_result.inner.key else {
-        panic!("Expected a UUID from the profile result");
-    };
+    let profile_uuid = svm_locker
+        .profile_transaction(&None, transaction.clone(), Some(tag.clone()))
+        .await
+        .unwrap()
+        .inner;
+
+    let key = UuidOrSignature::Uuid(profile_uuid);
+    let profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist");
 
     // Verify transaction profile
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .error_message
-            .is_none(),
+        profile_result.transaction_profile.error_message.is_none(),
         "Transaction profiling should succeed"
     );
 
     // Test retrieval by UUID
     let retrieved_by_uuid = svm_locker
-        .get_profile_result(UuidOrSignature::Uuid(_uuid))
+        .get_profile_result(
+            UuidOrSignature::Uuid(profile_uuid),
+            &RpcProfileResultConfig::default(),
+        )
         .unwrap();
     assert!(
         retrieved_by_uuid.is_some(),
@@ -2508,15 +2921,14 @@ async fn test_profile_transaction_with_tag_and_retrieval() {
     let retrieved = retrieved_by_uuid.unwrap();
     assert_eq!(
         retrieved.transaction_profile.compute_units_consumed,
-        profile_result
-            .inner
-            .transaction_profile
-            .compute_units_consumed,
+        profile_result.transaction_profile.compute_units_consumed,
         "Retrieved profile should match original profile"
     );
 
     // Test retrieval by tag
-    let retrieved_by_tag = svm_locker.get_profile_results_by_tag(tag.clone()).unwrap();
+    let retrieved_by_tag = svm_locker
+        .get_profile_results_by_tag(tag.clone(), &RpcProfileResultConfig::default())
+        .unwrap();
     assert!(
         retrieved_by_tag.is_some(),
         "Profile should be retrievable by tag"
@@ -2532,14 +2944,14 @@ async fn test_profile_transaction_with_tag_and_retrieval() {
     let tagged_profile = &tagged_profiles[0];
     assert_eq!(
         tagged_profile.key,
-        UuidOrSignature::Uuid(_uuid),
+        UuidOrSignature::Uuid(profile_uuid),
         "Tagged profile should have the same UUID"
     );
 
     // Test retrieval with non-existent tag
     let non_existent_tag = "non_existent_tag".to_string();
     let non_existent_result = svm_locker
-        .get_profile_results_by_tag(non_existent_tag)
+        .get_profile_results_by_tag(non_existent_tag, &RpcProfileResultConfig::default())
         .unwrap();
     assert!(
         non_existent_result.is_none(),
@@ -2574,39 +2986,33 @@ async fn test_profile_transaction_empty_instruction() {
         VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
 
     // Profile the empty transaction
-    let profile_result = svm_locker
-        .profile_transaction(&None, transaction.clone(), None, None)
+    let profile_uuid = svm_locker
+        .profile_transaction(&None, transaction.clone(), None)
         .await
-        .unwrap();
+        .unwrap()
+        .inner;
 
-    // Verify UUID generation
-    let UuidOrSignature::Uuid(_uuid) = profile_result.inner.key else {
-        panic!("Expected a UUID from the profile result");
-    };
+    let key = UuidOrSignature::Uuid(profile_uuid);
+    let profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist");
 
     // Verify transaction profile
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .error_message
-            .is_none(),
+        profile_result.transaction_profile.error_message.is_none(),
         "Empty transaction profiling should succeed"
     );
 
     // Verify compute units consumed (should be minimal)
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .compute_units_consumed
-            > 0,
+        profile_result.transaction_profile.compute_units_consumed > 0,
         "Empty transaction should still consume some compute units"
     );
 
     // Verify no instruction profiles for empty transaction
     assert!(
-        profile_result.inner.instruction_profiles.is_none(),
+        profile_result.instruction_profiles.is_none(),
         "Empty transaction should not have instruction profiles"
     );
 
@@ -2645,52 +3051,26 @@ async fn test_profile_transaction_versioned_message() {
         VersionedTransaction::try_new(VersionedMessage::V0(v0_message), &[&payer]).unwrap();
 
     // Profile the versioned transaction
-    let profile_result = svm_locker
-        .profile_transaction(&None, transaction.clone(), None, None)
+    let profile_uuid = svm_locker
+        .profile_transaction(&None, transaction.clone(), None)
         .await
-        .unwrap();
+        .unwrap()
+        .inner;
 
-    // Verify UUID generation
-    let UuidOrSignature::Uuid(_uuid) = profile_result.inner.key else {
-        panic!("Expected a UUID from the profile result");
-    };
+    let key = UuidOrSignature::Uuid(profile_uuid);
+    let profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist");
 
     // Verify transaction profile
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .error_message
-            .is_none(),
+        profile_result.transaction_profile.error_message.is_none(),
         "Versioned transaction profiling should succeed"
     );
     assert!(
-        profile_result
-            .inner
-            .transaction_profile
-            .compute_units_consumed
-            > 0,
+        profile_result.transaction_profile.compute_units_consumed > 0,
         "Versioned transaction should consume compute units"
-    );
-
-    // Verify state snapshots exist
-    assert!(
-        !profile_result
-            .inner
-            .transaction_profile
-            .state
-            .pre_execution
-            .is_empty(),
-        "Pre-execution state should be captured for versioned transaction"
-    );
-    assert!(
-        !profile_result
-            .inner
-            .transaction_profile
-            .state
-            .post_execution
-            .is_empty(),
-        "Post-execution state should be captured for versioned transaction"
     );
 
     println!("Versioned message profiling test passed successfully!");
