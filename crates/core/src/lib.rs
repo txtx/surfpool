@@ -11,6 +11,7 @@ extern crate serde_derive;
 extern crate serde_json;
 
 pub mod error;
+pub mod helpers;
 pub mod rpc;
 pub mod runloops;
 pub mod surfnet;

@@ -77,6 +77,8 @@ pub async fn handle_start_local_surfnet_command(
         rpc_datasource_url: Some(rpc_datasource_url),
         studio_url,
         graphql_query_route_url,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        workspace: None,
     };
 
     let subgraph_database_path = cmd
@@ -250,11 +252,12 @@ fn log_events(
                     SimnetEvent::EpochInfoUpdate(_) => {
                         info!(ctx.expect_logger(), "{}", event.epoch_info_update_msg());
                     }
-                    SimnetEvent::ClockUpdate(_) => {
+                    SimnetEvent::SystemClockUpdated(_) => {
                         if include_debug_logs {
                             info!(ctx.expect_logger(), "{}", event.clock_update_msg());
                         }
                     }
+                    SimnetEvent::ClockUpdate(_) => {}
                     SimnetEvent::ErrorLog(_dt, log) => {
                         error!(ctx.expect_logger(), "{}", log);
                     }
