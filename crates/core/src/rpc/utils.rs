@@ -7,11 +7,12 @@ use bincode::Options;
 use jsonrpc_core::{Error, Result};
 use litesvm::types::TransactionMetadata;
 use solana_client::{
-    rpc_config::RpcTokenAccountsFilter,
+    rpc_config::{RpcTokenAccountsFilter, RpcTransactionConfig},
     rpc_custom_error::RpcCustomError,
     rpc_filter::RpcFilterType,
     rpc_request::{MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT, TokenAccountsFilter},
 };
+use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
 use solana_packet::PACKET_DATA_SIZE;
 use solana_pubkey::{ParsePubkeyError, Pubkey};
@@ -20,6 +21,7 @@ use solana_signature::Signature;
 use solana_transaction::sanitized::SanitizedTransaction;
 use solana_transaction_status::{
     InnerInstruction, InnerInstructions, TransactionBinaryEncoding, UiInnerInstructions,
+    UiTransactionEncoding,
 };
 
 use crate::error::{SurfpoolError, SurfpoolResult};
@@ -238,4 +240,24 @@ pub fn is_method_not_supported_error<E: std::fmt::Display>(err: &E) -> bool {
         || msg.contains("is blocked")
         || msg.contains("if you need this method")
         || msg.contains("client error")
+}
+
+pub fn get_default_transaction_config() -> RpcTransactionConfig {
+    RpcTransactionConfig {
+        encoding: Some(UiTransactionEncoding::Json),
+        commitment: Some(CommitmentConfig::default()),
+        max_supported_transaction_version: Some(0),
+    }
+}
+
+pub fn adjust_default_transaction_config(config: &mut RpcTransactionConfig) {
+    if config.encoding.is_none() {
+        config.encoding = Some(UiTransactionEncoding::Json);
+    }
+    if config.max_supported_transaction_version.is_none() {
+        config.max_supported_transaction_version = Some(0);
+    }
+    if config.commitment.is_none() {
+        config.commitment = Some(CommitmentConfig::default());
+    }
 }
