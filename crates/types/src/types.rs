@@ -32,6 +32,7 @@ pub const DEFAULT_WS_PORT: u16 = 8900;
 pub const DEFAULT_STUDIO_PORT: u16 = 8488;
 pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
+pub const DEFAULT_SLOT_TIME_MS: u64 = 400;
 pub type Idl = anchor_lang_idl::types::Idl;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -324,7 +325,8 @@ pub enum SimnetEvent {
     Connected(String),
     Aborted(String),
     Shutdown,
-    ClockUpdate(Clock),
+    SystemClockUpdated(Clock),
+    ClockUpdate(ClockCommand),
     EpochInfoUpdate(EpochInfo),
     BlockHashExpired,
     InfoLog(DateTime<Local>, String),
@@ -429,10 +431,12 @@ impl SimnetEvent {
 
     pub fn clock_update_msg(&self) -> String {
         match self {
-            SimnetEvent::ClockUpdate(clock) => {
+            SimnetEvent::SystemClockUpdated(clock) => {
                 format!("Clock ticking (epoch {}, slot {})", clock.epoch, clock.slot)
             }
-            _ => unreachable!("This function should only be called for ClockUpdate events"),
+            _ => {
+                unreachable!("This function should only be called for SystemClockUpdated events")
+            }
         }
     }
 }
@@ -449,7 +453,8 @@ pub enum TransactionStatusEvent {
 pub enum SimnetCommand {
     SlotForward(Option<Hash>),
     SlotBackward(Option<Hash>),
-    UpdateClock(ClockCommand),
+    CommandClock(ClockCommand),
+    UpdateInternalClock(Clock),
     UpdateBlockProductionMode(BlockProductionMode),
     TransactionReceived(
         Option<Hash>,
@@ -480,6 +485,8 @@ pub struct SanitizedConfig {
     pub rpc_datasource_url: String,
     pub studio_url: String,
     pub graphql_query_route_url: String,
+    pub version: String,
+    pub workspace: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -505,7 +512,7 @@ impl Default for SimnetConfig {
     fn default() -> Self {
         Self {
             remote_rpc_url: DEFAULT_RPC_URL.to_string(),
-            slot_time: 0,
+            slot_time: DEFAULT_SLOT_TIME_MS, // Default to 400ms to match CLI default
             block_production_mode: BlockProductionMode::Clock,
             airdrop_addresses: vec![],
             airdrop_token_amount: 0,

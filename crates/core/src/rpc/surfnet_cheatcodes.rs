@@ -2,14 +2,15 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
 use solana_account::Account;
-use solana_client::rpc_response::RpcResponseContext;
+use solana_client::rpc_response::{RpcLogsResponse, RpcResponseContext};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
+use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{program_option::COption, system_program, transaction::VersionedTransaction};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    Idl, RpcProfileResultConfig, SimnetEvent, UiKeyedProfileResult,
+    ClockCommand, Idl, RpcProfileResultConfig, SimnetCommand, SimnetEvent, UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -21,7 +22,7 @@ use crate::{
         utils::{verify_pubkey, verify_pubkeys},
     },
     surfnet::{GetAccountResult, locker::SvmAccessContext},
-    types::TokenAccount,
+    types::{TimeTravelConfig, TokenAccount},
 };
 
 pub trait AccountUpdateExt {
@@ -124,7 +125,7 @@ impl TokenAccountUpdateExt for TokenAccountUpdate {
 }
 
 #[rpc]
-pub trait SvmTricksRpc {
+pub trait SurfnetCheatcodes {
     type Metadata;
 
     /// A "cheat code" method for developers to set or update an account in Surfpool.
@@ -568,11 +569,152 @@ pub trait SvmTricksRpc {
         program_id: String,
         slot: Option<Slot>,
     ) -> Result<RpcResponse<Option<Idl>>>;
+
+    /// A cheat code to get the last 50 local signatures from the local network.
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_getLocalSignatures",
+    ///   "params": [ { "limit": 50 } ]
+    /// }
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "signature": String,
+    ///     "err": Option<TransactionError>,
+    ///     "slot": u64,
+    ///   },
+    ///   "id": 1
+    /// }
+    #[rpc(meta, name = "surfnet_getLocalSignatures")]
+    fn get_local_signatures(
+        &self,
+        meta: Self::Metadata,
+        limit: Option<u64>,
+    ) -> BoxFuture<Result<RpcResponse<Vec<RpcLogsResponse>>>>;
+
+    /// A cheat code to jump forward or backward in time on the local network.
+    /// Useful for testing epoch-based or time-sensitive logic.
+    ///
+    /// ## Parameters
+    /// - `config` (optional): A `TimeTravelConfig` specifying how to modify the clock:
+    ///   - `absoluteTimestamp(u64)`: Moves time to the specified UNIX timestamp.
+    ///   - `absoluteSlot(u64)`: Moves to the specified absolute slot.
+    ///   - `absoluteEpoch(u64)`: Advances time to the specified epoch (each epoch = 432,000 slots).
+    ///
+    /// ## Returns
+    /// An `EpochInfo` object reflecting the updated clock state.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_timeTravel",
+    ///   "params": [ { "epoch": 512 } ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "epoch": 512,
+    ///     "slot_index": 0,
+    ///     "slots_in_epoch": 432000,
+    ///     "absolute_slot": 221184000,
+    ///     "block_height": 650000000,
+    ///     "transaction_count": 923472834
+    ///   },
+    ///   "id": 1
+    /// }
+    #[rpc(meta, name = "surfnet_timeTravel")]
+    fn time_travel(
+        &self,
+        meta: Self::Metadata,
+        config: Option<TimeTravelConfig>,
+    ) -> Result<EpochInfo>;
+
+    /// A cheat code to freeze the Surfnet clock on the local network.
+    /// All time progression halts until resumed.
+    ///
+    /// ## Returns
+    /// An `EpochInfo` object showing the current clock state at the moment of pause.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_pauseClock",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "epoch": 512,
+    ///     "slot_index": 0,
+    ///     "slots_in_epoch": 432000,
+    ///     "absolute_slot": 221184000,
+    ///     "block_height": 650000000,
+    ///     "transaction_count": 923472834
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_pauseClock")]
+    fn pause_clock(&self, meta: Self::Metadata) -> Result<EpochInfo>;
+
+    /// A cheat code to resume Solana clock progression after it was paused.
+    /// The validator will start producing new slots again.
+    ///
+    /// ## Parameters
+    ///
+    /// ## Returns
+    /// An `EpochInfo` object reflecting the resumed clock state.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_resumeClock",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "epoch": 512,
+    ///     "slot_index": 0,
+    ///     "slots_in_epoch": 432000,
+    ///     "absolute_slot": 221184000,
+    ///     "block_height": 650000000,
+    ///     "transaction_count": 923472834
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_resumeClock")]
+    fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo>;
 }
 
 #[derive(Clone)]
 pub struct SurfnetCheatcodesRpc;
-impl SvmTricksRpc for SurfnetCheatcodesRpc {
+impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
     type Metadata = Option<RunloopContext>;
 
     fn set_account(
@@ -876,7 +1018,6 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
                     svm_writer.non_circulating_accounts = accounts.clone();
                 }
 
-                svm_writer.updated_at = chrono::Utc::now().timestamp_millis() as u64;
                 svm_writer.get_latest_absolute_slot()
             });
 
@@ -981,6 +1122,96 @@ impl SvmTricksRpc for SurfnetCheatcodesRpc {
             context: RpcResponseContext::new(slot),
             value: idl,
         })
+    }
+
+    fn get_local_signatures(
+        &self,
+        meta: Self::Metadata,
+        limit: Option<u64>,
+    ) -> BoxFuture<Result<RpcResponse<Vec<RpcLogsResponse>>>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return e.into(),
+        };
+
+        let signatures = svm_locker.with_svm_reader(|svm_reader| {
+            let limit = limit.unwrap_or_else(|| 50);
+            let mut signatures = Vec::new();
+
+            // Get all block slots and sort them in descending order (most recent first)
+            let mut block_slots: Vec<Slot> = svm_reader.blocks.keys().cloned().collect();
+            block_slots.sort_by(|a, b| b.cmp(a)); // Sort in descending order
+
+            // Iterate through block slots in descending order until we reach the signature limit
+            for slot in block_slots {
+                if signatures.len() >= limit as usize {
+                    break;
+                }
+
+                if let Some(block_header) = svm_reader.blocks.get(&slot) {
+                    // Add signatures from this block until we reach the limit
+                    for signature in &block_header.signatures {
+                        if signatures.len() >= limit as usize {
+                            break;
+                        }
+
+                        let err = svm_reader.transactions.get(signature).and_then(|status| {
+                            status
+                                .expect_processed()
+                                .meta
+                                .status
+                                .as_ref()
+                                .err()
+                                .cloned()
+                        });
+
+                        signatures.push(RpcLogsResponse {
+                            signature: signature.to_string(),
+                            err,
+                            logs: vec![],
+                        });
+                    }
+                }
+            }
+            signatures
+        });
+
+        Box::pin(async move {
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+                value: signatures,
+            })
+        })
+    }
+
+    fn pause_clock(&self, meta: Self::Metadata) -> Result<EpochInfo> {
+        let surfnet_command_tx: crossbeam_channel::Sender<SimnetCommand> =
+            meta.get_surfnet_command_tx()?;
+        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(ClockCommand::Pause));
+        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
+            .map_err(Into::into)
+    }
+
+    fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo> {
+        let surfnet_command_tx: crossbeam_channel::Sender<SimnetCommand> =
+            meta.get_surfnet_command_tx()?;
+        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(ClockCommand::Resume));
+        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
+            .map_err(Into::into)
+    }
+
+    fn time_travel(
+        &self,
+        meta: Self::Metadata,
+        config: Option<TimeTravelConfig>,
+    ) -> Result<EpochInfo> {
+        let time_travel_config = config.unwrap_or_default();
+        let simnet_command_tx = meta.get_surfnet_command_tx()?;
+        let svm_locker = meta.get_svm_locker()?;
+
+        let epoch_info = svm_locker.time_travel(simnet_command_tx, time_travel_config)?;
+
+        Ok(epoch_info)
     }
 }
 

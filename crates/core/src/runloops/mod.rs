@@ -45,7 +45,7 @@ use crate::{
         self, RunloopContext, SurfpoolMiddleware, SurfpoolWebsocketMeta,
         SurfpoolWebsocketMiddleware, accounts_data::AccountsData, accounts_scan::AccountsScan,
         admin::AdminRpc, bank_data::BankData, full::Full, minimal::Minimal,
-        surfnet_cheatcodes::SvmTricksRpc, ws::Rpc,
+        surfnet_cheatcodes::SurfnetCheatcodes, ws::Rpc,
     },
     surfnet::{GeyserEvent, locker::SurfnetSvmLocker, remote::SurfnetRemoteClient},
 };
@@ -67,7 +67,9 @@ pub async fn start_local_surfnet_runloop(
 
     let remote_rpc_client = Some(SurfnetRemoteClient::new(&simnet.remote_rpc_url));
 
-    let _ = svm_locker.initialize(&remote_rpc_client).await?;
+    let _ = svm_locker
+        .initialize(simnet.slot_time, &remote_rpc_client)
+        .await?;
 
     svm_locker.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
     let simnet_events_tx_cc = svm_locker.simnet_events_tx();
@@ -96,7 +98,8 @@ pub async fn start_local_surfnet_runloop(
         }
     };
 
-    let (clock_event_rx, clock_command_tx) = start_clock_runloop(simnet_config.slot_time);
+    let (clock_event_rx, clock_command_tx) =
+        start_clock_runloop(simnet_config.slot_time, simnet_events_tx_cc.clone());
 
     let _ = simnet_events_tx_cc.send(SimnetEvent::Ready);
 
@@ -171,9 +174,26 @@ pub async fn start_block_production_runloop(
                     SimnetCommand::SlotBackward(_key) => {
 
                     }
-                    SimnetCommand::UpdateClock(update) => {
+                    SimnetCommand::CommandClock(update) => {
+                        if let ClockCommand::UpdateSlotInterval(updated_slot_time) = update {
+                            svm_locker.with_svm_writer(|svm_writer| {
+                                svm_writer.slot_time = updated_slot_time;
+                            });
+                        }
                         let _ = clock_command_tx.send(update);
                         continue
+                    }
+                    SimnetCommand::UpdateInternalClock(clock) => {
+                        svm_locker.with_svm_writer(|svm_writer| {
+                            svm_writer.inner.set_sysvar(&clock);
+                            svm_writer.updated_at = clock.unix_timestamp as u64;
+                            svm_writer.latest_epoch_info.absolute_slot = clock.slot;
+                            svm_writer.latest_epoch_info.epoch = clock.epoch;
+                            svm_writer.latest_epoch_info.slot_index = clock.slot;
+                            svm_writer.latest_epoch_info.epoch = clock.epoch;
+                            svm_writer.latest_epoch_info.absolute_slot = clock.slot + clock.epoch * svm_writer.latest_epoch_info.slots_in_epoch;
+                            let _ = svm_writer.simnet_events_tx.send(SimnetEvent::SystemClockUpdated(clock));
+                        });
                     }
                     SimnetCommand::UpdateBlockProductionMode(update) => {
                         block_production_mode = update;
@@ -201,7 +221,10 @@ pub async fn start_block_production_runloop(
     Ok(())
 }
 
-pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {
+pub fn start_clock_runloop(
+    mut slot_time: u64,
+    simnet_events_tx: Sender<SimnetEvent>,
+) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {
     let (clock_event_tx, clock_event_rx) = unbounded::<ClockEvent>();
     let (clock_command_tx, clock_command_rx) = unbounded::<ClockCommand>();
 
@@ -213,12 +236,15 @@ pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<
             match clock_command_rx.try_recv() {
                 Ok(ClockCommand::Pause) => {
                     enabled = false;
+                    let _ = simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Pause));
                 }
                 Ok(ClockCommand::Resume) => {
                     enabled = true;
+                    let _ = simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Resume));
                 }
                 Ok(ClockCommand::Toggle) => {
                     enabled = !enabled;
+                    let _ = simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Toggle));
                 }
                 Ok(ClockCommand::UpdateSlotInterval(updated_slot_time)) => {
                     slot_time = updated_slot_time;
@@ -250,6 +276,8 @@ fn start_geyser_runloop(
     geyser_events_rx: Receiver<GeyserEvent>,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let handle: JoinHandle<Result<(), String>> = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
+        let mut indexing_enabled = false;
+
         #[cfg(feature = "geyser-plugin")]
         let mut plugin_manager = GeyserPluginManager::new();
         #[cfg(not(feature = "geyser-plugin"))]
@@ -295,6 +323,7 @@ fn start_geyser_runloop(
                 let plugin_raw = constructor();
                 (Box::from_raw(plugin_raw), lib)
             };
+            indexing_enabled = true;
             plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.to_string())));
         }
 
@@ -336,6 +365,9 @@ fn start_geyser_runloop(
                                         let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver::<DataIndexingCommand>(rx);
                                         let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveCollection(subgraph_rx));
                                     };
+
+                                    indexing_enabled = true;
+
                                     let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
                                     surfpool_plugin_manager.push(plugin);
                                     let _ = simnet_events_tx.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
@@ -351,18 +383,16 @@ fn start_geyser_runloop(
                     Err(e) => {
                         break format!("Failed to read new transaction to send to Geyser plugin: {e}");
                     },
-                    Ok(GeyserEvent::NotifyTransaction(transaction_with_status_meta)) => {
+                    Ok(GeyserEvent::NotifyTransaction(transaction_with_status_meta, sanitized_transaction)) => {
 
-                        let transaction = match SanitizedTransaction::try_create(
-                            transaction_with_status_meta.transaction,
-                            MessageHash::Compute,
-                            None,
-                            SimpleAddressLoader::Disabled,
-                            &HashSet::new()
-                        ) {
-                            Ok(tx) => tx,
-                            Err(e) => {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: failed to serialize transaction: {:?}", e)));
+                        if !indexing_enabled {
+                            continue;
+                        }
+
+                        let transaction = match sanitized_transaction {
+                            Some(tx) => tx,
+                            None => {
+                                let _ = simnet_events_tx.send(SimnetEvent::warn(format!("Unable to index sanitized transaction")));
                                 continue;
                             }
                         };

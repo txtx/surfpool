@@ -30,7 +30,7 @@ use solana_client::{
         RpcLogsResponse, RpcTokenAccountBalance,
     },
 };
-use solana_clock::Slot;
+use solana_clock::{Clock, Slot};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
@@ -55,8 +55,8 @@ use solana_transaction_status::{
 };
 use surfpool_types::{
     ComputeUnitsEstimationResult, ExecutionCapture, Idl, KeyedProfileResult, ProfileResult,
-    RpcProfileResultConfig, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
-    UiKeyedProfileResult, UuidOrSignature, VersionedIdl,
+    RpcProfileResultConfig, SimnetCommand, SimnetEvent, TransactionConfirmationStatus,
+    TransactionStatusEvent, UiKeyedProfileResult, UuidOrSignature, VersionedIdl,
 };
 use tokio::sync::RwLock;
 use txtx_addon_kit::indexmap::IndexSet;
@@ -68,11 +68,12 @@ use super::{
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
+    helpers::time_travel::calculate_time_travel_clock,
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
     surfnet::FINALIZATION_SLOT_THRESHOLD,
     types::{
-        GeyserAccountUpdate, RemoteRpcResult, SurfnetTransactionStatus, TokenAccount,
-        TransactionWithStatusMeta,
+        GeyserAccountUpdate, RemoteRpcResult, SurfnetTransactionStatus, TimeTravelConfig,
+        TokenAccount, TransactionWithStatusMeta,
     },
 };
 
@@ -191,6 +192,7 @@ impl SurfnetSvmLocker {
     /// then calling its `initialize` method. Returns the epoch info on success.
     pub async fn initialize(
         &self,
+        slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
     ) -> SurfpoolResult<EpochInfo> {
         let epoch_info = if let Some(remote_client) = remote_ctx {
@@ -207,7 +209,7 @@ impl SurfnetSvmLocker {
         };
 
         self.with_svm_writer(|svm_writer| {
-            svm_writer.initialize(epoch_info.clone(), remote_ctx);
+            svm_writer.initialize(epoch_info.clone(), slot_time, remote_ctx);
         });
         Ok(epoch_info)
     }
@@ -1269,7 +1271,10 @@ impl SurfnetSvmLocker {
 
                 let _ = svm_writer
                     .geyser_events_tx
-                    .send(GeyserEvent::NotifyTransaction(transaction_with_status_meta));
+                    .send(GeyserEvent::NotifyTransaction(
+                        transaction_with_status_meta,
+                        sanitized_transaction,
+                    ));
 
                 let _ = status_tx.try_send(TransactionStatusEvent::Success(
                     TransactionConfirmationStatus::Processed,
@@ -2478,6 +2483,32 @@ impl SurfnetSvmLocker {
     /// Retrieves the latest epoch info from the underlying SVM.
     pub fn get_epoch_info(&self) -> EpochInfo {
         self.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
+    }
+
+    pub fn time_travel(
+        &self,
+        simnet_command_tx: Sender<SimnetCommand>,
+        config: TimeTravelConfig,
+    ) -> SurfpoolResult<EpochInfo> {
+        let (mut epoch_info, slot_time, updated_at) = self.with_svm_reader(|svm_reader| {
+            (
+                svm_reader.latest_epoch_info.clone(),
+                svm_reader.slot_time,
+                svm_reader.updated_at,
+            )
+        });
+
+        let clock_update: Clock =
+            calculate_time_travel_clock(&config, updated_at, slot_time, &epoch_info)
+                .map_err(|e| SurfpoolError::internal(e.to_string()))?;
+
+        epoch_info.slot_index = clock_update.slot;
+        epoch_info.epoch = clock_update.epoch;
+        epoch_info.absolute_slot =
+            clock_update.slot + clock_update.epoch * epoch_info.slots_in_epoch;
+        let _ = simnet_command_tx.send(SimnetCommand::UpdateInternalClock(clock_update));
+
+        Ok(epoch_info)
     }
 
     /// Retrieves the latest absolute slot from the underlying SVM.

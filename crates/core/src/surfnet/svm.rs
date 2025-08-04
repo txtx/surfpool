@@ -42,7 +42,7 @@ use spl_token_2022::extension::{
     scaled_ui_amount::ScaledUiAmountConfig,
 };
 use surfpool_types::{
-    AccountChange, AccountProfileState, Idl, ProfileResult, RpcProfileDepth,
+    AccountChange, AccountProfileState, DEFAULT_SLOT_TIME_MS, Idl, ProfileResult, RpcProfileDepth,
     RpcProfileResultConfig, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
     UiAccountChange, UiAccountProfileState, UiProfileResult, VersionedIdl,
     types::{
@@ -105,6 +105,7 @@ pub struct SurfnetSvm {
     pub executed_transaction_profiles: HashMap<Signature, KeyedProfileResult>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
+    pub slot_time: u64,
     pub accounts_registry: HashMap<Pubkey, Account>,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
@@ -179,6 +180,7 @@ impl SurfnetSvm {
                 executed_transaction_profiles: HashMap::new(),
                 logs_subscriptions: Vec::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
+                slot_time: DEFAULT_SLOT_TIME_MS,
                 accounts_registry: HashMap::new(),
                 accounts_by_owner: HashMap::new(),
                 account_associated_data: HashMap::new(),
@@ -214,9 +216,15 @@ impl SurfnetSvm {
     /// * `epoch_info` - The epoch information to initialize with.
     /// * `remote_ctx` - Optional remote client context for event notification.
     ///
-    pub fn initialize(&mut self, epoch_info: EpochInfo, remote_ctx: &Option<SurfnetRemoteClient>) {
+    pub fn initialize(
+        &mut self,
+        epoch_info: EpochInfo,
+        slot_time: u64,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+    ) {
         self.latest_epoch_info = epoch_info.clone();
         self.updated_at = Utc::now().timestamp_millis() as u64;
+        self.slot_time = slot_time;
 
         if let Some(remote_client) = remote_ctx {
             let _ = self
@@ -234,6 +242,7 @@ impl SurfnetSvm {
             epoch_start_timestamp: 0, // todo
             leader_schedule_epoch: 0, // todo
         };
+
         self.inner.set_sysvar(&clock);
     }
 
@@ -884,6 +893,7 @@ impl SurfnetSvm {
             num_non_vote_transactions: None,
         });
 
+        self.updated_at = self.updated_at + self.slot_time;
         self.latest_epoch_info.slot_index += 1;
         self.latest_epoch_info.block_height = self.chain_tip.index;
         self.latest_epoch_info.absolute_slot += 1;
@@ -907,7 +917,7 @@ impl SurfnetSvm {
 
         let _ = self
             .simnet_events_tx
-            .send(SimnetEvent::ClockUpdate(clock.clone()));
+            .send(SimnetEvent::SystemClockUpdated(clock.clone()));
         self.inner.set_sysvar(&clock);
 
         self.finalize_transactions()?;
