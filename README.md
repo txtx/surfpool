@@ -60,6 +60,9 @@ Install from source:
 # Clone repo
 git clone https://github.com/txtx/surfpool.git
 
+# Set repo as current directory
+cd surfpool
+
 # Build
 cargo surfpool-install
 ```
