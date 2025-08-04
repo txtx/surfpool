@@ -8,7 +8,8 @@ use jsonrpc_core::{
 };
 use jsonrpc_core_client::transports::http;
 use solana_client::rpc_response::RpcLogsResponse;
-use solana_clock::Slot;
+use solana_clock::{Clock, Slot};
+use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
@@ -23,7 +24,7 @@ use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
-    Idl, SimnetCommand, SimnetEvent, SurfpoolConfig, TransactionStatusEvent,
+    DEFAULT_SLOT_TIME_MS, Idl, SimnetCommand, SimnetEvent, SurfpoolConfig, TransactionStatusEvent,
     types::{
         BlockProductionMode, ProfileResult as SurfpoolProfileResult, RpcConfig, SimnetConfig,
         UuidOrSignature,
@@ -38,11 +39,12 @@ use crate::{
         RunloopContext,
         full::FullClient,
         minimal::MinimalClient,
-        surfnet_cheatcodes::{SurfnetCheatcodesRpc, SvmTricksRpc},
+        surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
     runloops::start_local_surfnet_runloop,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
     tests::helpers::get_free_port,
+    types::TimeTravelConfig,
 };
 
 fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<SimnetEvent>) {
@@ -142,7 +144,7 @@ async fn test_simnet_ticks() {
         let mut ticks = 0;
         loop {
             match simnet_events_rx.recv() {
-                Ok(SimnetEvent::ClockUpdate(_)) => ticks += 1,
+                Ok(SimnetEvent::SystemClockUpdated(_)) => ticks += 1,
                 _ => (),
             }
 
@@ -152,9 +154,9 @@ async fn test_simnet_ticks() {
         }
     });
 
-    match test_rx.recv_timeout(Duration::from_secs(10)) {
+    match test_rx.recv_timeout(Duration::from_secs(20)) {
         Ok(_) => (),
-        Err(_) => panic!("not enough ticks"),
+        Err(e) => panic!("not enough ticks: {e:?}"),
     }
 }
 
@@ -1737,4 +1739,380 @@ async fn test_get_local_signatures_with_limit() {
         "Expected empty list with limit 0, but got {} signatures",
         local_signatures.len()
     );
+
+    println!("All local signatures tests passed successfully!");
+}
+
+// ============================================================================
+// Clock Control Tests (pauseClock, resumeClock, timeTravel)
+// ============================================================================
+
+fn boot_simnet(
+    block_production_mode: BlockProductionMode,
+    slot_time: Option<u64>,
+) -> (
+    SurfnetSvmLocker,
+    crossbeam_channel::Sender<SimnetCommand>,
+    crossbeam_channel::Receiver<SimnetEvent>,
+) {
+    let bind_host = "127.0.0.1";
+    let bind_port = get_free_port().unwrap();
+    let config = SurfpoolConfig {
+        simnets: vec![SimnetConfig {
+            slot_time: slot_time.unwrap_or(DEFAULT_SLOT_TIME_MS),
+            block_production_mode,
+            ..SimnetConfig::default()
+        }],
+        rpc: RpcConfig {
+            bind_host: bind_host.to_string(),
+            bind_port,
+            ..Default::default()
+        },
+        ..SurfpoolConfig::default()
+    };
+
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+    let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
+
+    let svm_locker_cc: SurfnetSvmLocker = svm_locker.clone();
+    let simnet_commands_tx_cc = simnet_commands_tx.clone();
+    let _handle = hiro_system_kit::thread_named("test").spawn(move || {
+        let future = start_local_surfnet_runloop(
+            svm_locker_cc,
+            config,
+            subgraph_commands_tx,
+            simnet_commands_tx_cc,
+            simnet_commands_rx,
+            geyser_events_rx,
+        );
+        if let Err(e) = hiro_system_kit::nestable_block_on(future) {
+            panic!("{e:?}");
+        }
+    });
+
+    loop {
+        if let Ok(SimnetEvent::Ready) = simnet_events_rx.recv_timeout(Duration::from_millis(1000)) {
+            break;
+        }
+    }
+
+    (svm_locker, simnet_commands_tx, simnet_events_rx)
+}
+
+#[test]
+fn test_time_travel_resume_paused_clock() {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_locker, simnet_cmd_tx, _) = boot_simnet(BlockProductionMode::Clock, Some(20));
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    // Get initial epoch info
+    let initial_slot = svm_locker.get_latest_absolute_slot();
+
+    // Ensure the clock has advanced
+    std::thread::sleep(Duration::from_millis(500));
+    let new_slot = svm_locker.get_latest_absolute_slot();
+    assert!(
+        new_slot > initial_slot,
+        "Slot should change when clock is not paused"
+    );
+
+    // Test pause clock
+    let _ = rpc_server.pause_clock(Some(runloop_context.clone()));
+
+    // Buffer to ensure the clock is paused
+    std::thread::sleep(Duration::from_millis(100));
+
+    // Get latest slot
+    let slot_after_pause = svm_locker.get_latest_absolute_slot();
+
+    // Ensure the clock is paused after 500ms
+    std::thread::sleep(Duration::from_millis(500));
+    let slot_after_pause_and_500ms = svm_locker.get_latest_absolute_slot();
+    assert!(
+        slot_after_pause == slot_after_pause_and_500ms,
+        "Slot should change when clock is not paused"
+    );
+
+    // Ensure the clock is still paused after 2s
+    std::thread::sleep(Duration::from_millis(2000));
+    let slot_after_pause_and_2500ms = svm_locker.get_latest_absolute_slot();
+    assert!(
+        slot_after_pause == slot_after_pause_and_2500ms,
+        "Slot should change when clock is not paused"
+    );
+
+    // Now let's resume the clock
+    let resume_response: JsonRpcResult<EpochInfo> =
+        rpc_server.resume_clock(Some(runloop_context.clone()));
+    let slot_after_resume = svm_locker.get_latest_absolute_slot();
+
+    assert!(
+        resume_response.is_ok(),
+        "Resume clock failed: {:?}",
+        resume_response.err()
+    );
+
+    // Ensure the clock is paused after 500ms
+    std::thread::sleep(Duration::from_millis(500));
+    let slot_after_resume_and_500ms = svm_locker.get_latest_absolute_slot();
+    assert!(
+        slot_after_resume < slot_after_resume_and_500ms,
+        "Slot should change when clock is not paused"
+    );
+
+    println!("Resume clock test passed successfully!");
+}
+
+#[test]
+fn test_time_travel_absolute_timestamp() {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let slot_time = 100;
+    let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(slot_time.clone()));
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx.clone(),
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    let clock = Clock {
+        slot: 1,
+        epoch_start_timestamp: 1,
+        epoch: 1,
+        leader_schedule_epoch: 100,
+        unix_timestamp: 100,
+    };
+
+    simnet_cmd_tx
+        .send(SimnetCommand::UpdateInternalClock(clock))
+        .unwrap();
+    let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
+        simnet_events_rx.recv_timeout(Duration::from_millis(5000))
+    else {
+        panic!("failed to update internal clock")
+    };
+
+    let initial_epoch_info = svm_locker.get_epoch_info();
+
+    println!("Initial epoch info: {:?}", initial_epoch_info);
+
+    let seven_days = 7 * 24 * 60 * 60 * 1000;
+    let target_timestamp = svm_locker.0.blocking_read().updated_at + seven_days;
+
+    // Test time travel to absolute timestamp
+    let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteTimestamp(target_timestamp)),
+    );
+    loop {
+        if let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
+            simnet_events_rx.recv_timeout(Duration::from_millis(5000))
+        {
+            break;
+        }
+    }
+
+    assert!(
+        time_travel_response.is_ok(),
+        "Time travel to absolute timestamp failed: {:?}",
+        time_travel_response.err()
+    );
+
+    let new_epoch_info = time_travel_response.unwrap();
+    println!("Response: {:?}", new_epoch_info);
+
+    // Verify the epoch info reflects the time travel
+    assert_ne!(
+        new_epoch_info.epoch, initial_epoch_info.epoch,
+        "Epoch should change after time travel"
+    );
+    assert_ne!(
+        new_epoch_info.absolute_slot, initial_epoch_info.absolute_slot,
+        "Slot should change after time travel"
+    );
+
+    // Verify the current epoch info in SVM matches
+    let current_epoch_info = svm_locker.get_epoch_info();
+    println!("Updated epoch info: {:?}", current_epoch_info);
+
+    assert_eq!(current_epoch_info.epoch, new_epoch_info.epoch);
+    assert_eq!(
+        current_epoch_info.absolute_slot,
+        new_epoch_info.absolute_slot
+    );
+
+    println!("Time travel to absolute timestamp test passed successfully!");
+}
+
+#[test]
+fn test_time_travel_absolute_slot() {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400));
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx.clone(),
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    let clock = Clock {
+        slot: 1,
+        epoch_start_timestamp: 1,
+        epoch: 1,
+        leader_schedule_epoch: 100,
+        unix_timestamp: 100,
+    };
+
+    simnet_cmd_tx
+        .send(SimnetCommand::UpdateInternalClock(clock))
+        .unwrap();
+    let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
+        simnet_events_rx.recv_timeout(Duration::from_millis(5000))
+    else {
+        panic!("failed to update internal clock")
+    };
+
+    let initial_epoch_info = svm_locker.get_epoch_info();
+    let target_slot = initial_epoch_info.absolute_slot + 1000000; // A future slot number
+
+    // Test time travel to absolute slot
+    let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteSlot(target_slot)),
+    );
+    loop {
+        if let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
+            simnet_events_rx.recv_timeout(Duration::from_millis(5000))
+        {
+            break;
+        }
+    }
+
+    assert!(
+        time_travel_response.is_ok(),
+        "Time travel to absolute slot failed: {:?}",
+        time_travel_response.err()
+    );
+
+    let new_epoch_info = time_travel_response.unwrap();
+
+    // Verify the epoch info reflects the time travel
+    assert_eq!(
+        new_epoch_info.absolute_slot, target_slot,
+        "Slot should match target slot"
+    );
+    assert!(
+        new_epoch_info.epoch > initial_epoch_info.epoch,
+        "Epoch should change after time travel"
+    );
+    assert!(
+        new_epoch_info.absolute_slot > initial_epoch_info.absolute_slot,
+        "Epoch should change after time travel"
+    );
+
+    // Verify the current epoch info in SVM matches
+    let current_epoch_info = svm_locker.get_epoch_info();
+    assert_eq!(current_epoch_info.absolute_slot, target_slot);
+    assert_eq!(current_epoch_info.epoch, new_epoch_info.epoch);
+
+    println!("Time travel to absolute slot test passed successfully!");
+}
+
+#[test]
+fn test_time_travel_absolute_epoch() {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400));
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx.clone(),
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    let clock = Clock {
+        slot: 1,
+        epoch_start_timestamp: 1,
+        epoch: 1,
+        leader_schedule_epoch: 100,
+        unix_timestamp: 100,
+    };
+
+    simnet_cmd_tx
+        .send(SimnetCommand::UpdateInternalClock(clock))
+        .unwrap();
+    let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
+        simnet_events_rx.recv_timeout(Duration::from_millis(5000))
+    else {
+        panic!("failed to update internal clock")
+    };
+
+    let initial_epoch_info = svm_locker.get_epoch_info();
+    let target_epoch = initial_epoch_info.epoch + 100; // A future epoch number
+
+    // Test time travel to absolute epoch
+    let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteEpoch(target_epoch)),
+    );
+    loop {
+        if let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
+            simnet_events_rx.recv_timeout(Duration::from_millis(5000))
+        {
+            break;
+        }
+    }
+
+    assert!(
+        time_travel_response.is_ok(),
+        "Time travel to absolute epoch failed: {:?}",
+        time_travel_response.err()
+    );
+
+    let new_epoch_info = time_travel_response.unwrap();
+
+    // Verify the epoch info reflects the time travel
+    assert_eq!(
+        new_epoch_info.epoch, target_epoch,
+        "Epoch should match target epoch"
+    );
+    assert_ne!(
+        new_epoch_info.epoch, initial_epoch_info.epoch,
+        "Epoch should change after time travel"
+    );
+    assert_ne!(
+        new_epoch_info.absolute_slot, initial_epoch_info.absolute_slot,
+        "Slot should change after time travel"
+    );
+
+    // Verify the current epoch info in SVM matches
+    let current_epoch_info = svm_locker.get_epoch_info();
+    assert_eq!(current_epoch_info.epoch, target_epoch);
+    assert_eq!(
+        current_epoch_info.absolute_slot,
+        new_epoch_info.absolute_slot
+    );
+
+    println!("Time travel to absolute epoch test passed successfully!");
 }

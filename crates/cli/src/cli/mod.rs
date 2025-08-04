@@ -9,7 +9,8 @@ use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
 use surfpool_types::{
     CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED, DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT,
-    DEFAULT_WS_PORT, RpcConfig, SimnetConfig, StudioConfig, SubgraphConfig, SurfpoolConfig,
+    DEFAULT_SLOT_TIME_MS, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, StudioConfig, SubgraphConfig,
+    SurfpoolConfig,
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -26,7 +27,6 @@ pub struct Context {
     pub tracer: bool,
 }
 
-pub const DEFAULT_SLOT_TIME_MS: &str = "400";
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
 pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
@@ -142,7 +142,7 @@ pub struct StartSimnet {
     #[arg(long = "host", short = 'o', default_value = DEFAULT_NETWORK_HOST)]
     pub network_host: String,
     /// Set the slot time
-    #[arg(long = "slot-time", short = 't', default_value = DEFAULT_SLOT_TIME_MS)]
+    #[arg(long = "slot-time", short = 't', default_value_t = DEFAULT_SLOT_TIME_MS)]
     pub slot_time: u64,
     /// Set a datasource RPC URL (cannot be used with --network). Can also be set via SURFPOOL_DATASOURCE_RPC_URL.
     #[arg(long = "rpc-url", short = 'u', conflicts_with = "network")]
