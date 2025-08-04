@@ -390,7 +390,7 @@ impl Default for SimnetConfig {
     fn default() -> Self {
         Self {
             remote_rpc_url: DEFAULT_RPC_URL.to_string(),
-            slot_time: 400, // Default to 400ms to match CLI default
+            slot_time: DEFAULT_SLOT_TIME_MS, // Default to 400ms to match CLI default
             block_production_mode: BlockProductionMode::Clock,
             airdrop_addresses: vec![],
             airdrop_token_amount: 0,
