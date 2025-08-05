@@ -855,7 +855,16 @@ impl SurfnetSvmLocker {
         let pre_execution_capture = {
             let mut capture = ExecutionCapture::new();
             for account_update in account_updates.iter() {
-                self.snapshot_get_account_result(&mut capture, account_update.clone());
+                match account_update {
+                    GetAccountResult::None(pubkey) => {
+                        capture.insert(*pubkey, None);
+                    }
+                    GetAccountResult::FoundAccount(pubkey, account, _)
+                    | GetAccountResult::FoundProgramAccount((pubkey, account), _)
+                    | GetAccountResult::FoundTokenAccount((pubkey, account), _) => {
+                        capture.insert(*pubkey, Some(account.clone()));
+                    }
+                }
             }
             capture
         };
@@ -2575,36 +2584,6 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm_writer| {
             svm_writer.subscribe_for_logs_updates(commitment_level, filter)
         })
-    }
-
-    fn snapshot_get_account_result(
-        &self,
-        capture: &mut ExecutionCapture,
-        result: GetAccountResult,
-    ) {
-        match result {
-            GetAccountResult::None(pubkey) => {
-                capture.insert(pubkey, None);
-            }
-            GetAccountResult::FoundAccount(pubkey, account, _) => {
-                capture.insert(pubkey, Some(account));
-            }
-            GetAccountResult::FoundTokenAccount((pubkey, account), (mint_pubkey, mint_account)) => {
-                capture.insert(pubkey, Some(account));
-                if let Some(mint_account) = mint_account {
-                    capture.insert(mint_pubkey, Some(mint_account));
-                }
-            }
-            GetAccountResult::FoundProgramAccount(
-                (pubkey, account),
-                (data_pubkey, data_account),
-            ) => {
-                capture.insert(pubkey, Some(account));
-                if let Some(data_account) = data_account {
-                    capture.insert(data_pubkey, Some(data_account));
-                }
-            }
-        }
     }
 }
 
