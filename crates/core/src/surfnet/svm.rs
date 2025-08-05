@@ -473,10 +473,7 @@ impl SurfnetSvm {
 
         // if it's a token account, update token-specific indexes
         if is_supported_token_program(&account.owner) {
-            println!("Found account owned by token program! Pubkey: {}", pubkey);
             if let Ok(token_account) = TokenAccount::unpack(&account.data) {
-                println!("Found token account! Pubkey: {}", pubkey);
-
                 // index by owner -> check for duplicates
                 let token_owner_accounts = self
                     .token_accounts_by_owner
@@ -509,14 +506,12 @@ impl SurfnetSvm {
             }
 
             if let Ok(mint_account) = MintAccount::unpack(&account.data) {
-                println!("Found token mint account! Pubkey: {}", pubkey);
                 self.token_mints.insert(*pubkey, mint_account);
             }
 
             if let Ok(mint) =
                 StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&account.data)
             {
-                println!("Found token mint with extensions! Pubkey: {}", pubkey);
                 let unix_timestamp = self.inner.get_sysvar::<Clock>().unix_timestamp;
                 let interest_bearing_config = mint
                     .get_extension::<InterestBearingConfig>()
@@ -785,7 +780,6 @@ impl SurfnetSvm {
                     TransactionConfirmationStatus::Finalized,
                 ));
                 let signature = &tx.signatures[0];
-                println!("[SurfnetSvm] Finalizing transaction: {}", signature);
                 self.notify_signature_subscribers(
                     SignatureSubscriptionType::finalized(),
                     &signature,
@@ -866,7 +860,6 @@ impl SurfnetSvm {
         // Confirm processed transactions
         let confirmed_signatures = self.confirm_transactions()?;
         let num_transactions = confirmed_signatures.len() as u64;
-        println!("Confirmed {} transactions", num_transactions);
 
         let previous_chain_tip = self.chain_tip.clone();
         self.chain_tip = self.new_blockhash();
@@ -1393,19 +1386,11 @@ impl SurfnetSvm {
     ) -> UiProfileResult {
         let ProfileResult {
             pre_execution_capture,
-            mut post_execution_capture,
+            post_execution_capture,
             compute_units_consumed,
             log_messages,
             error_message,
         } = profile_result;
-
-        println!("Pre execution capture len: {}", pre_execution_capture.len());
-        println!(
-            "Post execution capture len: {}",
-            post_execution_capture.len()
-        );
-        println!("Pre execution capture: {:?}", pre_execution_capture);
-        println!("Post execution capture: {:?}", post_execution_capture);
 
         let account_states = pre_execution_capture
             .into_iter()
@@ -1459,9 +1444,7 @@ impl SurfnetSvm {
                     Some(
                         instruction_profiles
                             .into_iter()
-                            .enumerate()
-                            .map(|(i, p)| {
-                                println!("\nEncoding profile result for instruction {}", i);
+                            .map(|p| {
                                 self.encode_ui_profile_result(p, &readonly_accounts, &encoding)
                             })
                             .collect(),
@@ -1501,13 +1484,6 @@ impl SurfnetSvm {
         data_slice_config: Option<UiDataSliceConfig>,
     ) -> UiAccount {
         let owner_program_id = account.owner();
-
-        if owner_program_id.eq(&spl_token_2022::id()) {
-            if additional_data.is_none() {
-                println!("No additional data for token account {}", pubkey);
-                println!("Token accounts: {:?}", self.token_accounts);
-            }
-        }
 
         let filter_slot = self.latest_epoch_info.absolute_slot; // todo: consider if we should pass in a slot
         match encoding {

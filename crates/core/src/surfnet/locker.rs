@@ -857,7 +857,6 @@ impl SurfnetSvmLocker {
             for account_update in account_updates.iter() {
                 self.snapshot_get_account_result(&mut capture, account_update.clone());
             }
-
             capture
         };
 
@@ -1871,10 +1870,6 @@ impl SurfnetSvmLocker {
         idx: usize,
     ) -> Option<(VersionedTransaction, IndexSet<Pubkey>)> {
         let ixs_for_tx = instructions[0..idx].to_vec();
-        println!(
-            "Creating partial transaction with {} instructions",
-            ixs_for_tx.len()
-        );
 
         // Collect all required accounts for the partial transaction
         let mut all_required_accounts = IndexSet::new();
@@ -1906,7 +1901,6 @@ impl SurfnetSvmLocker {
         let mut new_mutable_non_signers = HashSet::new();
         let mut new_readonly_non_signers = HashSet::new();
 
-        println!("All required accounts: {:?}", all_required_accounts);
         for &account in &all_required_accounts {
             if let Some(idx) = message_accounts.iter().position(|pk| pk == &account) {
                 match idx {
@@ -2003,7 +1997,6 @@ impl SurfnetSvmLocker {
             instructions: remapped_instructions,
         };
 
-        println!("Number of required signatures: {}", num_required_signatures);
         // Create partial transaction with appropriate signatures
         let signatures_to_use = transaction.signatures[0..num_required_signatures].to_vec();
 
