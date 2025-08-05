@@ -769,9 +769,9 @@ impl SurfnetSvmLocker {
 
         let (status_tx, _) = crossbeam_channel::unbounded();
 
-        let skip_preflight = true; // skip preflight checks during profiling
-        let sigverify = false; // don't verify signatures during profiling
-        let do_propagate_status_updates = false; // don't propagate status updates during profiling
+        let skip_preflight = true; // skip preflight checks during transaction profiling
+        let sigverify = true; // do verify signatures during transaction profiling
+        let do_propagate_status_updates = false; // don't propagate status updates during transaction profiling
         let mut profile_result = svm_locker
             .fetch_all_tx_accounts_then_process_tx_returning_profile_res(
                 remote_ctx,
@@ -947,6 +947,10 @@ impl SurfnetSvmLocker {
         status_tx: &Sender<TransactionStatusEvent>,
     ) -> SurfpoolResult<Option<Vec<ProfileResult>>> {
         let instructions = transaction.message.instructions();
+        let ix_count = instructions.len();
+        if ix_count == 0 {
+            return Ok(None);
+        }
 
         // Extract account categories from original transaction
         let last_signer_index = transaction.message.header().num_required_signatures as usize;
@@ -961,7 +965,6 @@ impl SurfnetSvmLocker {
             &transaction_accounts[last_signer_index..last_mutable_non_signer_index];
 
         let mut ix_profile_results: Vec<ProfileResult> = vec![];
-        let ix_count = instructions.len();
 
         for idx in 1..=ix_count {
             if let Some((partial_tx, all_required_accounts_for_last_ix)) = self
@@ -1059,12 +1062,7 @@ impl SurfnetSvmLocker {
             }
         }
 
-        if ix_profile_results.is_empty() {
-            panic!("No valid instructions found for profiling");
-            Ok(None)
-        } else {
-            Ok(Some(ix_profile_results))
-        }
+        Ok(Some(ix_profile_results))
     }
 
     fn handle_simulation_failure(
