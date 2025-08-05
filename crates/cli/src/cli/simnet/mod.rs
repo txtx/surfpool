@@ -175,7 +175,7 @@ pub async fn handle_start_local_surfnet_command(
         }
     }
 
-    let displayed_url = if cmd.studio {
+    let displayed_url = if cmd.no_studio {
         DisplayedUrl::Datasource(sanitized_config)
     } else {
         DisplayedUrl::Studio(sanitized_config)

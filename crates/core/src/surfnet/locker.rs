@@ -1,4 +1,3 @@
-use core::panic;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -1141,6 +1140,7 @@ impl SurfnetSvmLocker {
     fn handle_execution_failure(
         &self,
         failed_transaction_metadata: FailedTransactionMetadata,
+        simulated_slot: Slot,
         pre_execution_capture: ExecutionCapture,
         status_tx: Sender<TransactionStatusEvent>,
         do_propagate: bool,
@@ -1150,6 +1150,7 @@ impl SurfnetSvmLocker {
         let cus = meta.compute_units_consumed;
         let log_messages = meta.logs.clone();
         let err_string = err.to_string();
+        let signature = meta.signature;
 
         if do_propagate {
             let meta = convert_transaction_metadata_from_canonical(&meta);
@@ -1159,7 +1160,24 @@ impl SurfnetSvmLocker {
                 err
             )));
 
-            let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((err, meta)));
+            let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((
+                err.clone(),
+                meta,
+            )));
+            self.with_svm_writer(|svm_writer| {
+                svm_writer.notify_signature_subscribers(
+                    SignatureSubscriptionType::processed(),
+                    &signature,
+                    simulated_slot,
+                    Some(err.clone()),
+                );
+                svm_writer.notify_logs_subscribers(
+                    &signature,
+                    Some(err.clone()),
+                    log_messages.clone(),
+                    CommitmentLevel::Processed,
+                );
+            })
         }
 
         ProfileResult::new(
@@ -1175,6 +1193,7 @@ impl SurfnetSvmLocker {
         &self,
         transaction_metadata: TransactionMetadata,
         transaction: VersionedTransaction,
+        simulated_slot: Slot,
         pubkeys_from_message: &[Pubkey],
         loaded_addresses: &Option<LoadedAddresses>,
         accounts_before: &[Option<Account>],
@@ -1186,6 +1205,7 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolResult<ProfileResult> {
         let cus = transaction_metadata.compute_units_consumed;
         let logs = transaction_metadata.logs.clone();
+        let signature = transaction.signatures[0];
 
         let post_execution_capture = self.with_svm_writer(|svm_writer| {
             let accounts_after = pubkeys_from_message
@@ -1301,6 +1321,19 @@ impl SurfnetSvmLocker {
                 svm_writer
                     .transactions_queued_for_confirmation
                     .push_back((transaction.clone(), status_tx.clone()));
+
+                svm_writer.notify_signature_subscribers(
+                    SignatureSubscriptionType::processed(),
+                    &signature,
+                    simulated_slot,
+                    None,
+                );
+                svm_writer.notify_logs_subscribers(
+                    &signature,
+                    None,
+                    logs.clone(),
+                    CommitmentLevel::Processed,
+                );
             }
 
             Ok::<ExecutionCapture, SurfpoolError>(post_execution_capture)
@@ -1337,6 +1370,7 @@ impl SurfnetSvmLocker {
                 .handle_execution_success(
                     transaction_metadata,
                     transaction,
+                    self.get_latest_absolute_slot(),
                     transaction_accounts,
                     &loaded_addresses,
                     accounts_before,
@@ -1358,6 +1392,7 @@ impl SurfnetSvmLocker {
             ProcessTransactionResult::ExecutionFailure(failed_transaction_metadata) => self
                 .handle_execution_failure(
                     failed_transaction_metadata,
+                    self.get_latest_absolute_slot(),
                     pre_execution_capture,
                     status_tx.clone(),
                     do_propagate,
@@ -1995,7 +2030,7 @@ impl SurfnetSvmLocker {
         }
 
         if remapped_instructions.is_empty() {
-            panic!("No valid instructions after remapping, skipping partial transaction creation.");
+            // panic!("No valid instructions after remapping, skipping partial transaction creation.");
             return None;
         }
 
@@ -2513,11 +2548,19 @@ impl SurfnetSvmLocker {
             calculate_time_travel_clock(&config, updated_at, slot_time, &epoch_info)
                 .map_err(|e| SurfpoolError::internal(e.to_string()))?;
 
+        let formated_time = chrono::DateTime::from_timestamp(clock_update.unix_timestamp / 1000, 0)
+            .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap())
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
         epoch_info.slot_index = clock_update.slot;
         epoch_info.epoch = clock_update.epoch;
         epoch_info.absolute_slot =
             clock_update.slot + clock_update.epoch * epoch_info.slots_in_epoch;
         let _ = simnet_command_tx.send(SimnetCommand::UpdateInternalClock(clock_update));
+        let _ = self.simnet_events_tx().send(SimnetEvent::info(format!(
+            "Time travel to {} successful (epoch {} / slot {})",
+            formated_time, epoch_info.epoch, epoch_info.absolute_slot
+        )));
 
         Ok(epoch_info)
     }
