@@ -1228,7 +1228,7 @@ mod tests {
         get_associated_token_address_with_program_id, instruction::create_associated_token_account,
     };
     use spl_token::state::Mint;
-    use spl_token_2022::instruction::{initialize_mint2, mint_to};
+    use spl_token_2022::instruction::{initialize_mint2, mint_to, transfer_checked};
     use surfpool_types::{RpcProfileDepth, UiAccountChange, UiAccountProfileState};
 
     use super::*;
@@ -1245,6 +1245,8 @@ mod tests {
 
         // Generate a new keypair for the fee payer
         let payer = Keypair::new();
+
+        let owner = Keypair::new();
 
         // Generate a second keypair for the token recipient
         let recipient = Keypair::new();
@@ -1295,7 +1297,7 @@ mod tests {
 
         // Calculate the associated token account address for fee_payer
         let source_ata = get_associated_token_address_with_program_id(
-            &payer.pubkey(),       // owner
+            &owner.pubkey(),       // owner
             &mint.pubkey(),        // mint
             &spl_token_2022::id(), // program_id
         );
@@ -1303,13 +1305,13 @@ mod tests {
         // Instruction to create associated token account for fee_payer
         let create_source_ata_instruction = create_associated_token_account(
             &payer.pubkey(),       // funding address
-            &payer.pubkey(),       // wallet address
+            &owner.pubkey(),       // wallet address
             &mint.pubkey(),        // mint address
             &spl_token_2022::id(), // program id
         );
 
         // Calculate the associated token account address for recipient
-        let destination_token_address = get_associated_token_address_with_program_id(
+        let destination_ata = get_associated_token_address_with_program_id(
             &recipient.pubkey(),   // owner
             &mint.pubkey(),        // mint
             &spl_token_2022::id(), // program_id
@@ -1361,23 +1363,519 @@ mod tests {
             .await
             .unwrap();
 
-        let ui_profile_result = client
-            .rpc
-            .get_transaction_profile(
-                Some(client.context.clone()),
-                UuidOrSignature::Signature(signature),
-                Some(RpcProfileResultConfig {
-                    depth: Some(RpcProfileDepth::Instruction),
-                    ..Default::default()
-                }),
-            )
-            .unwrap()
-            .value
-            .expect("missing profile result for processed transaction");
-
-        // instruction 1: create_account
+        // get profile and verify data
         {
-            let ix_profile = ui_profile_result
+            let ui_profile_result = client
+                .rpc
+                .get_transaction_profile(
+                    Some(client.context.clone()),
+                    UuidOrSignature::Signature(signature),
+                    Some(RpcProfileResultConfig {
+                        depth: Some(RpcProfileDepth::Instruction),
+                        ..Default::default()
+                    }),
+                )
+                .unwrap()
+                .value
+                .expect("missing profile result for processed transaction");
+
+            // instruction 1: create_account
+            {
+                let ix_profile = ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .get(0)
+                    .expect("instruction profile should exist");
+                assert!(
+                    ix_profile.error_message.is_none(),
+                    "Profile should succeed, found error: {}",
+                    ix_profile.error_message.as_ref().unwrap()
+                );
+                assert_eq!(ix_profile.compute_units_consumed, 150);
+                assert!(ix_profile.error_message.is_none());
+                let account_states = &ix_profile.account_states;
+
+                let UiAccountProfileState::Writable(sender_account_change) = account_states
+                    .get(&payer.pubkey())
+                    .expect("Payer account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match sender_account_change {
+                    UiAccountChange::Update(before, after) => {
+                        assert_eq!(
+                            after.lamports,
+                            before.lamports - mint_rent - (2 * 5000), // two signers, so 2 * 5000 for fees
+                            "Payer account should be original balance minus rent"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(mint_account_change) = account_states
+                    .get(&mint.pubkey())
+                    .expect("Mint account state should be present")
+                else {
+                    panic!("Expected mint account state to be Writable");
+                };
+                match mint_account_change {
+                    UiAccountChange::Create(mint_account) => {
+                        assert_eq!(
+                            mint_account.lamports, mint_rent,
+                            "Mint account should have the correct rent amount"
+                        );
+                        assert_eq!(
+                            mint_account.owner,
+                            spl_token_2022::id().to_string(),
+                            "Mint account should be owned by the SPL Token program"
+                        );
+                        // initialized account data should be empty bytes
+                        assert_eq!(
+                        mint_account.data,
+                        UiAccountData::Binary(
+                            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==".into(),
+                            UiAccountEncoding::Base64
+                        ),
+                    );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+            }
+
+            // instruction 2: initialize mint
+            {
+                let ix_profile = ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .get(1)
+                    .expect("instruction profile should exist");
+
+                assert!(
+                    ix_profile.error_message.is_none(),
+                    "Profile should succeed, found error: {}",
+                    ix_profile.error_message.as_ref().unwrap()
+                );
+                assert_eq!(ix_profile.compute_units_consumed, 1404);
+                let account_states = &ix_profile.account_states;
+
+                assert!(account_states.get(&payer.pubkey()).is_none());
+
+                let UiAccountProfileState::Writable(mint_account_change) = account_states
+                    .get(&mint.pubkey())
+                    .expect("Mint account state should be present")
+                else {
+                    panic!("Expected mint account state to be Writable");
+                };
+                match mint_account_change {
+                    UiAccountChange::Update(_before, after) => {
+                        assert_eq!(
+                            after.lamports, mint_rent,
+                            "Mint account should have the correct rent amount"
+                        );
+                        assert_eq!(
+                            after.owner,
+                            spl_token_2022::id().to_string(),
+                            "Mint account should be owned by the SPL Token program"
+                        );
+                        // initialized account data should be empty bytes
+                        assert_eq!(
+                            after.data,
+                            UiAccountData::Json(ParsedAccount {
+                                program: "spl-token-2022".to_string(),
+                                parsed: json!({
+                                    "info": {
+                                        "decimals": 2,
+                                        "freezeAuthority": payer.pubkey().to_string(),
+                                        "mintAuthority": payer.pubkey().to_string(),
+                                        "isInitialized": true,
+                                        "supply": "0",
+                                    },
+                                    "type": "mint"
+                                }),
+                                space: 82,
+                            }),
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+            }
+
+            // instruction 3: create token account
+            {
+                let ix_profile = ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .get(2)
+                    .expect("instruction profile should exist");
+                assert!(
+                    ix_profile.error_message.is_none(),
+                    "Profile should succeed, found error: {}",
+                    ix_profile.error_message.as_ref().unwrap()
+                );
+
+                let account_states = &ix_profile.account_states;
+
+                let UiAccountProfileState::Writable(sender_account_change) = account_states
+                    .get(&payer.pubkey())
+                    .expect("Payer account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match sender_account_change {
+                    UiAccountChange::Update(before, after) => {
+                        assert_eq!(
+                            after.lamports,
+                            before.lamports - 2074080,
+                            "Payer account should be original balance minus rent"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(mint_account_change) = account_states
+                    .get(&mint.pubkey())
+                    .expect("Mint account state should be present")
+                else {
+                    panic!("Expected mint account state to be Writable");
+                };
+                match mint_account_change {
+                    UiAccountChange::Unchanged(mint_account) => {
+                        assert!(mint_account.is_some())
+                    }
+                    other => {
+                        panic!("Expected account state to be Unchanged, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(source_ata_change) = account_states
+                    .get(&source_ata)
+                    .expect("account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match source_ata_change {
+                    UiAccountChange::Create(new) => {
+                        assert_eq!(
+                            new.lamports, 2074080,
+                            "Source ATA should have the correct lamports after creation"
+                        );
+                        assert_eq!(
+                            new.owner,
+                            spl_token_2022::id().to_string(),
+                            "Source ATA should be owned by the SPL Token program"
+                        );
+
+                        match &new.data {
+                            UiAccountData::Json(parsed) => {
+                                assert_eq!(
+                                    parsed,
+                                    &ParsedAccount {
+                                        program: "spl-token-2022".into(),
+                                        parsed: json!({
+                                            "info": {
+                                                "extensions": [
+                                                    {
+                                                        "extension": "immutableOwner"
+                                                    }
+                                                ],
+                                                "isNative": false,
+                                                "mint": mint.pubkey().to_string(),
+                                                "owner": owner.pubkey().to_string(),
+                                                "state": "initialized",
+                                                "tokenAmount": {
+                                                    "amount": "0",
+                                                    "decimals": 2,
+                                                    "uiAmount": 0.0,
+                                                    "uiAmountString": "0"
+                                                }
+                                            },
+                                            "type": "account"
+                                        }),
+                                        space: 170
+                                    }
+                                );
+                            }
+                            _ => panic!("Expected source ATA data to be JSON"),
+                        }
+                    }
+                    other => {
+                        panic!("Expected account state to be Create, got: {:?}", other);
+                    }
+                }
+            }
+
+            // instruction 4: create destination ATA
+            {
+                let ix_profile = ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .get(3)
+                    .expect("instruction profile should exist");
+                assert!(
+                    ix_profile.error_message.is_none(),
+                    "Profile should succeed, found error: {}",
+                    ix_profile.error_message.as_ref().unwrap()
+                );
+
+                let account_states = &ix_profile.account_states;
+
+                let UiAccountProfileState::Writable(sender_account_change) = account_states
+                    .get(&payer.pubkey())
+                    .expect("Payer account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match sender_account_change {
+                    UiAccountChange::Update(before, after) => {
+                        assert_eq!(
+                            after.lamports,
+                            before.lamports - 2074080,
+                            "Payer account should be original balance minus rent"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(mint_account_change) = account_states
+                    .get(&mint.pubkey())
+                    .expect("Mint account state should be present")
+                else {
+                    panic!("Expected mint account state to be Writable");
+                };
+                match mint_account_change {
+                    UiAccountChange::Unchanged(mint_account) => {
+                        assert!(mint_account.is_some())
+                    }
+                    other => {
+                        panic!("Expected account state to be Unchanged, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(destination_ata_change) = account_states
+                    .get(&destination_ata)
+                    .expect("account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match destination_ata_change {
+                    UiAccountChange::Create(new) => {
+                        assert_eq!(
+                            new.lamports, 2074080,
+                            "Source ATA should have the correct lamports after creation"
+                        );
+                        assert_eq!(
+                            new.owner,
+                            spl_token_2022::id().to_string(),
+                            "Source ATA should be owned by the SPL Token program"
+                        );
+                        match &new.data {
+                            UiAccountData::Json(parsed) => {
+                                assert_eq!(
+                                    parsed,
+                                    &ParsedAccount {
+                                        program: "spl-token-2022".into(),
+                                        parsed: json!({
+                                            "info": {
+                                                "extensions": [
+                                                    {
+                                                        "extension": "immutableOwner"
+                                                    }
+                                                ],
+                                                "isNative": false,
+                                                "mint": mint.pubkey().to_string(),
+                                                "owner": recipient.pubkey().to_string(),
+                                                "state": "initialized",
+                                                "tokenAmount": {
+                                                    "amount": "0",
+                                                    "decimals": 2,
+                                                    "uiAmount": 0.0,
+                                                    "uiAmountString": "0"
+                                                }
+                                            },
+                                            "type": "account"
+                                        }),
+                                        space: 170
+                                    }
+                                );
+                            }
+                            _ => panic!("Expected source ATA data to be JSON"),
+                        }
+                    }
+                    other => {
+                        panic!("Expected account state to be Create, got: {:?}", other);
+                    }
+                }
+            }
+
+            // instruction 5: mint to
+            {
+                let ix_profile = ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .get(4)
+                    .expect("instruction profile should exist");
+                assert!(
+                    ix_profile.error_message.is_none(),
+                    "Profile should succeed, found error: {}",
+                    ix_profile.error_message.as_ref().unwrap()
+                );
+
+                let account_states = &ix_profile.account_states;
+
+                let UiAccountProfileState::Writable(sender_account_change) = account_states
+                    .get(&payer.pubkey())
+                    .expect("Payer account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match sender_account_change {
+                    UiAccountChange::Unchanged(unchanged) => {
+                        assert!(unchanged.is_some(), "Payer account should remain unchanged");
+                    }
+                    other => {
+                        panic!("Expected account state to be Unchanged, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(mint_account_change) = account_states
+                    .get(&mint.pubkey())
+                    .expect("Mint account state should be present")
+                else {
+                    panic!("Expected mint account state to be Writable");
+                };
+                match mint_account_change {
+                    UiAccountChange::Update(before, after) => {
+                        assert_eq!(
+                            after.lamports, before.lamports,
+                            "Lamports should stay the same for mint account"
+                        );
+                        assert_eq!(
+                            after.data,
+                            UiAccountData::Json(ParsedAccount {
+                                program: "spl-token-2022".into(),
+                                parsed: json!({
+                                    "info": {
+                                        "decimals": 2,
+                                        "freezeAuthority": payer.pubkey().to_string(),
+                                        "isInitialized": true,
+                                        "mintAuthority": payer.pubkey().to_string(),
+                                        "supply": "10000",
+                                    },
+                                    "type": "mint"
+                                }),
+                                space: 82
+                            }),
+                            "Data should stay the same for mint account"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be Update, got: {:?}", other);
+                    }
+                }
+            }
+
+            assert_eq!(
+                ui_profile_result.transaction_profile.compute_units_consumed,
+                ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|ix| ix.compute_units_consumed)
+                    .sum::<u64>(),
+            )
+        }
+        // Get the latest blockhash for the transfer transaction
+        let recent_blockhash = client
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        // Amount of tokens to transfer (0.50 tokens with 2 decimals)
+        let transfer_amount = 50;
+
+        // Create transfer_checked instruction to send tokens from source to destination
+        let transfer_instruction = transfer_checked(
+            &spl_token_2022::id(),               // program id
+            &source_ata,                         // source
+            &mint.pubkey(),                      // mint
+            &destination_ata,                    // destination
+            &owner.pubkey(),                     // owner of source
+            &[&payer.pubkey(), &owner.pubkey()], // signers
+            transfer_amount,                     // amount
+            2,                                   // decimals
+        )
+        .unwrap();
+
+        // Create transaction for transferring tokens
+        let transaction = Transaction::new_signed_with_payer(
+            &[transfer_instruction],
+            Some(&payer.pubkey()),
+            &[&payer, &owner],
+            recent_blockhash,
+        );
+        let signature = transaction.signatures[0];
+        let (status_tx, _status_rx) = crossbeam_channel::unbounded();
+        // Send and confirm transaction
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.clone().into(), status_tx, true, true)
+            .await
+            .unwrap();
+
+        {
+            let profile_result = client
+                .rpc
+                .get_transaction_profile(
+                    Some(client.context.clone()),
+                    UuidOrSignature::Signature(signature),
+                    Some(RpcProfileResultConfig {
+                        depth: Some(RpcProfileDepth::Instruction),
+                        ..Default::default()
+                    }),
+                )
+                .unwrap()
+                .value
+                .expect("missing profile result for processed transaction");
+
+            assert!(
+                profile_result.transaction_profile.error_message.is_none(),
+                "Transaction should succeed, found error: {}",
+                profile_result
+                    .transaction_profile
+                    .error_message
+                    .as_ref()
+                    .unwrap()
+            );
+
+            assert_eq!(
+                profile_result.instruction_profiles.as_ref().unwrap().len(),
+                1
+            );
+
+            let ix_profile = profile_result
                 .instruction_profiles
                 .as_ref()
                 .unwrap()
@@ -1388,12 +1886,26 @@ mod tests {
                 "Profile should succeed, found error: {}",
                 ix_profile.error_message.as_ref().unwrap()
             );
-            assert_eq!(ix_profile.compute_units_consumed, 150);
-            assert!(ix_profile.error_message.is_none());
-            let account_states = &ix_profile.account_states;
+
+            let mut account_states = ix_profile.account_states.clone();
+
+            let UiAccountProfileState::Writable(owner_account_change) = account_states
+                .swap_remove(&owner.pubkey())
+                .expect("account state should be present")
+            else {
+                panic!("Expected account state to be Writable");
+            };
+
+            let UiAccountChange::Unchanged(unchanged) = owner_account_change else {
+                panic!(
+                    "Expected account state to be Unchanged, got: {:?}",
+                    owner_account_change
+                );
+            };
+            assert!(unchanged.is_none(), "Owner account shouldn't exist");
 
             let UiAccountProfileState::Writable(sender_account_change) = account_states
-                .get(&payer.pubkey())
+                .swap_remove(&payer.pubkey())
                 .expect("Payer account state should be present")
             else {
                 panic!("Expected account state to be Writable");
@@ -1401,225 +1913,125 @@ mod tests {
 
             match sender_account_change {
                 UiAccountChange::Update(before, after) => {
-                    assert_eq!(
-                        after.lamports,
-                        before.lamports - mint_rent - (2 * 5000), // two signers, so 2 * 5000 for fees
-                        "Payer account should be original balance minus rent"
-                    );
+                    assert_eq!(after.lamports, before.lamports - 10000);
                 }
                 other => {
                     panic!("Expected account state to be an Update, got: {:?}", other);
                 }
             }
 
-            let UiAccountProfileState::Writable(mint_account_change) = account_states
-                .get(&mint.pubkey())
+            let UiAccountProfileState::Readonly = account_states
+                .swap_remove(&mint.pubkey())
                 .expect("Mint account state should be present")
             else {
-                panic!("Expected mint account state to be Writable");
+                panic!("Expected mint account state to be Readonly");
             };
-            match mint_account_change {
-                UiAccountChange::Create(mint_account) => {
-                    println!("Mint account created: {:?}", mint_account);
-                    assert_eq!(
-                        mint_account.lamports, mint_rent,
-                        "Mint account should have the correct rent amount"
-                    );
-                    assert_eq!(
-                        mint_account.owner,
-                        spl_token_2022::id().to_string(),
-                        "Mint account should be owned by the SPL Token program"
-                    );
-                    // initialized account data should be empty bytes
-                    assert_eq!(
-                        mint_account.data,
-                        UiAccountData::Binary(
-                            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==".into(),
-                            UiAccountEncoding::Base64
-                        ),
-                    );
-                }
-                other => {
-                    panic!("Expected account state to be an Update, got: {:?}", other);
-                }
-            }
-        }
-
-        // instruction 2: initialize mint
-        {
-            let ix_profile = ui_profile_result
-                .instruction_profiles
-                .as_ref()
-                .unwrap()
-                .get(1)
-                .expect("instruction profile should exist");
-            println!(
-                "Ix 2 profile: {}",
-                serde_json::to_string(ix_profile).unwrap()
-            );
-            assert!(
-                ix_profile.error_message.is_none(),
-                "Profile should succeed, found error: {}",
-                ix_profile.error_message.as_ref().unwrap()
-            );
-            assert_eq!(ix_profile.compute_units_consumed, 1404);
-            assert!(ix_profile.error_message.is_none());
-            let account_states = &ix_profile.account_states;
-
-            assert!(account_states.get(&payer.pubkey()).is_none());
-
-            let UiAccountProfileState::Writable(mint_account_change) = account_states
-                .get(&mint.pubkey())
-                .expect("Mint account state should be present")
+            let UiAccountProfileState::Readonly = account_states
+                .swap_remove(&spl_token_2022::ID)
+                .expect("account state should be present")
             else {
-                panic!("Expected mint account state to be Writable");
+                panic!("Expected account state to be Readonly");
             };
-            match mint_account_change {
-                UiAccountChange::Update(_before, after) => {
-                    assert_eq!(
-                        after.lamports, mint_rent,
-                        "Mint account should have the correct rent amount"
-                    );
-                    assert_eq!(
-                        after.owner,
-                        spl_token_2022::id().to_string(),
-                        "Mint account should be owned by the SPL Token program"
-                    );
-                    // initialized account data should be empty bytes
-                    assert_eq!(
-                        after.data,
-                        UiAccountData::Json(ParsedAccount {
-                            program: "spl-token-2022".to_string(),
-                            parsed: json!({
-                                "info": {
-                                    "decimals": 2,
-                                    "freezeAuthority": payer.pubkey().to_string(),
-                                    "mintAuthority": payer.pubkey().to_string(),
-                                    "isInitialized": true,
-                                    "supply": "0",
-                                },
-                                "type": "mint"
-                            }),
-                            space: 82,
-                        }),
-                    );
-                }
-                other => {
-                    panic!("Expected account state to be an Update, got: {:?}", other);
-                }
-            }
-        }
-
-        // instruction 3: create token account
-        {
-            let ix_profile = ui_profile_result
-                .instruction_profiles
-                .as_ref()
-                .unwrap()
-                .get(2)
-                .expect("instruction profile should exist");
-            assert!(
-                ix_profile.error_message.is_none(),
-                "Profile should succeed, found error: {}",
-                ix_profile.error_message.as_ref().unwrap()
-            );
-            // assert_eq!(ix_profile.compute_units_consumed, 15758);
-            assert!(ix_profile.error_message.is_none());
-            let account_states = &ix_profile.account_states;
-
-            println!("Ix 3 account states: {:?}", account_states);
-
-            let UiAccountProfileState::Writable(sender_account_change) = account_states
-                .get(&payer.pubkey())
-                .expect("Payer account state should be present")
-            else {
-                panic!("Expected account state to be Writable");
-            };
-
-            match sender_account_change {
-                UiAccountChange::Update(before, after) => {
-                    assert_eq!(
-                        after.lamports,
-                        before.lamports - 2074080,
-                        "Payer account should be original balance minus rent"
-                    );
-                }
-                other => {
-                    panic!("Expected account state to be an Update, got: {:?}", other);
-                }
-            }
-
-            let UiAccountProfileState::Writable(mint_account_change) = account_states
-                .get(&mint.pubkey())
-                .expect("Mint account state should be present")
-            else {
-                panic!("Expected mint account state to be Writable");
-            };
-            match mint_account_change {
-                UiAccountChange::Unchanged(mint_account) => {
-                    assert!(mint_account.is_some())
-                }
-                other => {
-                    panic!("Expected account state to be Unchanged, got: {:?}", other);
-                }
-            }
 
             let UiAccountProfileState::Writable(source_ata_change) = account_states
-                .get(&source_ata)
+                .swap_remove(&source_ata)
                 .expect("account state should be present")
             else {
                 panic!("Expected account state to be Writable");
             };
 
             match source_ata_change {
-                UiAccountChange::Create(new) => {
+                UiAccountChange::Update(before, after) => {
                     assert_eq!(
-                        new.lamports, 2074080,
-                        "Source ATA should have the correct lamports after creation"
+                        after.lamports, before.lamports,
+                        "Source ATA lamports should remain unchanged"
                     );
                     assert_eq!(
-                        new.owner,
-                        spl_token_2022::id().to_string(),
-                        "Source ATA should be owned by the SPL Token program"
+                        after.data,
+                        UiAccountData::Json(ParsedAccount {
+                            program: "spl-token-2022".into(),
+                            parsed: json!({
+                                "info": {
+                                    "extensions": [
+                                        {
+                                            "extension": "immutableOwner"
+                                        }
+                                    ],
+                                    "isNative": false,
+                                    "mint": mint.pubkey().to_string(),
+                                    "owner": owner.pubkey().to_string(),
+                                    "state": "initialized",
+                                    "tokenAmount": {
+                                        "amount": "9950",
+                                        "decimals": 2,
+                                        "uiAmount": 99.5,
+                                        "uiAmountString": "99.5"
+                                    }
+                                },
+                                "type": "account"
+                            }),
+                            space: 170
+                        }),
+                        "Source ATA data should be updated after transfer"
                     );
-
-                    match &new.data {
-                        UiAccountData::Json(parsed) => {
-                            assert_eq!(
-                                parsed,
-                                &ParsedAccount {
-                                    program: "spl-token-2022".into(),
-                                    parsed: json!({
-                                        "info": {
-                                            "extensions": [
-                                                {
-                                                    "extension": "immutableOwner"
-                                                }
-                                            ],
-                                            "isNative": false,
-                                            "mint": mint.pubkey().to_string(),
-                                            "owner": payer.pubkey().to_string(),
-                                            "state": "initialized",
-                                            "tokenAmount": {
-                                                "amount": "0",
-                                                "decimals": 2,
-                                                "uiAmount": 0.0,
-                                                "uiAmountString": "0"
-                                            }
-                                        },
-                                        "type": "account"
-                                    }),
-                                    space: 170
-                                }
-                            );
-                        }
-                        _ => panic!("Expected source ATA data to be JSON"),
-                    }
                 }
                 other => {
-                    panic!("Expected account state to be Create, got: {:?}", other);
+                    panic!("Expected account state to be Update, got: {:?}", other);
                 }
             }
+
+            let UiAccountProfileState::Writable(destination_ata_change) = account_states
+                .swap_remove(&destination_ata)
+                .expect("account state should be present")
+            else {
+                panic!("Expected account state to be Writable");
+            };
+
+            match destination_ata_change {
+                UiAccountChange::Update(before, after) => {
+                    assert_eq!(
+                        after.lamports, before.lamports,
+                        "Destination ATA lamports should remain unchanged"
+                    );
+                    assert_eq!(
+                        after.data,
+                        UiAccountData::Json(ParsedAccount {
+                            program: "spl-token-2022".into(),
+                            parsed: json!({
+                                "info": {
+                                    "extensions": [
+                                        {
+                                            "extension": "immutableOwner"
+                                        }
+                                    ],
+                                    "isNative": false,
+                                    "mint": mint.pubkey().to_string(),
+                                    "owner": recipient.pubkey().to_string(),
+                                    "state": "initialized",
+                                    "tokenAmount": {
+                                        "amount": transfer_amount.to_string(),
+                                        "decimals": 2,
+                                        "uiAmount": 0.5,
+                                        "uiAmountString": "0.5"
+                                    }
+                                },
+                                "type": "account"
+                            }),
+                            space: 170
+                        }),
+                        "Destination ATA data should be updated after transfer"
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be Update, got: {:?}", other);
+                }
+            }
+
+            assert!(
+                account_states.is_empty(),
+                "All account states should have been processed, found: {:?}",
+                account_states
+            );
         }
     }
 }
