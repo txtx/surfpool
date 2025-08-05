@@ -1067,7 +1067,8 @@ impl SurfnetSvmLocker {
 
                 ix_profile_results.push(profile_result);
             } else {
-                panic!("No partial transaction created for instruction {}", idx);
+                return Ok(None);
+                // panic!("No partial transaction created for instruction {}", idx);
             }
         }
 
