@@ -2,7 +2,7 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, HashMap},
     fmt,
-    path::{Display, PathBuf},
+    path::PathBuf,
     str::FromStr,
 };
 
@@ -824,7 +824,7 @@ impl Ord for VersionedIdl {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, value::Index};
+    use serde_json::json;
     use solana_account_decoder_client_types::{ParsedAccount, UiAccountData};
 
     use super::*;
