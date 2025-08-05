@@ -70,7 +70,9 @@ pub async fn start_local_surfnet_runloop(
         false => Some(SurfnetRemoteClient::new(&simnet.remote_rpc_url)),
     };
 
-    svm_locker.initialize(&remote_rpc_client).await?;
+    svm_locker
+        .initialize(simnet.slot_time, &remote_rpc_client)
+        .await?;
 
     svm_locker.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
     let simnet_events_tx_cc = svm_locker.simnet_events_tx();
