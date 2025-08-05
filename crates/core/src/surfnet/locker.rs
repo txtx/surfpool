@@ -2513,11 +2513,19 @@ impl SurfnetSvmLocker {
             calculate_time_travel_clock(&config, updated_at, slot_time, &epoch_info)
                 .map_err(|e| SurfpoolError::internal(e.to_string()))?;
 
+        let formated_time = chrono::DateTime::from_timestamp(clock_update.unix_timestamp / 1000, 0)
+            .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap())
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
         epoch_info.slot_index = clock_update.slot;
         epoch_info.epoch = clock_update.epoch;
         epoch_info.absolute_slot =
             clock_update.slot + clock_update.epoch * epoch_info.slots_in_epoch;
         let _ = simnet_command_tx.send(SimnetCommand::UpdateInternalClock(clock_update));
+        let _ = self.simnet_events_tx().send(SimnetEvent::info(format!(
+            "Time travel to {} successful (epoch {} / slot {})",
+            formated_time, epoch_info.epoch, epoch_info.absolute_slot
+        )));
 
         Ok(epoch_info)
     }
