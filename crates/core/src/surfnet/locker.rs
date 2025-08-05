@@ -898,7 +898,7 @@ impl SurfnetSvmLocker {
             self.generate_instruction_profiles(
                 &transaction,
                 &transaction_accounts,
-                loaded_addresses.clone(),
+                &loaded_addresses,
                 &accounts_before,
                 &token_accounts_before,
                 &token_programs,
@@ -939,10 +939,10 @@ impl SurfnetSvmLocker {
         &self,
         transaction: &VersionedTransaction,
         transaction_accounts: &[Pubkey],
-        loaded_addresses: Option<LoadedAddresses>,
-        accounts_before: &Vec<Option<Account>>,
-        token_accounts_before: &Vec<(usize, TokenAccount)>,
-        token_programs: &Vec<Pubkey>,
+        loaded_addresses: &Option<LoadedAddresses>,
+        accounts_before: &[Option<Account>],
+        token_accounts_before: &[(usize, TokenAccount)],
+        token_programs: &[Pubkey],
         pre_execution_capture: ExecutionCapture,
         status_tx: &Sender<TransactionStatusEvent>,
     ) -> SurfpoolResult<Option<Vec<ProfileResult>>> {
@@ -1029,7 +1029,7 @@ impl SurfnetSvmLocker {
                             skip_preflight,
                             sigverify,
                             transaction_accounts,
-                            &loaded_addresses,
+                            loaded_addresses,
                             accounts_before,
                             token_accounts_before,
                             token_programs,
@@ -1156,9 +1156,9 @@ impl SurfnetSvmLocker {
         transaction: VersionedTransaction,
         pubkeys_from_message: &[Pubkey],
         loaded_addresses: &Option<LoadedAddresses>,
-        accounts_before: &Vec<Option<Account>>,
-        token_accounts_before: &Vec<(usize, TokenAccount)>,
-        token_programs: &Vec<Pubkey>,
+        accounts_before: &[Option<Account>],
+        token_accounts_before: &[(usize, TokenAccount)],
+        token_programs: &[Pubkey],
         pre_execution_capture: ExecutionCapture,
         status_tx: &Sender<TransactionStatusEvent>,
         do_propagate: bool,
@@ -1191,7 +1191,7 @@ impl SurfnetSvmLocker {
 
             for (pubkey, (before, after)) in pubkeys_from_message
                 .iter()
-                .zip(accounts_before.clone().iter().zip(accounts_after.clone()))
+                .zip(accounts_before.iter().zip(accounts_after.clone()))
             {
                 if before.ne(&after) {
                     if let Some(after) = &after {
@@ -1216,6 +1216,7 @@ impl SurfnetSvmLocker {
 
             let mut token_accounts_after = vec![];
             let mut post_execution_capture = BTreeMap::new();
+
             for (i, (pubkey, account)) in pubkeys_from_message
                 .iter()
                 .zip(accounts_after.iter())
@@ -1300,9 +1301,9 @@ impl SurfnetSvmLocker {
         sigverify: bool,
         transaction_accounts: &[Pubkey],
         loaded_addresses: &Option<LoadedAddresses>,
-        accounts_before: &Vec<Option<Account>>,
-        token_accounts_before: &Vec<(usize, TokenAccount)>,
-        token_programs: &Vec<Pubkey>,
+        accounts_before: &[Option<Account>],
+        token_accounts_before: &[(usize, TokenAccount)],
+        token_programs: &[Pubkey],
         pre_execution_capture: ExecutionCapture,
         status_tx: &Sender<TransactionStatusEvent>,
         do_propagate: bool,
@@ -1856,7 +1857,8 @@ impl SurfnetSvmLocker {
     /// * `idx` - Number of instructions to include in the partial transaction
     ///
     /// # Returns
-    /// A partial transaction containing the first `idx` instructions, or None if creation fails
+    /// A partial transaction containing the first `idx` instructions and the accounts used for
+    /// the last instruction, or None if creation fails
     fn create_partial_transaction(
         &self,
         instructions: &[CompiledInstruction],
@@ -1874,22 +1876,19 @@ impl SurfnetSvmLocker {
         for ix in &ixs_for_tx {
             // Add instruction accounts
             for &account_idx in &ix.accounts {
-                // if account_idx < message_accounts.len() as u8 {
                 all_required_accounts.insert(message_accounts[account_idx as usize]);
-                // }
             }
             // Add program ID
-            // if ix.program_id_index < message_accounts.len() as u8 {
             all_required_accounts.insert(message_accounts[ix.program_id_index as usize]);
-            // }
         }
 
+        // Profiling our partial transaction is really about knowing the impacts of the _last_
+        // instruction, so we want to have a separate list of all of the accounts that are
+        // used in the last instruction.
         let mut all_required_accounts_for_last_ix = IndexSet::new();
         let last = ixs_for_tx.last().unwrap();
         for &account_idx in &last.accounts {
-            // if account_idx < message_accounts.len() as u8 {
             all_required_accounts_for_last_ix.insert(message_accounts[account_idx as usize]);
-            // }
         }
         all_required_accounts_for_last_ix.insert(message_accounts[last.program_id_index as usize]);
 
@@ -1956,7 +1955,7 @@ impl SurfnetSvmLocker {
                 if let Some(&new_idx) = account_index_mapping.get(&(account_idx as usize)) {
                     remapped_accounts.push(new_idx as u8);
                 } else {
-                    continue; // Skip instructions with unmappable accounts
+                    continue; // Skip instructions with unmappable accounts, this should be an unreachable path
                 }
             }
 
