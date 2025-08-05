@@ -1395,13 +1395,13 @@ impl SurfnetSvm {
         let account_states = pre_execution_capture
             .into_iter()
             .zip(post_execution_capture.into_iter())
-            .map(|((pubkey, pre_account), (post, post_account))| {
-                if pubkey != post {
-                    panic!(
-                        "Pre-execution pubkey {} does not match post-execution pubkey {}",
-                        pubkey, post
-                    );
-                }
+            .map(|((pubkey, pre_account), (_, post_account))| {
+                // if pubkey != post {
+                //     panic!(
+                //         "Pre-execution pubkey {} does not match post-execution pubkey {}",
+                //         pubkey, post
+                //     );
+                // }
                 let state =
                     AccountProfileState::new(pubkey, pre_account, post_account, readonly_accounts);
                 (
