@@ -71,12 +71,12 @@ impl TransactionWithStatusMeta {
         slot: u64,
         transaction: VersionedTransaction,
         transaction_meta: TransactionMetadata,
-        accounts_before: Vec<Option<Account>>,
-        accounts_after: Vec<Option<Account>>,
-        pre_token_accounts_with_indexes: Vec<(usize, TokenAccount)>,
-        post_token_accounts_with_indexes: Vec<(usize, TokenAccount)>,
+        accounts_before: &[Option<Account>],
+        accounts_after: &[Option<Account>],
+        pre_token_accounts_with_indexes: &[(usize, TokenAccount)],
+        post_token_accounts_with_indexes: &[(usize, TokenAccount)],
         token_mints: Vec<MintAccount>,
-        token_program_ids: Vec<Pubkey>,
+        token_program_ids: &[Pubkey],
         loaded_addresses: LoadedAddresses,
     ) -> Self {
         let signatures_len = transaction.signatures.len();
@@ -116,7 +116,7 @@ impl TransactionWithStatusMeta {
                     pre_token_accounts_with_indexes
                         .iter()
                         .zip(token_mints.clone())
-                        .zip(token_program_ids.clone())
+                        .zip(token_program_ids)
                         .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
                             account_index: *i as u8,
                             mint: a.mint().to_string(),

@@ -42,11 +42,14 @@ use spl_token_2022::extension::{
     scaled_ui_amount::ScaledUiAmountConfig,
 };
 use surfpool_types::{
-    DEFAULT_SLOT_TIME_MS, Idl, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
-    VersionedIdl,
-    types::{ComputeUnitsEstimationResult, ProfileResult, UuidOrSignature},
+    AccountChange, AccountProfileState, DEFAULT_SLOT_TIME_MS, Idl, ProfileResult, RpcProfileDepth,
+    RpcProfileResultConfig, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
+    UiAccountChange, UiAccountProfileState, UiProfileResult, VersionedIdl,
+    types::{
+        ComputeUnitsEstimationResult, KeyedProfileResult, UiKeyedProfileResult, UuidOrSignature,
+    },
 };
-use txtx_addon_kit::types::types::AddonJsonConverter;
+use txtx_addon_kit::{indexmap::IndexMap, types::types::AddonJsonConverter};
 use txtx_addon_network_svm::codec::idl::parse_bytes_to_value_with_expected_idl_type_def_ty;
 use uuid::Uuid;
 
@@ -98,8 +101,8 @@ pub struct SurfnetSvm {
     pub account_subscriptions: AccountSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
     pub profile_tag_map: HashMap<String, Vec<UuidOrSignature>>,
-    pub simulated_transaction_profiles: HashMap<Uuid, ProfileResult>,
-    pub executed_transaction_profiles: HashMap<Signature, ProfileResult>,
+    pub simulated_transaction_profiles: HashMap<Uuid, KeyedProfileResult>,
+    pub executed_transaction_profiles: HashMap<Signature, KeyedProfileResult>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
@@ -594,8 +597,9 @@ impl SurfnetSvm {
         &mut self,
         tx: VersionedTransaction,
         cu_analysis_enabled: bool,
+        sigverify: bool,
     ) -> TransactionResult {
-        if tx.verify_with_results().iter().any(|valid| !*valid) {
+        if sigverify && tx.verify_with_results().iter().any(|valid| !*valid) {
             return Err(FailedTransactionMetadata {
                 err: TransactionError::SignatureFailure,
                 meta: TransactionMetadata::default(),
@@ -1124,6 +1128,20 @@ impl SurfnetSvm {
         }
     }
 
+    fn get_additional_data(
+        &self,
+        pubkey: &Pubkey,
+        token_mint: Option<Pubkey>,
+    ) -> Option<AccountAdditionalDataV3> {
+        let token_mint = if let Some(mint) = token_mint {
+            Some(mint)
+        } else {
+            self.token_accounts.get(pubkey).map(|ta| ta.mint())
+        };
+
+        token_mint.and_then(|mint| self.account_associated_data.get(&mint).cloned())
+    }
+
     pub fn account_to_rpc_keyed_account<T: ReadableAccount>(
         &self,
         pubkey: &Pubkey,
@@ -1131,13 +1149,7 @@ impl SurfnetSvm {
         config: &RpcAccountInfoConfig,
         token_mint: Option<Pubkey>,
     ) -> RpcKeyedAccount {
-        let token_mint = if let Some(mint) = token_mint {
-            Some(mint)
-        } else {
-            self.token_accounts.get(pubkey).map(|ta| ta.mint())
-        };
-        let additional_data =
-            token_mint.and_then(|mint| self.account_associated_data.get(&mint).cloned());
+        let additional_data = self.get_additional_data(pubkey, token_mint);
 
         RpcKeyedAccount {
             pubkey: pubkey.to_string(),
@@ -1243,10 +1255,16 @@ impl SurfnetSvm {
             .retain(|tx| tx.send(SlotInfo { slot, parent, root }).is_ok());
     }
 
-    pub fn write_simulated_profile_result(&mut self, tag: String, profile_result: ProfileResult) {
-        let uuid = Uuid::new_v4();
+    pub fn write_simulated_profile_result(
+        &mut self,
+        uuid: Uuid,
+        tag: Option<String>,
+        profile_result: KeyedProfileResult,
+    ) {
         self.simulated_transaction_profiles
             .insert(uuid, profile_result);
+
+        let tag = tag.unwrap_or_else(|| uuid.to_string());
         self.profile_tag_map
             .entry(tag)
             .or_insert_with(Vec::new)
@@ -1256,7 +1274,7 @@ impl SurfnetSvm {
     pub fn write_executed_profile_result(
         &mut self,
         signature: Signature,
-        profile_result: ProfileResult,
+        profile_result: KeyedProfileResult,
     ) {
         self.executed_transaction_profiles
             .insert(signature, profile_result);
@@ -1307,6 +1325,156 @@ impl SurfnetSvm {
             .push(VersionedIdl(slot, idl));
     }
 
+    fn encode_ui_account_profile_state(
+        &self,
+        pubkey: &Pubkey,
+        account_profile_state: AccountProfileState,
+        encoding: &UiAccountEncoding,
+    ) -> UiAccountProfileState {
+        let additional_data = self.get_additional_data(pubkey, None);
+
+        match account_profile_state {
+            AccountProfileState::Readonly => UiAccountProfileState::Readonly,
+            AccountProfileState::Writable(account_change) => {
+                let change = match account_change {
+                    AccountChange::Create(account) => UiAccountChange::Create(
+                        self.encode_ui_account(&pubkey, &account, *encoding, additional_data, None),
+                    ),
+                    AccountChange::Update(account_before, account_after) => {
+                        UiAccountChange::Update(
+                            self.encode_ui_account(
+                                &pubkey,
+                                &account_before,
+                                *encoding,
+                                additional_data,
+                                None,
+                            ),
+                            self.encode_ui_account(
+                                &pubkey,
+                                &account_after,
+                                *encoding,
+                                additional_data,
+                                None,
+                            ),
+                        )
+                    }
+                    AccountChange::Delete(account) => UiAccountChange::Delete(
+                        self.encode_ui_account(&pubkey, &account, *encoding, additional_data, None),
+                    ),
+                    AccountChange::Unchanged(account) => {
+                        UiAccountChange::Unchanged(account.map(|account| {
+                            self.encode_ui_account(
+                                &pubkey,
+                                &account,
+                                *encoding,
+                                additional_data,
+                                None,
+                            )
+                        }))
+                    }
+                };
+                UiAccountProfileState::Writable(change)
+            }
+        }
+    }
+
+    fn encode_ui_profile_result(
+        &self,
+        profile_result: ProfileResult,
+        readonly_accounts: &[Pubkey],
+        encoding: &UiAccountEncoding,
+    ) -> UiProfileResult {
+        let ProfileResult {
+            pre_execution_capture,
+            post_execution_capture,
+            compute_units_consumed,
+            log_messages,
+            error_message,
+        } = profile_result;
+
+        let account_states = pre_execution_capture
+            .into_iter()
+            .zip(post_execution_capture.into_iter())
+            .map(|((pubkey, pre_account), (_, post_account))| {
+                // if pubkey != post {
+                //     panic!(
+                //         "Pre-execution pubkey {} does not match post-execution pubkey {}",
+                //         pubkey, post
+                //     );
+                // }
+                let state =
+                    AccountProfileState::new(pubkey, pre_account, post_account, readonly_accounts);
+                (
+                    pubkey,
+                    self.encode_ui_account_profile_state(&pubkey, state, encoding),
+                )
+            })
+            .collect::<IndexMap<Pubkey, UiAccountProfileState>>();
+
+        UiProfileResult {
+            account_states,
+            compute_units_consumed,
+            log_messages,
+            error_message,
+        }
+    }
+
+    pub fn encode_ui_keyed_profile_result(
+        &self,
+        keyed_profile_result: KeyedProfileResult,
+        config: &RpcProfileResultConfig,
+    ) -> UiKeyedProfileResult {
+        let KeyedProfileResult {
+            slot,
+            key,
+            instruction_profiles,
+            transaction_profile,
+            readonly_account_states,
+        } = keyed_profile_result;
+
+        let encoding = config.encoding.unwrap_or(UiAccountEncoding::JsonParsed);
+
+        let readonly_accounts = readonly_account_states.keys().cloned().collect::<Vec<_>>();
+
+        let default = RpcProfileDepth::default();
+        let instruction_profiles = match config.depth.as_ref().unwrap_or(&default) {
+            &RpcProfileDepth::Transaction => None,
+            &RpcProfileDepth::Instruction => {
+                if let Some(instruction_profiles) = instruction_profiles {
+                    Some(
+                        instruction_profiles
+                            .into_iter()
+                            .map(|p| {
+                                self.encode_ui_profile_result(p, &readonly_accounts, &encoding)
+                            })
+                            .collect(),
+                    )
+                } else {
+                    None
+                }
+            }
+        };
+
+        let transaction_profile =
+            self.encode_ui_profile_result(transaction_profile, &readonly_accounts, &encoding);
+
+        let readonly_account_states = readonly_account_states
+            .into_iter()
+            .map(|(pubkey, account)| {
+                let account = self.encode_ui_account(&pubkey, &account, encoding, None, None);
+                (pubkey, account)
+            })
+            .collect();
+
+        UiKeyedProfileResult {
+            slot,
+            key,
+            instruction_profiles,
+            transaction_profile,
+            readonly_account_states,
+        }
+    }
+
     pub fn encode_ui_account<T: ReadableAccount>(
         &self,
         pubkey: &Pubkey,
@@ -1316,6 +1484,7 @@ impl SurfnetSvm {
         data_slice_config: Option<UiDataSliceConfig>,
     ) -> UiAccount {
         let owner_program_id = account.owner();
+
         let filter_slot = self.latest_epoch_info.absolute_slot; // todo: consider if we should pass in a slot
         match encoding {
             UiAccountEncoding::JsonParsed => {
