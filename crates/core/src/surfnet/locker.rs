@@ -904,17 +904,28 @@ impl SurfnetSvmLocker {
             });
 
         let ix_profiles = if self.do_profile_instructions() {
-            self.generate_instruction_profiles(
-                &transaction,
-                &transaction_accounts,
-                &loaded_addresses,
-                &accounts_before,
-                &token_accounts_before,
-                &token_programs,
-                pre_execution_capture.clone(),
-                &status_tx,
-            )
-            .await?
+            match self
+                .generate_instruction_profiles(
+                    &transaction,
+                    &transaction_accounts,
+                    &loaded_addresses,
+                    &accounts_before,
+                    &token_accounts_before,
+                    &token_programs,
+                    pre_execution_capture.clone(),
+                    &status_tx,
+                )
+                .await
+            {
+                Ok(profiles) => profiles,
+                Err(e) => {
+                    let _ = self.simnet_events_tx().try_send(SimnetEvent::error(format!(
+                        "Failed to generate instruction profiles: {}",
+                        e
+                    )));
+                    None
+                }
+            }
         } else {
             None
         };
