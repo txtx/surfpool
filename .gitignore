@@ -1,2 +1,8 @@
 target
 .DS_Store
+
+.cache
+test-ledger
+
+.DS_Store
+**/.DS_Store

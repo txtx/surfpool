@@ -7,29 +7,32 @@ use std::{
 
 use actix_cors::Cors;
 use actix_web::{
+    App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
     dev::ServerHandle,
     http::header::{self},
     middleware,
-    web::{self, Data},
-    App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
+    web::{self, Data, route},
 };
+use convert_case::{Case, Casing};
 use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
 use surfpool_gql::{
-    new_dynamic_schema,
-    query::{DataloaderContext, MemoryStore, SchemaDataSource},
-    types::{schema::DynamicSchemaSpec, SubgraphSpec},
     DynamicSchema,
+    db::schema::collections,
+    new_dynamic_schema,
+    query::{CollectionMetadataMap, Dataloader, DataloaderContext, SqlStore},
+    types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata},
 };
+use surfpool_studio_ui::serve_studio_static_files;
 use surfpool_types::{
-    SchemaDataSourcingEvent, SubgraphCommand, SubgraphDataEntry, SubgraphEvent, SurfpoolConfig,
+    DataIndexingCommand, SanitizedConfig, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
 };
 use txtx_core::kit::types::types::Value;
 
-use crate::cli::{Context, DEFAULT_EXPLORER_PORT};
+use crate::cli::Context;
 
 #[cfg(feature = "explorer")]
 #[derive(RustEmbed)]
@@ -38,16 +41,20 @@ pub struct Asset;
 
 pub async fn start_subgraph_and_explorer_server(
     network_binding: String,
-    _config: SurfpoolConfig,
+    subgraph_database_path: &str,
+    config: SanitizedConfig,
     subgraph_events_tx: Sender<SubgraphEvent>,
     subgraph_commands_rx: Receiver<SubgraphCommand>,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Result<(ServerHandle, JoinHandle<Result<(), String>>), Box<dyn StdError>> {
-    let context: DataloaderContext = Box::new(MemoryStore::new());
-    let schema_datasource = SchemaDataSource::new();
+    let context = DataloaderContext {
+        pool: SqlStore::new(subgraph_database_path).pool,
+    };
+    let schema_datasource = CollectionMetadataMap::new();
     let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
     let schema_wrapped = Data::new(schema);
     let context_wrapped = Data::new(RwLock::new(context));
+    let config_wrapped = Data::new(RwLock::new(config.clone()));
 
     let subgraph_handle = start_subgraph_runloop(
         subgraph_events_tx,
@@ -55,12 +62,15 @@ pub async fn start_subgraph_and_explorer_server(
         context_wrapped.clone(),
         schema_wrapped.clone(),
         schema_datasource,
+        config,
+        ctx,
     )?;
 
     let server = HttpServer::new(move || {
         App::new()
             .app_data(schema_wrapped.clone())
             .app_data(context_wrapped.clone())
+            .app_data(config_wrapped.clone())
             .wrap(
                 Cors::default()
                     .allow_any_origin()
@@ -72,14 +82,15 @@ pub async fn start_subgraph_and_explorer_server(
             )
             .wrap(middleware::Compress::default())
             .wrap(middleware::Logger::default())
+            .service(get_config)
             .service(
-                web::scope("/gql/v1")
-                    .route("/graphql?<request..>", web::get().to(get_graphql))
-                    .route("/graphql", web::post().to(post_graphql))
-                    .route("/subscriptions", web::get().to(subscriptions)),
+                web::scope("/gql")
+                    .route("/v1/graphql?<request..>", web::get().to(get_graphql))
+                    .route("/v1/graphql", web::post().to(post_graphql))
+                    .route("/v1/subscriptions", web::get().to(subscriptions))
+                    .route("/console", web::get().to(graphiql)),
             )
-            .service(web::resource("/gql/console").route(web::get().to(graphiql)))
-            .service(dist)
+            .service(serve_studio_static_files)
     })
     .workers(5)
     .bind(network_binding)?
@@ -106,6 +117,21 @@ fn handle_embedded_file(path: &str) -> HttpResponse {
             }
         }
     }
+}
+
+#[actix_web::get("/config")]
+async fn get_config(
+    req: HttpRequest,
+    payload: web::Payload,
+    config: Data<RwLock<SanitizedConfig>>,
+) -> Result<HttpResponse, Error> {
+    let config = config
+        .read()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read context"))?;
+    let api_config = serde_json::json!(*config);
+    Ok(HttpResponse::Ok()
+        .content_type("application/json")
+        .body(api_config.to_string()))
 }
 
 #[cfg(not(feature = "explorer"))]
@@ -178,7 +204,7 @@ async fn subscriptions(
 }
 
 async fn graphiql() -> Result<HttpResponse, Error> {
-    graphiql_handler("/gql/v1/graphql", Some("/gql/v1/subscriptions")).await
+    graphiql_handler("/gql/v1/graphql", None).await
 }
 
 fn start_subgraph_runloop(
@@ -186,11 +212,15 @@ fn start_subgraph_runloop(
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     gql_context: Data<RwLock<DataloaderContext>>,
     gql_schema: Data<RwLock<Option<DynamicSchema>>>,
-    mut schema_datasource: SchemaDataSource,
+    mut collections_map: CollectionMetadataMap,
+    config: SanitizedConfig,
+    ctx: &Context,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
+    let ctx = ctx.clone();
     let handle = hiro_system_kit::thread_named("Subgraph")
         .spawn(move || {
             let mut observers = vec![];
+            let mut cached_metadata = HashMap::new();
             loop {
                 let mut selector = Select::new();
                 let mut handles = vec![];
@@ -203,25 +233,34 @@ fn start_subgraph_runloop(
                     0 => match oper.recv(&subgraph_commands_rx) {
                         Err(_e) => {
                             // todo
+                            std::process::exit(1);
                         }
                         Ok(cmd) => match cmd {
-                            SubgraphCommand::CreateSubgraph(uuid, request, sender) => {
+                            SubgraphCommand::CreateCollection(uuid, request, sender) => {
                                 let err_ctx = "Failed to create new subgraph";
                                 let mut gql_schema = gql_schema.write().map_err(|_| {
                                     format!("{err_ctx}: Failed to acquire write lock on gql schema")
                                 })?;
 
-                                let subgraph_uuid = uuid;
-                                schema_datasource.add_entry(DynamicSchemaSpec::from_request(&uuid, &request));
-                                gql_schema.replace(new_dynamic_schema(schema_datasource.clone()));
+                                let metadata = CollectionMetadata::from_request(&uuid, &request);
+
+                                cached_metadata.insert(uuid.clone(), metadata.clone());
 
                                 let gql_context = gql_context.write().map_err(|_| {
-                                    format!("{err_ctx}: Failed to acquire write lock on gql context")
+                                    format!(
+                                        "{err_ctx}: Failed to acquire write lock on gql context"
+                                    )
                                 })?;
-                                gql_context.register_subgraph(&request.subgraph_name, subgraph_uuid)?;
-                                let _ = sender.send(format!("http://127.0.0.1:{}/gql/console", DEFAULT_EXPLORER_PORT));
+                                if let Err(e) = gql_context.pool.register_collection(&metadata) {
+                                    error!(ctx.expect_logger(), "{}", e);
+                                }
+                                collections_map.add_collection(metadata);
+                                gql_schema.replace(new_dynamic_schema(collections_map.clone()));
+
+                                let console_url = format!("{}/subgraphs", config.studio_url.clone());
+                                let _ = sender.send(console_url);
                             }
-                            SubgraphCommand::ObserveSubgraph(subgraph_observer_rx) => {
+                            SubgraphCommand::ObserveCollection(subgraph_observer_rx) => {
                                 observers.push(subgraph_observer_rx);
                             }
                             SubgraphCommand::Shutdown => {
@@ -231,29 +270,48 @@ fn start_subgraph_runloop(
                     },
                     i => match oper.recv(&observers[i - 1]) {
                         Ok(cmd) => match cmd {
-                            SchemaDataSourcingEvent::ApplyEntry(
+                            DataIndexingCommand::ProcessCollectionEntriesPack(
                                 uuid,
-                                values,
-                                slot,
-                                tx_hash
+                                entry_bytes,
                             ) => {
                                 let err_ctx = "Failed to apply new database entry to subgraph";
-                                let gql_context = gql_context.write().map_err(|_| {
-                                    format!("{err_ctx}: Failed to acquire write lock on gql context")
-                                })?;
-                                let subgraph_name = gql_context.get_subgraph_name(&uuid).ok_or_else(|| {
-                                    format!("{err_ctx}: Subgraph name not found for uuid: {}", uuid)
-                                })?;
-                                let entries: Vec<HashMap<String, Value>> = serde_json::from_slice(values.as_slice()).map_err(|e| {
-                                    format!("{err_ctx}: Failed to deserialize new database entry for subgraph {}: {}", subgraph_name, e)
-                                })?;
-                                for entry in entries.into_iter() {
-                                    gql_context.insert_entry_to_subgraph(&subgraph_name, SubgraphSpec(SubgraphDataEntry::new(entry, slot, tx_hash)))?;
+                                let gql_context = match gql_context.write() {
+                                    Ok(ctx) => ctx,
+                                    Err(_) => {
+                                        let _ = subgraph_events_tx.send(SubgraphEvent::error(format!(
+                                        "{err_ctx}: Failed to acquire write lock on gql context"
+                                    )));
+                                        continue;
+                                    }
+                                };
+
+                                let entries = match CollectionEntryData::from_entries_bytes(&uuid, entry_bytes) {
+                                    Ok(entries) => entries,
+                                    Err(e) => {
+                                        let _ = subgraph_events_tx.send(SubgraphEvent::error(format!(
+                                            "{err_ctx}: {e}"
+                                        )));
+                                        continue;
+                                    }
+                                };
+
+                                let metadata = cached_metadata.get(&uuid).unwrap();
+
+                                if let Err(e) = gql_context
+                                    .pool
+                                    .insert_entries_into_collection(entries, &metadata)
+                                {
+                                    let _ = subgraph_events_tx.send(SubgraphEvent::error(format!(
+                                        "{err_ctx}: {e}"
+                                    )));
+                                    continue;
                                 }
                             }
-                            SchemaDataSourcingEvent::Rountrip(_uuid) => {}
+                            DataIndexingCommand::ProcessCollection(_uuid) => {}
                         },
-                        Err(_e) => {}
+                        Err(_e) => {
+                            std::process::exit(1);
+                        }
                     },
                 }
             }

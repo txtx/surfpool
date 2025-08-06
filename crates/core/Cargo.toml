@@ -19,9 +19,10 @@ bincode = { workspace = true }
 borsh = { workspace = true }
 bs58 = "0.5.1"
 chrono = "0.4"
+convert_case = { workspace = true }
 crossbeam = "0.8.4"
 crossbeam-channel = { workspace = true }
-hex = { workspace = true}
+hex = { workspace = true }
 hiro-system-kit = { version = "0.3.4" }
 ipc-channel = { workspace = true }
 itertools = "0.14.0"
@@ -35,7 +36,7 @@ litesvm = { workspace = true }
 log = "0.4.22"
 serde = { workspace = true }
 serde_bytes = { workspace = true }
-serde_derive = { workspace = true } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
+serde_derive = { workspace = true }                               # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = { workspace = true }
 serde_with = { workspace = true }
 solana-account = { workspace = true }
@@ -52,7 +53,7 @@ solana-hash = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-native-token = { workspace = true }
-solana-packet  = { workspace = true }
+solana-packet = { workspace = true }
 solana-program-runtime = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-rpc-client = { workspace = true }
@@ -64,30 +65,34 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-transaction = { workspace = true }
-solana-transaction-error = { workspace = true } 
+solana-transaction-error = { workspace = true }
 solana-transaction-status = { workspace = true }
 solana-version = { workspace = true }
 spl-associated-token-account = { workspace = true }
 surfpool-subgraph = { workspace = true }
 surfpool-types = { workspace = true }
-# surfpool-types = { version = "0.8.1", default-features = false }
-# surfpool-subgraph = { version = "0.8.1", default-features = false }
+# surfpool-types = { version = "0.9.3", default-features = false }
+# surfpool-subgraph = { version = "0.9.3", default-features = false }
 symlink = "0.1.0"
 tokio = { version = "1.45.0", features = ["full"] }
 tokio-util = "0.7.13"
+txtx-addon-kit = { workspace = true }
 spl-token-2022 = "7.0.0"
 spl-token = "7.0.0"
 zstd = "0.13.2"
 libloading = "0.7.4"
 json5 = "0.4.1"
 txtx-addon-network-svm-types = { workspace = true }
+txtx-addon-network-svm = { workspace = true }
 uuid = "1.7.0"
 blake3 = "1.8.2"
 anyhow = "1.0.98"
-schemars = "0.9.0"
+solana-geyser-plugin-manager = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-case = "^3.3.1"
+test-log = "0.2.18"
 
 [features]
 ignore_tests_ci = []
+geyser-plugin = ["solana-geyser-plugin-manager"]

@@ -7,11 +7,12 @@ use bincode::Options;
 use jsonrpc_core::{Error, Result};
 use litesvm::types::TransactionMetadata;
 use solana_client::{
-    rpc_config::RpcTokenAccountsFilter,
+    rpc_config::{RpcTokenAccountsFilter, RpcTransactionConfig},
     rpc_custom_error::RpcCustomError,
     rpc_filter::RpcFilterType,
-    rpc_request::{TokenAccountsFilter, MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT},
+    rpc_request::{MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT, TokenAccountsFilter},
 };
+use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
 use solana_packet::PACKET_DATA_SIZE;
 use solana_pubkey::{ParsePubkeyError, Pubkey};
@@ -20,6 +21,7 @@ use solana_signature::Signature;
 use solana_transaction::sanitized::SanitizedTransaction;
 use solana_transaction_status::{
     InnerInstruction, InnerInstructions, TransactionBinaryEncoding, UiInnerInstructions,
+    UiTransactionEncoding,
 };
 
 use crate::error::{SurfpoolError, SurfpoolResult};
@@ -77,6 +79,17 @@ pub fn verify_pubkey(input: &str) -> SurfpoolResult<Pubkey> {
     input
         .parse()
         .map_err(|e: ParsePubkeyError| SurfpoolError::invalid_pubkey(input, e.to_string()))
+}
+
+pub fn verify_pubkeys(input: &[String]) -> SurfpoolResult<Vec<Pubkey>> {
+    input
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            verify_pubkey(s)
+                .map_err(|e| SurfpoolError::invalid_pubkey_at_index(s, i, e.to_string()))
+        })
+        .collect::<SurfpoolResult<Vec<_>>>()
 }
 
 fn verify_hash(input: &str) -> Result<Hash> {
@@ -189,24 +202,62 @@ where
         .map(|output| (wire_output, output))
 }
 
-pub fn transform_tx_metadata_to_ui_accounts(
-    meta: &TransactionMetadata,
-) -> Vec<UiInnerInstructions> {
+pub fn transform_tx_metadata_to_ui_accounts(meta: TransactionMetadata) -> Vec<UiInnerInstructions> {
     meta.inner_instructions
-        .iter()
+        .into_iter()
         .enumerate()
-        .map(|(i, ixs)| {
-            InnerInstructions {
-                index: i as u8,
-                instructions: ixs
-                    .iter()
-                    .map(|ix| InnerInstruction {
-                        instruction: ix.instruction.clone(),
-                        stack_height: Some(ix.stack_height as u32),
-                    })
-                    .collect(),
+        .filter_map(|(i, ixs)| {
+            let instructions: Vec<InnerInstruction> = ixs
+                .iter()
+                .map(|ix| InnerInstruction {
+                    instruction: ix.instruction.clone(),
+                    stack_height: Some(ix.stack_height as u32),
+                })
+                .collect();
+            if instructions.is_empty() {
+                None
+            } else {
+                Some(
+                    InnerInstructions {
+                        index: i as u8,
+                        instructions,
+                    }
+                    .into(),
+                )
             }
-            .into()
         })
         .collect()
+}
+
+/// Returns true if the error indicates the remote method is not supported.
+pub fn is_method_not_supported_error<E: std::fmt::Display>(err: &E) -> bool {
+    let msg = err.to_string().to_lowercase();
+    msg.contains("not supported")
+        || msg.contains("unsupported")
+        || msg.contains("unavailable")
+        || msg.contains("method blocked")
+        || msg.contains("invalid request")
+        || msg.contains("is blocked")
+        || msg.contains("if you need this method")
+        || msg.contains("client error")
+}
+
+pub fn get_default_transaction_config() -> RpcTransactionConfig {
+    RpcTransactionConfig {
+        encoding: Some(UiTransactionEncoding::Json),
+        commitment: Some(CommitmentConfig::default()),
+        max_supported_transaction_version: Some(0),
+    }
+}
+
+pub fn adjust_default_transaction_config(config: &mut RpcTransactionConfig) {
+    if config.encoding.is_none() {
+        config.encoding = Some(UiTransactionEncoding::Json);
+    }
+    if config.max_supported_transaction_version.is_none() {
+        config.max_supported_transaction_version = Some(0);
+    }
+    if config.commitment.is_none() {
+        config.commitment = Some(CommitmentConfig::default());
+    }
 }

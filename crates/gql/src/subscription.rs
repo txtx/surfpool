@@ -1,12 +1,12 @@
 use std::pin::Pin;
 
 use futures::Stream;
-use juniper::{graphql_subscription, FieldError};
+use juniper::{FieldError, graphql_subscription};
 
-use crate::{query::DataloaderContext, types::SubgraphDataEntryUpdate};
+use crate::{query::DataloaderContext, types::CollectionEntryDataUpdate};
 
 type GqlEntriesStream =
-    Pin<Box<dyn Stream<Item = Result<SubgraphDataEntryUpdate, FieldError>> + Send>>;
+    Pin<Box<dyn Stream<Item = Result<CollectionEntryDataUpdate, FieldError>> + Send>>;
 
 pub struct DynamicSubscription;
 
@@ -16,7 +16,7 @@ pub struct DynamicSubscription;
 )]
 impl DynamicSubscription {
     async fn entries_event(_context: &DataloaderContext) -> GqlEntriesStream {
-        // let entries_tx: tokio::sync::broadcast::Sender<SubgraphDataEntryUpdate> =
+        // let entries_tx: tokio::sync::broadcast::Sender<CollectionEntryDataUpdate> =
         //     context.entries_broadcaster.clone();
         // let mut entries_tx = entries_tx.subscribe();
         // let stream = async_stream::stream! {

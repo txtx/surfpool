@@ -1,12 +1,12 @@
 use convert_case::{Case, Casing};
 use juniper::{
-    meta::{Argument, EnumValue, MetaType},
     DefaultScalarValue, FieldError, FromInputValue, GraphQLType, GraphQLValue, InputValue,
     Registry,
+    meta::{Argument, EnumValue, MetaType},
 };
 use serde::{Deserialize, Serialize};
 
-use super::schema::FieldMetadata;
+use super::collections::FieldMetadata;
 use crate::query::DataloaderContext;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -24,11 +24,11 @@ impl GraphQLType<DefaultScalarValue> for SubgraphFilterSpec {
     where
         DefaultScalarValue: 'r,
     {
-        let mut args =
-            vec![registry
-                .arg::<Option<NumericFilter>>("blockHeight", &FieldInfo::new("blockHeight"))];
-
+        let mut args = vec![];
         for field in spec.fields.iter() {
+            if !field.data.is_indexed {
+                continue;
+            }
             if field.is_bool() {
                 args.push(registry.arg::<Option<BooleanFilter>>(&field.data.display_name, spec));
             } else if field.is_string() {
@@ -81,12 +81,13 @@ impl FieldInfo {
 
 #[derive(Debug)]
 pub enum NumericFilter {
-    IsEqual(i32),
+    Equals(i32),
     GreaterThan(i32),
     GreaterOrEqual(i32),
     LowerThan(i32),
     LowerOrEqual(i32),
     Between(i32, i32),
+    NotEquals(i32),
 }
 
 impl GraphQLType<DefaultScalarValue> for NumericFilter {
@@ -99,11 +100,12 @@ impl GraphQLType<DefaultScalarValue> for NumericFilter {
         DefaultScalarValue: 'r,
     {
         let args = [
-            build_number_filter_argument(&spec.name, "isEqual"),
-            build_number_filter_argument(&spec.name, "greaterThan"),
-            build_number_filter_argument(&spec.name, "greaterOrEqual"),
-            build_number_filter_argument(&spec.name, "lowerThan"),
-            build_number_filter_argument(&spec.name, "lowerOrEqual"),
+            build_number_filter_argument(&spec.name, "equals"),
+            build_number_filter_argument(&spec.name, "not"),
+            build_number_filter_argument(&spec.name, "gt"),
+            build_number_filter_argument(&spec.name, "gte"),
+            build_number_filter_argument(&spec.name, "lt"),
+            build_number_filter_argument(&spec.name, "lte"),
         ];
         registry
             .build_input_object_type::<Self>(spec, &args)
@@ -179,6 +181,8 @@ pub enum StringFilter {
     EndsWith(String),
     Contains(String),
     Equals(String),
+    NotEquals(String),
+    NotContains(String),
 }
 
 impl GraphQLType<DefaultScalarValue> for StringFilter {
@@ -195,6 +199,8 @@ impl GraphQLType<DefaultScalarValue> for StringFilter {
             build_string_filter_argument(&spec.name, "endsWith"),
             build_string_filter_argument(&spec.name, "contains"),
             build_string_filter_argument(&spec.name, "equals"),
+            build_string_filter_argument(&spec.name, "notEquals"),
+            build_string_filter_argument(&spec.name, "notContains"),
         ];
         registry
             .build_input_object_type::<Self>(spec, &args)
@@ -244,7 +250,7 @@ pub fn build_number_filter_argument<'r>(
 ) -> Argument<'r, DefaultScalarValue> {
     Argument::new(
         filter,
-        juniper::Type::Named(std::borrow::Cow::Borrowed("i128")),
+        juniper::Type::Named(std::borrow::Cow::Borrowed("Int")),
     )
     .description(&format!(
         "Keep entries with a value {} to another value",

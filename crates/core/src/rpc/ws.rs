@@ -1,30 +1,31 @@
 use std::{
     collections::HashMap,
     str::FromStr,
-    sync::{atomic, Arc, RwLock},
+    sync::{Arc, RwLock, atomic},
 };
 
 use jsonrpc_core::{Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_pubsub::{
-    typed::{Sink, Subscriber},
     SubscriptionId,
+    typed::{Sink, Subscriber},
 };
 use solana_account_decoder::{UiAccount, UiAccountEncoding};
 use solana_client::{
-    rpc_config::RpcSignatureSubscribeConfig,
+    rpc_config::{RpcSignatureSubscribeConfig, RpcTransactionConfig, RpcTransactionLogsFilter},
     rpc_response::{
-        ProcessedSignatureResult, ReceivedSignatureResult, RpcResponseContext, RpcSignatureResult,
+        ProcessedSignatureResult, ReceivedSignatureResult, RpcLogsResponse, RpcResponseContext,
+        RpcSignatureResult,
     },
 };
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::{Response as RpcResponse, SlotInfo};
 use solana_signature::Signature;
-use solana_transaction_status::TransactionConfirmationStatus;
+use solana_transaction_status::{TransactionConfirmationStatus, UiTransactionEncoding};
 
 use super::{State, SurfnetRpcContext, SurfpoolWebsocketMeta};
-use crate::surfnet::{locker::SvmAccessContext, GetTransactionResult, SignatureSubscriptionType};
+use crate::surfnet::{GetTransactionResult, SignatureSubscriptionType};
 
 /// Configuration for account subscription requests.
 ///
@@ -446,6 +447,131 @@ pub trait Rpc {
         meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool>;
+
+    /// Subscribe to logs notifications.
+    ///
+    /// This method allows clients to subscribe to transaction log messages
+    /// emitted during transaction execution. It supports filtering by signature,
+    /// account mentions, or all transactions.
+    ///
+    /// ## Parameters
+    /// - `meta`: WebSocket metadata containing RPC context and connection information.
+    /// - `subscriber`: The subscription sink for sending log notifications to the client.
+    /// - `mentions`: Optional filter for the subscription: can be a specific signature, account, or `"all"`.
+    /// - `commitment`: Optional commitment level for filtering logs by block finality.
+    ///
+    /// ## Returns
+    /// This method establishes a continuous WebSocket subscription that streams
+    /// `RpcLogsResponse` notifications as new transactions are processed.
+    ///
+    /// ## Example WebSocket Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "logsSubscribe",
+    ///   "params": [
+    ///     {
+    ///       "mentions": ["11111111111111111111111111111111"]
+    ///     },
+    ///     {
+    ///       "commitment": "finalized"
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Response (Subscription Confirmation)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": 42,
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Notification
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "method": "logsNotification",
+    ///   "params": {
+    ///     "result": {
+    ///       "signature": "3s6n...",
+    ///       "err": null,
+    ///       "logs": ["Program 111111... invoke [1]", "Program 111111... success"]
+    ///     },
+    ///     "subscription": 42
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// ## Notes
+    /// - The subscription remains active until explicitly unsubscribed or the connection is closed.
+    /// - Each log subscription runs independently and supports filtering.
+    /// - Log messages may be truncated depending on cluster configuration.
+    ///
+    /// ## See Also
+    /// - `logsUnsubscribe`: Remove an active logs subscription.
+    #[pubsub(subscription = "logsNotification", subscribe, name = "logsSubscribe")]
+    fn logs_subscribe(
+        &self,
+        meta: Self::Metadata,
+        subscriber: Subscriber<RpcResponse<RpcLogsResponse>>,
+        mentions: Option<RpcTransactionLogsFilter>,
+        commitment: Option<CommitmentConfig>,
+    );
+
+    /// Unsubscribe from logs notifications.
+    ///
+    /// This method removes an active logs subscription, stopping further notifications
+    /// for the specified subscription ID.
+    ///
+    /// ## Parameters
+    /// - `meta`: Optional WebSocket metadata containing connection information.
+    /// - `subscription`: The subscription ID to remove, as returned by `logsSubscribe`.
+    ///
+    /// ## Returns
+    /// A `Result<bool>` indicating whether the unsubscription was successful:
+    /// - `Ok(true)` if the subscription was successfully removed.
+    /// - `Err(Error)` with `InvalidParams` if the subscription ID is not recognized.
+    ///
+    /// ## Example WebSocket Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "logsUnsubscribe",
+    ///   "params": [42]
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": true,
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// ## Notes
+    /// - Unsubscribing from a non-existent subscription ID returns an error.
+    /// - Successfully unsubscribed clients will no longer receive logs notifications.
+    /// - This method is thread-safe and may be called concurrently.
+    ///
+    /// ## See Also
+    /// - `logsSubscribe`: Create a logs subscription.
+    #[pubsub(
+        subscription = "logsNotification",
+        unsubscribe,
+        name = "logsUnsubscribe"
+    )]
+    fn logs_unsubscribe(
+        &self,
+        meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool>;
 }
 
 /// WebSocket RPC server implementation for Surfpool.
@@ -488,6 +614,8 @@ pub struct SurfpoolWsRpc {
     pub account_subscription_map:
         Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<UiAccount>>>>>,
     pub slot_subscription_map: Arc<RwLock<HashMap<SubscriptionId, Sink<SlotInfo>>>>,
+    pub logs_subscription_map:
+        Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcLogsResponse>>>>>,
     pub tokio_handle: tokio::runtime::Handle,
 }
 
@@ -534,6 +662,12 @@ impl Rpc for SurfpoolWsRpc {
             }
         };
         let config = config.unwrap_or_default();
+        let rpc_transaction_config = RpcTransactionConfig {
+            encoding: Some(UiTransactionEncoding::Json),
+            commitment: config.commitment.clone(),
+            max_supported_transaction_version: Some(0),
+        };
+
         let subscription_type = if config.enable_received_notification.unwrap_or(false) {
             SignatureSubscriptionType::Received
         } else {
@@ -551,7 +685,6 @@ impl Rpc for SurfpoolWsRpc {
         };
         let active = Arc::clone(&self.signature_subscription_map);
         let meta = meta.clone();
-
         self.tokio_handle.spawn(async move {
             if let Ok(mut guard) = active.write() {
                 guard.insert(sub_id.clone(), sink);
@@ -563,7 +696,7 @@ impl Rpc for SurfpoolWsRpc {
             let SurfnetRpcContext {
                 svm_locker,
                 remote_ctx,
-            } = match meta.get_rpc_context(None) {
+            } = match meta.get_rpc_context(()) {
                 Ok(res) => res,
                 Err(e) => {
                     log::error!("Failed to get RPC context: {:?}", e);
@@ -578,9 +711,24 @@ impl Rpc for SurfpoolWsRpc {
                 }
             };
             // get the signature from the SVM to see if it's already been processed
-            let SvmAccessContext {
-                inner: tx_result, ..
-            } = svm_locker.get_transaction(&remote_ctx, &signature).await;
+            let tx_result = match svm_locker
+                .get_transaction(
+                    &remote_ctx.map(|(r, _)| r),
+                    &signature,
+                    rpc_transaction_config,
+                )
+                .await
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    if let Ok(mut guard) = active.write() {
+                        if let Some(sink) = guard.remove(&sub_id) {
+                            let _ = sink.notify(Err(e.into()));
+                        }
+                    }
+                    return;
+                }
+            };
 
             // if we already had the transaction, check if its confirmation status matches the desired status set by the subscription
             // if so, notify the user and complete the subscription
@@ -905,6 +1053,99 @@ impl Rpc for SurfpoolWsRpc {
             guard.remove(&subscription)
         } else {
             log::error!("Failed to acquire write lock on slot_subscription_map");
+            None
+        };
+        if removed.is_some() {
+            Ok(true)
+        } else {
+            Err(Error {
+                code: ErrorCode::InvalidParams,
+                message: "Invalid subscription.".into(),
+                data: None,
+            })
+        }
+    }
+
+    fn logs_subscribe(
+        &self,
+        meta: Self::Metadata,
+        subscriber: Subscriber<RpcResponse<RpcLogsResponse>>,
+        mentions: Option<RpcTransactionLogsFilter>,
+        commitment: Option<CommitmentConfig>,
+    ) {
+        let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
+        let sub_id = SubscriptionId::Number(id as u64);
+        let sink = match subscriber.assign_id(sub_id.clone()) {
+            Ok(sink) => sink,
+            Err(e) => {
+                log::error!("Failed to assign subscription ID: {:?}", e);
+                return;
+            }
+        };
+
+        let mentions = mentions.unwrap_or(RpcTransactionLogsFilter::All);
+        let commitment = commitment.unwrap_or_default().commitment;
+
+        let logs_active = Arc::clone(&self.logs_subscription_map);
+        let meta = meta.clone();
+
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => {
+                log::error!("Failed to get SVM locker for slot subscription: {e}");
+                if let Err(e) = sink.notify(Err(e.into())) {
+                    log::error!(
+                        "Failed to send error notification to client for SVM locker failure: {e}"
+                    );
+                }
+                return;
+            }
+        };
+
+        self.tokio_handle.spawn(async move {
+            if let Ok(mut guard) = logs_active.write() {
+                guard.insert(sub_id.clone(), sink);
+            } else {
+                log::error!("Failed to acquire write lock on slot_subscription_map");
+                return;
+            }
+
+            let rx = svm_locker.subscribe_for_logs_updates(&commitment, &mentions);
+
+            loop {
+                // if the subscription has been removed, break the loop
+                if let Ok(guard) = logs_active.read() {
+                    if guard.get(&sub_id).is_none() {
+                        break;
+                    }
+                } else {
+                    log::error!("Failed to acquire read lock on slot_subscription_map");
+                    break;
+                }
+
+                if let Ok((slot, value)) = rx.try_recv() {
+                    if let Ok(guard) = logs_active.read() {
+                        if let Some(sink) = guard.get(&sub_id) {
+                            let _ = sink.notify(Ok(RpcResponse {
+                                context: RpcResponseContext::new(slot),
+                                value,
+                            }));
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    fn logs_unsubscribe(
+        &self,
+        _meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool> {
+        let removed = if let Ok(mut guard) = self.logs_subscription_map.write() {
+            guard.remove(&subscription)
+        } else {
+            log::error!("Failed to acquire write lock on logs_subscription_map");
             None
         };
         if removed.is_some() {

@@ -14,13 +14,15 @@ use solana_client::{
 use solana_clock::Slot;
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
-use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
-use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
+use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
-    rpc::{utils::verify_pubkey, State},
-    surfnet::{locker::SvmAccessContext, GetAccountResult, FINALIZATION_SLOT_THRESHOLD},
+    rpc::{State, utils::verify_pubkey},
+    surfnet::{
+        FINALIZATION_SLOT_THRESHOLD, GetAccountResult, SURFPOOL_IDENTITY_PUBKEY,
+        locker::SvmAccessContext,
+    },
 };
 
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -177,7 +179,7 @@ pub trait Minimal {
     /// # See Also
     /// - `getEpochInfo`, `getBlock`, `getClusterNodes`
     #[rpc(meta, name = "getGenesisHash")]
-    fn get_genesis_hash(&self, meta: Self::Metadata) -> Result<String>;
+    fn get_genesis_hash(&self, meta: Self::Metadata) -> BoxFuture<Result<String>>;
 
     /// Returns the health status of the blockchain node.
     ///
@@ -610,7 +612,8 @@ impl Minimal for SurfpoolMinimalRpc {
 
             let balance = match &account_update {
                 GetAccountResult::FoundAccount(_, account, _)
-                | GetAccountResult::FoundProgramAccount((_, account), _) => account.lamports,
+                | GetAccountResult::FoundProgramAccount((_, account), _)
+                | GetAccountResult::FoundTokenAccount((_, account), _) => account.lamports,
                 GetAccountResult::None(_) => 0,
             };
 
@@ -632,8 +635,22 @@ impl Minimal for SurfpoolMinimalRpc {
             .map_err(Into::into)
     }
 
-    fn get_genesis_hash(&self, _meta: Self::Metadata) -> Result<String> {
-        not_implemented_err("get_genesis_hash")
+    fn get_genesis_hash(&self, meta: Self::Metadata) -> BoxFuture<Result<String>> {
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            Ok(svm_locker
+                .get_genesis_hash(&remote_ctx.map(|(client, _)| client))
+                .await?
+                .inner
+                .to_string())
+        })
     }
 
     fn get_health(&self, _meta: Self::Metadata) -> Result<String> {
@@ -643,8 +660,7 @@ impl Minimal for SurfpoolMinimalRpc {
 
     fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
         Ok(RpcIdentity {
-            identity: Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr")
-                .to_string(),
+            identity: SURFPOOL_IDENTITY_PUBKEY.to_string(),
         })
     }
 
@@ -739,21 +755,26 @@ impl Minimal for SurfpoolMinimalRpc {
         })
     }
 
-    // TODO: Refactor `agave-validator wait-for-restart-window` to not require this method, so
-    //       it can be removed from rpc_minimal
     fn get_vote_accounts(
         &self,
         _meta: Self::Metadata,
-        _config: Option<RpcGetVoteAccountsConfig>,
+        config: Option<RpcGetVoteAccountsConfig>,
     ) -> Result<RpcVoteAccountStatus> {
+        // validate inputs if provided
+        if let Some(config) = config {
+            // validate vote_pubkey if provided
+            if let Some(vote_pubkey_str) = config.vote_pubkey {
+                verify_pubkey(&vote_pubkey_str)?;
+            }
+        }
+
+        // Return empty vote accounts
         Ok(RpcVoteAccountStatus {
             current: vec![],
             delinquent: vec![],
         })
     }
 
-    // TODO: Refactor `agave-validator wait-for-restart-window` to not require this method, so
-    //       it can be removed from rpc_minimal
     fn get_leader_schedule(
         &self,
         meta: Self::Metadata,
@@ -770,7 +791,7 @@ impl Minimal for SurfpoolMinimalRpc {
         let svm_locker = meta.get_svm_locker()?;
         let epoch_info = svm_locker.get_epoch_info();
 
-        let slot = slot.unwrap_or_else(|| epoch_info.absolute_slot);
+        let slot = slot.unwrap_or(epoch_info.absolute_slot);
 
         let first_slot_in_epoch = epoch_info
             .absolute_slot
@@ -793,9 +814,10 @@ mod tests {
     use solana_commitment_config::CommitmentConfig;
     use solana_epoch_info::EpochInfo;
     use solana_pubkey::Pubkey;
+    use solana_sdk::genesis_config::GenesisConfig;
 
     use super::*;
-    use crate::{rpc::full::SurfpoolFullRpc, tests::helpers::TestSetup};
+    use crate::tests::helpers::TestSetup;
 
     #[test]
     fn test_get_block_height_processed_commitment() {
@@ -1005,14 +1027,24 @@ mod tests {
         }
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_genesis_hash() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        let genesis_hash = setup
+            .rpc
+            .get_genesis_hash(Some(setup.context))
+            .await
+            .unwrap();
+
+        assert_eq!(genesis_hash, GenesisConfig::default().hash().to_string())
+    }
+
     #[test]
     fn test_get_identity() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup.rpc.get_identity(Some(setup.context)).unwrap();
-        assert_eq!(
-            &result.identity,
-            "SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr"
-        );
+        assert_eq!(result.identity, SURFPOOL_IDENTITY_PUBKEY.to_string());
     }
 
     #[test]
@@ -1192,5 +1224,56 @@ mod tests {
         let result = setup.rpc.get_leader_schedule(None, None, None);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_vote_accounts_valid_config_returns_empty() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        // test with valid configuration including all optional parameters
+        let config = RpcGetVoteAccountsConfig {
+            vote_pubkey: Some("11111111111111111111111111111112".to_string()),
+            commitment: Some(CommitmentConfig::processed()),
+            keep_unstaked_delinquents: Some(true),
+            delinquent_slot_distance: Some(100),
+        };
+
+        let result = setup
+            .rpc
+            .get_vote_accounts(Some(setup.context.clone()), Some(config));
+
+        // should succeed with valid inputs
+        assert!(result.is_ok());
+
+        let vote_accounts = result.unwrap();
+
+        // should return empty current and delinquent arrays
+        assert_eq!(vote_accounts.current.len(), 0);
+        assert_eq!(vote_accounts.delinquent.len(), 0);
+    }
+
+    #[test]
+    fn test_get_vote_accounts_invalid_pubkey_returns_error() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        // test with invalid vote pubkey that's not valid base58
+        let config = RpcGetVoteAccountsConfig {
+            vote_pubkey: Some("invalid_pubkey_not_base58".to_string()),
+            commitment: Some(CommitmentConfig::finalized()),
+            keep_unstaked_delinquents: Some(false),
+            delinquent_slot_distance: Some(50),
+        };
+
+        let result = setup
+            .rpc
+            .get_vote_accounts(Some(setup.context.clone()), Some(config));
+
+        // should fail due to invalid vote pubkey
+        assert!(result.is_err());
+
+        let error = result.unwrap_err();
+
+        // should be invalid params error
+        assert_eq!(error.code, jsonrpc_core::ErrorCode::InvalidParams);
     }
 }

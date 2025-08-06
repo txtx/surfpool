@@ -1,17 +1,20 @@
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, HashMap},
     fmt,
     path::PathBuf,
+    str::FromStr,
 };
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
 use crossbeam_channel::{Receiver, Sender};
 // use litesvm::types::TransactionMetadata;
-use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::{serde_as, BytesOrString};
-use solana_account_decoder_client_types::UiAccount;
-use solana_clock::{Clock, Epoch};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Visitor};
+use serde_with::{BytesOrString, serde_as};
+use solana_account::Account;
+use solana_account_decoder_client_types::{UiAccount, UiAccountEncoding};
+use solana_clock::{Clock, Epoch, Slot};
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
@@ -19,11 +22,18 @@ use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_context::TransactionReturnData;
 use solana_transaction_error::TransactionError;
-use txtx_addon_kit::types::types::Value;
+use txtx_addon_kit::indexmap::IndexMap;
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
 
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
+pub const DEFAULT_RPC_PORT: u16 = 8899;
+pub const DEFAULT_WS_PORT: u16 = 8900;
+pub const DEFAULT_STUDIO_PORT: u16 = 8488;
+pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
+pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
+pub const DEFAULT_SLOT_TIME_MS: u64 = 400;
+pub type Idl = anchor_lang_idl::types::Idl;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionMetadata {
@@ -48,36 +58,6 @@ pub enum BlockProductionMode {
     Clock,
     Transaction,
     Manual,
-}
-
-#[derive(Debug, Clone)]
-pub struct Collection {
-    pub uuid: Uuid,
-    pub name: String,
-    pub entries: Vec<SubgraphDataEntry>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SubgraphDataEntry {
-    // The UUID of the entry
-    pub uuid: Uuid,
-    // A map of field names and their values
-    pub values: HashMap<String, Value>,
-    // The slot that the transaction that created this entry was processed in
-    pub block_height: u64,
-    // The transaction hash that created this entry
-    pub transaction_hash: Hash,
-}
-
-impl SubgraphDataEntry {
-    pub fn new(values: HashMap<String, Value>, block_height: u64, tx_hash: [u8; 32]) -> Self {
-        Self {
-            uuid: Uuid::new_v4(),
-            values,
-            block_height,
-            transaction_hash: Hash::from_bytes(tx_hash),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -131,42 +111,211 @@ pub struct ComputeUnitsEstimationResult {
 }
 
 /// The struct for storing the profiling results.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileResult {
-    pub compute_units: ComputeUnitsEstimationResult,
-    pub state: ProfileState,
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeyedProfileResult {
+    pub slot: u64,
+    pub key: UuidOrSignature,
+    pub instruction_profiles: Option<Vec<ProfileResult>>,
+    pub transaction_profile: ProfileResult,
+    pub readonly_account_states: HashMap<Pubkey, Account>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileState {
-    pub pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
-    pub post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
-}
-
-impl ProfileState {
+impl KeyedProfileResult {
     pub fn new(
-        pre_execution: BTreeMap<Pubkey, Option<UiAccount>>,
-        post_execution: BTreeMap<Pubkey, Option<UiAccount>>,
+        slot: u64,
+        key: UuidOrSignature,
+        instruction_profiles: Option<Vec<ProfileResult>>,
+        transaction_profile: ProfileResult,
+        readonly_account_states: HashMap<Pubkey, Account>,
     ) -> Self {
         Self {
-            pre_execution,
-            post_execution,
+            slot,
+            key,
+            instruction_profiles,
+            transaction_profile,
+            readonly_account_states,
         }
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub enum SchemaDataSourcingEvent {
-    Rountrip(Uuid),
-    ApplyEntry(Uuid, Vec<u8>, u64, [u8; 32]),
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProfileResult {
+    pub pre_execution_capture: ExecutionCapture,
+    pub post_execution_capture: ExecutionCapture,
+    pub compute_units_consumed: u64,
+    pub log_messages: Option<Vec<String>>,
+    pub error_message: Option<String>,
+}
+
+pub type ExecutionCapture = BTreeMap<Pubkey, Option<Account>>;
+
+impl ProfileResult {
+    pub fn new(
+        pre_execution_capture: ExecutionCapture,
+        post_execution_capture: ExecutionCapture,
+        compute_units_consumed: u64,
+        log_messages: Option<Vec<String>>,
+        error_message: Option<String>,
+    ) -> Self {
+        Self {
+            pre_execution_capture,
+            post_execution_capture,
+            compute_units_consumed,
+            log_messages,
+            error_message,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AccountProfileState {
+    Readonly,
+    Writable(AccountChange),
+}
+
+impl AccountProfileState {
+    pub fn new(
+        pubkey: Pubkey,
+        pre_account: Option<Account>,
+        post_account: Option<Account>,
+        readonly_accounts: &[Pubkey],
+    ) -> Self {
+        if readonly_accounts.contains(&pubkey) {
+            return AccountProfileState::Readonly;
+        }
+
+        match (pre_account, post_account) {
+            (None, Some(post_account)) => {
+                AccountProfileState::Writable(AccountChange::Create(post_account))
+            }
+            (Some(pre_account), None) => {
+                AccountProfileState::Writable(AccountChange::Delete(pre_account))
+            }
+            (Some(pre_account), Some(post_account)) if pre_account == post_account => {
+                AccountProfileState::Writable(AccountChange::Unchanged(Some(pre_account)))
+            }
+            (Some(pre_account), Some(post_account)) => {
+                AccountProfileState::Writable(AccountChange::Update(pre_account, post_account))
+            }
+            (None, None) => AccountProfileState::Writable(AccountChange::Unchanged(None)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AccountChange {
+    Create(Account),
+    Update(Account, Account),
+    Delete(Account),
+    Unchanged(Option<Account>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcProfileResultConfig {
+    pub encoding: Option<UiAccountEncoding>,
+    pub depth: Option<RpcProfileDepth>,
+}
+
+impl Default for RpcProfileResultConfig {
+    fn default() -> Self {
+        Self {
+            encoding: Some(UiAccountEncoding::JsonParsed),
+            depth: Some(RpcProfileDepth::default()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RpcProfileDepth {
+    Transaction,
+    #[default]
+    Instruction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UiKeyedProfileResult {
+    pub slot: u64,
+    pub key: UuidOrSignature,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instruction_profiles: Option<Vec<UiProfileResult>>,
+    pub transaction_profile: UiProfileResult,
+    #[serde(with = "profile_state_map")]
+    pub readonly_account_states: IndexMap<Pubkey, UiAccount>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UiProfileResult {
+    #[serde(with = "profile_state_map")]
+    pub account_states: IndexMap<Pubkey, UiAccountProfileState>,
+    pub compute_units_consumed: u64,
+    pub log_messages: Option<Vec<String>>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", tag = "type", content = "accountChange")]
+pub enum UiAccountProfileState {
+    Readonly,
+    Writable(UiAccountChange),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", tag = "type", content = "data")]
+pub enum UiAccountChange {
+    Create(UiAccount),
+    Update(UiAccount, UiAccount),
+    Delete(UiAccount),
+    /// The account didn't change. If [Some], this is the initial state. If [None], the account didn't exist before/after execution.
+    Unchanged(Option<UiAccount>),
+}
+
+/// P starts with 300 lamports
+/// Ix 1 Transfers 100 lamports to P
+/// Ix 2 Transfers 100 lamports to P
+///
+/// Profile result 1 is from executing just Ix 1
+/// AccountProfileState::Writable(P, AccountChange::Update( UiAccount { lamports: 300, ...}, UiAccount { lamports: 400, ... }))
+///
+/// Profile result 2 is from executing Ix 1 and Ix 2
+/// AccountProfileState::Writable(P, AccountChange::Update( UiAccount { lamports: 400, ...}, UiAccount { lamports: 500, ... }))
+
+pub mod profile_state_map {
+    use super::*;
+
+    pub fn serialize<S, T>(map: &IndexMap<Pubkey, T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: Serialize,
+    {
+        let str_map: IndexMap<String, &T> = map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        str_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<IndexMap<Pubkey, T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de>,
+    {
+        let str_map: IndexMap<String, T> = IndexMap::deserialize(deserializer)?;
+        str_map
+            .into_iter()
+            .map(|(k, v)| {
+                Pubkey::from_str(&k)
+                    .map(|pk| (pk, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum SubgraphCommand {
-    CreateSubgraph(Uuid, SubgraphRequest, Sender<String>),
-    ObserveSubgraph(Receiver<SchemaDataSourcingEvent>),
+    CreateCollection(Uuid, SubgraphRequest, Sender<String>),
+    ObserveCollection(Receiver<DataIndexingCommand>),
     Shutdown,
 }
 
@@ -176,7 +325,8 @@ pub enum SimnetEvent {
     Connected(String),
     Aborted(String),
     Shutdown,
-    ClockUpdate(Clock),
+    SystemClockUpdated(Clock),
+    ClockUpdate(ClockCommand),
     EpochInfoUpdate(EpochInfo),
     BlockHashExpired,
     InfoLog(DateTime<Local>, String),
@@ -192,10 +342,12 @@ pub enum SimnetEvent {
     ),
     AccountUpdate(DateTime<Local>, Pubkey),
     TaggedProfile {
-        result: ProfileResult,
+        result: KeyedProfileResult,
         tag: String,
         timestamp: DateTime<Local>,
     },
+    RunbookStarted(String),
+    RunbookCompleted(String),
 }
 
 impl SimnetEvent {
@@ -239,7 +391,7 @@ impl SimnetEvent {
         Self::AccountUpdate(Local::now(), pubkey)
     }
 
-    pub fn tagged_profile(result: ProfileResult, tag: String) -> Self {
+    pub fn tagged_profile(result: KeyedProfileResult, tag: String) -> Self {
         Self::TaggedProfile {
             result,
             tag,
@@ -260,7 +412,7 @@ impl SimnetEvent {
         match self {
             SimnetEvent::EpochInfoUpdate(epoch_info) => {
                 format!(
-                    "Connection established. Epoch {} / Slot index {} / Slot {}.",
+                    "Datasource connection successful. Epoch {} / Slot index {} / Slot {}.",
                     epoch_info.epoch, epoch_info.slot_index, epoch_info.absolute_slot
                 )
             }
@@ -279,10 +431,12 @@ impl SimnetEvent {
 
     pub fn clock_update_msg(&self) -> String {
         match self {
-            SimnetEvent::ClockUpdate(clock) => {
+            SimnetEvent::SystemClockUpdated(clock) => {
                 format!("Clock ticking (epoch {}, slot {})", clock.epoch, clock.slot)
             }
-            _ => unreachable!("This function should only be called for ClockUpdate events"),
+            _ => {
+                unreachable!("This function should only be called for SystemClockUpdated events")
+            }
         }
     }
 }
@@ -299,7 +453,8 @@ pub enum TransactionStatusEvent {
 pub enum SimnetCommand {
     SlotForward(Option<Hash>),
     SlotBackward(Option<Hash>),
-    UpdateClock(ClockCommand),
+    CommandClock(ClockCommand),
+    UpdateInternalClock(Clock),
     UpdateBlockProductionMode(BlockProductionMode),
     TransactionReceived(
         Option<Hash>,
@@ -323,11 +478,23 @@ pub enum ClockEvent {
     ExpireBlockHash,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SanitizedConfig {
+    pub rpc_url: String,
+    pub ws_url: String,
+    pub rpc_datasource_url: String,
+    pub studio_url: String,
+    pub graphql_query_route_url: String,
+    pub version: String,
+    pub workspace: Option<String>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SurfpoolConfig {
     pub simnets: Vec<SimnetConfig>,
     pub rpc: RpcConfig,
     pub subgraph: SubgraphConfig,
+    pub studio: StudioConfig,
     pub plugin_config_path: Vec<PathBuf>,
 }
 
@@ -345,12 +512,24 @@ impl Default for SimnetConfig {
     fn default() -> Self {
         Self {
             remote_rpc_url: DEFAULT_RPC_URL.to_string(),
-            slot_time: 0,
+            slot_time: DEFAULT_SLOT_TIME_MS, // Default to 400ms to match CLI default
             block_production_mode: BlockProductionMode::Clock,
             airdrop_addresses: vec![],
             airdrop_token_amount: 0,
             expiry: None,
         }
+    }
+}
+
+impl SimnetConfig {
+    pub fn get_sanitized_datasource_url(&self) -> String {
+        self.remote_rpc_url
+            .split("?")
+            .map(|e| e.to_string())
+            .collect::<Vec<String>>()
+            .first()
+            .expect("datasource url invalid")
+            .to_string()
     }
 }
 
@@ -365,11 +544,42 @@ pub struct RpcConfig {
 }
 
 impl RpcConfig {
-    pub fn get_socket_address(&self) -> String {
+    pub fn get_rpc_base_url(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
-    pub fn get_ws_address(&self) -> String {
+    pub fn get_ws_base_url(&self) -> String {
         format!("{}:{}", self.bind_host, self.ws_port)
+    }
+}
+
+impl Default for RpcConfig {
+    fn default() -> Self {
+        Self {
+            bind_host: DEFAULT_NETWORK_HOST.to_string(),
+            bind_port: DEFAULT_RPC_PORT,
+            ws_port: DEFAULT_WS_PORT,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct StudioConfig {
+    pub bind_host: String,
+    pub bind_port: u16,
+}
+
+impl StudioConfig {
+    pub fn get_studio_base_url(&self) -> String {
+        format!("{}:{}", self.bind_host, self.bind_port)
+    }
+}
+
+impl Default for StudioConfig {
+    fn default() -> Self {
+        Self {
+            bind_host: DEFAULT_NETWORK_HOST.to_string(),
+            bind_port: CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
+        }
     }
 }
 
@@ -378,16 +588,6 @@ pub struct SubgraphPluginConfig {
     pub uuid: Uuid,
     pub ipc_token: String,
     pub subgraph_request: SubgraphRequest,
-}
-
-impl Default for RpcConfig {
-    fn default() -> Self {
-        Self {
-            bind_host: "127.0.0.1".to_string(),
-            bind_port: 8899,
-            ws_port: 8900,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -433,6 +633,24 @@ impl CreateNetworkRequest {
 pub struct CreateNetworkResponse {
     pub rpc_url: String,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct DeleteNetworkRequest {
+    pub workspace_id: Uuid,
+    pub network_id: Uuid,
+}
+
+impl DeleteNetworkRequest {
+    pub fn new(workspace_id: Uuid, network_id: Uuid) -> Self {
+        Self {
+            workspace_id,
+            network_id,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DeleteNetworkResponse;
 
 #[serde_as]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -521,4 +739,219 @@ pub struct SupplyUpdate {
     pub circulating: Option<u64>,
     pub non_circulating: Option<u64>,
     pub non_circulating_accounts: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Copy)]
+pub enum UuidOrSignature {
+    Uuid(Uuid),
+    Signature(Signature),
+}
+
+impl std::fmt::Display for UuidOrSignature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UuidOrSignature::Uuid(uuid) => write!(f, "{}", uuid),
+            UuidOrSignature::Signature(signature) => write!(f, "{}", signature),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for UuidOrSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        if let Ok(uuid) = Uuid::parse_str(&s) {
+            return Ok(UuidOrSignature::Uuid(uuid));
+        }
+
+        if let Ok(signature) = s.parse::<Signature>() {
+            return Ok(UuidOrSignature::Signature(signature));
+        }
+
+        Err(serde::de::Error::custom(
+            "expected a Uuid or a valid Solana Signature",
+        ))
+    }
+}
+
+impl<'de> Serialize for UuidOrSignature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            UuidOrSignature::Uuid(uuid) => serializer.serialize_str(&uuid.to_string()),
+            UuidOrSignature::Signature(signature) => {
+                serializer.serialize_str(&signature.to_string())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum DataIndexingCommand {
+    ProcessCollection(Uuid),
+    ProcessCollectionEntriesPack(Uuid, Vec<u8>),
+}
+
+// Define a wrapper struct
+#[derive(Debug, Clone)]
+pub struct VersionedIdl(pub Slot, pub Idl);
+
+// Implement ordering based on Slot
+impl PartialEq for VersionedIdl {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for VersionedIdl {}
+
+impl PartialOrd for VersionedIdl {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for VersionedIdl {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use solana_account_decoder_client_types::{ParsedAccount, UiAccountData};
+
+    use super::*;
+
+    #[test]
+    fn print_ui_keyed_profile_result() {
+        let pubkey = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let readonly_account_state = UiAccount {
+            lamports: 100,
+            data: UiAccountData::Binary(
+                "ABCDEFG".into(),
+                solana_account_decoder_client_types::UiAccountEncoding::Base64,
+            ),
+            owner: owner.to_string(),
+            executable: false,
+            rent_epoch: 0,
+            space: Some(100),
+        };
+
+        let account_1 = UiAccount {
+            lamports: 100,
+            data: UiAccountData::Json(ParsedAccount {
+                program: "custom-program".into(),
+                parsed: json!({
+                    "field1": "value1",
+                    "field2": "value2"
+                }),
+                space: 50,
+            }),
+            owner: owner.to_string(),
+            executable: false,
+            rent_epoch: 0,
+            space: Some(100),
+        };
+
+        let account_2 = UiAccount {
+            lamports: 100,
+            data: UiAccountData::Json(ParsedAccount {
+                program: "custom-program".into(),
+                parsed: json!({
+                    "field1": "updated-value1",
+                    "field2": "updated-value2"
+                }),
+                space: 50,
+            }),
+            owner: owner.to_string(),
+            executable: false,
+            rent_epoch: 0,
+            space: Some(100),
+        };
+        let profile_result = UiKeyedProfileResult {
+            slot: 123,
+            key: UuidOrSignature::Uuid(Uuid::new_v4()),
+            instruction_profiles: Some(vec![
+                UiProfileResult {
+                    account_states: IndexMap::from_iter([
+                        (
+                            pubkey,
+                            UiAccountProfileState::Writable(UiAccountChange::Create(
+                                account_1.clone(),
+                            )),
+                        ),
+                        (owner, UiAccountProfileState::Readonly),
+                    ]),
+                    compute_units_consumed: 100,
+                    log_messages: Some(vec![
+                        "Log message: Creating Account".to_string(),
+                        "Log message: Account created".to_string(),
+                    ]),
+                    error_message: None,
+                },
+                UiProfileResult {
+                    account_states: IndexMap::from_iter([
+                        (
+                            pubkey,
+                            UiAccountProfileState::Writable(UiAccountChange::Update(
+                                account_1,
+                                account_2.clone(),
+                            )),
+                        ),
+                        (owner, UiAccountProfileState::Readonly),
+                    ]),
+                    compute_units_consumed: 100,
+                    log_messages: Some(vec![
+                        "Log message: Updating Account".to_string(),
+                        "Log message: Account updated".to_string(),
+                    ]),
+                    error_message: None,
+                },
+                UiProfileResult {
+                    account_states: IndexMap::from_iter([
+                        (
+                            pubkey,
+                            UiAccountProfileState::Writable(UiAccountChange::Delete(account_2)),
+                        ),
+                        (owner, UiAccountProfileState::Readonly),
+                    ]),
+                    compute_units_consumed: 100,
+                    log_messages: Some(vec![
+                        "Log message: Deleting Account".to_string(),
+                        "Log message: Account deleted".to_string(),
+                    ]),
+                    error_message: None,
+                },
+            ]),
+            transaction_profile: UiProfileResult {
+                account_states: IndexMap::from_iter([
+                    (
+                        pubkey,
+                        UiAccountProfileState::Writable(UiAccountChange::Unchanged(None)),
+                    ),
+                    (owner, UiAccountProfileState::Readonly),
+                ]),
+                compute_units_consumed: 300,
+                log_messages: Some(vec![
+                    "Log message: Creating Account".to_string(),
+                    "Log message: Account created".to_string(),
+                    "Log message: Updating Account".to_string(),
+                    "Log message: Account updated".to_string(),
+                    "Log message: Deleting Account".to_string(),
+                    "Log message: Account deleted".to_string(),
+                ]),
+                error_message: None,
+            },
+            readonly_account_states: IndexMap::from_iter([(owner, readonly_account_state)]),
+        };
+        println!("{}", serde_json::to_string_pretty(&profile_result).unwrap());
+    }
 }

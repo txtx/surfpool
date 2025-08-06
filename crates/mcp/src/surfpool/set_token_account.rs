@@ -1,4 +1,3 @@
-use bs58;
 use reqwest::blocking::Client;
 use rmcp::schemars;
 use schemars::JsonSchema;
@@ -8,7 +7,6 @@ use solana_sdk::{
     signature::{Keypair, Signer},
 };
 use spl_associated_token_account::get_associated_token_address_with_program_id;
-use spl_token;
 use surfpool_types::{
     types::{AccountUpdate, TokenAccountUpdate},
     verified_tokens::VERIFIED_TOKENS_BY_SYMBOL,
@@ -245,7 +243,7 @@ pub fn run(
                 return SetTokenAccountsResponse::error(format!(
                     "Failed to serialize params for surfnet_setAccount: {}",
                     e
-                ))
+                ));
             }
         };
         JsonRpcRequest {
@@ -271,7 +269,7 @@ pub fn run(
                 return SetTokenAccountsResponse::error(format!(
                     "Failed to serialize params for surfnet_setTokenAccount: {}",
                     e
-                ))
+                ));
             }
         };
         JsonRpcRequest {
@@ -316,7 +314,7 @@ pub fn run(
                                             return SetTokenAccountsResponse::error(format!(
                                                 "Invalid program_id provided: {}",
                                                 id_str
-                                            ))
+                                            ));
                                         }
                                     },
                                     None => spl_token::id(),

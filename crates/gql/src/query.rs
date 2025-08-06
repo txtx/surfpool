@@ -1,42 +1,45 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    pin::Pin,
-    sync::{Arc, RwLock},
-};
+use std::{collections::HashMap, pin::Pin};
 
 use convert_case::{Case, Casing};
+use diesel::prelude::*;
 use juniper::{
-    meta::MetaType, Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
-    GraphQLValueAsync, Registry,
+    Arguments, DefaultScalarValue, Executor, FieldError, GraphQLType, GraphQLValue,
+    GraphQLValueAsync, Registry, meta::MetaType,
 };
-use uuid::Uuid;
+use surfpool_db::diesel::{
+    self, Connection, MultiConnection,
+    r2d2::{ConnectionManager, Pool, PooledConnection},
+};
 
 use crate::types::{
-    filters::SubgraphFilterSpec, scalars::bigint::BigInt, schema::DynamicSchemaSpec, SubgraphSpec,
+    CollectionEntry, CollectionEntryData, collections::CollectionMetadata,
+    filters::SubgraphFilterSpec,
 };
 
 #[derive(Debug)]
 pub struct DynamicQuery;
 
 impl GraphQLType<DefaultScalarValue> for DynamicQuery {
-    fn name(_spec: &SchemaDataSource) -> Option<&str> {
+    fn name(_spec: &CollectionMetadataMap) -> Option<&str> {
         Some("Query")
     }
 
-    fn meta<'r>(spec: &SchemaDataSource, registry: &mut Registry<'r>) -> MetaType<'r>
+    fn meta<'r>(spec: &CollectionMetadataMap, registry: &mut Registry<'r>) -> MetaType<'r>
     where
         DefaultScalarValue: 'r,
     {
         // BigInt needs to be registered as a primitive type before moving on to more complex types.
-        let _ = registry.get_type::<&BigInt>(&());
+        // let _ = registry.get_type::<&BigInt>(&());
+        // BigInt needs to be registered as a primitive type before moving on to more complex types.
+        let _ = registry.get_type::<&i32>(&());
 
         let mut fields = vec![];
         fields.push(registry.field::<&String>("apiVersion", &()));
 
-        for (name, schema_spec) in spec.entries.iter() {
-            let filter = registry.arg::<Option<SubgraphFilterSpec>>("where", &schema_spec.filter);
+        for (name, metadata) in spec.collections.iter() {
+            let filter = registry.arg::<Option<SubgraphFilterSpec>>("where", &metadata.filters);
             let field = registry
-                .field::<&[DynamicSchemaSpec]>(name, schema_spec)
+                .field::<&[CollectionMetadata]>(name, metadata)
                 .argument(filter);
             fields.push(field);
         }
@@ -46,115 +49,29 @@ impl GraphQLType<DefaultScalarValue> for DynamicQuery {
     }
 }
 
-pub type MemoryStoreEntry = (Uuid, Vec<SubgraphSpec>);
-
-#[derive(Debug, Clone)]
-pub struct MemoryStore {
-    /// A map of subgraph UUIDs to their names
-    pub subgraph_name_lookup: Arc<RwLock<BTreeMap<Uuid, String>>>,
-    /// A map of subgraph names to their entries
-    pub entries_store: Arc<RwLock<BTreeMap<String, MemoryStoreEntry>>>,
-    // A broadcaster for entry updates
-    // pub entries_broadcaster: tokio::sync::broadcast::Sender<SubgraphDataEntryUpdate>,
-}
-
-impl MemoryStore {
-    pub fn new() -> MemoryStore {
-        MemoryStore {
-            subgraph_name_lookup: Arc::new(RwLock::new(BTreeMap::new())),
-            entries_store: Arc::new(RwLock::new(BTreeMap::new())),
-            // entries_broadcaster,
-        }
-    }
-}
-
-impl Default for MemoryStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Dataloader for MemoryStore {
-    fn fetch_entries_from_subgraph(
-        &self,
-        subgraph_name: &str,
-        _executor: &Executor<DataloaderContext>,
-        _schema: &DynamicSchemaSpec,
-    ) -> Result<Vec<SubgraphSpec>, FieldError> {
-        let subgraph_db = self
-            .entries_store
-            .read()
-            .map_err(|err| FieldError::new(format!("error: {}", err), juniper::Value::null()))?;
-
-        if let Some((_, entries)) = subgraph_db.get(subgraph_name) {
-            Ok(entries.clone())
-        } else {
-            Err(FieldError::new(
-                format!("subgraph {} not found", subgraph_name),
-                juniper::Value::null(),
-            ))
-        }
-    }
-
-    fn register_subgraph(&self, subgraph_name: &str, subgraph_uuid: Uuid) -> Result<(), String> {
-        let mut entries_store = self.entries_store.write().map_err(|err_ctx| {
-            format!("{err_ctx}: Failed to acquire write lock on entries store")
-        })?;
-        let mut lookup = self.subgraph_name_lookup.write().map_err(|err_ctx| {
-            format!("{err_ctx}: Failed to acquire write lock on subgraph name lookup")
-        })?;
-        lookup.insert(subgraph_uuid, subgraph_name.to_case(Case::Camel));
-        entries_store.insert(subgraph_name.to_case(Case::Camel), (subgraph_uuid, vec![]));
-        Ok(())
-    }
-
-    fn get_subgraph_name(&self, subgraph_uuid: &Uuid) -> Option<String> {
-        let lookup = self
-            .subgraph_name_lookup
-            .write()
-            .map_err(|_| "Failed to acquire write lock on subgraph name lookup".to_string())
-            .ok()?;
-        lookup.get(subgraph_uuid).map(|e| e.to_string())
-    }
-
-    fn insert_entry_to_subgraph(
-        &self,
-        subgraph_name: &str,
-        entry: SubgraphSpec,
-    ) -> Result<(), String> {
-        let mut store = self
-            .entries_store
-            .write()
-            .map_err(|_| "Failed to acquire write lock on subgraph name lookup".to_string())?;
-        let (_, entries) = store.get_mut(subgraph_name).unwrap();
-        entries.push(entry);
-        Ok(())
-    }
-}
-
 pub trait Dataloader {
-    fn fetch_entries_from_subgraph(
+    fn fetch_data_from_collection(
         &self,
-        subgraph_name: &str,
-        executor: &Executor<DataloaderContext>,
-        schema: &DynamicSchemaSpec,
-    ) -> Result<Vec<SubgraphSpec>, FieldError>;
-    fn register_subgraph(&self, subgraph_name: &str, subgraph_uuid: Uuid) -> Result<(), String>;
-    fn get_subgraph_name(&self, subgraph_uuid: &Uuid) -> Option<String>;
-    fn insert_entry_to_subgraph(
+        executor: Option<&Executor<DataloaderContext>>,
+        metadata: &CollectionMetadata,
+    ) -> Result<Vec<CollectionEntry>, FieldError>;
+    fn register_collection(&self, metadata: &CollectionMetadata) -> Result<(), String>;
+    fn insert_entries_into_collection(
         &self,
-        subgraph_name: &str,
-        entry: SubgraphSpec,
+        entries: Vec<CollectionEntryData>,
+        metadata: &CollectionMetadata,
     ) -> Result<(), String>;
 }
 
-pub type DataloaderContext = Box<dyn Dataloader + Sync + Send>;
+pub struct DataloaderContext {
+    pub pool: Pool<ConnectionManager<DatabaseConnection>>,
+}
 
 impl juniper::Context for DataloaderContext {}
 
 impl GraphQLValue<DefaultScalarValue> for DynamicQuery {
     type Context = DataloaderContext;
-    type TypeInfo = SchemaDataSource;
+    type TypeInfo = CollectionMetadataMap;
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
         <DynamicQuery as GraphQLType<DefaultScalarValue>>::name(info)
@@ -164,7 +81,7 @@ impl GraphQLValue<DefaultScalarValue> for DynamicQuery {
 impl GraphQLValueAsync<DefaultScalarValue> for DynamicQuery {
     fn resolve_field_async(
         &self,
-        info: &SchemaDataSource,
+        collection_metadata_map: &CollectionMetadataMap,
         field_name: &str,
         _arguments: &Arguments,
         executor: &Executor<DataloaderContext>,
@@ -173,16 +90,16 @@ impl GraphQLValueAsync<DefaultScalarValue> for DynamicQuery {
     > {
         let res = match field_name {
             "apiVersion" => executor.resolve_with_ctx(&(), "1.0"),
-            subgraph_name => {
-                let database = executor.context();
-                if let Some(schema) = info.entries.get(subgraph_name) {
-                    match database.fetch_entries_from_subgraph(subgraph_name, executor, schema) {
+            name => {
+                let ctx = executor.context();
+                if let Some(schema) = collection_metadata_map.collections.get(name) {
+                    match ctx.pool.fetch_data_from_collection(Some(executor), schema) {
                         Ok(entries) => executor.resolve_with_ctx(schema, &entries[..]),
                         Err(e) => Err(e),
                     }
                 } else {
                     Err(FieldError::new(
-                        format!("subgraph {} not found", subgraph_name),
+                        format!("field {} not found", field_name),
                         juniper::Value::null(),
                     ))
                 }
@@ -193,24 +110,102 @@ impl GraphQLValueAsync<DefaultScalarValue> for DynamicQuery {
 }
 
 #[derive(Clone, Debug)]
-pub struct SchemaDataSource {
-    pub entries: HashMap<String, DynamicSchemaSpec>,
+pub struct CollectionMetadataMap {
+    pub collections: HashMap<String, CollectionMetadata>,
 }
 
-impl Default for SchemaDataSource {
+impl Default for CollectionMetadataMap {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl SchemaDataSource {
+impl CollectionMetadataMap {
     pub fn new() -> Self {
         Self {
-            entries: HashMap::new(),
+            collections: HashMap::new(),
         }
     }
 
-    pub fn add_entry(&mut self, entry: DynamicSchemaSpec) {
-        self.entries.insert(entry.name.to_case(Case::Camel), entry);
+    pub fn add_collection(&mut self, entry: CollectionMetadata) {
+        self.collections
+            .insert(entry.name.to_case(Case::Camel), entry);
     }
+}
+
+#[derive(MultiConnection)]
+pub enum DatabaseConnection {
+    #[cfg(feature = "sqlite")]
+    Sqlite(SqliteConnection),
+    #[cfg(feature = "postgres")]
+    Postgresql(PgConnection),
+}
+
+pub struct SqlStore {
+    pub connection_url: String,
+    pub pool: Pool<ConnectionManager<DatabaseConnection>>,
+}
+
+impl SqlStore {
+    pub fn new_in_memory() -> SqlStore {
+        Self::new(":memory:")
+    }
+
+    pub fn new(connection_url: &str) -> SqlStore {
+        let manager = ConnectionManager::<DatabaseConnection>::new(connection_url);
+        let pool = Pool::new(manager).expect("unable to create connection pool");
+        SqlStore {
+            connection_url: connection_url.to_string(),
+            pool,
+        }
+    }
+
+    pub fn get_conn(&self) -> PooledConnection<ConnectionManager<DatabaseConnection>> {
+        self.pool.get().unwrap()
+    }
+}
+
+pub fn extract_graphql_features<'a>(
+    executor: Option<&'a Executor<DataloaderContext>>,
+) -> (Vec<(&'a str, &'a str, &'a DefaultScalarValue)>, Vec<String>) {
+    let mut filters_specs = vec![];
+    let mut fetched_fields = vec!["id".to_string()];
+
+    if let Some(executor) = executor {
+        for arg in executor.look_ahead().arguments() {
+            if arg.name().eq("where") {
+                match arg.value() {
+                    juniper::LookAheadValue::Object(obj) => {
+                        for (attribute, value) in obj.iter() {
+                            match value.item {
+                                juniper::LookAheadValue::Object(obj) => {
+                                    for (predicate, predicate_value) in obj.iter() {
+                                        match predicate_value.item {
+                                            juniper::LookAheadValue::Scalar(value) => {
+                                                filters_specs.push((
+                                                    attribute.item,
+                                                    predicate.item,
+                                                    value,
+                                                ));
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        for child in executor.look_ahead().children().iter() {
+            let field_name = child.field_name();
+            fetched_fields.push(field_name.to_string());
+        }
+    }
+
+    (filters_specs, fetched_fields)
 }

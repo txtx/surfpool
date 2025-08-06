@@ -17,6 +17,7 @@ crossbeam-channel = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 chrono = "0.4"
+solana-account = { workspace = true }
 solana-account-decoder-client-types = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-clock = { workspace = true }
@@ -35,6 +36,7 @@ once_cell = "1.19.0"
 serde_json = { workspace = true }
 serde_with = { workspace = true }
 solana-rpc-client-api = { workspace = true }
+anchor-lang-idl = { workspace = true }
 
 [dev-dependencies]
 test-case = "^3.3.1"

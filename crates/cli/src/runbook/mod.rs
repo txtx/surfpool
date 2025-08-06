@@ -1,21 +1,21 @@
 use std::{collections::BTreeMap, io::Write, sync::Arc};
 
 use crossbeam::channel;
-use dialoguer::{console::Style, theme::ColorfulTheme, Confirm};
+use dialoguer::{Confirm, console::Style, theme::ColorfulTheme};
 use surfpool_types::SimnetEvent;
 use tokio::{sync::RwLock, task::JoinHandle};
 use txtx_addon_network_svm::SvmNetworkAddon;
 use txtx_cloud::router::TxtxAuthenticatedCloudServiceRouter;
 use txtx_core::{
     kit::{
+        Addon,
         channel::Sender,
         helpers::fs::FileLocation,
-        types::{diagnostics::Diagnostic, frontend::BlockEvent, AuthorizationContext},
-        Addon,
+        types::{AuthorizationContext, diagnostics::Diagnostic, frontend::BlockEvent},
     },
     manifest::{
-        file::{read_runbook_from_location, read_runbooks_from_manifest},
         RunbookStateLocation, WorkspaceManifest,
+        file::{read_runbook_from_location, read_runbooks_from_manifest},
     },
     runbook::{ConsolidatedChanges, SynthesizedChange},
     start_supervised_runbook_runloop, start_unsupervised_runbook_runloop,
@@ -25,17 +25,31 @@ use txtx_core::{
 };
 use txtx_gql::kit::{
     indexmap::IndexMap,
-    types::{cloud_interface::CloudServiceContext, frontend::ProgressBarStatusColor},
+    types::{
+        cloud_interface::CloudServiceContext,
+        frontend::ProgressBarStatusColor,
+        types::{AddonJsonConverter, Value},
+    },
 };
 #[cfg(feature = "supervisor_ui")]
 use txtx_supervisor_ui::cloud_relayer::RelayerChannelEvent;
 
-use crate::cli::{ExecuteRunbook, DEFAULT_ID_SVC_URL};
+use crate::cli::{DEFAULT_ID_SVC_URL, ExecuteRunbook};
 
+pub fn get_json_converters() -> Vec<AddonJsonConverter<'static>> {
+    get_available_addons()
+        .into_iter()
+        .map(|addon| {
+            Box::new(move |value: &Value| addon.to_json(value)) as AddonJsonConverter<'static>
+        })
+        .collect()
+}
+
+pub fn get_available_addons() -> Vec<Box<dyn Addon>> {
+    vec![Box::new(StdAddon::new()), Box::new(SvmNetworkAddon::new())]
+}
 pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
-    let available_addons: Vec<Box<dyn Addon>> =
-        vec![Box::new(StdAddon::new()), Box::new(SvmNetworkAddon::new())];
-    available_addons
+    get_available_addons()
         .into_iter()
         .find(|addon| namespace.starts_with(&addon.get_namespace().to_string()))
 }
@@ -268,10 +282,7 @@ pub async fn execute_runbook(
     }
 
     if cmd.unsupervised {
-        let _ = simnet_events_tx.send(SimnetEvent::info(format!(
-            "Starting runbook '{}' execution in unsupervised mode",
-            runbook_id
-        )));
+        let _ = simnet_events_tx.send(SimnetEvent::RunbookStarted(runbook_id.clone()));
         let res = start_unsupervised_runbook_runloop(&mut runbook, &progress_tx).await;
         process_runbook_execution_output(
             res,
@@ -280,6 +291,7 @@ pub async fn execute_runbook(
             &simnet_events_tx,
             cmd.output_json,
         );
+        let _ = simnet_events_tx.send(SimnetEvent::RunbookCompleted(runbook_id));
     } else {
         let (kill_supervised_execution_tx, block_store_handle) =
             configure_supervised_execution(runbook, runbook_state_location, &cmd, simnet_events_tx)
@@ -528,11 +540,19 @@ pub fn display_snapshot_diffing(
                         })
                         .collect::<Vec<_>>()
                         .join("");
-                    println!("{}. The following edits:\n-------------------------\n{}\n-------------------------", i + 1, formatted_change);
+                    println!(
+                        "{}. The following edits:\n-------------------------\n{}\n-------------------------",
+                        i + 1,
+                        formatted_change
+                    );
                     println!("will introduce breaking changes.\n\n");
                 }
                 SynthesizedChange::FormerFailure(_construct_to_run, command_name) => {
-                    println!("{}. The action error:\n-------------------------\n{}\n-------------------------", i + 1, command_name);
+                    println!(
+                        "{}. The action error:\n-------------------------\n{}\n-------------------------",
+                        i + 1,
+                        command_name
+                    );
                     println!("will be re-executed.\n\n");
                 }
                 SynthesizedChange::Addition(_new_construct_did) => {}
@@ -550,7 +570,9 @@ pub fn display_snapshot_diffing(
         .count();
     if unexecuted > 0 {
         println!("\n{}", yellow!("Runbook Recovery Plan"));
-        println!("The previous runbook execution was interrupted before completion, causing the following actions to be aborted:");
+        println!(
+            "The previous runbook execution was interrupted before completion, causing the following actions to be aborted:"
+        );
 
         for (change, _impacted) in synthesized_changes.iter() {
             match change {
@@ -669,6 +691,7 @@ fn process_runbook_execution_output(
                             .workspace_location,
                         &runbook.runbook_id.name,
                         &runbook.top_level_inputs_map.current_top_level_input_name(),
+                        &get_json_converters(),
                     ) {
                         Ok(output_location) => {
                             let _ = simnet_events_tx.send(SimnetEvent::info(format!(
@@ -685,12 +708,16 @@ fn process_runbook_execution_output(
                     }
                 } else {
                     let _ = simnet_events_tx.send(SimnetEvent::info(
-                        serde_json::to_string_pretty(&runbook_outputs.to_json()).unwrap(),
+                        serde_json::to_string_pretty(
+                            &runbook_outputs.to_json(&get_json_converters()),
+                        )
+                        .unwrap(),
                     ));
                 }
             } else {
                 let _ = simnet_events_tx.send(SimnetEvent::debug(
-                    serde_json::to_string_pretty(&runbook_outputs.to_json()).unwrap(),
+                    serde_json::to_string_pretty(&runbook_outputs.to_json(&get_json_converters()))
+                        .unwrap(),
                 ));
             }
         }

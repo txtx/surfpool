@@ -1,21 +1,28 @@
-use juniper::{DefaultScalarValue, RootNode};
-use mutation::Immutable;
-use query::{DynamicQuery, SchemaDataSource};
-use subscription::DynamicSubscription;
+use juniper::{DefaultScalarValue, EmptyMutation, EmptySubscription, RootNode};
+use query::{CollectionMetadataMap, DynamicQuery};
+
+use crate::query::DataloaderContext;
 
 pub mod mutation;
 pub mod query;
 pub mod subscription;
 pub mod types;
 
-pub type DynamicSchema =
-    RootNode<'static, DynamicQuery, Immutable, DynamicSubscription, DefaultScalarValue>;
+pub use surfpool_db as db;
 
-pub fn new_dynamic_schema(subgraph_spec: SchemaDataSource) -> DynamicSchema {
+pub type DynamicSchema = RootNode<
+    'static,
+    DynamicQuery,
+    EmptyMutation<DataloaderContext>,
+    EmptySubscription<DataloaderContext>,
+    DefaultScalarValue,
+>;
+
+pub fn new_dynamic_schema(subgraph_spec: CollectionMetadataMap) -> DynamicSchema {
     let schema = DynamicSchema::new_with_info(
         DynamicQuery,
-        Immutable,
-        DynamicSubscription,
+        EmptyMutation::<DataloaderContext>::new(),
+        EmptySubscription::<DataloaderContext>::new(),
         subgraph_spec,
         (),
         (),

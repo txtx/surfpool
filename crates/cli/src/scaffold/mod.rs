@@ -3,7 +3,8 @@ use std::{
     fs::{self, File},
 };
 
-use dialoguer::{console::Style, theme::ColorfulTheme, Confirm, Input, MultiSelect};
+use dialoguer::{Confirm, Input, MultiSelect, console::Style, theme::ColorfulTheme};
+use surfpool_types::{DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT};
 use txtx_addon_network_svm::templates::{
     get_interpolated_addon_template, get_interpolated_devnet_signer_template,
     get_interpolated_header_template, get_interpolated_localnet_signer_template,
@@ -12,10 +13,12 @@ use txtx_addon_network_svm::templates::{
 use txtx_core::{
     kit::{helpers::fs::FileLocation, indexmap::indexmap},
     manifest::{RunbookMetadata, WorkspaceManifest},
-    templates::{build_manifest_data, TXTX_MANIFEST_TEMPLATE, TXTX_README_TEMPLATE},
+    templates::{TXTX_MANIFEST_TEMPLATE, build_manifest_data},
 };
 
 use crate::{cli::DEFAULT_SOLANA_KEYPAIR_PATH, types::Framework};
+
+pub const SURFPOOL_README_TEMPLATE: &str = include_str!("./templates/readme.md.mst");
 
 mod anchor;
 mod native;
@@ -164,9 +167,10 @@ pub fn scaffold_iac_layout(
     let mut signer_localnet = String::new();
     // signer_simnet.push_str(&get_interpolated_header_template(&format!("Runbook")));
     // signer_simnet.push_str(&get_interpolated_addon_template("http://localhost:8899"));
-    signer_localnet.push_str(&get_interpolated_localnet_signer_template(
-        "input.authority_keypair_json",
-    ));
+    signer_localnet.push_str(&get_interpolated_localnet_signer_template(&format!(
+        "\"{}\"",
+        DEFAULT_SOLANA_KEYPAIR_PATH.to_string()
+    )));
 
     for program_metadata in selected_programs.iter() {
         deployment_runbook_src.push_str(
@@ -232,9 +236,7 @@ pub fn scaffold_iac_layout(
         "localnet".into(),
         indexmap! {
             "network_id".to_string() => "localnet".to_string(),
-            "rpc_api_url".to_string() => "http://127.0.0.1:8899".to_string(),
-            "payer_keypair_json".to_string() => DEFAULT_SOLANA_KEYPAIR_PATH.clone(),
-            "authority_keypair_json".to_string() => DEFAULT_SOLANA_KEYPAIR_PATH.clone(),
+            "rpc_api_url".to_string() => format!("http://{}:{}", DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT),
         },
     );
     manifest.environments.insert(
@@ -283,7 +285,7 @@ pub fn scaffold_iac_layout(
                 format!("Failed to create Runbook README {}: {e}", readme_file_path)
             })?;
             let readme_file_data = build_manifest_data(&manifest);
-            let template = mustache::compile_str(TXTX_README_TEMPLATE)
+            let template = mustache::compile_str(SURFPOOL_README_TEMPLATE)
                 .map_err(|e| format!("Failed to generate Runbook README: {e}"))?;
             template
                 .render_data(&mut readme_file, &readme_file_data)

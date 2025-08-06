@@ -3,13 +3,14 @@ use std::str::FromStr;
 use itertools::Itertools;
 use jsonrpc_core::{BoxFuture, Error, Result};
 use jsonrpc_derive::rpc;
-use solana_account_decoder::{encode_ui_account, UiAccountEncoding};
+use litesvm::types::TransactionMetadata;
+use solana_account_decoder::UiAccount;
 use solana_client::{
     rpc_config::{
-        RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig, RpcEncodingConfigWrapper,
-        RpcEpochConfig, RpcRequestAirdropConfig, RpcSendTransactionConfig,
-        RpcSignatureStatusConfig, RpcSignaturesForAddressConfig, RpcSimulateTransactionConfig,
-        RpcTransactionConfig,
+        RpcAccountInfoConfig, RpcBlockConfig, RpcBlocksConfigWrapper, RpcContextConfig,
+        RpcEncodingConfigWrapper, RpcEpochConfig, RpcRequestAirdropConfig,
+        RpcSendTransactionConfig, RpcSignatureStatusConfig, RpcSignaturesForAddressConfig,
+        RpcSimulateTransactionConfig, RpcTransactionConfig,
     },
     rpc_custom_error::RpcCustomError,
     rpc_response::{
@@ -18,7 +19,7 @@ use solana_client::{
         RpcSimulateTransactionResult,
     },
 };
-use solana_clock::{Slot, UnixTimestamp};
+use solana_clock::{MAX_RECENT_BLOCKHASHES, Slot, UnixTimestamp};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
@@ -26,9 +27,11 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{
     compute_budget::{self, ComputeBudgetInstruction},
     instruction::CompiledInstruction,
+    system_program,
 };
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
+use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatus,
     UiConfirmedBlock, UiTransactionEncoding,
@@ -36,14 +39,14 @@ use solana_transaction_status::{
 use surfpool_types::{SimnetCommand, TransactionStatusEvent};
 
 use super::{
-    not_implemented_err, not_implemented_err_async,
-    utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
     RunloopContext, State, SurfnetRpcContext,
+    utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    surfnet::{locker::SvmAccessContext, GetTransactionResult, FINALIZATION_SLOT_THRESHOLD},
-    types::{SurfnetTransactionStatus, TransactionWithStatusMeta},
+    rpc::utils::{adjust_default_transaction_config, get_default_transaction_config},
+    surfnet::{FINALIZATION_SLOT_THRESHOLD, GetTransactionResult, locker::SvmAccessContext},
+    types::{SurfnetTransactionStatus, surfpool_tx_metadata_to_litesvm_tx_metadata},
 };
 
 const MAX_PRIORITIZATION_FEE_BLOCKS_CACHE: usize = 150;
@@ -718,7 +721,7 @@ pub trait Full {
     /// {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
-    ///   "result": 1620000000
+    ///   "result": 1752080472
     /// }
     /// ```
     ///
@@ -1442,19 +1445,22 @@ impl Full for SurfpoolFullRpc {
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context::<Option<UiTransactionEncoding>>(None) {
+        } = match meta.get_rpc_context(()) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
+        let remote_client = remote_ctx.map(|(r, _)| r);
 
         Box::pin(async move {
             let mut responses = Vec::with_capacity(signatures.len());
             let mut last_latest_absolute_slot = 0;
             for signature in signatures.into_iter() {
-                let res = svm_locker.get_transaction(&remote_ctx, &signature).await;
+                let res = svm_locker
+                    .get_transaction(&remote_client, &signature, get_default_transaction_config())
+                    .await?;
 
-                last_latest_absolute_slot = res.slot;
-                responses.push(res.inner.map_some_transaction_status());
+                last_latest_absolute_slot = svm_locker.get_latest_absolute_slot();
+                responses.push(res.map_some_transaction_status());
             }
             Ok(RpcResponse {
                 context: RpcResponseContext::new(last_latest_absolute_slot),
@@ -1523,27 +1529,55 @@ impl Full for SurfpoolFullRpc {
             .map_err(|_| RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             })?;
+
         match status_update_rx.recv() {
-            Ok(TransactionStatusEvent::SimulationFailure(e)) => {
+            Ok(TransactionStatusEvent::SimulationFailure((error, metadata))) => {
                 return Err(Error {
-                    data: None,
+                    data: Some(
+                        serde_json::to_value(get_simulate_transaction_result(
+                            surfpool_tx_metadata_to_litesvm_tx_metadata(&metadata),
+                            None,
+                            Some(error.clone()),
+                            None,
+                            false,
+                        ))
+                        .map_err(|e| {
+                            Error::invalid_params(format!(
+                                "Failed to serialize simulation result: {e}"
+                            ))
+                        })?,
+                    ),
                     message: format!(
-                        "Transaction simulation failed: {}: {} log messages:\n{}",
-                        e.0,
-                        e.1.logs.len(),
-                        e.1.logs.iter().map(|l| l.to_string()).join("\n")
+                        "Transaction simulation failed: {}{}",
+                        error,
+                        if metadata.logs.is_empty() {
+                            String::new()
+                        } else {
+                            format!(
+                                ": {} log messages:\n{}",
+                                metadata.logs.len(),
+                                metadata.logs.iter().map(|l| l.to_string()).join("\n")
+                            )
+                        }
                     ),
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
             }
-            Ok(TransactionStatusEvent::ExecutionFailure(e)) => {
+            Ok(TransactionStatusEvent::ExecutionFailure((error, metadata))) => {
                 return Err(Error {
                     data: None,
                     message: format!(
-                        "Transaction execution failed: {}: {} log messages:\n{}",
-                        e.0,
-                        e.1.logs.len(),
-                        e.1.logs.iter().map(|l| l.to_string()).join("\n")
+                        "Transaction execution failed: {}{}",
+                        error,
+                        if metadata.logs.is_empty() {
+                            String::new()
+                        } else {
+                            format!(
+                                ": {} log messages:\n{}",
+                                metadata.logs.len(),
+                                metadata.logs.iter().map(|l| l.to_string()).join("\n")
+                            )
+                        }
                     ),
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
@@ -1574,6 +1608,11 @@ impl Full for SurfpoolFullRpc {
         config: Option<RpcSimulateTransactionConfig>,
     ) -> BoxFuture<Result<RpcResponse<RpcSimulateTransactionResult>>> {
         let config = config.unwrap_or_default();
+
+        if config.sig_verify && config.replace_recent_blockhash {
+            return SurfpoolError::sig_verify_replace_recent_blockhash_collision().into();
+        }
+
         let tx_encoding = config.encoding.unwrap_or(UiTransactionEncoding::Base58);
         let binary_encoding = tx_encoding
             .into_binary_encoding()
@@ -1583,7 +1622,7 @@ impl Full for SurfpoolFullRpc {
                 ))
             })
             .unwrap();
-        let (_, unsanitized_tx) =
+        let (_, mut unsanitized_tx) =
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding).unwrap();
 
         let SurfnetRpcContext {
@@ -1595,9 +1634,11 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            let pubkeys = svm_locker
-                .get_pubkeys_from_message(&remote_ctx, &unsanitized_tx.message)
+            let loaded_addresses = svm_locker
+                .get_loaded_addresses(&remote_ctx, &unsanitized_tx.message)
                 .await?;
+            let pubkeys =
+                svm_locker.get_pubkeys_from_message(&unsanitized_tx.message, loaded_addresses);
 
             let SvmAccessContext {
                 slot,
@@ -1610,10 +1651,20 @@ impl Full for SurfpoolFullRpc {
 
             svm_locker.write_multiple_account_updates(&account_updates);
 
-            let replacement_blockhash = Some(RpcBlockhash {
-                blockhash: latest_blockhash.to_string(),
-                last_valid_block_height: latest_epoch_info.block_height,
-            });
+            let replacement_blockhash = if config.replace_recent_blockhash {
+                match &mut unsanitized_tx.message {
+                    VersionedMessage::Legacy(message) => {
+                        message.recent_blockhash = latest_blockhash
+                    }
+                    VersionedMessage::V0(message) => message.recent_blockhash = latest_blockhash,
+                }
+                Some(RpcBlockhash {
+                    blockhash: latest_blockhash.to_string(),
+                    last_valid_block_height: latest_epoch_info.block_height,
+                })
+            } else {
+                None
+            };
 
             let value = match svm_locker.simulate_transaction(unsanitized_tx, config.sig_verify) {
                 Ok(tx_info) => {
@@ -1624,47 +1675,37 @@ impl Full for SurfpoolFullRpc {
                             let mut ui_account = None;
                             for (updated_pubkey, account) in tx_info.post_accounts.iter() {
                                 if observed_pubkey.eq(&updated_pubkey.to_string()) {
-                                    ui_account = Some(encode_ui_account(
-                                        updated_pubkey,
-                                        account,
-                                        UiAccountEncoding::Base64,
-                                        None,
-                                        None,
-                                    ));
+                                    ui_account = Some(
+                                        svm_locker
+                                            .account_to_rpc_keyed_account(
+                                                &*updated_pubkey,
+                                                account,
+                                                &RpcAccountInfoConfig::default(),
+                                                None,
+                                            )
+                                            .account,
+                                    );
                                 }
                             }
                             ui_accounts.push(ui_account);
                         }
                         accounts = Some(ui_accounts);
                     }
-
-                    RpcSimulateTransactionResult {
-                        err: None,
-                        logs: Some(tx_info.meta.logs.clone()),
+                    get_simulate_transaction_result(
+                        tx_info.meta,
                         accounts,
-                        units_consumed: Some(tx_info.meta.compute_units_consumed),
-                        return_data: Some(tx_info.meta.return_data.clone().into()),
-                        inner_instructions: if config.inner_instructions {
-                            Some(transform_tx_metadata_to_ui_accounts(&tx_info.meta))
-                        } else {
-                            None
-                        },
+                        None,
                         replacement_blockhash,
-                    }
+                        config.inner_instructions,
+                    )
                 }
-                Err(tx_info) => RpcSimulateTransactionResult {
-                    err: Some(tx_info.err),
-                    logs: Some(tx_info.meta.logs.clone()),
-                    accounts: None,
-                    units_consumed: Some(tx_info.meta.compute_units_consumed),
-                    return_data: Some(tx_info.meta.return_data.clone().into()),
-                    inner_instructions: if config.inner_instructions {
-                        Some(transform_tx_metadata_to_ui_accounts(&tx_info.meta))
-                    } else {
-                        None
-                    },
+                Err(tx_info) => get_simulate_transaction_result(
+                    tx_info.meta,
+                    None,
+                    Some(tx_info.err),
                     replacement_blockhash,
-                },
+                    config.inner_instructions,
+                ),
             };
 
             Ok(RpcResponse {
@@ -1707,22 +1748,42 @@ impl Full for SurfpoolFullRpc {
         slot: Slot,
         config: Option<RpcEncodingConfigWrapper<RpcBlockConfig>>,
     ) -> BoxFuture<Result<Option<UiConfirmedBlock>>> {
+        let config = config.map(|c| c.convert_to_current()).unwrap_or_default();
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(config.commitment) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let remote_client = remote_ctx.as_ref().map(|(client, _)| client.clone());
+            let result = svm_locker.get_block(&remote_client, &slot, &config).await;
+            Ok(result?.inner)
+        })
+    }
+
+    fn get_block_time(
+        &self,
+        meta: Self::Metadata,
+        slot: Slot,
+    ) -> BoxFuture<Result<Option<UnixTimestamp>>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return e.into(),
         };
 
         Box::pin(async move {
-            Ok(svm_locker.with_svm_reader(|svm_reader| svm_reader.get_block_at_slot(slot)))
+            let block_time = svm_locker.with_svm_reader(|svm_reader| {
+                svm_reader
+                    .blocks
+                    .get(&slot)
+                    .map(|block| (block.block_time / 1000) as UnixTimestamp)
+            });
+            Ok(block_time)
         })
-    }
-
-    fn get_block_time(
-        &self,
-        _meta: Self::Metadata,
-        _slot: Slot,
-    ) -> BoxFuture<Result<Option<UnixTimestamp>>> {
-        Box::pin(async { Ok(None) })
     }
 
     fn get_blocks(
@@ -1739,7 +1800,10 @@ impl Full for SurfpoolFullRpc {
         };
 
         let config = config.unwrap_or_default();
-        let commitment = config.commitment.unwrap_or_default();
+        // get blocks should default to processed rather than finalized to default to the most recent
+        let commitment = config.commitment.unwrap_or(CommitmentConfig {
+            commitment: CommitmentLevel::Processed,
+        });
 
         const MAX_SLOT_RANGE: u64 = 500_000;
         if let Some(end) = end_slot {
@@ -1767,47 +1831,32 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            // single read lock acquisition for all local state
-            let (local_min_slot, local_slots, effective_end_slot, committed_latest_slot) =
-                svm_locker.with_svm_reader(|svm_reader| {
-                    let latest_slot = svm_reader.get_latest_absolute_slot();
-                    let committed_latest_slot = match commitment.commitment {
-                        CommitmentLevel::Processed => latest_slot,
-                        CommitmentLevel::Confirmed => latest_slot.saturating_sub(1),
-                        CommitmentLevel::Finalized => {
-                            latest_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
-                        }
-                    };
+            let committed_latest_slot = svm_locker.get_slot_for_commitment(&commitment);
+            let effective_end_slot = end_slot
+                .map(|end| end.min(committed_latest_slot))
+                .unwrap_or(committed_latest_slot);
 
-                    let effective_end_slot = end_slot
-                        .map(|end| end.min(committed_latest_slot))
-                        .unwrap_or(committed_latest_slot);
+            let (local_min_slot, local_slots, effective_end_slot) =
+                if effective_end_slot < start_slot {
+                    (None, vec![], effective_end_slot)
+                } else {
+                    svm_locker.with_svm_reader(|svm_reader| {
+                        let local_min_slot = svm_reader.blocks.keys().min().copied();
 
-                    if effective_end_slot < start_slot {
-                        return (None, vec![], effective_end_slot, committed_latest_slot);
-                    }
+                        let local_slots: Vec<Slot> = svm_reader
+                            .blocks
+                            .keys()
+                            .filter(|&&slot| {
+                                slot >= start_slot
+                                    && slot <= effective_end_slot
+                                    && slot <= committed_latest_slot
+                            })
+                            .copied()
+                            .collect();
 
-                    let local_min_slot = svm_reader.blocks.keys().min().copied();
-
-                    let local_slots: Vec<Slot> = svm_reader
-                        .blocks
-                        .keys()
-                        .filter(|&&slot| {
-                            let in_range = slot >= start_slot
-                                && slot <= effective_end_slot
-                                && slot <= committed_latest_slot;
-                            in_range
-                        })
-                        .copied()
-                        .collect();
-
-                    (
-                        local_min_slot,
-                        local_slots,
-                        effective_end_slot,
-                        committed_latest_slot,
-                    )
-                });
+                        (local_min_slot, local_slots, effective_end_slot)
+                    })
+                };
 
             if let Some(min_context_slot) = config.min_context_slot {
                 if committed_latest_slot < min_context_slot {
@@ -1907,28 +1956,19 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            let (local_min_slot, local_slots, committed_latest_slot) =
-                svm_locker.with_svm_reader(|svm_reader| {
-                    let latest_slot = svm_reader.get_latest_absolute_slot();
-                    let committed_latest_slot = match commitment.commitment {
-                        CommitmentLevel::Processed => latest_slot,
-                        CommitmentLevel::Confirmed => latest_slot.saturating_sub(1),
-                        CommitmentLevel::Finalized => {
-                            latest_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
-                        }
-                    };
+            let committed_latest_slot = svm_locker.get_slot_for_commitment(&commitment);
+            let (local_min_slot, local_slots) = svm_locker.with_svm_reader(|svm_reader| {
+                let local_min_slot = svm_reader.blocks.keys().min().copied();
 
-                    let local_min_slot = svm_reader.blocks.keys().min().copied();
+                let local_slots: Vec<Slot> = svm_reader
+                    .blocks
+                    .keys()
+                    .filter(|&&slot| slot >= start_slot && slot <= committed_latest_slot)
+                    .copied()
+                    .collect();
 
-                    let local_slots: Vec<Slot> = svm_reader
-                        .blocks
-                        .keys()
-                        .filter(|&&slot| slot >= start_slot && slot <= committed_latest_slot)
-                        .copied()
-                        .collect();
-
-                    (local_min_slot, local_slots, committed_latest_slot)
-                });
+                (local_min_slot, local_slots)
+            });
 
             if let Some(min_context_slot) = config.min_context_slot {
                 if committed_latest_slot < min_context_slot {
@@ -1989,30 +2029,23 @@ impl Full for SurfpoolFullRpc {
         signature_str: String,
         config: Option<RpcEncodingConfigWrapper<RpcTransactionConfig>>,
     ) -> BoxFuture<Result<Option<EncodedConfirmedTransactionWithStatusMeta>>> {
-        let config = config.map(|c| c.convert_to_current()).unwrap_or_default();
-
-        let signature = match Signature::from_str(&signature_str)
-            .map_err(|e| SurfpoolError::invalid_signature(&signature_str, e.to_string()))
-        {
-            Ok(s) => s,
-            Err(e) => return e.into(),
-        };
-
-        let SurfnetRpcContext {
-            svm_locker,
-            remote_ctx,
-        } = match meta.get_rpc_context(config.encoding) {
-            Ok(res) => res,
-            Err(e) => return e.into(),
-        };
+        let mut config = config.map(|c| c.convert_to_current()).unwrap_or_default();
+        adjust_default_transaction_config(&mut config);
 
         Box::pin(async move {
+            let signature = Signature::from_str(&signature_str)
+                .map_err(|e| SurfpoolError::invalid_signature(&signature_str, e.to_string()))?;
+
+            let SurfnetRpcContext {
+                svm_locker,
+                remote_ctx,
+            } = meta.get_rpc_context(())?;
+
             // TODO: implement new interfaces in LiteSVM to get all the relevant info
             // needed to return the actual tx, not just some metadata
             match svm_locker
-                .get_transaction(&remote_ctx, &signature)
-                .await
-                .inner
+                .get_transaction(&remote_ctx.map(|(r, _)| r), &signature, config)
+                .await?
             {
                 GetTransactionResult::None(_) => Ok(None),
                 GetTransactionResult::FoundTransaction(_, meta, _) => Ok(Some(meta)),
@@ -2060,7 +2093,8 @@ impl Full for SurfpoolFullRpc {
         _config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<RpcBlockhash>> {
         meta.with_svm_reader(|svm_reader| {
-            let last_valid_block_height = svm_reader.latest_epoch_info.block_height;
+            let last_valid_block_height =
+                svm_reader.latest_epoch_info.block_height + MAX_RECENT_BLOCKHASHES as u64;
             let value = RpcBlockhash {
                 blockhash: svm_reader.latest_blockhash().to_string(),
                 last_valid_block_height,
@@ -2082,50 +2116,30 @@ impl Full for SurfpoolFullRpc {
         blockhash: String,
         config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<bool>> {
-        // parse the blockhash string
         let hash = blockhash
             .parse::<solana_hash::Hash>()
             .map_err(|e| Error::invalid_params(format!("Invalid blockhash: {e:?}")))?;
+        let config = config.unwrap_or_default();
 
         let svm_locker = meta.get_svm_locker()?;
 
-        // get current state and determine effective slot based on commitment level
-        let (is_valid, _current_slot, committed_slot) = svm_locker.with_svm_reader(|svm| {
-            let current_slot = svm.get_latest_absolute_slot();
+        let committed_latest_slot =
+            svm_locker.get_slot_for_commitment(&config.commitment.unwrap_or_default());
 
-            let committed_slot = if let Some(ref config) = config {
-                if let Some(ref commitment_config) = config.commitment {
-                    match commitment_config.commitment {
-                        CommitmentLevel::Processed => current_slot,
-                        CommitmentLevel::Confirmed => current_slot.saturating_sub(1),
-                        CommitmentLevel::Finalized => {
-                            current_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD)
-                        }
-                    }
-                } else {
-                    current_slot
+        let is_valid =
+            svm_locker.with_svm_reader(|svm_reader| svm_reader.check_blockhash_is_recent(&hash));
+
+        if let Some(min_context_slot) = config.min_context_slot {
+            if committed_latest_slot < min_context_slot {
+                return Err(RpcCustomError::MinContextSlotNotReached {
+                    context_slot: min_context_slot,
                 }
-            } else {
-                current_slot
-            };
-
-            let is_valid = svm.check_blockhash_is_recent(&hash);
-            (is_valid, current_slot, committed_slot)
-        });
-
-        if let Some(ref config) = config {
-            if let Some(min_context_slot) = config.min_context_slot {
-                if committed_slot < min_context_slot {
-                    return Err(RpcCustomError::MinContextSlotNotReached {
-                        context_slot: min_context_slot,
-                    }
-                    .into());
-                }
+                .into());
             }
         }
 
         Ok(RpcResponse {
-            context: RpcResponseContext::new(committed_slot),
+            context: RpcResponseContext::new(committed_latest_slot),
             value: is_valid,
         })
     }
@@ -2210,7 +2224,6 @@ impl Full for SurfpoolFullRpc {
                 .into_iter()
                 .sorted_by_key(|(slot, _)| std::cmp::Reverse(*slot))
                 .take(MAX_PRIORITIZATION_FEE_BLOCKS_CACHE)
-                .map(|(slot, header)| (slot, header))
                 .collect::<Vec<_>>();
 
             // Flatten the transactions map to get all transactions in the recent blocks
@@ -2229,19 +2242,16 @@ impl Full for SurfpoolFullRpc {
                 .collect::<Vec<_>>();
 
             // Helper function to extract compute unit price from a CompiledInstruction
-            fn get_compute_unit_price(
-                ix: CompiledInstruction,
-                accounts: &Vec<Pubkey>,
-            ) -> Option<u64> {
+            fn get_compute_unit_price(ix: CompiledInstruction, accounts: &[Pubkey]) -> Option<u64> {
                 let program_account = accounts.get(ix.program_id_index as usize)?;
                 if *program_account != compute_budget::id() {
                     return None;
                 }
 
-                if let Ok(parsed_instr) = borsh::from_slice::<ComputeBudgetInstruction>(&ix.data) {
-                    if let ComputeBudgetInstruction::SetComputeUnitPrice(price) = parsed_instr {
-                        return Some(price);
-                    }
+                if let Ok(ComputeBudgetInstruction::SetComputeUnitPrice(price)) =
+                    borsh::from_slice::<ComputeBudgetInstruction>(&ix.data)
+                {
+                    return Some(price);
                 }
 
                 None
@@ -2252,14 +2262,16 @@ impl Full for SurfpoolFullRpc {
                 match tx {
                     SurfnetTransactionStatus::Received => {}
                     SurfnetTransactionStatus::Processed(status_meta) => {
-                        let tx = &status_meta.1;
+                        let tx = &status_meta.transaction;
 
                         // If the transaction has an ALT and includes a compute budget instruction,
                         // the ALT accounts are included in the recent prioritization fees,
                         // so we get _all_ the pubkeys from the message
-                        let account_keys = svm_locker
-                            .get_pubkeys_from_message(&remote_ctx, &tx.message)
+                        let loaded_addresses = svm_locker
+                            .get_loaded_addresses(&remote_ctx, &tx.message)
                             .await?;
+                        let account_keys =
+                            svm_locker.get_pubkeys_from_message(&tx.message, loaded_addresses);
 
                         let instructions = match &tx.message {
                             VersionedMessage::V0(msg) => &msg.instructions,
@@ -2297,22 +2309,48 @@ impl Full for SurfpoolFullRpc {
     }
 }
 
+fn get_simulate_transaction_result(
+    metadata: TransactionMetadata,
+    accounts: Option<Vec<Option<UiAccount>>>,
+    error: Option<TransactionError>,
+    replacement_blockhash: Option<RpcBlockhash>,
+    include_inner_instructions: bool,
+) -> RpcSimulateTransactionResult {
+    RpcSimulateTransactionResult {
+        accounts,
+        err: error,
+        inner_instructions: if include_inner_instructions {
+            Some(transform_tx_metadata_to_ui_accounts(metadata.clone()))
+        } else {
+            None
+        },
+        logs: Some(metadata.logs.clone()),
+        replacement_blockhash,
+        return_data: if metadata.return_data.program_id == system_program::id()
+            && metadata.return_data.data.len() == 0
+        {
+            None
+        } else {
+            Some(metadata.return_data.clone().into())
+        },
+        units_consumed: Some(metadata.compute_units_consumed),
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
     use std::thread::JoinHandle;
 
-    use base64::{prelude::BASE64_STANDARD, Engine};
+    use base64::{Engine, prelude::BASE64_STANDARD};
     use crossbeam_channel::Receiver;
-    use solana_account_decoder::{UiAccount, UiAccountData};
+    use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
     use solana_commitment_config::CommitmentConfig;
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::{
-        legacy::Message as LegacyMessage,
-        v0::{self, Message as V0Message},
-        MessageHeader,
+        MessageHeader, legacy::Message as LegacyMessage, v0::Message as V0Message,
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
@@ -2322,20 +2360,20 @@ mod tests {
     use solana_signer::Signer;
     use solana_system_interface::program as system_program;
     use solana_transaction::{
-        versioned::{Legacy, TransactionVersion},
         Transaction,
+        versioned::{Legacy, TransactionVersion},
     };
     use solana_transaction_error::TransactionError;
     use solana_transaction_status::{
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
         UiRawMessage, UiTransaction,
     };
-    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus, TransactionMetadata};
+    use surfpool_types::{SimnetCommand, TransactionConfirmationStatus};
     use test_case::test_case;
 
     use super::*;
     use crate::{
-        surfnet::{remote::SurfnetRemoteClient, BlockHeader, BlockIdentifier},
+        surfnet::{BlockHeader, BlockIdentifier, remote::SurfnetRemoteClient},
         tests::helpers::TestSetup,
         types::TransactionWithStatusMeta,
     };
@@ -2396,12 +2434,11 @@ mod tests {
                     .push_back((tx.clone(), status_tx.clone()));
                 writer.transactions.insert(
                     tx.signatures[0],
-                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta(
+                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta {
                         slot,
-                        tx,
-                        TransactionMetadata::default(),
-                        None,
-                    ))),
+                        transaction: tx,
+                        ..Default::default()
+                    })),
                 );
                 status_tx
                     .send(TransactionStatusEvent::Success(
@@ -2810,6 +2847,111 @@ mod tests {
         );
     }
 
+    #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
+    #[test_case(TransactionVersion::Number(0) ; "V0 transactions")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_simulate_transaction_replace_recent_blockhash(version: TransactionVersion) {
+        let payer = Keypair::new();
+        let pk = Pubkey::new_unique();
+        let lamports = LAMPORTS_PER_SOL;
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let recent_blockhash = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+        let block_height = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.block_height);
+        let bad_blockhash = Hash::new_unique();
+
+        let _ = setup
+            .rpc
+            .request_airdrop(
+                Some(setup.context.clone()),
+                payer.pubkey().to_string(),
+                2 * lamports,
+                None,
+            )
+            .unwrap();
+
+        let mut tx = match version {
+            TransactionVersion::Legacy(_) => build_legacy_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
+            ),
+            TransactionVersion::Number(0) => build_v0_transaction(
+                &payer.pubkey(),
+                &[&payer.insecure_clone()],
+                &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+                &recent_blockhash,
+            ),
+            _ => unimplemented!(),
+        };
+        match &mut tx.message {
+            VersionedMessage::Legacy(msg) => {
+                msg.recent_blockhash = bad_blockhash;
+            }
+            VersionedMessage::V0(msg) => {
+                msg.recent_blockhash = bad_blockhash;
+            }
+        }
+
+        let invalid_config = RpcSimulateTransactionConfig {
+            sig_verify: true,
+            replace_recent_blockhash: true,
+            commitment: Some(CommitmentConfig::finalized()),
+            encoding: None,
+            accounts: Some(RpcSimulateTransactionAccountsConfig {
+                encoding: None,
+                addresses: vec![pk.to_string()],
+            }),
+            min_context_slot: None,
+            inner_instructions: false,
+        };
+        let err = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context.clone()),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(invalid_config.clone()),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            err.message, "sigVerify may not be used with replaceRecentBlockhash",
+            "sigVerify should not be allowed to be used with replaceRecentBlockhash"
+        );
+
+        let mut valid_config = invalid_config;
+        valid_config.sig_verify = false;
+        let simulation_res = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context),
+                bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+                Some(valid_config),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            simulation_res.value.err, None,
+            "Unexpected simulation error"
+        );
+        assert_eq!(
+            simulation_res.value.replacement_blockhash,
+            Some(RpcBlockhash {
+                blockhash: recent_blockhash.to_string(),
+                last_valid_block_height: block_height
+            }),
+            "Replacement blockhash should be the latest blockhash"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_block() {
         let setup = TestSetup::new(SurfpoolFullRpc);
@@ -2822,7 +2964,7 @@ mod tests {
         assert_eq!(res, None);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_block_time() {
         let setup = TestSetup::new(SurfpoolFullRpc);
         let res = setup
@@ -2880,7 +3022,9 @@ mod tests {
             .get_transaction(
                 Some(setup.context.clone()),
                 tx.signatures[0].to_string(),
-                None,
+                Some(RpcEncodingConfigWrapper::Current(Some(
+                    get_default_transaction_config(),
+                ))),
             )
             .await
             .unwrap()
@@ -2902,7 +3046,7 @@ mod tests {
         assert_eq!(
             res,
             EncodedConfirmedTransactionWithStatusMeta {
-                slot: 0,
+                slot: 123,
                 transaction: EncodedTransactionWithStatusMeta {
                     transaction: EncodedTransaction::Json(UiTransaction {
                         signatures: vec![tx.signatures[0].to_string()],
@@ -2986,16 +3130,28 @@ mod tests {
             .rpc
             .get_latest_blockhash(Some(setup.context.clone()), None)
             .unwrap();
-
+        let expected_blockhash = setup
+            .context
+            .svm_locker
+            .0
+            .blocking_read()
+            .latest_blockhash();
+        let expected_last_valid_block_height = setup
+            .context
+            .svm_locker
+            .0
+            .blocking_read()
+            .latest_epoch_info
+            .block_height
+            + MAX_RECENT_BLOCKHASHES as u64;
         assert_eq!(
             res.value.blockhash,
-            setup
-                .context
-                .svm_locker
-                .0
-                .blocking_read()
-                .latest_blockhash()
-                .to_string()
+            expected_blockhash.to_string(),
+            "Latest blockhash does not match expected value"
+        );
+        assert_eq!(
+            res.value.last_valid_block_height, expected_last_valid_block_height,
+            "Last valid block height does not match expected value"
         );
     }
 
@@ -3530,7 +3686,6 @@ mod tests {
 
         {
             let mut svm_writer = setup.context.svm_locker.0.write().await;
-
             for slot in 100..=110 {
                 svm_writer.blocks.insert(
                     slot,
@@ -3544,7 +3699,6 @@ mod tests {
                     },
                 );
             }
-
             svm_writer.latest_epoch_info.absolute_slot = 110;
         }
 
@@ -3556,7 +3710,7 @@ mod tests {
                 100,
                 Some(RpcBlocksConfigWrapper::EndSlotOnly(Some(105))),
                 Some(RpcContextConfig {
-                    commitment: None,
+                    commitment: Some(CommitmentConfig::finalized()),
                     min_context_slot: Some(105),
                 }),
             )
@@ -3642,26 +3796,6 @@ mod tests {
         });
     }
 
-    // helper to set up SVM state with proper latest_slot
-    fn setup_svm_state(setup: &TestSetup<SurfpoolFullRpc>, latest_slot: Slot, blocks: Vec<Slot>) {
-        // set latest_slot first
-        setup.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer.latest_epoch_info.absolute_slot = latest_slot;
-            println!("🔧 Set latest_slot to {}", latest_slot);
-        });
-
-        // then insert blocks
-        insert_test_blocks(setup, blocks);
-
-        let (local_min, local_max, current_latest) =
-            setup.context.svm_locker.with_svm_reader(|svm_reader| {
-                let min = svm_reader.blocks.keys().min().copied();
-                let max = svm_reader.blocks.keys().max().copied();
-                let latest = svm_reader.get_latest_absolute_slot();
-                (min, max, latest)
-            });
-    }
-
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_blocks_local_only() {
         let setup = TestSetup::new(SurfpoolFullRpc);
@@ -3718,7 +3852,6 @@ mod tests {
 
         let local_min = setup.context.svm_locker.with_svm_reader(|svm_reader| {
             let min = svm_reader.blocks.keys().min().copied();
-            let all_blocks: Vec<_> = svm_reader.blocks.keys().copied().collect();
             min
         });
         assert_eq!(local_min, Some(50), "Local minimum should be slot 50");
@@ -4213,7 +4346,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_minimum_ledger_slot_no_context_fails() {
+    async fn test_minimum_ledger_slot_missing_context_fails() {
         // fail gracefully when called without metadata context
         let setup = TestSetup::new(SurfpoolFullRpc);
 

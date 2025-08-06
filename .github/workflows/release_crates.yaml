@@ -1,0 +1,96 @@
+name: Publish Rust Crates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - ci/release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-binstall
+        run: curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+
+      - name: Install tq
+        run: cargo binstall -y tomlq
+
+      - name: Cache Cargo registry and index
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+ 
+      - name: Login to crates.io
+        if: github.event_name == 'push'
+        run: cargo login ${{ secrets.CRATES_API_TOKEN }}
+
+      - name: Write resolved versions to file
+        run: | 
+          jq -r '.packages[] | select(.source == null) | "\(.name) \(.version)"' < <(cargo metadata --format-version=1) > resolved_versions.txt
+
+
+      - name: Publish Crates
+        run: |
+          ROOT_VERSION=$(tq -f Cargo.toml .package.version | sed 's/"//g')
+          for manifest in crates/types/Cargo.toml crates/core/Cargo.toml crates/db/Cargo.toml crates/gql/Cargo.toml crates/subgraph/Cargo.toml crates/studio/Cargo.toml; do
+            if [ -f "$manifest" ]; then
+              echo "Checking $manifest for changes..."
+              
+              CRATE_NAME=$(tq -f "$manifest" .package.name | sed 's/"//g') # remove quotes around package name
+              VERSION=$(tq -f "$manifest" .package.version)
+              # if VERSION is { workspace = true }, use the root version
+              if [ "$VERSION" = "{ workspace = true }" ]; then
+                VERSION="$ROOT_VERSION"
+              fi
+
+              if cargo search -q "$CRATE_NAME" | grep "$VERSION"; then
+                echo "$CRATE_NAME ($manifest) is already published with version $VERSION, skipping..."
+                continue
+              fi
+
+              # Resolve dependencies
+              while IFS= read -r dep; do
+                DEP_NAME=$(echo "$dep" | awk '{print $1}')
+                RESOLVED_VERSION=$(echo "$dep" | awk '{print $2}')
+
+                # Check if resolved version exists on crates.io
+                if cargo search -q "$DEP_NAME" --limit 1 | grep -q "$RESOLVED_VERSION"; then
+                  FINAL_VERSION="$RESOLVED_VERSION"
+                else
+                  # Get the latest published version from crates.io
+                  FINAL_VERSION=$(cargo search -q "$DEP_NAME" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+                  echo "Resolved version $RESOLVED_VERSION for $DEP_NAME is not published. Using latest published version $FINAL_VERSION instead."
+                fi
+
+                # Replace workspace dependencies with the determined version
+                  sed -i "s|${DEP_NAME} = { workspace = true }|${DEP_NAME} = \"$FINAL_VERSION\"|" "$manifest"
+                  sed -i "s|${DEP_NAME} = { workspace = true, default-features = false }|${DEP_NAME} = \"$FINAL_VERSION\"|" "$manifest"
+                  sed -i "s|${DEP_NAME} = { path = \"../types\" }|${DEP_NAME} = \"$FINAL_VERSION\"|" "$manifest"
+
+              done < resolved_versions.txt
+
+              echo "Publishing $CRATE_NAME from $manifest..."
+              if [ "${{ github.event_name }}" = "pull_request" ]; then
+                cargo publish --package $CRATE_NAME --dry-run --allow-dirty
+              else
+                cargo publish --package $CRATE_NAME --allow-dirty
+              fi
+            else
+              echo "Skipping $manifest, Cargo.toml not found."
+            fi
+          done
+        env:
+          CRATES_API_TOKEN: ${{ secrets.CRATES_API_TOKEN }}
+

@@ -1,26 +1,25 @@
 use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{
-    parse_account_data::SplTokenAdditionalDataV2,
-    parse_token::{parse_token_v3, TokenAccountType, UiTokenAmount},
     UiAccount,
+    parse_account_data::SplTokenAdditionalDataV2,
+    parse_token::{TokenAccountType, UiTokenAmount, parse_token_v3},
 };
 use solana_client::{
     rpc_config::RpcAccountInfoConfig,
     rpc_response::{RpcBlockCommitment, RpcResponseContext},
 };
 use solana_clock::Slot;
-use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
+use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_runtime::commitment::BlockCommitmentArray;
-use solana_sdk::program_pack::Pack;
-use spl_token::state::{Account as TokenAccount, Mint};
 
-use super::{not_implemented_err, RunloopContext, SurfnetRpcContext};
+use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    rpc::{utils::verify_pubkey, State},
-    surfnet::{locker::SvmAccessContext, GetAccountResult},
+    rpc::{State, utils::verify_pubkey},
+    surfnet::locker::{SvmAccessContext, is_supported_token_program},
+    types::{MintAccount, TokenAccount},
 };
 
 #[rpc]
@@ -379,18 +378,26 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
             svm_locker.write_account_update(account_update.clone());
 
-            let SvmAccessContext {
-                inner: associated_data,
-                ..
-            } = svm_locker.get_local_account_associated_data(&account_update);
+            let ui_account = if let Some(((pubkey, account), token_data)) =
+                account_update.map_account_with_token_data()
+            {
+                Some(
+                    svm_locker
+                        .account_to_rpc_keyed_account(
+                            &pubkey,
+                            &account,
+                            &config,
+                            token_data.map(|(mint, _)| mint),
+                        )
+                        .account,
+                )
+            } else {
+                None
+            };
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
-                value: account_update.try_into_ui_account(
-                    config.encoding,
-                    config.data_slice,
-                    associated_data,
-                ),
+                value: ui_account,
             })
         })
     }
@@ -431,14 +438,24 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             svm_locker.write_multiple_account_updates(&account_updates);
 
             let mut ui_accounts = vec![];
-            {
-                for account_update in account_updates.into_iter() {
-                    ui_accounts.push(account_update.try_into_ui_account(
-                        config.encoding,
-                        config.data_slice,
-                        None,
+
+            for account_update in account_updates.into_iter() {
+                if let Some(((pubkey, account), token_data)) =
+                    account_update.map_account_with_token_data()
+                {
+                    ui_accounts.push(Some(
+                        svm_locker
+                            .account_to_rpc_keyed_account(
+                                &pubkey,
+                                &account,
+                                &config,
+                                token_data.map(|(mint, _)| mint),
+                            )
+                            .account,
                     ));
-                }
+                } else {
+                    ui_accounts.push(None);
+                };
             }
 
             Ok(RpcResponse {
@@ -512,35 +529,44 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
             let token_account = token_account_result.map_account()?;
 
-            let unpacked_token_account =
-                TokenAccount::unpack(&token_account.data).map_err(|e| {
-                    SurfpoolError::invalid_account_data(
-                        pubkey,
-                        "Invalid token account data",
-                        Some(e.to_string()),
-                    )
-                })?;
+            let (mint_pubkey, _amount) = if is_supported_token_program(&token_account.owner) {
+                let unpacked_token_account = TokenAccount::unpack(&token_account.data)?;
+                (
+                    unpacked_token_account.mint(),
+                    unpacked_token_account.amount(),
+                )
+            } else {
+                return Err(SurfpoolError::invalid_account_data(
+                    pubkey,
+                    "Account is not owned by Token or Token-2022 program",
+                    None::<String>,
+                )
+                .into());
+            };
 
             let SvmAccessContext {
                 slot,
                 inner: mint_account_result,
                 ..
             } = svm_locker
-                .get_account(&remote_ctx, &unpacked_token_account.mint, None)
+                .get_account(&remote_ctx, &mint_pubkey, None)
                 .await?;
 
             svm_locker.write_account_update(mint_account_result.clone());
 
             let mint_account = mint_account_result.map_account()?;
-            let unpacked_mint_account = Mint::unpack(&mint_account.data).map_err(|e| {
-                SurfpoolError::invalid_account_data(
-                    unpacked_token_account.mint,
-                    "Invalid token mint account data",
-                    Some(e.to_string()),
-                )
-            })?;
 
-            let token_decimals = unpacked_mint_account.decimals;
+            let token_decimals = if is_supported_token_program(&mint_account.owner) {
+                let unpacked_mint_account = MintAccount::unpack(&mint_account.data)?;
+                unpacked_mint_account.decimals()
+            } else {
+                return Err(SurfpoolError::invalid_account_data(
+                    mint_pubkey,
+                    "Mint account is not owned by Token or Token-2022 program",
+                    None::<String>,
+                )
+                .into());
+            };
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
@@ -594,8 +620,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
             let mint_account = mint_account_result.map_account()?;
 
-            if !matches!(mint_account.owner, owner if owner == spl_token::id() || owner == spl_token_2022::id())
-            {
+            if !is_supported_token_program(&mint_account.owner) {
                 return Err(SurfpoolError::invalid_account_data(
                     mint_pubkey,
                     "Account is not a token mint account",
@@ -604,13 +629,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                 .into());
             }
 
-            let mint_data = Mint::unpack(&mint_account.data).map_err(|e| {
-                SurfpoolError::invalid_account_data(
-                    mint_pubkey,
-                    "Invalid token mint account data",
-                    Some(e.to_string()),
-                )
-            })?;
+            let mint_data = MintAccount::unpack(&mint_account.data)?;
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
@@ -618,7 +637,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                     parse_token_v3(
                         &mint_account.data,
                         Some(&SplTokenAdditionalDataV2 {
-                            decimals: mint_data.decimals,
+                            decimals: mint_data.decimals(),
                             ..Default::default()
                         }),
                     )
@@ -658,7 +677,6 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 #[cfg(test)]
 mod tests {
     use solana_account::Account;
-    use solana_client::rpc_client::RpcClient;
     use solana_keypair::Keypair;
     use solana_pubkey::Pubkey;
     use solana_sdk::{
@@ -670,18 +688,11 @@ mod tests {
         get_associated_token_address_with_program_id, instruction::create_associated_token_account,
     };
     use spl_token::state::{Account as TokenAccount, AccountState, Mint};
-    use spl_token_2022::{
-        extension::StateWithExtensions,
-        instruction::{initialize_mint2, mint_to, transfer_checked},
-        state::Account as Token2022Account,
-    };
+    use spl_token_2022::instruction::{initialize_mint2, mint_to, transfer_checked};
 
     use super::*;
     use crate::{
-        surfnet::{
-            remote::{SomeRemoteCtx, SurfnetRemoteClient},
-            GetAccountResult,
-        },
+        surfnet::{GetAccountResult, remote::SurfnetRemoteClient},
         tests::helpers::TestSetup,
     };
 
@@ -833,7 +844,7 @@ mod tests {
         let result = setup.rpc.get_block_commitment(None, 123);
 
         assert!(result.is_err());
-        // This should fail because meta is None, triggering the SurfpoolError::no_locker() path
+        // This should fail because meta is None, triggering the SurfpoolError::missing_context() path
     }
 
     #[test]
@@ -1011,10 +1022,8 @@ mod tests {
 
         let error_msg = res.unwrap_err().to_string();
         assert!(
-            error_msg.contains("deserialize")
-                || error_msg.contains("Invalid")
-                || error_msg.contains("parse"),
-            "Error should mention deserialization failure: {}",
+            error_msg.eq("Parse error: Failed to unpack mint account"),
+            "Incorrect error received: {}",
             error_msg
         );
 
@@ -1164,12 +1173,13 @@ mod tests {
             recent_blockhash,
         );
 
-        // Send and confirm transaction
-        client.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer
-                .send_transaction(transaction.clone().into(), false)
-                .unwrap();
-        });
+        let (status_tx, _status_rx) = crossbeam_channel::unbounded();
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.into(), status_tx.clone(), false, true)
+            .await
+            .unwrap();
 
         println!("Mint Address: {}", mint.pubkey());
         println!("Recipient Address: {}", recipient.pubkey());
@@ -1210,46 +1220,280 @@ mod tests {
             recent_blockhash,
         );
 
-        // Send and confirm transaction
-        client.context.svm_locker.with_svm_writer(|svm_writer| {
-            svm_writer
-                .send_transaction(transaction.clone().into(), false)
-                .unwrap();
-        });
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.clone().into(), status_tx, true, true)
+            .await
+            .unwrap();
 
         println!("Successfully transferred 0.50 tokens from sender to recipient");
 
-        // Get token account balances to verify the transfer
-        let source_token_account = client
-            .context
-            .svm_locker
-            .get_account_local(&source_token_address)
-            .inner;
-        let destination_token_account = client
-            .context
-            .svm_locker
-            .get_account_local(&destination_token_address)
-            .inner;
+        let source_balance = client
+            .rpc
+            .get_token_account_balance(
+                Some(client.context.clone()),
+                source_token_address.to_string(),
+                Some(CommitmentConfig::confirmed()),
+            )
+            .await
+            .unwrap();
 
-        if let GetAccountResult::FoundAccount(_, source_account, _) = source_token_account {
-            let unpacked =
-                StateWithExtensions::<Token2022Account>::unpack(&source_account.data).unwrap();
-            println!(
-                "Source Token Account Balance: {} tokens",
-                unpacked.base.amount
-            );
-            assert_eq!(unpacked.base.amount, 9950);
+        let destination_balance = client
+            .rpc
+            .get_token_account_balance(
+                Some(client.context.clone()),
+                destination_token_address.to_string(),
+                Some(CommitmentConfig::confirmed()),
+            )
+            .await
+            .unwrap();
+
+        println!(
+            "Source Token Account Balance: {} tokens ({})",
+            source_balance.value.as_ref().unwrap().ui_amount.unwrap(),
+            source_balance.value.as_ref().unwrap().amount
+        );
+        println!(
+            "Destination Token Account Balance: {} tokens ({})",
+            destination_balance
+                .value
+                .as_ref()
+                .unwrap()
+                .ui_amount
+                .unwrap(),
+            destination_balance.value.as_ref().unwrap().amount
+        );
+
+        assert_eq!(source_balance.value.unwrap().amount, "9950");
+        assert_eq!(destination_balance.value.unwrap().amount, "50");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_account_info() {
+        // Create connection to local validator
+        let client = TestSetup::new(SurfpoolAccountsDataRpc);
+        let recent_blockhash = client
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        // Generate a new keypair for the fee payer
+        let fee_payer = Keypair::new();
+
+        // Generate a second keypair for the token recipient
+        let recipient = Keypair::new();
+
+        // Airdrop 1 SOL to fee payer
+        client
+            .context
+            .svm_locker
+            .airdrop(&fee_payer.pubkey(), 1_000_000_000)
+            .unwrap();
+
+        // Airdrop 1 SOL to recipient for rent exemption
+        client
+            .context
+            .svm_locker
+            .airdrop(&recipient.pubkey(), 1_000_000_000)
+            .unwrap();
+
+        // Generate keypair to use as address of mint
+        let mint = Keypair::new();
+
+        // Get default mint account size (in bytes), no extensions enabled
+        let mint_space = Mint::LEN;
+        let mint_rent = client.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .inner
+                .minimum_balance_for_rent_exemption(mint_space)
+        });
+
+        // Instruction to create new account for mint (token 2022 program)
+        let create_account_instruction = create_account(
+            &fee_payer.pubkey(),   // payer
+            &mint.pubkey(),        // new account (mint)
+            mint_rent,             // lamports
+            mint_space as u64,     // space
+            &spl_token_2022::id(), // program id
+        );
+
+        // Instruction to initialize mint account data
+        let initialize_mint_instruction = initialize_mint2(
+            &spl_token_2022::id(),
+            &mint.pubkey(),            // mint
+            &fee_payer.pubkey(),       // mint authority
+            Some(&fee_payer.pubkey()), // freeze authority
+            2,                         // decimals
+        )
+        .unwrap();
+
+        // Calculate the associated token account address for fee_payer
+        let source_token_address = get_associated_token_address_with_program_id(
+            &fee_payer.pubkey(),   // owner
+            &mint.pubkey(),        // mint
+            &spl_token_2022::id(), // program_id
+        );
+
+        // Instruction to create associated token account for fee_payer
+        let create_source_ata_instruction = create_associated_token_account(
+            &fee_payer.pubkey(),   // funding address
+            &fee_payer.pubkey(),   // wallet address
+            &mint.pubkey(),        // mint address
+            &spl_token_2022::id(), // program id
+        );
+
+        // Calculate the associated token account address for recipient
+        let destination_token_address = get_associated_token_address_with_program_id(
+            &recipient.pubkey(),   // owner
+            &mint.pubkey(),        // mint
+            &spl_token_2022::id(), // program_id
+        );
+
+        // Instruction to create associated token account for recipient
+        let create_destination_ata_instruction = create_associated_token_account(
+            &fee_payer.pubkey(),   // funding address
+            &recipient.pubkey(),   // wallet address
+            &mint.pubkey(),        // mint address
+            &spl_token_2022::id(), // program id
+        );
+
+        // Amount of tokens to mint (100 tokens with 2 decimal places)
+        let amount = 100_00;
+
+        // Create mint_to instruction to mint tokens to the source token account
+        let mint_to_instruction = mint_to(
+            &spl_token_2022::id(),
+            &mint.pubkey(),         // mint
+            &source_token_address,  // destination
+            &fee_payer.pubkey(),    // authority
+            &[&fee_payer.pubkey()], // signer
+            amount,                 // amount
+        )
+        .unwrap();
+
+        // Create transaction and add instructions
+        let transaction = Transaction::new_signed_with_payer(
+            &[
+                create_account_instruction,
+                initialize_mint_instruction,
+                create_source_ata_instruction,
+                create_destination_ata_instruction,
+                mint_to_instruction,
+            ],
+            Some(&fee_payer.pubkey()),
+            &[&fee_payer, &mint],
+            recent_blockhash,
+        );
+
+        let (status_tx, _status_rx) = crossbeam_channel::unbounded();
+        // Send and confirm transaction
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.clone().into(), status_tx, true, true)
+            .await
+            .unwrap();
+
+        println!("Mint Address: {}", mint.pubkey());
+        println!("Recipient Address: {}", recipient.pubkey());
+        println!("Source Token Account Address: {}", source_token_address);
+        println!(
+            "Destination Token Account Address: {}",
+            destination_token_address
+        );
+        println!("Minted {} tokens to the source token account", amount);
+
+        // Get the latest blockhash for the transfer transaction
+        let recent_blockhash = client
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        // Amount of tokens to transfer (0.50 tokens with 2 decimals)
+        let transfer_amount = 50;
+
+        // Create transfer_checked instruction to send tokens from source to destination
+        let transfer_instruction = transfer_checked(
+            &spl_token_2022::id(),      // program id
+            &source_token_address,      // source
+            &mint.pubkey(),             // mint
+            &destination_token_address, // destination
+            &fee_payer.pubkey(),        // owner of source
+            &[&fee_payer.pubkey()],     // signers
+            transfer_amount,            // amount
+            2,                          // decimals
+        )
+        .unwrap();
+
+        // Create transaction for transferring tokens
+        let transaction = Transaction::new_signed_with_payer(
+            &[transfer_instruction],
+            Some(&fee_payer.pubkey()),
+            &[&fee_payer],
+            recent_blockhash,
+        );
+        let (status_tx, _status_rx) = crossbeam_channel::unbounded();
+        // Send and confirm transaction
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.clone().into(), status_tx, true, true)
+            .await
+            .unwrap();
+
+        println!(
+            "Successfully transferred 0.50 tokens from {} to {}",
+            source_token_address, destination_token_address
+        );
+
+        let source_account_info = client
+            .rpc
+            .get_account_info(
+                Some(client.context.clone()),
+                source_token_address.to_string(),
+                Some(RpcAccountInfoConfig {
+                    encoding: Some(solana_account_decoder::UiAccountEncoding::JsonParsed),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .unwrap();
+
+        let destination_account_info = client
+            .rpc
+            .get_account_info(
+                Some(client.context.clone()),
+                destination_token_address.to_string(),
+                Some(RpcAccountInfoConfig {
+                    encoding: Some(solana_account_decoder::UiAccountEncoding::JsonParsed),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .unwrap();
+
+        println!("Source Account Info: {:?}", source_account_info);
+        println!("Destination Account Info: {:?}", destination_account_info);
+
+        let source_account = source_account_info.value.unwrap();
+        if let solana_account_decoder::UiAccountData::Json(parsed) = source_account.data {
+            let amount = parsed.parsed["info"]["tokenAmount"]["amount"]
+                .as_str()
+                .unwrap();
+            assert_eq!(amount, "9950");
+        } else {
+            panic!("source account data was not in json parsed format");
         }
 
-        if let GetAccountResult::FoundAccount(_, destination_account, _) = destination_token_account
-        {
-            let unpacked =
-                StateWithExtensions::<Token2022Account>::unpack(&destination_account.data).unwrap();
-            println!(
-                "Destination Token Account Balance: {} tokens",
-                unpacked.base.amount
-            );
-            assert_eq!(unpacked.base.amount, 50);
+        let destination_account = destination_account_info.value.unwrap();
+        if let solana_account_decoder::UiAccountData::Json(parsed) = destination_account.data {
+            let amount = parsed.parsed["info"]["tokenAmount"]["amount"]
+                .as_str()
+                .unwrap();
+            assert_eq!(amount, "50");
+        } else {
+            panic!("destination account data was not in json parsed format");
         }
     }
 }

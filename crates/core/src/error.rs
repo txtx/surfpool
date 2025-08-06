@@ -4,8 +4,10 @@ use crossbeam_channel::TrySendError;
 use jsonrpc_core::{Error, Result};
 use serde::Serialize;
 use serde_json::json;
-use solana_client::rpc_request::TokenAccountsFilter;
+use solana_client::{client_error::ClientError, rpc_request::TokenAccountsFilter};
 use solana_pubkey::Pubkey;
+use solana_sdk::slot_history::Slot;
+use solana_transaction_status::EncodeError;
 
 pub type SurfpoolResult<T> = std::result::Result<T, SurfpoolError>;
 
@@ -21,6 +23,17 @@ impl From<SurfpoolError> for String {
 impl From<SurfpoolError> for Error {
     fn from(e: SurfpoolError) -> Self {
         e.0
+    }
+}
+
+impl From<EncodeError> for SurfpoolError {
+    fn from(e: EncodeError) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Transaction encoding error: {}",
+            e.to_string()
+        )));
+        Self(error)
     }
 }
 
@@ -82,9 +95,9 @@ impl SurfpoolError {
         Self(error)
     }
 
-    pub fn no_locker() -> Self {
+    pub fn missing_context() -> Self {
         let mut error = Error::internal_error();
-        error.data = Some(json!("Failed to access internal SVM state"));
+        error.data = Some(json!("Failed to access internal Surfnet context"));
         Self(error)
     }
 
@@ -129,6 +142,51 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn get_token_accounts_by_delegate_error<T>(
+        delegate: Pubkey,
+        filter: &TokenAccountsFilter,
+        e: T,
+    ) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+
+        let filter_description = match filter {
+            TokenAccountsFilter::ProgramId(program_id) => {
+                let program_name = if *program_id == spl_token::ID {
+                    "SPL Token program"
+                } else if *program_id == spl_token_2022::ID {
+                    "Token 2022 program"
+                } else {
+                    "custom token program"
+                };
+                format!("{} ({})", program_id, program_name)
+            }
+            TokenAccountsFilter::Mint(mint) => format!("mint {}", mint),
+        };
+
+        error.data = Some(json!(format!(
+            "Failed to get token accounts by delegate {} for {}: {}",
+            delegate,
+            filter_description,
+            e.to_string()
+        )));
+
+        Self(error)
+    }
+
+    pub fn unsupported_token_program(program_id: Pubkey) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Unsupported token program: {}. Only SPL Token ({}) and Token 2022 ({}) are currently supported.",
+            program_id,
+            spl_token::ID,
+            spl_token_2022::ID
+        )));
+        Self(error)
+    }
+
     pub fn get_program_accounts<T>(program_id: Pubkey, e: T) -> Self
     where
         T: ToString,
@@ -141,6 +199,18 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn get_token_largest_accounts<T>(mint: Pubkey, e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to get largest token accounts for mint {mint}: {}",
+            e.to_string()
+        )));
+        Self(error)
+    }
+
     pub fn get_multiple_accounts<T>(e: T) -> Self
     where
         T: ToString,
@@ -148,6 +218,29 @@ impl SurfpoolError {
         let mut error = Error::internal_error();
         error.data = Some(json!(format!(
             "Failed to fetch accounts from remote: {}",
+            e.to_string()
+        )));
+        Self(error)
+    }
+    pub fn get_largest_accounts<T>(e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to fetch largest accounts from remote: {}",
+            e.to_string()
+        )));
+        Self(error)
+    }
+
+    pub fn get_signatures_for_address<T>(e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to fetch signatures for address from remote: {}",
             e.to_string()
         )));
         Self(error)
@@ -169,7 +262,17 @@ impl SurfpoolError {
     where
         D: Serialize,
     {
-        let mut error = Error::invalid_params(format!("Invalid pubkey {pubkey}"));
+        let mut error = Error::invalid_params(format!("Invalid pubkey '{pubkey}'"));
+        error.data = Some(json!(data));
+        Self(error)
+    }
+
+    pub fn invalid_pubkey_at_index<D>(pubkey: &str, index: usize, data: D) -> Self
+    where
+        D: Serialize,
+    {
+        let mut error =
+            Error::invalid_params(format!("Invalid pubkey '{pubkey}' at index {index}"));
         error.data = Some(json!(data));
         Self(error)
     }
@@ -281,6 +384,71 @@ impl SurfpoolError {
     {
         let mut error = Error::internal_error();
         error.data = Some(json!(data));
+        Self(error)
+    }
+
+    pub fn sig_verify_replace_recent_blockhash_collision() -> Self {
+        Self(Error::invalid_params(
+            "sigVerify may not be used with replaceRecentBlockhash",
+        ))
+    }
+
+    pub fn slot_too_old(slot: Slot) -> Self {
+        Self(Error::invalid_params(format!(
+            "Requested {slot} is before the first local slot, and no remote RPC was provided."
+        )))
+    }
+
+    pub fn get_block(e: ClientError, block: Slot) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Failed to get block {block} from remote: {e}"
+        )));
+        Self(error)
+    }
+
+    pub fn token_mint_not_found(mint: Pubkey) -> Self {
+        let mut error = Error::internal_error();
+        error.message = format!("Token mint {mint} not found");
+        Self(error)
+    }
+
+    pub fn unpack_token_account() -> Self {
+        let mut error = Error::parse_error();
+        error.message = "Failed to unpack token account".to_string();
+        Self(error)
+    }
+
+    pub fn unpack_mint_account() -> Self {
+        let mut error = Error::parse_error();
+        error.message = "Failed to unpack mint account".to_string();
+        Self(error)
+    }
+
+    pub fn invalid_token_account_state(state: &str) -> Self {
+        let error = Error::invalid_params(format!("Invalid token account state {state}"));
+        Self(error)
+    }
+
+    pub fn transaction_not_found_in_svm<S>(signature: S) -> Self
+    where
+        S: Display,
+    {
+        let mut error = Error::internal_error();
+        error.message =
+            format!("Transaction with signature '{signature}' was not found in the SVM");
+        Self(error)
+    }
+
+    pub fn tag_not_found(tag: &str) -> Self {
+        let mut error = Error::internal_error();
+        error.message = format!("Profile result associated with tag '{tag}' not found in the SVM");
+        Self(error)
+    }
+
+    pub(crate) fn expected_profile_not_found(key: &surfpool_types::UuidOrSignature) -> Self {
+        let mut error = Error::internal_error();
+        error.message = format!("Expected profile not found for key {key}");
         Self(error)
     }
 }
