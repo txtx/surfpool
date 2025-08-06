@@ -616,7 +616,7 @@ pub trait SurfnetCheatcodes {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
     ///   "method": "surfnet_timeTravel",
-    ///   "params": [ { "epoch": 512 } ]
+    ///   "params": [ { "absoluteSlot": 512 } ]
     /// }
     /// ```
     ///
