@@ -77,6 +77,8 @@ pub async fn handle_start_local_surfnet_command(
         rpc_datasource_url,
         studio_url,
         graphql_query_route_url,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        workspace: None,
     };
 
     let subgraph_database_path = cmd
@@ -173,7 +175,7 @@ pub async fn handle_start_local_surfnet_command(
         }
     }
 
-    let displayed_url = if cmd.studio {
+    let displayed_url = if cmd.no_studio {
         DisplayedUrl::Datasource(sanitized_config)
     } else {
         DisplayedUrl::Studio(sanitized_config)
@@ -249,11 +251,12 @@ fn log_events(
                     SimnetEvent::EpochInfoUpdate(_) => {
                         info!(ctx.expect_logger(), "{}", event.epoch_info_update_msg());
                     }
-                    SimnetEvent::ClockUpdate(_) => {
+                    SimnetEvent::SystemClockUpdated(_) => {
                         if include_debug_logs {
                             info!(ctx.expect_logger(), "{}", event.clock_update_msg());
                         }
                     }
+                    SimnetEvent::ClockUpdate(_) => {}
                     SimnetEvent::ErrorLog(_dt, log) => {
                         error!(ctx.expect_logger(), "{}", log);
                     }
@@ -306,7 +309,7 @@ fn log_events(
                             ctx.expect_logger(),
                             "Profiled [{}]: {} CUs",
                             tag,
-                            result.compute_units.compute_units_consumed
+                            result.transaction_profile.compute_units_consumed
                         );
                     }
                     SimnetEvent::RunbookStarted(runbook_id) => {

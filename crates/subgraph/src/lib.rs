@@ -223,6 +223,9 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
         let Some(ref subgraph_request) = self.subgraph_request else {
             return Ok(());
         };
+
+        let SubgraphRequest::V0(subgraph_request_v0) = subgraph_request;
+
         let mut entries = vec![];
         match transaction {
             ReplicaTransactionInfoVersions::V0_0_2(data) => {
@@ -235,13 +238,13 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                 let account_pubkeys = account_keys.iter().cloned().collect::<Vec<_>>();
                 let is_program_id_match = transaction.message().instructions().iter().any(|ix| {
                     ix.program_id(account_pubkeys.as_ref())
-                        .eq(&subgraph_request.program_id)
+                        .eq(&subgraph_request_v0.program_id)
                 });
                 if !is_program_id_match {
                     return Ok(());
                 }
 
-                match &subgraph_request.data_source {
+                match &subgraph_request_v0.data_source {
                     IndexedSubgraphSourceType::Instruction(_) => return Ok(()),
                     IndexedSubgraphSourceType::Event(event_source) =>
                     // Check inner instructions

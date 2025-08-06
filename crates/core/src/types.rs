@@ -1,7 +1,9 @@
 use base64::{Engine, prelude::BASE64_STANDARD};
+use chrono::Utc;
 use litesvm::types::TransactionMetadata;
 use solana_account::Account;
 use solana_account_decoder::parse_token::UiTokenAmount;
+use solana_clock::{Epoch, Slot};
 use solana_message::{
     AccountKeys, VersionedMessage,
     v0::{LoadedAddresses, LoadedMessage},
@@ -69,12 +71,12 @@ impl TransactionWithStatusMeta {
         slot: u64,
         transaction: VersionedTransaction,
         transaction_meta: TransactionMetadata,
-        accounts_before: Vec<Option<Account>>,
-        accounts_after: Vec<Option<Account>>,
-        pre_token_accounts_with_indexes: Vec<(usize, TokenAccount)>,
-        post_token_accounts_with_indexes: Vec<(usize, TokenAccount)>,
+        accounts_before: &[Option<Account>],
+        accounts_after: &[Option<Account>],
+        pre_token_accounts_with_indexes: &[(usize, TokenAccount)],
+        post_token_accounts_with_indexes: &[(usize, TokenAccount)],
         token_mints: Vec<MintAccount>,
-        token_program_ids: Vec<Pubkey>,
+        token_program_ids: &[Pubkey],
         loaded_addresses: LoadedAddresses,
     ) -> Self {
         let signatures_len = transaction.signatures.len();
@@ -114,7 +116,7 @@ impl TransactionWithStatusMeta {
                     pre_token_accounts_with_indexes
                         .iter()
                         .zip(token_mints.clone())
-                        .zip(token_program_ids.clone())
+                        .zip(token_program_ids)
                         .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
                             account_index: *i as u8,
                             mint: a.mint().to_string(),
@@ -612,3 +614,59 @@ impl GeyserAccountUpdate {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TimeTravelConfig {
+    AbsoluteEpoch(Epoch),
+    AbsoluteSlot(Slot),
+    AbsoluteTimestamp(u64),
+}
+
+impl Default for TimeTravelConfig {
+    fn default() -> Self {
+        // chrono timestamp in ms, 1 hour from now
+        Self::AbsoluteTimestamp(Utc::now().timestamp_millis() as u64 + 3600000)
+    }
+}
+
+#[derive(Debug)]
+pub enum TimeTravelError {
+    PastTimestamp { target: u64, current: u64 },
+    PastSlot { target: u64, current: u64 },
+    PastEpoch { target: u64, current: u64 },
+    ZeroSlotTime,
+}
+
+impl std::fmt::Display for TimeTravelError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TimeTravelError::PastTimestamp { target, current } => {
+                write!(
+                    f,
+                    "Cannot travel to past timestamp: target={}, current={}",
+                    target, current
+                )
+            }
+            TimeTravelError::PastSlot { target, current } => {
+                write!(
+                    f,
+                    "Cannot travel to past slot: target={}, current={}",
+                    target, current
+                )
+            }
+            TimeTravelError::PastEpoch { target, current } => {
+                write!(
+                    f,
+                    "Cannot travel to past epoch: target={}, current={}",
+                    target, current
+                )
+            }
+            TimeTravelError::ZeroSlotTime => {
+                write!(f, "Cannot calculate time travel with zero slot time")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TimeTravelError {}
