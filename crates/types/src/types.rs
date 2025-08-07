@@ -457,12 +457,12 @@ pub enum SimnetCommand {
     UpdateInternalClock(Clock),
     UpdateBlockProductionMode(BlockProductionMode),
     TransactionReceived(
-        Option<Hash>,
+        Option<(Hash, String)>,
         VersionedTransaction,
         Sender<TransactionStatusEvent>,
         bool,
     ),
-    Terminate(Option<Hash>),
+    Terminate(Option<(Hash, String)>),
 }
 
 #[derive(Debug)]
