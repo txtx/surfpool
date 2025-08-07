@@ -220,11 +220,17 @@ impl SurfnetSvmLocker {
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
             match svm_reader.inner.get_account(pubkey) {
-                Some(account) => GetAccountResult::FoundAccount(
-                    *pubkey, account,
-                    // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                    false,
-                ),
+                Some(account) => {
+                    if account.eq(&Account::default()) {
+                        // If the account is default, it means it was deleted but still exists in our litesvm store
+                        return GetAccountResult::None(*pubkey);
+                    }
+                    GetAccountResult::FoundAccount(
+                        *pubkey, account,
+                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                        false,
+                    )
+                }
                 None => GetAccountResult::None(*pubkey),
             }
         })
@@ -280,11 +286,18 @@ impl SurfnetSvmLocker {
 
             for pubkey in pubkeys {
                 let res = match svm_reader.inner.get_account(pubkey) {
-                    Some(account) => GetAccountResult::FoundAccount(
-                        *pubkey, account,
-                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                        false,
-                    ),
+                    Some(account) => {
+                        if account.eq(&Account::default()) {
+                            // If the account is default, it means it was deleted but still exists in our litesvm store
+                            GetAccountResult::None(*pubkey)
+                        } else {
+                            GetAccountResult::FoundAccount(
+                                *pubkey, account,
+                                // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                                false,
+                            )
+                        }
+                    }
                     None => GetAccountResult::None(*pubkey),
                 };
                 accounts.push(res);
@@ -1234,7 +1247,7 @@ impl SurfnetSvmLocker {
             {
                 if before.ne(&after) {
                     if let Some(after) = &after {
-                        svm_writer.update_account_registries(pubkey, after);
+                        svm_writer.update_account_registries(pubkey, after)?;
                         let write_version = svm_writer.increment_write_version();
 
                         if let Some(sanitized_transaction) = sanitized_transaction.clone() {
