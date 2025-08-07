@@ -140,6 +140,7 @@ pub async fn handle_start_local_surfnet_command(
             Ok(SimnetEvent::Aborted(error)) => return Err(error),
             Ok(SimnetEvent::Shutdown) => return Ok(()),
             Ok(SimnetEvent::Connected(_)) => break,
+            Ok(SimnetEvent::Ready) => break,
             _other => continue,
         }
     }

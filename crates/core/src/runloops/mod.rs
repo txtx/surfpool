@@ -33,8 +33,8 @@ use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
-    BlockProductionMode, ClockCommand, ClockEvent, DataIndexingCommand, SimnetCommand, SimnetEvent,
-    SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
+    BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_RPC_URL, DataIndexingCommand,
+    SimnetCommand, SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
 };
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use txtx_addon_kit::helpers::fs::FileLocation;
@@ -65,9 +65,17 @@ pub async fn start_local_surfnet_runloop(
     };
     let block_production_mode = simnet.block_production_mode.clone();
 
-    let remote_rpc_client = Some(SurfnetRemoteClient::new(&simnet.remote_rpc_url));
+    let remote_rpc_client = match simnet.offline_mode {
+        true => None,
+        false => Some(SurfnetRemoteClient::new(
+            &simnet
+                .remote_rpc_url
+                .as_ref()
+                .unwrap_or(&DEFAULT_RPC_URL.to_string()),
+        )),
+    };
 
-    let _ = svm_locker
+    svm_locker
         .initialize(simnet.slot_time, &remote_rpc_client)
         .await?;
 

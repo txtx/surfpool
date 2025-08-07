@@ -414,6 +414,46 @@ pub enum RemoteRpcResult<T> {
     MethodNotSupported,
 }
 
+impl<T> RemoteRpcResult<T> {
+    /// Converts RemoteRpcResult to SurfpoolResult
+    pub fn into_result(self) -> SurfpoolResult<T> {
+        match self {
+            RemoteRpcResult::Ok(value) => Ok(value),
+            RemoteRpcResult::MethodNotSupported => Err(SurfpoolError::rpc_method_not_supported()),
+        }
+    }
+
+    /// Converts RemoteRpcResult to SurfpoolResult, treating MethodNotSupported as a default value
+    pub fn into_result_or_default(self, default: T) -> SurfpoolResult<T> {
+        match self {
+            RemoteRpcResult::Ok(value) => Ok(value),
+            RemoteRpcResult::MethodNotSupported => Ok(default),
+        }
+    }
+
+    /// Handles RemoteRpcResult with a callback for MethodNotSupported that returns a default value
+    pub fn handle_method_not_supported<F>(self, on_not_supported: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        match self {
+            RemoteRpcResult::Ok(value) => value,
+            RemoteRpcResult::MethodNotSupported => on_not_supported(),
+        }
+    }
+
+    /// Maps the Ok variant while preserving MethodNotSupported
+    pub fn map<U, F>(self, f: F) -> RemoteRpcResult<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            RemoteRpcResult::Ok(value) => RemoteRpcResult::Ok(f(value)),
+            RemoteRpcResult::MethodNotSupported => RemoteRpcResult::MethodNotSupported,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TokenAccount {
     SplToken2022(spl_token_2022::state::Account),

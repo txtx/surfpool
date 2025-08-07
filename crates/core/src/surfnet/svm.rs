@@ -437,15 +437,20 @@ impl SurfnetSvm {
     ///
     /// # Returns
     /// `Ok(())` on success, or an error if the operation fails.
-    pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
+    pub fn set_account(&mut self, pubkey: &Pubkey, mut account: Account) -> SurfpoolResult<()> {
         self.updated_at = Utc::now().timestamp_millis() as u64;
+
+        if account.lamports == 0 {
+            account.data = vec![];
+            account.owner = Pubkey::default();
+        }
 
         self.inner
             .set_account(*pubkey, account.clone())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
 
         // Update the account registries and indexes
-        self.update_account_registries(pubkey, &account);
+        self.update_account_registries(pubkey, &account)?;
 
         // Notify account subscribers
         self.notify_account_subscribers(pubkey, &account);
@@ -456,7 +461,20 @@ impl SurfnetSvm {
         Ok(())
     }
 
-    pub fn update_account_registries(&mut self, pubkey: &Pubkey, account: &Account) {
+    pub fn update_account_registries(
+        &mut self,
+        pubkey: &Pubkey,
+        account: &Account,
+    ) -> SurfpoolResult<()> {
+        // if the account has zero lamports, it needs to have it's data cleared out to emulate "garbage collection"
+        // our `set_account` method above will clear out the data if the lamports are zero, but there are cases where
+        // that code path isn't directly called, such as when a tx is processed the clears the lamports. so here, we'll
+        // check if the lamports are 0 _and_ the data is not empty - if so this call to update account registries _did not_
+        // come from the above `set_account` method, so we'll call it to clear the data out
+        if account.lamports == 0 && !account.data.is_empty() {
+            return self.set_account(pubkey, account.to_owned());
+        }
+
         // only if successful, update our indexes
         if let Some(old_account) = self.accounts_registry.get(pubkey).cloned() {
             self.remove_from_indexes(pubkey, &old_account);
@@ -533,6 +551,7 @@ impl SurfnetSvm {
                 );
             };
         }
+        Ok(())
     }
 
     fn remove_from_indexes(&mut self, pubkey: &Pubkey, old_account: &Account) {
