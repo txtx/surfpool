@@ -620,7 +620,6 @@ pub struct SurfpoolWsRpc {
     pub slot_subscription_map: Arc<RwLock<HashMap<SubscriptionId, Sink<SlotInfo>>>>,
     pub logs_subscription_map:
         Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcLogsResponse>>>>>,
-    pub tokio_handle: tokio::runtime::Handle,
 }
 
 impl Rpc for SurfpoolWsRpc {
@@ -689,7 +688,9 @@ impl Rpc for SurfpoolWsRpc {
         };
         let active = Arc::clone(&self.signature_subscription_map);
         let meta = meta.clone();
-        self.tokio_handle.spawn(async move {
+
+        let tokio_handle = tokio::runtime::Handle::try_current().expect("async runtime expected");
+        tokio_handle.spawn(async move {
             if let Ok(mut guard) = active.write() {
                 guard.insert(sub_id.clone(), sink);
             } else {
@@ -914,7 +915,8 @@ impl Rpc for SurfpoolWsRpc {
         };
         let slot = svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot());
 
-        self.tokio_handle.spawn(async move {
+        let tokio_handle = tokio::runtime::Handle::try_current().expect("async runtime expected");
+        tokio_handle.spawn(async move {
             if let Ok(mut guard) = account_active.write() {
                 guard.insert(sub_id.clone(), sink);
             } else {
@@ -1016,7 +1018,8 @@ impl Rpc for SurfpoolWsRpc {
             }
         };
 
-        self.tokio_handle.spawn(async move {
+        let tokio_handle = tokio::runtime::Handle::try_current().expect("async runtime expected");
+        tokio_handle.spawn(async move {
             if let Ok(mut guard) = slot_active.write() {
                 guard.insert(sub_id.clone(), sink);
             } else {
@@ -1106,7 +1109,8 @@ impl Rpc for SurfpoolWsRpc {
             }
         };
 
-        self.tokio_handle.spawn(async move {
+        let tokio_handle = tokio::runtime::Handle::try_current().expect("async runtime expected");
+        tokio_handle.spawn(async move {
             if let Ok(mut guard) = logs_active.write() {
                 guard.insert(sub_id.clone(), sink);
             } else {
