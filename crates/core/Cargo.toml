@@ -88,6 +88,7 @@ uuid = "1.7.0"
 blake3 = "1.8.2"
 anyhow = "1.0.98"
 solana-geyser-plugin-manager = { workspace = true, optional = true }
+schemars = "1.0.4"
 
 [dev-dependencies]
 test-case = "^3.3.1"

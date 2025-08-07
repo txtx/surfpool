@@ -4,10 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use solana_clock::{Epoch, Slot, UnixTimestamp};
 use solana_sdk::inflation::Inflation;
-use surfpool_types::types::{
-    ComputeUnitsEstimationResult, ProfileResult as SurfpoolProfileResult,
-    ProfileState as SurfpoolProfileState,
-};
+use surfpool_types::types::ComputeUnitsEstimationResult;
 
 pub const MAX_LOCKOUT_HISTORY: usize = 31;
 
@@ -1175,34 +1172,7 @@ pub struct ProfileStateSchema {
     pub post_execution: HashMap<String, Option<UiAccountSchema>>,
 }
 
-impl From<SurfpoolProfileState> for ProfileStateSchema {
-    fn from(state: SurfpoolProfileState) -> Self {
-        let pre_execution = state
-            .pre_execution
-            .into_iter()
-            .map(|(pubkey, account)| {
-                (
-                    pubkey.to_string(),
-                    account.map(|acc| UiAccountSchema::from(acc)),
-                )
-            })
-            .collect();
-        let post_execution = state
-            .post_execution
-            .into_iter()
-            .map(|(pubkey, account)| {
-                (
-                    pubkey.to_string(),
-                    account.map(|acc| UiAccountSchema::from(acc)),
-                )
-            })
-            .collect();
-        Self {
-            pre_execution,
-            post_execution,
-        }
-    }
-}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -1214,14 +1184,7 @@ pub struct ProfileResultSchema {
     pub state: ProfileStateSchema,
 }
 
-impl From<SurfpoolProfileResult> for ProfileResultSchema {
-    fn from(result: SurfpoolProfileResult) -> Self {
-        Self {
-            compute_units: result.compute_units.into(),
-            state: result.state.into(),
-        }
-    }
-}
+
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ReloadPlugin {
