@@ -50,7 +50,7 @@ use surfpool_types::{
     },
 };
 use txtx_addon_kit::{indexmap::IndexMap, types::types::AddonJsonConverter};
-use txtx_addon_network_svm::codec::idl::parse_bytes_to_value_with_expected_idl_type_def_ty;
+use txtx_addon_network_svm_types::subgraph::idl::parse_bytes_to_value_with_expected_idl_type_def_ty;
 use uuid::Uuid;
 
 use super::{
@@ -1516,12 +1516,22 @@ impl SurfnetSvm {
                             if let Some(account_type) =
                                 idl.types.iter().find(|t| t.name == matching_account.name)
                             {
+                                let empty_vec = vec![];
+                                let idl_type_def_generics = idl
+                                    .types
+                                    .iter()
+                                    .find(|t| t.name == account_type.name)
+                                    .map(|t| &t.generics);
+
                                 // If we found a matching account type, we can use it to parse the account data
                                 let rest = data[8..].as_ref();
                                 if let Ok(parsed_value) =
                                     parse_bytes_to_value_with_expected_idl_type_def_ty(
                                         &rest,
                                         &account_type.ty,
+                                        &idl.types,
+                                        &vec![],
+                                        idl_type_def_generics.unwrap_or(&empty_vec),
                                     )
                                 {
                                     return UiAccount {

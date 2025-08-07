@@ -11225,7 +11225,6 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.13",
  "txtx-addon-kit",
- "txtx-addon-network-svm",
  "txtx-addon-network-svm-types",
  "uuid",
  "zstd 0.13.2",
@@ -12198,9 +12197,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.2.2"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e622f75e9aab7835480cd0b9e65e13256bcbf40b78c0200be5e2d450b536d0e"
+checksum = "a0c4bdfa3c7f0022bdac240e3bb37256afcfc36901d610b3d241ee911f04c79e"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -12226,11 +12225,12 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54b9535bb9d93e112d9f05c9971aa76bce60563d2eec06de65b7d7e89602c24e"
+checksum = "800b2eafc9068dcc35a9cf07d3cff7b6fd9f930c046c52a7be55cc0cae839222"
 dependencies = [
  "anchor-lang-idl",
+ "borsh 1.5.5",
  "convert_case 0.6.0",
  "lazy_static",
  "serde",
@@ -12246,6 +12246,7 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-context",
  "solana-transaction-error",
+ "solana-transaction-status-client-types",
  "txtx-addon-kit",
 ]
 
