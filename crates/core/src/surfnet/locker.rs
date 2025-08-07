@@ -517,6 +517,9 @@ impl SurfnetSvmLocker {
             let config = config.clone().unwrap_or_default();
             let limit = config.limit.unwrap_or(1000);
 
+            let config_before = config.before.clone();
+            let config_until = config.until.clone();
+
             let mut before_slot = None;
             let mut until_slot = None;
 
@@ -534,24 +537,17 @@ impl SurfnetSvmLocker {
                         return None;
                     }
 
-                    if Some(sig.to_string()) == config.clone().before {
-                        before_slot = Some(*slot)
+                    if Some(sig.to_string()) == config_before {
+                        before_slot = Some(*slot);
                     }
 
-                    if Some(sig.to_string()) == config.clone().until {
-                        until_slot = Some(*slot)
+                    if Some(sig.to_string()) == config_until {
+                        until_slot = Some(*slot);
                     }
 
                     // Check if the pubkey is a signer
-                    let is_signer = transaction
-                        .message
-                        .static_account_keys()
-                        .iter()
-                        .position(|pk| pk == pubkey)
-                        .map(|i| transaction.message.is_signer(i))
-                        .unwrap_or(false);
 
-                    if !is_signer {
+                    if !transaction.message.static_account_keys().contains(pubkey) {
                         return None;
                     }
 
@@ -584,16 +580,18 @@ impl SurfnetSvmLocker {
                         return true;
                     }
 
-                    if config.before.is_some() && before_slot >= Some(sig.slot) {
+                    if config.before.is_some() && before_slot > Some(sig.slot) {
                         return true;
                     }
 
-                    if config.until.is_some() && until_slot <= Some(sig.slot) {
+                    if config.until.is_some() && until_slot < Some(sig.slot) {
                         return true;
                     }
 
                     false
                 })
+                // order from most recent to least recent
+                .sorted_by(|a, b| b.slot.cmp(&a.slot))
                 .take(limit)
                 .collect()
         })
