@@ -71,12 +71,12 @@ impl TransactionWithStatusMeta {
         slot: u64,
         transaction: VersionedTransaction,
         transaction_meta: TransactionMetadata,
-        accounts_before: Vec<Option<Account>>,
-        accounts_after: Vec<Option<Account>>,
-        pre_token_accounts_with_indexes: Vec<(usize, TokenAccount)>,
-        post_token_accounts_with_indexes: Vec<(usize, TokenAccount)>,
+        accounts_before: &[Option<Account>],
+        accounts_after: &[Option<Account>],
+        pre_token_accounts_with_indexes: &[(usize, TokenAccount)],
+        post_token_accounts_with_indexes: &[(usize, TokenAccount)],
         token_mints: Vec<MintAccount>,
-        token_program_ids: Vec<Pubkey>,
+        token_program_ids: &[Pubkey],
         loaded_addresses: LoadedAddresses,
     ) -> Self {
         let signatures_len = transaction.signatures.len();
@@ -116,7 +116,7 @@ impl TransactionWithStatusMeta {
                     pre_token_accounts_with_indexes
                         .iter()
                         .zip(token_mints.clone())
-                        .zip(token_program_ids.clone())
+                        .zip(token_program_ids)
                         .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
                             account_index: *i as u8,
                             mint: a.mint().to_string(),
@@ -412,6 +412,46 @@ pub fn surfpool_tx_metadata_to_litesvm_tx_metadata(
 pub enum RemoteRpcResult<T> {
     Ok(T),
     MethodNotSupported,
+}
+
+impl<T> RemoteRpcResult<T> {
+    /// Converts RemoteRpcResult to SurfpoolResult
+    pub fn into_result(self) -> SurfpoolResult<T> {
+        match self {
+            RemoteRpcResult::Ok(value) => Ok(value),
+            RemoteRpcResult::MethodNotSupported => Err(SurfpoolError::rpc_method_not_supported()),
+        }
+    }
+
+    /// Converts RemoteRpcResult to SurfpoolResult, treating MethodNotSupported as a default value
+    pub fn into_result_or_default(self, default: T) -> SurfpoolResult<T> {
+        match self {
+            RemoteRpcResult::Ok(value) => Ok(value),
+            RemoteRpcResult::MethodNotSupported => Ok(default),
+        }
+    }
+
+    /// Handles RemoteRpcResult with a callback for MethodNotSupported that returns a default value
+    pub fn handle_method_not_supported<F>(self, on_not_supported: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        match self {
+            RemoteRpcResult::Ok(value) => value,
+            RemoteRpcResult::MethodNotSupported => on_not_supported(),
+        }
+    }
+
+    /// Maps the Ok variant while preserving MethodNotSupported
+    pub fn map<U, F>(self, f: F) -> RemoteRpcResult<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            RemoteRpcResult::Ok(value) => RemoteRpcResult::Ok(f(value)),
+            RemoteRpcResult::MethodNotSupported => RemoteRpcResult::MethodNotSupported,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]

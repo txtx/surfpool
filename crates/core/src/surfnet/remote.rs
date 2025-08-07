@@ -253,19 +253,23 @@ impl SurfnetRemoteClient {
         program_id: &Pubkey,
         account_config: RpcAccountInfoConfig,
         filters: Option<Vec<RpcFilterType>>,
-    ) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
-        self.client
-            .get_program_accounts_with_config(
-                program_id,
-                RpcProgramAccountsConfig {
-                    filters,
-                    with_context: Some(false),
-                    account_config,
-                    ..Default::default()
-                },
-            )
-            .await
-            .map_err(|e| SurfpoolError::get_program_accounts(*program_id, e))
+    ) -> SurfpoolResult<RemoteRpcResult<Vec<(Pubkey, Account)>>> {
+        handle_remote_rpc(|| async {
+            self.client
+                .get_program_accounts_with_config(
+                    program_id,
+                    RpcProgramAccountsConfig {
+                        filters,
+                        with_context: Some(false),
+                        account_config,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map(|res| res)
+                .map_err(|e| SurfpoolError::get_program_accounts(*program_id, e))
+        })
+        .await
     }
 
     pub async fn get_largest_accounts(
