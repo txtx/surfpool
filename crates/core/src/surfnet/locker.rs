@@ -2422,21 +2422,23 @@ impl SurfnetSvmLocker {
         let encoding = account_config.encoding.unwrap_or(UiAccountEncoding::Base64);
         let data_slice = account_config.data_slice;
 
-        let remote_accounts = client
+        let remote_accounts_result = client
             .get_program_accounts(program_id, account_config, filters)
-            .await
-            .map(|accounts| {
-                accounts
-                    .iter()
-                    .map(|(pubkey, account)| RpcKeyedAccount {
-                        pubkey: pubkey.to_string(),
-                        account: self
-                            .encode_ui_account(pubkey, account, encoding, None, data_slice),
-                    })
-                    .collect::<Vec<RpcKeyedAccount>>()
-            })?;
+            .await?;
 
-        let mut combined_accounts = remote_accounts;
+        let remote_accounts = remote_accounts_result.handle_method_not_supported(|| {
+            let tx = self.simnet_events_tx();
+            let _ = tx.send(SimnetEvent::warn("The `getProgramAccounts` method was sent to the remote RPC, but this method isn't supported by your RPC provider. If you need this method, please use a different RPC provider."));
+            vec![]
+        });
+
+        let mut combined_accounts = remote_accounts
+            .iter()
+            .map(|(pubkey, account)| RpcKeyedAccount {
+                pubkey: pubkey.to_string(),
+                account: self.encode_ui_account(pubkey, account, encoding, None, data_slice),
+            })
+            .collect::<Vec<RpcKeyedAccount>>();
 
         for local_account in local_accounts {
             // if the local account is in the remote set, replace it with the local one
