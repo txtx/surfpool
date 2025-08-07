@@ -1,4 +1,8 @@
-use std::{error::Error, io, time::Duration};
+use std::{
+    error::Error,
+    io,
+    time::{Duration, Instant},
+};
 
 use chrono::{DateTime, Local};
 use crossbeam::channel::{Select, Sender, unbounded};
@@ -91,6 +95,8 @@ struct App {
     displayed_url: DisplayedUrl,
     breaker: Option<Keypair>,
     paused: bool,
+    blink_state: bool,
+    last_blink: Instant,
 }
 
 impl App {
@@ -146,6 +152,8 @@ impl App {
             displayed_url,
             breaker,
             paused: false,
+            blink_state: false,
+            last_blink: Instant::now(),
         }
     }
 
@@ -179,6 +187,18 @@ impl App {
             current_offset - ITEM_HEIGHT
         };
         *self.state.offset_mut() = new_offset;
+    }
+
+    pub fn update_blink_state(&mut self) {
+        if self.paused {
+            let now = Instant::now();
+            if now.duration_since(self.last_blink).as_millis() >= 500 {
+                self.blink_state = !self.blink_state;
+                self.last_blink = now;
+            }
+        } else {
+            self.blink_state = false;
+        }
     }
 
     // pub fn set_colors(&mut self) {
@@ -286,7 +306,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     event.epoch_info_update_msg(),
                                 ));
                             }
-                            SimnetEvent::ClockUpdate(clock) => {
+                            SimnetEvent::SystemClockUpdated(clock) => {
                                 app.clock = clock.clone();
                                 if app.include_debug_logs {
                                     new_events.push((
@@ -296,6 +316,16 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     ));
                                 }
                             }
+                            SimnetEvent::ClockUpdate(ClockCommand::Pause) => {
+                                app.paused = true;
+                            }
+                            SimnetEvent::ClockUpdate(ClockCommand::Resume) => {
+                                app.paused = false;
+                            }
+                            SimnetEvent::ClockUpdate(ClockCommand::Toggle) => {
+                                app.paused = !app.paused;
+                            }
+                            SimnetEvent::ClockUpdate(_) => {}
                             SimnetEvent::ErrorLog(dt, log) => {
                                 new_events.push((EventType::Failure, *dt, log.clone()));
                             }
@@ -354,7 +384,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             } => {
                                 let msg = format!(
                                     "Profiled [{}]: {} CUs",
-                                    tag, result.compute_units.compute_units_consumed
+                                    tag, result.transaction_profile.compute_units_consumed
                                 );
                                 new_events.push((EventType::Info, *timestamp, msg));
                             }
@@ -455,8 +485,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         Char(' ') => {
                             let _ = app
                                 .simnet_commands_tx
-                                .send(SimnetCommand::UpdateClock(ClockCommand::Toggle));
-                            app.paused = !app.paused;
+                                .send(SimnetCommand::CommandClock(ClockCommand::Toggle));
                         }
                         Tab => {
                             let _ = app
@@ -483,6 +512,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
             }
         }
 
+        app.update_blink_state();
         terminal.draw(|f| ui(f, &mut app))?;
     }
     Ok(())
@@ -627,7 +657,11 @@ fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
         let mut spans = Vec::new();
         for &i in chunk {
             let color = if i < cursor {
-                app.colors.accent
+                if app.paused && app.blink_state {
+                    app.colors.dark_gray
+                } else {
+                    app.colors.accent
+                }
             } else {
                 app.colors.dark_gray
             };

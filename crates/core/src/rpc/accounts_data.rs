@@ -844,7 +844,7 @@ mod tests {
         let result = setup.rpc.get_block_commitment(None, 123);
 
         assert!(result.is_err());
-        // This should fail because meta is None, triggering the SurfpoolError::no_locker() path
+        // This should fail because meta is None, triggering the SurfpoolError::missing_context() path
     }
 
     #[test]
@@ -1177,7 +1177,7 @@ mod tests {
         client
             .context
             .svm_locker
-            .process_transaction(&None, transaction.into(), status_tx.clone(), false)
+            .process_transaction(&None, transaction.into(), status_tx.clone(), false, true)
             .await
             .unwrap();
 
@@ -1223,7 +1223,7 @@ mod tests {
         client
             .context
             .svm_locker
-            .process_transaction(&None, transaction.clone().into(), status_tx, true)
+            .process_transaction(&None, transaction.clone().into(), status_tx, true, true)
             .await
             .unwrap();
 
@@ -1391,7 +1391,7 @@ mod tests {
         client
             .context
             .svm_locker
-            .process_transaction(&None, transaction.clone().into(), status_tx, true)
+            .process_transaction(&None, transaction.clone().into(), status_tx, true, true)
             .await
             .unwrap();
 
@@ -1438,7 +1438,7 @@ mod tests {
         client
             .context
             .svm_locker
-            .process_transaction(&None, transaction.clone().into(), status_tx, true)
+            .process_transaction(&None, transaction.clone().into(), status_tx, true, true)
             .await
             .unwrap();
 

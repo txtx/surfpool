@@ -32,6 +32,7 @@ pub struct CollectionMetadata {
 
 impl CollectionMetadata {
     pub fn from_request(uuid: &Uuid, request: &SubgraphRequest, workspace_slug: &str) -> Self {
+        let SubgraphRequest::V0(request) = request;
         let name = request.subgraph_name.to_case(Case::Pascal);
         let mut fields: Vec<_> = request
             .intrinsic_fields

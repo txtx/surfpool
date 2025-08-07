@@ -42,7 +42,7 @@ pub struct SurfpoolRpc;
 
 #[derive(Clone)]
 pub struct RunloopContext {
-    pub id: Option<Hash>,
+    pub id: Option<(Hash, String)>,
     pub svm_locker: SurfnetSvmLocker,
     pub simnet_commands_tx: Sender<SimnetCommand>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
@@ -61,13 +61,14 @@ trait State {
         F: Fn(&SurfnetSvm) -> T + Send + Sync,
         T: Send + 'static;
     fn get_rpc_context<T>(&self, input: T) -> SurfpoolResult<SurfnetRpcContext<T>>;
+    fn get_surfnet_command_tx(&self) -> SurfpoolResult<Sender<SimnetCommand>>;
 }
 
 impl State for Option<RunloopContext> {
     fn get_svm_locker(&self) -> SurfpoolResult<SurfnetSvmLocker> {
         // Retrieve svm state
         let Some(ctx) = self else {
-            return Err(SurfpoolError::no_locker());
+            return Err(SurfpoolError::missing_context());
         };
         Ok(ctx.svm_locker.clone())
     }
@@ -78,20 +79,27 @@ impl State for Option<RunloopContext> {
         T: Send + 'static,
     {
         let Some(ctx) = self else {
-            return Err(SurfpoolError::no_locker());
+            return Err(SurfpoolError::missing_context());
         };
         Ok(ctx.svm_locker.with_svm_reader(reader))
     }
 
     fn get_rpc_context<T>(&self, input: T) -> SurfpoolResult<SurfnetRpcContext<T>> {
         let Some(ctx) = self else {
-            return Err(SurfpoolError::no_locker());
+            return Err(SurfpoolError::missing_context());
         };
 
         Ok(SurfnetRpcContext {
             svm_locker: ctx.svm_locker.clone(),
             remote_ctx: ctx.remote_rpc_client.get_remote_ctx(input),
         })
+    }
+
+    fn get_surfnet_command_tx(&self) -> SurfpoolResult<Sender<SimnetCommand>> {
+        let Some(ctx) = self else {
+            return Err(SurfpoolError::missing_context());
+        };
+        Ok(ctx.simnet_commands_tx.clone())
     }
 }
 
@@ -212,7 +220,7 @@ impl SurfpoolWebsocketMeta {
 impl State for Option<SurfpoolWebsocketMeta> {
     fn get_svm_locker(&self) -> SurfpoolResult<SurfnetSvmLocker> {
         let Some(ctx) = self else {
-            return Err(SurfpoolError::no_locker());
+            return Err(SurfpoolError::missing_context());
         };
         Ok(ctx.runloop_context.svm_locker.clone())
     }
@@ -223,20 +231,27 @@ impl State for Option<SurfpoolWebsocketMeta> {
         T: Send + 'static,
     {
         let Some(ctx) = self else {
-            return Err(SurfpoolError::no_locker());
+            return Err(SurfpoolError::missing_context());
         };
         Ok(ctx.runloop_context.svm_locker.with_svm_reader(reader))
     }
 
     fn get_rpc_context<T>(&self, input: T) -> SurfpoolResult<SurfnetRpcContext<T>> {
         let Some(ctx) = self else {
-            return Err(SurfpoolError::no_locker());
+            return Err(SurfpoolError::missing_context());
         };
 
         Ok(SurfnetRpcContext {
             svm_locker: ctx.runloop_context.svm_locker.clone(),
             remote_ctx: ctx.runloop_context.remote_rpc_client.get_remote_ctx(input),
         })
+    }
+
+    fn get_surfnet_command_tx(&self) -> SurfpoolResult<Sender<SimnetCommand>> {
+        let Some(ctx) = self else {
+            return Err(SurfpoolError::missing_context());
+        };
+        Ok(ctx.runloop_context.simnet_commands_tx.clone())
     }
 }
 

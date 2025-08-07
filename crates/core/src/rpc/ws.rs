@@ -22,7 +22,7 @@ use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::{Response as RpcResponse, SlotInfo};
 use solana_signature::Signature;
-use solana_transaction_status::TransactionConfirmationStatus;
+use solana_transaction_status::{TransactionConfirmationStatus, UiTransactionEncoding};
 
 use super::{State, SurfnetRpcContext, SurfpoolWebsocketMeta};
 use crate::surfnet::{GetTransactionResult, SignatureSubscriptionType};
@@ -523,7 +523,7 @@ pub trait Rpc {
         meta: Self::Metadata,
         subscriber: Subscriber<RpcResponse<RpcLogsResponse>>,
         mentions: Option<RpcTransactionLogsFilter>,
-        commitment: Option<CommitmentLevel>,
+        commitment: Option<CommitmentConfig>,
     );
 
     /// Unsubscribe from logs notifications.
@@ -666,6 +666,12 @@ impl Rpc for SurfpoolWsRpc {
             }
         };
         let config = config.unwrap_or_default();
+        let rpc_transaction_config = RpcTransactionConfig {
+            encoding: Some(UiTransactionEncoding::Json),
+            commitment: config.commitment.clone(),
+            max_supported_transaction_version: Some(0),
+        };
+
         let subscription_type = if config.enable_received_notification.unwrap_or(false) {
             SignatureSubscriptionType::Received
         } else {
@@ -683,7 +689,6 @@ impl Rpc for SurfpoolWsRpc {
         };
         let active = Arc::clone(&self.signature_subscription_map);
         let meta = meta.clone();
-
         self.tokio_handle.spawn(async move {
             if let Ok(mut guard) = active.write() {
                 guard.insert(sub_id.clone(), sink);
@@ -714,7 +719,7 @@ impl Rpc for SurfpoolWsRpc {
                 .get_transaction(
                     &remote_ctx.map(|(r, _)| r),
                     &signature,
-                    RpcTransactionConfig::default(),
+                    rpc_transaction_config,
                 )
                 .await
             {
@@ -1070,7 +1075,7 @@ impl Rpc for SurfpoolWsRpc {
         meta: Self::Metadata,
         subscriber: Subscriber<RpcResponse<RpcLogsResponse>>,
         mentions: Option<RpcTransactionLogsFilter>,
-        commitment: Option<CommitmentLevel>,
+        commitment: Option<CommitmentConfig>,
     ) {
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
@@ -1083,7 +1088,7 @@ impl Rpc for SurfpoolWsRpc {
         };
 
         let mentions = mentions.unwrap_or(RpcTransactionLogsFilter::All);
-        let commitment = commitment.unwrap_or(CommitmentLevel::Confirmed);
+        let commitment = commitment.unwrap_or_default().commitment;
 
         let logs_active = Arc::clone(&self.logs_subscription_map);
         let meta = meta.clone();

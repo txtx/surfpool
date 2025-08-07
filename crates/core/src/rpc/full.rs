@@ -44,6 +44,7 @@ use super::{
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
+    rpc::utils::{adjust_default_transaction_config, get_default_transaction_config},
     surfnet::{FINALIZATION_SLOT_THRESHOLD, GetTransactionResult, locker::SvmAccessContext},
     types::{SurfnetTransactionStatus, surfpool_tx_metadata_to_litesvm_tx_metadata},
 };
@@ -1455,7 +1456,7 @@ impl Full for SurfpoolFullRpc {
             let mut last_latest_absolute_slot = 0;
             for signature in signatures.into_iter() {
                 let res = svm_locker
-                    .get_transaction(&remote_client, &signature, RpcTransactionConfig::default())
+                    .get_transaction(&remote_client, &signature, get_default_transaction_config())
                     .await?;
 
                 last_latest_absolute_slot = svm_locker.get_latest_absolute_slot();
@@ -2028,7 +2029,8 @@ impl Full for SurfpoolFullRpc {
         signature_str: String,
         config: Option<RpcEncodingConfigWrapper<RpcTransactionConfig>>,
     ) -> BoxFuture<Result<Option<EncodedConfirmedTransactionWithStatusMeta>>> {
-        let config = config.map(|c| c.convert_to_current()).unwrap_or_default();
+        let mut config = config.map(|c| c.convert_to_current()).unwrap_or_default();
+        adjust_default_transaction_config(&mut config);
 
         Box::pin(async move {
             let signature = Signature::from_str(&signature_str)
@@ -3019,11 +3021,7 @@ mod tests {
                 Some(setup.context.clone()),
                 tx.signatures[0].to_string(),
                 Some(RpcEncodingConfigWrapper::Current(Some(
-                    RpcTransactionConfig {
-                        max_supported_transaction_version: Some(0),
-                        encoding: Some(UiTransactionEncoding::Json),
-                        ..Default::default()
-                    },
+                    get_default_transaction_config(),
                 ))),
             )
             .await
@@ -4346,7 +4344,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_minimum_ledger_slot_no_context_fails() {
+    async fn test_minimum_ledger_slot_missing_context_fails() {
         // fail gracefully when called without metadata context
         let setup = TestSetup::new(SurfpoolFullRpc);
 
