@@ -12197,9 +12197,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9a7a4e37ce55090e19812c0f1c9a046275cb9de2a58096ccefc65cdccab23bc"
+checksum = "a0c4bdfa3c7f0022bdac240e3bb37256afcfc36901d610b3d241ee911f04c79e"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -12225,9 +12225,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "728ebc44e5105187475eb1653335d1e9f6aadac556badab9e2e48ae6f3c4968c"
+checksum = "800b2eafc9068dcc35a9cf07d3cff7b6fd9f930c046c52a7be55cc0cae839222"
 dependencies = [
  "anchor-lang-idl",
  "borsh 1.5.5",

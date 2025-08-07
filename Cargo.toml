@@ -88,8 +88,8 @@ spl-associated-token-account =  "6.0.0"
 spl-token = "6.0.0"
 txtx-addon-kit = { version = "0.4.4", features = ["wasm"] }
 txtx-core = { version = "0.4.7" }
-txtx-addon-network-svm = { version = "0.2.6" }
-txtx-addon-network-svm-types = { version = "0.2.4" }
+txtx-addon-network-svm = { version = "0.2.7" }
+txtx-addon-network-svm-types = { version = "0.2.5" }
 txtx-gql = { version = "0.3.2" }
 txtx-supervisor-ui = { version = "0.2.3", default-features = false, features = ["crates_build"]}
 txtx-cloud = "0.1.9"
