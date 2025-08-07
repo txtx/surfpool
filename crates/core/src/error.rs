@@ -366,6 +366,12 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn rpc_method_not_supported() -> Self {
+        let mut error = Error::internal_error();
+        error.message = "RPC method not supported".to_string();
+        Self(error)
+    }
+
     pub fn internal<D>(data: D) -> Self
     where
         D: Serialize,
