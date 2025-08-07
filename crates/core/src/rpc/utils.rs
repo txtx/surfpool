@@ -240,6 +240,11 @@ pub fn is_method_not_supported_error<E: std::fmt::Display>(err: &E) -> bool {
         || msg.contains("is blocked")
         || msg.contains("if you need this method")
         || msg.contains("client error 410")
+        || msg.contains("410 gone")
+        || msg.contains("(410 gone)")
+        || msg.contains(" status 410")
+        || msg.contains("http 410")
+        || msg.contains("client error (410")
 }
 
 pub fn get_default_transaction_config() -> RpcTransactionConfig {

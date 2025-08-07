@@ -482,7 +482,7 @@ pub enum ClockEvent {
 pub struct SanitizedConfig {
     pub rpc_url: String,
     pub ws_url: String,
-    pub rpc_datasource_url: String,
+    pub rpc_datasource_url: Option<String>,
     pub studio_url: String,
     pub graphql_query_route_url: String,
     pub version: String,
@@ -500,7 +500,8 @@ pub struct SurfpoolConfig {
 
 #[derive(Clone, Debug)]
 pub struct SimnetConfig {
-    pub remote_rpc_url: String,
+    pub offline_mode: bool,
+    pub remote_rpc_url: Option<String>,
     pub slot_time: u64,
     pub block_production_mode: BlockProductionMode,
     pub airdrop_addresses: Vec<Pubkey>,
@@ -511,7 +512,8 @@ pub struct SimnetConfig {
 impl Default for SimnetConfig {
     fn default() -> Self {
         Self {
-            remote_rpc_url: DEFAULT_RPC_URL.to_string(),
+            offline_mode: false,
+            remote_rpc_url: Some(DEFAULT_RPC_URL.to_string()),
             slot_time: DEFAULT_SLOT_TIME_MS, // Default to 400ms to match CLI default
             block_production_mode: BlockProductionMode::Clock,
             airdrop_addresses: vec![],
@@ -522,14 +524,17 @@ impl Default for SimnetConfig {
 }
 
 impl SimnetConfig {
-    pub fn get_sanitized_datasource_url(&self) -> String {
-        self.remote_rpc_url
-            .split("?")
-            .map(|e| e.to_string())
-            .collect::<Vec<String>>()
-            .first()
-            .expect("datasource url invalid")
-            .to_string()
+    pub fn get_sanitized_datasource_url(&self) -> Option<String> {
+        let Some(raw) = self.remote_rpc_url.as_ref() else {
+            return None;
+        };
+        let base = raw
+            .split('?')
+            .next()
+            .map(|s| s.trim())
+            .unwrap_or_default()
+            .to_string();
+        if base.is_empty() { None } else { Some(base) }
     }
 }
 
