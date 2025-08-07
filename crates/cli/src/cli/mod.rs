@@ -257,10 +257,8 @@ impl StartSimnet {
     }
 
     pub fn simnet_config(&self, airdrop_addresses: Vec<Pubkey>) -> SimnetConfig {
-        let remote_rpc_url = if self.offline {
-            String::new()
-        } else {
-            match &self.network {
+        let remote_rpc_url = if !self.offline {
+            Some(match &self.network {
                 Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
                 Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
                 Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
@@ -271,7 +269,9 @@ impl StartSimnet {
                         _ => DEFAULT_RPC_URL.to_string(),
                     },
                 },
-            }
+            })
+        } else {
+            None
         };
 
         SimnetConfig {

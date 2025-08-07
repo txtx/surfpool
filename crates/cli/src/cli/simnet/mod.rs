@@ -74,7 +74,7 @@ pub async fn handle_start_local_surfnet_command(
     let sanitized_config = SanitizedConfig {
         rpc_url,
         ws_url,
-        rpc_datasource_url: Some(rpc_datasource_url),
+        rpc_datasource_url,
         studio_url,
         graphql_query_route_url,
         version: env!("CARGO_PKG_VERSION").to_string(),

@@ -127,10 +127,10 @@ impl App {
             EventType::Info,
             Local::now(),
             match &datasource {
-                Some(url) if !url.is_empty() => {
-                    format!("Connecting surfnet to datasource {url}...")
+                Some(url) => {
+                    format!("Connecting surfnet to datasource {url}")
                 }
-                Some(_) | None => "No datasource configured, working in offline mode".to_string(),
+                None => "No datasource configured, working in offline mode".to_string(),
             },
         ));
 
