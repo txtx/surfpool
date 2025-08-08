@@ -168,7 +168,7 @@ pub fn fetch_dynamic_entries_from_sqlite(
     let dynamic_table = table(metadata.table_name.as_str());
     let (filters_specs, fetched_fields) = extract_graphql_features(executor);
     for field_name in fetched_fields.iter() {
-        select.add_field(dynamic_table.column::<Untyped, _>(format!("\"{}\"", field_name)));
+        select.add_field(dynamic_table.column::<Untyped, _>(format!("{}", field_name)));
     }
 
     // Build the query and apply filters immediately to avoid borrow checker issues
@@ -345,11 +345,10 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         // 2. Prepare the insert statement using the schema for column order
         // let CollectionEntry(data_entry) = entry;
 
-        let mut columns = vec![];
-        let mut values: Vec<String> = vec![];
-
         for entry in entries {
-            columns.push("id".to_string());
+            let mut columns = vec![];
+            let mut values: Vec<String> = vec![];
+            columns.push("\"id\"".to_string());
             values.push(format!("'{}'", entry.id));
 
             // Use the schema to determine the order and names of dynamic fields
