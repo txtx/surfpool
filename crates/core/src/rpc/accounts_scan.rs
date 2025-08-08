@@ -693,7 +693,7 @@ impl AccountsScan for SurfpoolAccountsScanRpc {
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context(config.commitment.unwrap_or_default()) {
+        } = match meta.get_rpc_context(()) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };

@@ -2354,7 +2354,9 @@ mod tests {
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
-    use solana_sdk::{instruction::Instruction, system_instruction};
+    use solana_sdk::{
+        instruction::Instruction, system_instruction, transaction_context::TransactionReturnData,
+    };
     use solana_signer::Signer;
     use solana_system_interface::program as system_program;
     use solana_transaction::{
