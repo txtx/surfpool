@@ -68,6 +68,11 @@ cd surfpool
 cargo surfpool-install
 ```
 
+Surfpool can also be used through our public [docker image](https://hub.docker.com/r/surfpool/surfpool):
+
+```console
+docker run surfpool/surfpool --version
+```
 
 Verify installation:
 
