@@ -1268,6 +1268,7 @@ impl SurfnetSvmLocker {
 
             let mut token_accounts_after = vec![];
             let mut post_execution_capture = BTreeMap::new();
+            let mut post_token_program_ids = vec![];
 
             for (i, (pubkey, account)) in pubkeys_from_message
                 .iter()
@@ -1279,6 +1280,8 @@ impl SurfnetSvmLocker {
 
                 if let Some(token_account) = token_account {
                     token_accounts_after.push((i, token_account));
+                    post_token_program_ids
+                        .push(account.as_ref().map(|a| a.owner).unwrap_or(spl_token::id()));
                 }
             }
 
@@ -1306,6 +1309,7 @@ impl SurfnetSvmLocker {
                     &token_accounts_after,
                     token_mints,
                     token_programs,
+                    &post_token_program_ids,
                     loaded_addresses.clone().unwrap_or_default(),
                 );
                 svm_writer.transactions.insert(

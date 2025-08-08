@@ -76,7 +76,8 @@ impl TransactionWithStatusMeta {
         pre_token_accounts_with_indexes: &[(usize, TokenAccount)],
         post_token_accounts_with_indexes: &[(usize, TokenAccount)],
         token_mints: Vec<MintAccount>,
-        token_program_ids: &[Pubkey],
+        pre_token_program_ids: &[Pubkey],
+        post_token_program_ids: &[Pubkey],
         loaded_addresses: LoadedAddresses,
     ) -> Self {
         let signatures_len = transaction.signatures.len();
@@ -116,7 +117,7 @@ impl TransactionWithStatusMeta {
                     pre_token_accounts_with_indexes
                         .iter()
                         .zip(token_mints.clone())
-                        .zip(token_program_ids)
+                        .zip(pre_token_program_ids)
                         .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
                             account_index: *i as u8,
                             mint: a.mint().to_string(),
@@ -138,7 +139,7 @@ impl TransactionWithStatusMeta {
                     post_token_accounts_with_indexes
                         .iter()
                         .zip(token_mints)
-                        .zip(token_program_ids)
+                        .zip(post_token_program_ids)
                         .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
                             account_index: *i as u8,
                             mint: a.mint().to_string(),
