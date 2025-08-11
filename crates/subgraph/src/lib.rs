@@ -7,7 +7,6 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
 };
 use ipc_channel::ipc::IpcSender;
 use solana_clock::Slot;
-use solana_signature::Signature;
 use surfpool_types::{DataIndexingCommand, SubgraphPluginConfig};
 use txtx_addon_kit::types::types::Value;
 use txtx_addon_network_svm::Pubkey;
@@ -59,6 +58,25 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
         slot: Slot,
         _is_startup: bool,
     ) -> PluginResult<()> {
+        match account {
+            ReplicaAccountInfoVersions::V0_0_1(_info) => {
+                return Err(GeyserPluginError::Custom(
+                    "ReplicaAccountInfoVersions::V0_0_1 is not supported, skipping account update"
+                        .into(),
+                ));
+            }
+            ReplicaAccountInfoVersions::V0_0_2(_info) => {
+                return Err(GeyserPluginError::Custom(
+                    "ReplicaAccountInfoVersions::V0_0_2 is not supported, skipping account update"
+                        .into(),
+                ));
+            }
+            ReplicaAccountInfoVersions::V0_0_3(info) => {
+                if info.txn.is_some() {
+                    return Ok(()); // We only care about account updates _without_ a transaction, indicating it's a post-block update rather than post-transaction
+                }
+            }
+        }
         let Ok(tx) = self.subgraph_indexing_event_tx.lock() else {
             return Err(GeyserPluginError::Custom(
                 "Failed to lock subgraph indexing sender".into(),
@@ -74,22 +92,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
         let mut entries = vec![];
 
         match account {
-            ReplicaAccountInfoVersions::V0_0_1(_info) => {
-                return Err(GeyserPluginError::Custom(
-                    "ReplicaAccountInfoVersions::V0_0_1 is not supported, skipping account update"
-                        .into(),
-                ));
-            }
-            ReplicaAccountInfoVersions::V0_0_2(_info) => {
-                return Err(GeyserPluginError::Custom(
-                    "ReplicaAccountInfoVersions::V0_0_2 is not supported, skipping account update"
-                        .into(),
-                ));
-            }
             ReplicaAccountInfoVersions::V0_0_3(info) => {
-                let Some(txn) = info.txn else {
-                    return Ok(());
-                };
                 let pubkey_bytes: [u8; 32] =
                     info.pubkey.try_into().expect("pubkey must be 32 bytes");
                 let pubkey = Pubkey::new_from_array(pubkey_bytes);
@@ -107,15 +110,14 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                     owner,
                     info.data.to_vec(),
                     slot,
-                    txn.signature().clone(),
                     info.lamports,
-                    info.write_version,
                     &mut entries,
                 )
                 .map_err(|e| GeyserPluginError::AccountsUpdateError {
                     msg: format!("{} at slot {} for account {}", e, pubkey, slot),
                 })?;
             }
+            _ => unreachable!(),
         };
 
         if !entries.is_empty() {
@@ -224,9 +226,7 @@ pub fn probe_account(
     owner: Pubkey,
     data: Vec<u8>,
     slot: Slot,
-    transaction_signature: Signature,
     lamports: u64,
-    write_version: u64,
     entries: &mut Vec<HashMap<String, Value>>,
 ) -> Result<(), String> {
     if let Some(pda_source) = PdaMapping::get(&pda_mappings, &pubkey).unwrap() {
@@ -234,23 +234,13 @@ pub fn probe_account(
             &data,
             subgraph_request,
             slot,
-            transaction_signature,
             pubkey,
             owner,
             lamports,
-            write_version,
             entries,
         )
     } else {
-        AccountPurgatory::banish(
-            &purgatory,
-            &pubkey,
-            slot,
-            data,
-            owner,
-            lamports,
-            write_version,
-        )
+        AccountPurgatory::banish(&purgatory, &pubkey, slot, data, owner, lamports)
     }
     .map_err(|e| {
         format!(
@@ -318,7 +308,6 @@ pub fn probe_transaction(
                     account_data,
                     owner,
                     lamports,
-                    write_version,
                 }) = AccountPurgatory::release(purgatory, pda_mappings, pda, pda_source.clone())?
                 else {
                     continue;
@@ -329,11 +318,9 @@ pub fn probe_transaction(
                         &account_data,
                         subgraph_request,
                         slot,
-                        transaction.signature().clone(),
                         pda,
                         owner,
                         lamports,
-                        write_version,
                         entries,
                     )
                     .map_err(|e| {
@@ -409,27 +396,6 @@ impl AccountPurgatory {
         self.0.remove(pubkey)
     }
 
-    pub fn _banish(
-        &mut self,
-        pubkey: &Pubkey,
-        slot: Slot,
-        account_data: Vec<u8>,
-        owner: Pubkey,
-        lamports: u64,
-        write_version: u64,
-    ) {
-        self.insert(
-            *pubkey,
-            AccountPurgatoryData {
-                slot,
-                account_data,
-                owner,
-                lamports,
-                write_version,
-            },
-        );
-    }
-
     pub fn banish(
         purgatory: &Mutex<Self>,
         pubkey: &Pubkey,
@@ -437,7 +403,6 @@ impl AccountPurgatory {
         account_data: Vec<u8>,
         owner: Pubkey,
         lamports: u64,
-        write_version: u64,
     ) -> Result<(), String> {
         purgatory
             .lock()
@@ -450,7 +415,6 @@ impl AccountPurgatory {
                         account_data,
                         owner,
                         lamports,
-                        write_version,
                     },
                 )
             })
@@ -480,5 +444,4 @@ pub struct AccountPurgatoryData {
     account_data: Vec<u8>,
     owner: Pubkey,
     lamports: u64,
-    write_version: u64,
 }
