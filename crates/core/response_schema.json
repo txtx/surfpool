@@ -46,19 +46,19 @@
       "properties": {
         "getAccountInfo": {
           "description": "getAccountInfo - Returns account information",
-          "$ref": "#/$defs/RpcResponse_for_Nullable_UiAccountSchema"
+          "$ref": "#/$defs/RpcResponse8"
         },
         "getBlockCommitment": {
           "description": "getBlockCommitment - Returns commitment levels for a given block",
-          "$ref": "#/$defs/RpcBlockCommitment_for_Array_size_32_of_uint64"
+          "$ref": "#/$defs/RpcBlockCommitment"
         },
         "getLargestAccounts": {
           "description": "getLargestAccounts - Returns largest accounts by balance",
-          "$ref": "#/$defs/RpcResponse_for_Array_of_RpcAccountBalance"
+          "$ref": "#/$defs/RpcResponse10"
         },
         "getMultipleAccounts": {
           "description": "getMultipleAccounts - Returns multiple accounts information",
-          "$ref": "#/$defs/RpcResponse_for_Array_of_Nullable_UiAccountSchema"
+          "$ref": "#/$defs/RpcResponse9"
         },
         "getProgramAccounts": {
           "description": "getProgramAccounts - Returns program-owned accounts",
@@ -69,27 +69,27 @@
         },
         "getSupply": {
           "description": "getSupply - Returns supply information",
-          "$ref": "#/$defs/RpcResponse_for_RpcSupply"
+          "$ref": "#/$defs/RpcResponse11"
         },
         "getTokenAccountBalance": {
           "description": "getTokenAccountBalance - Returns token account balance",
-          "$ref": "#/$defs/RpcResponse_for_UiTokenAmountSchema"
+          "$ref": "#/$defs/RpcResponse12"
         },
         "getTokenAccountsByDelegate": {
           "description": "getTokenAccountsByDelegate - Returns token accounts by delegate",
-          "$ref": "#/$defs/RpcResponse_for_Array_of_RpcKeyedAccount"
+          "$ref": "#/$defs/RpcResponse13"
         },
         "getTokenAccountsByOwner": {
           "description": "getTokenAccountsByOwner - Returns token accounts by owner",
-          "$ref": "#/$defs/RpcResponse_for_Array_of_RpcKeyedAccount"
+          "$ref": "#/$defs/RpcResponse13"
         },
         "getTokenLargestAccounts": {
           "description": "getTokenLargestAccounts - Returns largest token accounts",
-          "$ref": "#/$defs/RpcResponse_for_Array_of_RpcTokenAccountBalance"
+          "$ref": "#/$defs/RpcResponse14"
         },
         "getTokenSupply": {
           "description": "getTokenSupply - Returns token supply information",
-          "$ref": "#/$defs/RpcResponse_for_UiTokenAmountSchema"
+          "$ref": "#/$defs/RpcResponse12"
         }
       },
       "required": [
@@ -279,7 +279,7 @@
       "properties": {
         "getBlockProduction": {
           "description": "getBlockProduction - Returns block production information",
-          "$ref": "#/$defs/RpcResponse_for_RpcBlockProduction"
+          "$ref": "#/$defs/RpcResponse15"
         },
         "getEpochSchedule": {
           "description": "getEpochSchedule - Returns epoch schedule",
@@ -688,7 +688,7 @@
         },
         "getFeeForMessage": {
           "description": "getFeeForMessage - Returns fee for a message",
-          "$ref": "#/$defs/RpcResponse_for_Nullable_uint64"
+          "$ref": "#/$defs/RpcResponse7"
         },
         "getFirstAvailableBlock": {
           "description": "getFirstAvailableBlock - Returns first available block",
@@ -705,7 +705,7 @@
         },
         "getLatestBlockhash": {
           "description": "getLatestBlockhash - Returns latest blockhash",
-          "$ref": "#/$defs/RpcResponse_for_RpcBlockhash"
+          "$ref": "#/$defs/RpcResponse5"
         },
         "getMaxRetransmitSlot": {
           "description": "getMaxRetransmitSlot - Returns maximum retransmit slot",
@@ -735,7 +735,7 @@
         },
         "getSignatureStatuses": {
           "description": "getSignatureStatuses - Returns signature statuses",
-          "$ref": "#/$defs/RpcResponse_for_Array_of_Nullable_TransactionStatus"
+          "$ref": "#/$defs/RpcResponse3"
         },
         "getSignaturesForAddress": {
           "description": "getSignaturesForAddress - Returns signatures for an address",
@@ -746,7 +746,7 @@
         },
         "getStakeMinimumDelegation": {
           "description": "getStakeMinimumDelegation - Returns stake minimum delegation",
-          "$ref": "#/$defs/RpcResponse_for_uint64"
+          "$ref": "#/$defs/RpcResponse"
         },
         "getTransaction": {
           "description": "getTransaction - Returns transaction information",
@@ -761,7 +761,7 @@
         },
         "isBlockhashValid": {
           "description": "isBlockhashValid - Checks if blockhash is valid",
-          "$ref": "#/$defs/RpcResponse_for_boolean"
+          "$ref": "#/$defs/RpcResponse6"
         },
         "minimumLedgerSlot": {
           "description": "minimumLedgerSlot - Returns minimum ledger slot",
@@ -779,7 +779,7 @@
         },
         "simulateTransaction": {
           "description": "simulateTransaction - Simulates a transaction",
-          "$ref": "#/$defs/RpcResponse_for_RpcSimulateTransactionResult"
+          "$ref": "#/$defs/RpcResponse4"
         }
       },
       "required": [
@@ -802,6 +802,61 @@
         "getFeeForMessage",
         "getStakeMinimumDelegation",
         "getRecentPrioritizationFees"
+      ]
+    },
+    "Idl": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "description": "The IDL accounts array defining all account types that the program can create or interact with.",
+          "type": "array",
+          "items": true
+        },
+        "address": {
+          "description": "The program address that this IDL describes, as a base-58 encoded string.",
+          "type": "string"
+        },
+        "constants": {
+          "description": "The IDL constants array defining constant values used by the program.",
+          "type": "array",
+          "items": true
+        },
+        "errors": {
+          "description": "The IDL errors array defining custom error types that the program can return.",
+          "type": "array",
+          "items": true
+        },
+        "events": {
+          "description": "The IDL events array defining events that the program can emit.",
+          "type": "array",
+          "items": true
+        },
+        "instructions": {
+          "description": "The IDL instructions array defining all available program instructions and their parameters.",
+          "type": "array",
+          "items": true
+        },
+        "metadata": {
+          "description": "The IDL metadata containing program name, version, and description information."
+        },
+        "state": {
+          "description": "The IDL state object defining the program's state account structure (if applicable)."
+        },
+        "types": {
+          "description": "The IDL types array defining custom data types used by the program.",
+          "type": "array",
+          "items": true
+        }
+      },
+      "required": [
+        "address",
+        "metadata",
+        "instructions",
+        "accounts",
+        "types",
+        "events",
+        "errors",
+        "constants"
       ]
     },
     "InstructionSchema": {
@@ -853,15 +908,15 @@
       "properties": {
         "getBalance": {
           "description": "getBalance - Returns the balance for a given address",
-          "$ref": "#/$defs/RpcResponse_for_uint64"
+          "$ref": "#/$defs/RpcResponse"
         },
         "getBlockHeight": {
           "description": "getBlockHeight - Returns the block height",
-          "$ref": "#/$defs/RpcResponse_for_uint64"
+          "$ref": "#/$defs/RpcResponse"
         },
         "getEpochInfo": {
           "description": "getEpochInfo - Returns epoch information",
-          "$ref": "#/$defs/RpcResponse_for_EpochInfoSchema"
+          "$ref": "#/$defs/RpcResponse2"
         },
         "getGenesisHash": {
           "description": "getGenesisHash - Returns the genesis hash",
@@ -893,11 +948,11 @@
         },
         "getSlot": {
           "description": "getSlot - Returns the current slot",
-          "$ref": "#/$defs/RpcResponse_for_uint64"
+          "$ref": "#/$defs/RpcResponse"
         },
         "getTransactionCount": {
           "description": "getTransactionCount - Returns the transaction count",
-          "$ref": "#/$defs/RpcResponse_for_uint64"
+          "$ref": "#/$defs/RpcResponse"
         },
         "getVersion": {
           "description": "getVersion - Returns the version of the cluster",
@@ -1065,7 +1120,7 @@
         "lamports"
       ]
     },
-    "RpcBlockCommitment_for_Array_size_32_of_uint64": {
+    "RpcBlockCommitment": {
       "description": "Block commitment information with optional commitment and total stake",
       "type": "object",
       "properties": {
@@ -1649,29 +1704,260 @@
         "prioritizationFee"
       ]
     },
-    "RpcResponseContext": {
-      "description": "Response context containing slot and API version information",
+    "RpcResponse": {
+      "description": "RPC response wrapper with context",
       "type": "object",
       "properties": {
-        "apiVersion": {
-          "description": "The API version",
-          "type": [
-            "string",
-            "null"
-          ]
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
         },
-        "slot": {
-          "description": "The current slot",
+        "value": {
           "type": "integer",
           "format": "uint64",
           "minimum": 0
         }
       },
       "required": [
-        "slot"
+        "context",
+        "value"
       ]
     },
-    "RpcResponse_for_Array_of_Nullable_TransactionStatus": {
+    "RpcResponse10": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RpcAccountBalance"
+          }
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse11": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "$ref": "#/$defs/RpcSupply"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse12": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "$ref": "#/$defs/UiTokenAmountSchema"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse13": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RpcKeyedAccount"
+          }
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse14": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RpcTokenAccountBalance"
+          }
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse15": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "$ref": "#/$defs/RpcBlockProduction"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse16": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse17": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "$ref": "#/$defs/ProfileResultSchema"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse18": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProfileResultSchema"
+          }
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse19": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiKeyedProfileResultSchema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "context"
+      ]
+    },
+    "RpcResponse2": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "$ref": "#/$defs/EpochInfoSchema"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse20": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Idl"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "context"
+      ]
+    },
+    "RpcResponse21": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RpcLogsResponse"
+          }
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse3": {
       "description": "RPC response wrapper with context",
       "type": "object",
       "properties": {
@@ -1697,7 +1983,97 @@
         "value"
       ]
     },
-    "RpcResponse_for_Array_of_Nullable_UiAccountSchema": {
+    "RpcResponse4": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "$ref": "#/$defs/RpcSimulateTransactionResult"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse5": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "$ref": "#/$defs/RpcBlockhash"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse6": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "context",
+        "value"
+      ]
+    },
+    "RpcResponse7": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "context"
+      ]
+    },
+    "RpcResponse8": {
+      "description": "RPC response wrapper with context",
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/RpcResponseContext"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiAccountSchema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "context"
+      ]
+    },
+    "RpcResponse9": {
       "description": "RPC response wrapper with context",
       "type": "object",
       "properties": {
@@ -1723,284 +2099,26 @@
         "value"
       ]
     },
-    "RpcResponse_for_Array_of_ProfileResultSchema": {
-      "description": "RPC response wrapper with context",
+    "RpcResponseContext": {
+      "description": "Response context containing slot and API version information",
       "type": "object",
       "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ProfileResultSchema"
-          }
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_Array_of_RpcAccountBalance": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/RpcAccountBalance"
-          }
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_Array_of_RpcKeyedAccount": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/RpcKeyedAccount"
-          }
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_Array_of_RpcTokenAccountBalance": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/RpcTokenAccountBalance"
-          }
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_EpochInfoSchema": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "$ref": "#/$defs/EpochInfoSchema"
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_Nullable_UiAccountSchema": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/UiAccountSchema"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "context"
-      ]
-    },
-    "RpcResponse_for_Nullable_uint64": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
+        "apiVersion": {
+          "description": "The API version",
           "type": [
-            "integer",
+            "string",
             "null"
-          ],
-          "format": "uint64",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "context"
-      ]
-    },
-    "RpcResponse_for_ProfileResultSchema": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
+          ]
         },
-        "value": {
-          "$ref": "#/$defs/ProfileResultSchema"
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_RpcBlockProduction": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "$ref": "#/$defs/RpcBlockProduction"
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_RpcBlockhash": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "$ref": "#/$defs/RpcBlockhash"
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_RpcSimulateTransactionResult": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "$ref": "#/$defs/RpcSimulateTransactionResult"
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_RpcSupply": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "$ref": "#/$defs/RpcSupply"
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_UiTokenAmountSchema": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "$ref": "#/$defs/UiTokenAmountSchema"
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_boolean": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_null": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
-          "type": "null"
-        }
-      },
-      "required": [
-        "context",
-        "value"
-      ]
-    },
-    "RpcResponse_for_uint64": {
-      "description": "RPC response wrapper with context",
-      "type": "object",
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/RpcResponseContext"
-        },
-        "value": {
+        "slot": {
+          "description": "The current slot",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
         }
       },
       "required": [
-        "context",
-        "value"
+        "slot"
       ]
     },
     "RpcSignatureResult": {
@@ -2401,10 +2519,6 @@
           "description": "First shred received for a slot",
           "type": "object",
           "properties": {
-            "type": {
-              "type": "string",
-              "const": "firstShredReceived"
-            },
             "slot": {
               "type": "integer",
               "format": "uint64",
@@ -2414,6 +2528,10 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "firstShredReceived"
             }
           },
           "required": [
@@ -2426,10 +2544,6 @@
           "description": "Slot completed",
           "type": "object",
           "properties": {
-            "type": {
-              "type": "string",
-              "const": "completed"
-            },
             "slot": {
               "type": "integer",
               "format": "uint64",
@@ -2439,6 +2553,10 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "completed"
             }
           },
           "required": [
@@ -2451,10 +2569,6 @@
           "description": "Bank created for a slot",
           "type": "object",
           "properties": {
-            "type": {
-              "type": "string",
-              "const": "createdBank"
-            },
             "parent": {
               "type": "integer",
               "format": "uint64",
@@ -2469,6 +2583,10 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "createdBank"
             }
           },
           "required": [
@@ -2482,10 +2600,6 @@
           "description": "Slot frozen with transaction statistics",
           "type": "object",
           "properties": {
-            "type": {
-              "type": "string",
-              "const": "frozen"
-            },
             "slot": {
               "type": "integer",
               "format": "uint64",
@@ -2498,6 +2612,10 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "frozen"
             }
           },
           "required": [
@@ -2511,10 +2629,6 @@
           "description": "Slot marked as dead due to an error",
           "type": "object",
           "properties": {
-            "type": {
-              "type": "string",
-              "const": "dead"
-            },
             "err": {
               "type": "string"
             },
@@ -2527,6 +2641,10 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "dead"
             }
           },
           "required": [
@@ -2540,10 +2658,6 @@
           "description": "Optimistic confirmation for a slot",
           "type": "object",
           "properties": {
-            "type": {
-              "type": "string",
-              "const": "optimisticConfirmation"
-            },
             "slot": {
               "type": "integer",
               "format": "uint64",
@@ -2553,6 +2667,10 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "optimisticConfirmation"
             }
           },
           "required": [
@@ -2565,10 +2683,6 @@
           "description": "Slot marked as root",
           "type": "object",
           "properties": {
-            "type": {
-              "type": "string",
-              "const": "root"
-            },
             "slot": {
               "type": "integer",
               "format": "uint64",
@@ -2578,6 +2692,10 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "root"
             }
           },
           "required": [
@@ -2617,7 +2735,7 @@
         },
         "cloneProgramAccount": {
           "description": "cloneProgramAccount - Clones a program account",
-          "$ref": "#/$defs/RpcResponse_for_null"
+          "$ref": "#/$defs/RpcResponse16"
         },
         "getAccount": {
           "description": "getAccount - Gets account data",
@@ -2634,13 +2752,29 @@
           "description": "getClock - Gets clock information",
           "$ref": "#/$defs/ClockSchema"
         },
+        "getIdl": {
+          "description": "getIdl - Returns the active IDL at an optional slot",
+          "$ref": "#/$defs/RpcResponse20"
+        },
+        "getLocalSignatures": {
+          "description": "getLocalSignatures - Returns recent local signatures",
+          "$ref": "#/$defs/RpcResponse21"
+        },
         "getProfileResults": {
           "description": "getProfileResults - Gets profiling results for a tag",
-          "$ref": "#/$defs/RpcResponse_for_Array_of_ProfileResultSchema"
+          "$ref": "#/$defs/RpcResponse18"
         },
         "getSurfpoolVersion": {
           "description": "getSurfpoolVersion - Returns surfpool version",
           "$ref": "#/$defs/SurfpoolRpcVersionInfo"
+        },
+        "getTransactionProfile": {
+          "description": "getTransactionProfile - Returns a profile by signature or UUID",
+          "$ref": "#/$defs/RpcResponse19"
+        },
+        "pauseClock": {
+          "description": "pauseClock - Freezes the local clock",
+          "$ref": "#/$defs/EpochInfoSchema"
         },
         "processTransaction": {
           "description": "processTransaction - Processes transaction",
@@ -2648,15 +2782,23 @@
         },
         "profileTransaction": {
           "description": "profileTransaction - Profiles a transaction for compute unit estimation",
-          "$ref": "#/$defs/RpcResponse_for_ProfileResultSchema"
+          "$ref": "#/$defs/RpcResponse17"
+        },
+        "registerIdl": {
+          "description": "registerIdl - Registers an IDL at an optional slot",
+          "$ref": "#/$defs/RpcResponse16"
         },
         "resetSurfnet": {
           "description": "resetSurfnet - Resets surfnet state",
           "type": "null"
         },
+        "resumeClock": {
+          "description": "resumeClock - Resumes the local clock",
+          "$ref": "#/$defs/EpochInfoSchema"
+        },
         "setAccount": {
           "description": "setAccount - Sets account data",
-          "$ref": "#/$defs/RpcResponse_for_null"
+          "$ref": "#/$defs/RpcResponse16"
         },
         "setClock": {
           "description": "setClock - Sets clock",
@@ -2664,11 +2806,11 @@
         },
         "setSupply": {
           "description": "setSupply - Sets supply information for testing",
-          "$ref": "#/$defs/RpcResponse_for_null"
+          "$ref": "#/$defs/RpcResponse16"
         },
         "setTokenAccount": {
           "description": "setTokenAccount - Sets token account data",
-          "$ref": "#/$defs/RpcResponse_for_null"
+          "$ref": "#/$defs/RpcResponse16"
         },
         "startSurfnet": {
           "description": "startSurfnet - Starts surfnet instance",
@@ -2677,6 +2819,10 @@
         "stopSurfnet": {
           "description": "stopSurfnet - Stops surfnet instance",
           "type": "null"
+        },
+        "timeTravel": {
+          "description": "timeTravel - Moves the local clock",
+          "$ref": "#/$defs/EpochInfoSchema"
         }
       },
       "required": [
@@ -2693,7 +2839,14 @@
         "setClock",
         "getClock",
         "processTransaction",
-        "getSurfpoolVersion"
+        "getSurfpoolVersion",
+        "getTransactionProfile",
+        "registerIdl",
+        "getIdl",
+        "getLocalSignatures",
+        "timeTravel",
+        "pauseClock",
+        "resumeClock"
       ]
     },
     "SurfpoolRpcVersionInfo": {
@@ -3014,6 +3167,123 @@
         "status"
       ]
     },
+    "UiAccountChangeSchema": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/UiAccountSchema"
+            },
+            "type": {
+              "type": "string",
+              "const": "create"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "data": {
+              "type": "array",
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/UiAccountSchema"
+                },
+                {
+                  "$ref": "#/$defs/UiAccountSchema"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "update"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/UiAccountSchema"
+            },
+            "type": {
+              "type": "string",
+              "const": "delete"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "data": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/UiAccountSchema"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "unchanged"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        }
+      ]
+    },
+    "UiAccountProfileStateSchema": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "readonly"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "accountChange": {
+              "$ref": "#/$defs/UiAccountChangeSchema"
+            },
+            "type": {
+              "type": "string",
+              "const": "writable"
+            }
+          },
+          "required": [
+            "type",
+            "accountChange"
+          ]
+        }
+      ]
+    },
     "UiAccountSchema": {
       "description": "UI representation of an account",
       "type": "object",
@@ -3120,6 +3390,78 @@
         "instructions"
       ]
     },
+    "UiKeyedProfileResultSchema": {
+      "type": "object",
+      "properties": {
+        "instructionProfiles": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/UiProfileResultSchema"
+          }
+        },
+        "key": {
+          "$ref": "#/$defs/UuidOrSignature"
+        },
+        "readonlyAccountStates": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/UiAccountSchema"
+          }
+        },
+        "slot": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "transactionProfile": {
+          "$ref": "#/$defs/UiProfileResultSchema"
+        }
+      },
+      "required": [
+        "slot",
+        "key",
+        "transactionProfile",
+        "readonlyAccountStates"
+      ]
+    },
+    "UiProfileResultSchema": {
+      "type": "object",
+      "properties": {
+        "accountStates": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/UiAccountProfileStateSchema"
+          }
+        },
+        "computeUnitsConsumed": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "errorMessage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "logMessages": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "accountStates",
+        "computeUnitsConsumed"
+      ]
+    },
     "UiTokenAmountSchema": {
       "description": "Token amount information",
       "type": "object",
@@ -3186,6 +3528,36 @@
       },
       "required": [
         "name"
+      ]
+    },
+    "UuidOrSignature": {
+      "oneOf": [
+        {
+          "description": "A UUID string that uniquely identifies a transaction profile in the system.",
+          "type": "object",
+          "properties": {
+            "uuid": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "uuid"
+          ]
+        },
+        {
+          "description": "A transaction signature as a base-58 encoded string that identifies a specific transaction.",
+          "type": "object",
+          "properties": {
+            "signature": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "signature"
+          ]
+        }
       ]
     },
     "WebSocketSubscriptions": {

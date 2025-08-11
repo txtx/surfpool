@@ -1,5 +1,8 @@
 use std::{collections::HashMap, net::SocketAddr};
 
+use crate::rpc::schema::surfnet_cheatcodes::{
+    Idl as IdlSchema, UuidOrSignature as UuidOrSignatureSchema,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use solana_clock::{Epoch, Slot, UnixTimestamp};
@@ -919,6 +922,21 @@ pub struct SurfnetCheatcodesEndpoints {
 
     #[schemars(description = "getSurfpoolVersion - Returns surfpool version")]
     pub get_surfpool_version: SurfpoolRpcVersionInfo,
+
+    #[schemars(description = "getTransactionProfile - Returns a profile by signature or UUID")]
+    pub get_transaction_profile: RpcResponse<Option<UiKeyedProfileResultSchema>>,
+    #[schemars(description = "registerIdl - Registers an IDL at an optional slot")]
+    pub register_idl: RpcResponse<()>,
+    #[schemars(description = "getIdl - Returns the active IDL at an optional slot")]
+    pub get_idl: RpcResponse<Option<IdlSchema>>,
+    #[schemars(description = "getLocalSignatures - Returns recent local signatures")]
+    pub get_local_signatures: RpcResponse<Vec<RpcLogsResponse>>,
+    #[schemars(description = "timeTravel - Moves the local clock")]
+    pub time_travel: EpochInfoSchema,
+    #[schemars(description = "pauseClock - Freezes the local clock")]
+    pub pause_clock: EpochInfoSchema,
+    #[schemars(description = "resumeClock - Resumes the local clock")]
+    pub resume_clock: EpochInfoSchema,
 }
 
 // WebSocket subscription endpoints
@@ -1172,8 +1190,6 @@ pub struct ProfileStateSchema {
     pub post_execution: HashMap<String, Option<UiAccountSchema>>,
 }
 
-
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Profile result")]
@@ -1183,7 +1199,6 @@ pub struct ProfileResultSchema {
     #[schemars(description = "Profile state containing pre and post execution states")]
     pub state: ProfileStateSchema,
 }
-
 
 #[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -1217,4 +1232,38 @@ impl From<SocketAddr> for SocketAddrSchema {
             port: addr.port(),
         }
     }
+}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "camelCase", tag = "type", content = "data")]
+pub enum UiAccountChangeSchema {
+    Create(UiAccountSchema),
+    Update(UiAccountSchema, UiAccountSchema),
+    Delete(UiAccountSchema),
+    Unchanged(Option<UiAccountSchema>),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "camelCase", tag = "type", content = "accountChange")]
+pub enum UiAccountProfileStateSchema {
+    Readonly,
+    Writable(UiAccountChangeSchema),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UiProfileResultSchema {
+    pub account_states: std::collections::HashMap<String, UiAccountProfileStateSchema>,
+    pub compute_units_consumed: u64,
+    pub log_messages: Option<Vec<String>>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UiKeyedProfileResultSchema {
+    pub slot: u64,
+    pub key: UuidOrSignatureSchema,
+    pub instruction_profiles: Option<Vec<UiProfileResultSchema>>,
+    pub transaction_profile: UiProfileResultSchema,
+    pub readonly_account_states: std::collections::HashMap<String, UiAccountSchema>,
 }
