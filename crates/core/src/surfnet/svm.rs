@@ -1,4 +1,4 @@
-use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use chrono::Utc;
 use convert_case::Casing;
@@ -62,7 +62,10 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
     surfnet::{LogsSubscriptionData, locker::is_supported_token_program},
-    types::{MintAccount, SurfnetTransactionStatus, TokenAccount, TransactionWithStatusMeta},
+    types::{
+        GeyserAccountUpdate, MintAccount, SurfnetTransactionStatus, TokenAccount,
+        TransactionWithStatusMeta,
+    },
 };
 
 pub type AccountOwner = Pubkey;
@@ -289,32 +292,35 @@ impl SurfnetSvm {
                 .unwrap_or(1);
             self.transactions.insert(
                 tx.get_signature().clone(),
-                SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta {
-                    slot,
-                    transaction: tx.clone(),
-                    meta: TransactionStatusMeta {
-                        status: Ok(()),
-                        fee: 5000,
-                        pre_balances: vec![
-                            account.lamports,
-                            account.lamports.saturating_sub(lamports),
-                            system_lamports,
-                        ],
-                        post_balances: vec![
-                            account.lamports.saturating_sub(lamports + 5000),
-                            account.lamports,
-                            system_lamports,
-                        ],
-                        inner_instructions: Some(vec![]),
-                        log_messages: Some(tx_result.logs.clone()),
-                        pre_token_balances: Some(vec![]),
-                        post_token_balances: Some(vec![]),
-                        rewards: Some(vec![]),
-                        loaded_addresses: LoadedAddresses::default(),
-                        return_data: Some(tx_result.return_data.clone()),
-                        compute_units_consumed: Some(tx_result.compute_units_consumed),
+                SurfnetTransactionStatus::processed(
+                    TransactionWithStatusMeta {
+                        slot,
+                        transaction: tx.clone(),
+                        meta: TransactionStatusMeta {
+                            status: Ok(()),
+                            fee: 5000,
+                            pre_balances: vec![
+                                account.lamports,
+                                account.lamports.saturating_sub(lamports),
+                                system_lamports,
+                            ],
+                            post_balances: vec![
+                                account.lamports.saturating_sub(lamports + 5000),
+                                account.lamports,
+                                system_lamports,
+                            ],
+                            inner_instructions: Some(vec![]),
+                            log_messages: Some(tx_result.logs.clone()),
+                            pre_token_balances: Some(vec![]),
+                            post_token_balances: Some(vec![]),
+                            rewards: Some(vec![]),
+                            loaded_addresses: LoadedAddresses::default(),
+                            return_data: Some(tx_result.return_data.clone()),
+                            compute_units_consumed: Some(tx_result.compute_units_consumed),
+                        },
                     },
-                })),
+                    HashSet::from([*pubkey]),
+                ),
             );
             self.transactions_queued_for_confirmation
                 .push_back((tx, status_tx.clone()));
@@ -746,10 +752,12 @@ impl SurfnetSvm {
     ///
     /// # Returns
     /// `Ok(Vec<Signature>)` with confirmed signatures, or `Err(SurfpoolError)` on error.
-    fn confirm_transactions(&mut self) -> Result<Vec<Signature>, SurfpoolError> {
+    fn confirm_transactions(&mut self) -> Result<(Vec<Signature>, HashSet<Pubkey>), SurfpoolError> {
         self.updated_at = Utc::now().timestamp_millis() as u64;
         let mut confirmed_transactions = vec![];
         let slot = self.latest_epoch_info.slot_index;
+
+        let mut all_mutated_account_keys = HashSet::new();
 
         while let Some((tx, status_tx)) = self.transactions_queued_for_confirmation.pop_front() {
             let _ = status_tx.try_send(TransactionStatusEvent::Success(
@@ -771,16 +779,23 @@ impl SurfnetSvm {
             else {
                 continue;
             };
+            let (tx_with_status_meta, mutated_account_keys) = tx_data.as_ref();
+            all_mutated_account_keys.extend(mutated_account_keys);
+
             self.notify_logs_subscribers(
                 &signature,
                 None,
-                tx_data.meta.log_messages.clone().unwrap_or(vec![]),
+                tx_with_status_meta
+                    .meta
+                    .log_messages
+                    .clone()
+                    .unwrap_or(vec![]),
                 CommitmentLevel::Confirmed,
             );
             confirmed_transactions.push(signature);
         }
 
-        Ok(confirmed_transactions)
+        Ok((confirmed_transactions, all_mutated_account_keys))
     }
 
     /// Finalizes transactions queued for finalization, sending finalized events as needed.
@@ -805,11 +820,13 @@ impl SurfnetSvm {
                     self.latest_epoch_info.absolute_slot,
                     None,
                 );
-                let Some(tx_data) = self.transactions.get(&signature) else {
+                let Some(SurfnetTransactionStatus::Processed(tx_data)) =
+                    self.transactions.get(&signature)
+                else {
                     continue;
                 };
-                let logs = tx_data
-                    .expect_processed()
+                let (tx_with_status_meta, _) = tx_data.as_ref();
+                let logs = tx_with_status_meta
                     .meta
                     .log_messages
                     .clone()
@@ -876,21 +893,36 @@ impl SurfnetSvm {
 
     pub fn confirm_current_block(&mut self) -> Result<(), SurfpoolError> {
         self.updated_at = Utc::now().timestamp_millis() as u64;
+        let slot = self.get_latest_absolute_slot();
         // Confirm processed transactions
-        let confirmed_signatures = self.confirm_transactions()?;
+        let (confirmed_signatures, all_mutated_account_keys) = self.confirm_transactions()?;
+        let write_version = self.increment_write_version();
+
+        // Notify Geyser plugin of account updates
+        for pubkey in all_mutated_account_keys {
+            let Some(account) = self.inner.get_account(&pubkey) else {
+                continue;
+            };
+            self.geyser_events_tx
+                .send(GeyserEvent::UpdateAccount(
+                    GeyserAccountUpdate::block_update(pubkey, account, slot, write_version),
+                ))
+                .ok();
+        }
+
         let num_transactions = confirmed_signatures.len() as u64;
 
         let previous_chain_tip = self.chain_tip.clone();
         self.chain_tip = self.new_blockhash();
 
         self.blocks.insert(
-            self.get_latest_absolute_slot(),
+            slot,
             BlockHeader {
                 hash: self.chain_tip.hash.clone(),
                 previous_blockhash: previous_chain_tip.hash,
                 block_time: chrono::Utc::now().timestamp_millis(),
                 block_height: self.chain_tip.index,
-                parent_slot: self.get_latest_absolute_slot(),
+                parent_slot: slot,
                 signatures: confirmed_signatures,
             },
         );
@@ -898,7 +930,7 @@ impl SurfnetSvm {
             self.perf_samples.pop_back();
         }
         self.perf_samples.push_front(RpcPerfSample {
-            slot: self.get_latest_absolute_slot(),
+            slot,
             num_slots: 1,
             sample_period_secs: 1,
             num_transactions,
@@ -1064,7 +1096,8 @@ impl SurfnetSvm {
                     .iter()
                     .filter_map(|sig| self.transactions.get(sig))
                     .map(|tx_with_meta| {
-                        tx_with_meta.expect_processed().encode(
+                        let (meta, _) = tx_with_meta.expect_processed();
+                        meta.encode(
                             config.encoding.unwrap_or(
                                 solana_transaction_status::UiTransactionEncoding::JsonParsed,
                             ),
@@ -1083,7 +1116,8 @@ impl SurfnetSvm {
                     .iter()
                     .filter_map(|sig| self.transactions.get(sig))
                     .map(|tx_with_meta| {
-                        tx_with_meta.expect_processed().to_json_accounts(
+                        let (meta, _) = tx_with_meta.expect_processed();
+                        meta.to_json_accounts(
                             config.max_supported_transaction_version,
                             show_rewards,
                         )

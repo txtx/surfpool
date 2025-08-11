@@ -540,11 +540,14 @@ impl SurfnetSvmLocker {
                 .transactions
                 .iter()
                 .filter_map(|(sig, status)| {
-                    let TransactionWithStatusMeta {
-                        slot,
-                        transaction,
-                        meta,
-                    } = status.expect_processed();
+                    let (
+                        TransactionWithStatusMeta {
+                            slot,
+                            transaction,
+                            meta,
+                        },
+                        _,
+                    ) = status.expect_processed();
 
                     if *slot < config.clone().min_context_slot.unwrap_or_default() {
                         return None;
@@ -675,7 +678,7 @@ impl SurfnetSvmLocker {
                 return Ok(GetTransactionResult::None(*signature));
             };
 
-            let transaction_with_status_meta = entry.expect_processed();
+            let (transaction_with_status_meta, _) = entry.expect_processed();
             let slot = transaction_with_status_meta.slot;
             let block_time = svm_reader
                 .blocks
@@ -1241,18 +1244,20 @@ impl SurfnetSvmLocker {
                 None
             };
 
+            let mut mutated_account_pubkeys = HashSet::new();
             for (pubkey, (before, after)) in pubkeys_from_message
                 .iter()
                 .zip(accounts_before.iter().zip(accounts_after.clone()))
             {
                 if before.ne(&after) {
+                    mutated_account_pubkeys.insert(*pubkey);
                     if let Some(after) = &after {
                         svm_writer.update_account_registries(pubkey, after)?;
                         let write_version = svm_writer.increment_write_version();
 
                         if let Some(sanitized_transaction) = sanitized_transaction.clone() {
                             let _ = svm_writer.geyser_events_tx.send(GeyserEvent::UpdateAccount(
-                                GeyserAccountUpdate::new(
+                                GeyserAccountUpdate::transaction_update(
                                     *pubkey,
                                     after.clone(),
                                     svm_writer.get_latest_absolute_slot(),
@@ -1314,9 +1319,10 @@ impl SurfnetSvmLocker {
                 );
                 svm_writer.transactions.insert(
                     transaction_meta.signature,
-                    SurfnetTransactionStatus::Processed(Box::new(
+                    SurfnetTransactionStatus::processed(
                         transaction_with_status_meta.clone(),
-                    )),
+                        mutated_account_pubkeys,
+                    ),
                 );
 
                 let _ = svm_writer
