@@ -301,6 +301,7 @@ impl TransactionWithStatusMeta {
         transaction: VersionedTransaction,
         failure: &litesvm::types::FailedTransactionMetadata,
         accounts_before: &[Option<Account>],
+        accounts_after: &[Option<Account>],
         loaded_addresses: LoadedAddresses,
     ) -> Self {
         let pre_balances: Vec<u64> = accounts_before
@@ -310,10 +311,9 @@ impl TransactionWithStatusMeta {
 
         let fee = 5000 * transaction.signatures.len() as u64;
 
-        let post_balances: Vec<u64> = pre_balances
+        let post_balances: Vec<u64> = accounts_after
             .iter()
-            .enumerate()
-            .map(|(i, b)| b.saturating_sub(if i == 0 { fee } else { 0 }))
+            .map(|a| a.clone().map(|a| a.lamports).unwrap_or(0))
             .collect();
 
         Self {
@@ -324,24 +324,7 @@ impl TransactionWithStatusMeta {
                 fee,
                 pre_balances,
                 post_balances,
-                inner_instructions: Some(
-                    failure
-                        .meta
-                        .inner_instructions
-                        .iter()
-                        .enumerate()
-                        .map(|(i, ixs)| InnerInstructions {
-                            index: i as u8,
-                            instructions: ixs
-                                .iter()
-                                .map(|ix| InnerInstruction {
-                                    instruction: ix.instruction.clone(),
-                                    stack_height: Some(ix.stack_height as u32),
-                                })
-                                .collect(),
-                        })
-                        .collect(),
-                ),
+                inner_instructions: Some(vec![]),
                 log_messages: Some(failure.meta.logs.clone()),
                 pre_token_balances: Some(vec![]),
                 post_token_balances: Some(vec![]),

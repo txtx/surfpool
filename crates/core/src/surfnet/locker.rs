@@ -1153,6 +1153,7 @@ impl SurfnetSvmLocker {
         failed_transaction_metadata: FailedTransactionMetadata,
         transaction: VersionedTransaction,
         simulated_slot: Slot,
+        pubkeys_from_message: &[Pubkey],
         accounts_before: &[Option<Account>],
         loaded_addresses: &Option<LoadedAddresses>,
         pre_execution_capture: ExecutionCapture,
@@ -1165,6 +1166,27 @@ impl SurfnetSvmLocker {
         let log_messages = meta.logs.clone();
         let err_string = err.to_string();
         let signature = meta.signature;
+
+        let accounts_after = pubkeys_from_message
+            .iter()
+            .map(|p| self.with_svm_reader(|svm_reader| svm_reader.inner.get_account(p)))
+            .collect::<Vec<Option<Account>>>();
+
+        for (pubkey, (before, after)) in pubkeys_from_message
+            .iter()
+            .zip(accounts_before.iter().zip(accounts_after.clone()))
+        {
+            if before.ne(&after) {
+                if let Some(after) = &after {
+                    self.with_svm_writer(|svm_writer| {
+                        let _ = svm_writer.update_account_registries(pubkey, after);
+                    });
+                }
+                self.with_svm_writer(|svm_writer| {
+                    svm_writer.notify_account_subscribers(pubkey, &after.unwrap_or_default());
+                });
+            }
+        }
 
         if do_propagate {
             let meta_canonical = convert_transaction_metadata_from_canonical(&meta);
@@ -1187,6 +1209,7 @@ impl SurfnetSvmLocker {
                         meta: meta.clone(),
                     },
                     accounts_before,
+                    &accounts_after,
                     loaded_addresses.clone().unwrap_or_default(),
                 );
                 svm_writer.transactions.insert(
@@ -1423,6 +1446,7 @@ impl SurfnetSvmLocker {
                 failed,
                 transaction,
                 self.get_latest_absolute_slot(),
+                transaction_accounts,
                 accounts_before,
                 &loaded_addresses,
                 pre_execution_capture,
