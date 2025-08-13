@@ -1100,15 +1100,12 @@ impl SurfnetSvmLocker {
         &self,
         signature: Signature,
         failed_transaction_metadata: FailedTransactionMetadata,
-        transaction: VersionedTransaction,
-        simulated_slot: Slot,
-        accounts_before: &[Option<Account>],
-        loaded_addresses: &Option<LoadedAddresses>,
         pre_execution_capture: ExecutionCapture,
+        simulated_slot: Slot,
         status_tx: Sender<TransactionStatusEvent>,
         do_propagate: bool,
     ) -> ProfileResult {
-        let FailedTransactionMetadata { err, meta } = failed_transaction_metadata.clone();
+        let FailedTransactionMetadata { err, meta } = failed_transaction_metadata;
 
         let cus = meta.compute_units_consumed;
         let log_messages = meta.logs.clone();
@@ -1126,22 +1123,6 @@ impl SurfnetSvmLocker {
                 err.clone(),
                 meta,
             )));
-
-            // Record the failed tx locally
-            self.with_svm_writer(|svm_writer| {
-                let twsm = TransactionWithStatusMeta::from_failure(
-                    simulated_slot,
-                    transaction,
-                    &failed_transaction_metadata,
-                    accounts_before,
-                    loaded_addresses.clone().unwrap_or_default(),
-                    0,
-                );
-                svm_writer.transactions.insert(
-                    signature,
-                    SurfnetTransactionStatus::Processed(Box::new(twsm)),
-                );
-            });
 
             self.with_svm_writer(|svm_writer| {
                 svm_writer.notify_signature_subscribers(
@@ -1186,7 +1167,7 @@ impl SurfnetSvmLocker {
         let signature = meta.signature;
 
         if do_propagate {
-            let meta_c = convert_transaction_metadata_from_canonical(&meta);
+            let meta_canonical = convert_transaction_metadata_from_canonical(&meta);
             let simnet_events_tx = self.simnet_events_tx();
             let _ = simnet_events_tx.try_send(SimnetEvent::error(format!(
                 "Transaction execution failed: {}",
@@ -1194,12 +1175,11 @@ impl SurfnetSvmLocker {
             )));
             let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((
                 err.clone(),
-                meta_c,
+                meta_canonical,
             )));
 
-            let fee = 5000 * transaction.signatures.len() as u64;
             self.with_svm_writer(|svm_writer| {
-                let twsm = TransactionWithStatusMeta::from_failure(
+                let transaction_with_status_meta = TransactionWithStatusMeta::from_failure(
                     simulated_slot,
                     transaction.clone(),
                     &FailedTransactionMetadata {
@@ -1208,11 +1188,10 @@ impl SurfnetSvmLocker {
                     },
                     accounts_before,
                     loaded_addresses.clone().unwrap_or_default(),
-                    fee,
                 );
                 svm_writer.transactions.insert(
                     signature,
-                    SurfnetTransactionStatus::Processed(Box::new(twsm)),
+                    SurfnetTransactionStatus::Processed(Box::new(transaction_with_status_meta)),
                 );
             });
 
@@ -1431,17 +1410,15 @@ impl SurfnetSvmLocker {
                     status_tx,
                     do_propagate,
                 )?,
-            ProcessTransactionResult::SimulationFailure(failed) => self.handle_simulation_failure(
-                transaction.signatures[0],
-                failed,
-                transaction.clone(),
-                self.get_latest_absolute_slot(),
-                accounts_before,
-                &loaded_addresses,
-                pre_execution_capture,
-                status_tx.clone(),
-                do_propagate,
-            ),
+            ProcessTransactionResult::SimulationFailure(failed_transaction_metadata) => self
+                .handle_simulation_failure(
+                    transaction.signatures[0],
+                    failed_transaction_metadata,
+                    pre_execution_capture,
+                    self.get_latest_absolute_slot(),
+                    status_tx.clone(),
+                    do_propagate,
+                ),
             ProcessTransactionResult::ExecutionFailure(failed) => self.handle_execution_failure(
                 failed,
                 transaction,

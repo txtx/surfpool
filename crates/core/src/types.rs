@@ -302,13 +302,19 @@ impl TransactionWithStatusMeta {
         failure: &litesvm::types::FailedTransactionMetadata,
         accounts_before: &[Option<Account>],
         loaded_addresses: LoadedAddresses,
-        fee: u64,
     ) -> Self {
         let pre_balances: Vec<u64> = accounts_before
             .iter()
             .map(|a| a.as_ref().map(|a| a.lamports).unwrap_or(0))
             .collect();
-        let post_balances = pre_balances.clone();
+
+        let fee = 5000 * transaction.signatures.len() as u64;
+
+        let post_balances: Vec<u64> = pre_balances
+            .iter()
+            .enumerate()
+            .map(|(i, b)| b.saturating_sub(if i == 0 { fee } else { 0 }))
+            .collect();
 
         Self {
             slot,

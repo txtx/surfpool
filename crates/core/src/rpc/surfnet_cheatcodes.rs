@@ -1155,12 +1155,16 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 .transactions
                 .iter()
                 .map(|(sig, status)| {
-                    let twsm = status.expect_processed();
+                    let transaction_with_status_meta = status.expect_processed();
                     (
                         sig.to_string(),
-                        twsm.slot,
-                        twsm.meta.status.clone().err(),
-                        twsm.meta.log_messages.clone().unwrap_or_default(),
+                        transaction_with_status_meta.slot,
+                        transaction_with_status_meta.meta.status.clone().err(),
+                        transaction_with_status_meta
+                            .meta
+                            .log_messages
+                            .clone()
+                            .unwrap_or_default(),
                     )
                 })
                 .collect()
