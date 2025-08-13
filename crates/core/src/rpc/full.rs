@@ -2261,7 +2261,8 @@ impl Full for SurfpoolFullRpc {
             for (slot, tx) in recent_transactions {
                 match tx {
                     SurfnetTransactionStatus::Received => {}
-                    SurfnetTransactionStatus::Processed(status_meta) => {
+                    SurfnetTransactionStatus::Processed(data) => {
+                        let (status_meta, _) = data.as_ref();
                         let tx = &status_meta.transaction;
 
                         // If the transaction has an ALT and includes a compute budget instruction,
@@ -2430,13 +2431,16 @@ mod tests {
                 writer
                     .transactions_queued_for_confirmation
                     .push_back((tx.clone(), status_tx.clone()));
+                let sig = tx.signatures[0];
+                let tx_with_status_meta = TransactionWithStatusMeta {
+                    slot,
+                    transaction: tx,
+                    ..Default::default()
+                };
+                let mutated_accounts = std::collections::HashSet::new();
                 writer.transactions.insert(
-                    tx.signatures[0],
-                    SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta {
-                        slot,
-                        transaction: tx,
-                        ..Default::default()
-                    })),
+                    sig,
+                    SurfnetTransactionStatus::processed(tx_with_status_meta, mutated_accounts),
                 );
                 status_tx
                     .send(TransactionStatusEvent::Success(

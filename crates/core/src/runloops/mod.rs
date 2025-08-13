@@ -452,7 +452,7 @@ fn start_geyser_runloop(
                             rent_epoch: account.rent_epoch,
                             data: account.data.as_ref(),
                             write_version,
-                            txn: Some(&sanitized_transaction),
+                            txn: sanitized_transaction.as_ref(),
                         };
 
                         for plugin in surfpool_plugin_manager.iter() {

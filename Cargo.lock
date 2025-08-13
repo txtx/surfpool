@@ -12163,8 +12163,6 @@ dependencies = [
 [[package]]
 name = "txtx-addon-kit"
 version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05de0fe134886ba0855e4645a543494406d5f1497ad61b8f9455726261f709f5"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -12198,8 +12196,6 @@ dependencies = [
 [[package]]
 name = "txtx-addon-network-svm"
 version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0c4bdfa3c7f0022bdac240e3bb37256afcfc36901d610b3d241ee911f04c79e"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -12226,8 +12222,6 @@ dependencies = [
 [[package]]
 name = "txtx-addon-network-svm-types"
 version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "800b2eafc9068dcc35a9cf07d3cff7b6fd9f930c046c52a7be55cc0cae839222"
 dependencies = [
  "anchor-lang-idl",
  "borsh 1.5.5",
@@ -12253,8 +12247,6 @@ dependencies = [
 [[package]]
 name = "txtx-cloud"
 version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9eefa0475950dd86ae46605db8a89c9e57b25e28dba29d8a89c214bec7727ab"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -12283,8 +12275,6 @@ dependencies = [
 [[package]]
 name = "txtx-core"
 version = "0.4.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82a6829d7b2fddec32d1fe7d37f810de8e8868a7bc9534fb44632894bfe563aa"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
@@ -12312,8 +12302,6 @@ dependencies = [
 [[package]]
 name = "txtx-gql"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dd30cac596bdb4406403e4219228c1910553cc43c7606a73e51cdf03b1b8adb"
 dependencies = [
  "async-stream",
  "futures 0.3.31",
@@ -12327,8 +12315,6 @@ dependencies = [
 [[package]]
 name = "txtx-supervisor-ui"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9609122b906ad5cff2618591d7d245ba819e95b15cff6ca83308ae6fafb84dc"
 dependencies = [
  "actix-cors",
  "actix-web",

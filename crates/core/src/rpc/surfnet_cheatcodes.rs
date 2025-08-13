@@ -1156,13 +1156,8 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                         }
 
                         let err = svm_reader.transactions.get(signature).and_then(|status| {
-                            status
-                                .expect_processed()
-                                .meta
-                                .status
-                                .as_ref()
-                                .err()
-                                .cloned()
+                            let (tx_with_status_meta, _) = status.expect_processed();
+                            tx_with_status_meta.meta.status.as_ref().err().cloned()
                         });
 
                         signatures.push(RpcLogsResponse {
