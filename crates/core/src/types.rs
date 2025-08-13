@@ -296,6 +296,56 @@ impl TransactionWithStatusMeta {
             }
         }
     }
+    pub fn from_failure(
+        slot: u64,
+        transaction: VersionedTransaction,
+        failure: &litesvm::types::FailedTransactionMetadata,
+        accounts_before: &[Option<Account>],
+        loaded_addresses: LoadedAddresses,
+        fee: u64,
+    ) -> Self {
+        let pre_balances: Vec<u64> = accounts_before
+            .iter()
+            .map(|a| a.as_ref().map(|a| a.lamports).unwrap_or(0))
+            .collect();
+        let post_balances = pre_balances.clone();
+
+        Self {
+            slot,
+            transaction,
+            meta: TransactionStatusMeta {
+                status: Err(failure.err.clone()),
+                fee,
+                pre_balances,
+                post_balances,
+                inner_instructions: Some(
+                    failure
+                        .meta
+                        .inner_instructions
+                        .iter()
+                        .enumerate()
+                        .map(|(i, ixs)| InnerInstructions {
+                            index: i as u8,
+                            instructions: ixs
+                                .iter()
+                                .map(|ix| InnerInstruction {
+                                    instruction: ix.instruction.clone(),
+                                    stack_height: Some(ix.stack_height as u32),
+                                })
+                                .collect(),
+                        })
+                        .collect(),
+                ),
+                log_messages: Some(failure.meta.logs.clone()),
+                pre_token_balances: Some(vec![]),
+                post_token_balances: Some(vec![]),
+                rewards: Some(vec![]),
+                loaded_addresses,
+                return_data: Some(failure.meta.return_data.clone()),
+                compute_units_consumed: Some(failure.meta.compute_units_consumed),
+            },
+        }
+    }
 }
 
 fn parse_ui_transaction_status_meta_with_account_keys(

@@ -1134,52 +1134,54 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             Err(e) => return e.into(),
         };
 
-        let signatures = svm_locker.with_svm_reader(|svm_reader| {
-            let limit = limit.unwrap_or_else(|| 50);
-            let mut signatures = Vec::new();
+        let limit = limit.unwrap_or_else(|| 50);
+        let latest = svm_locker.get_latest_absolute_slot();
+        if limit == 0 {
+            return Box::pin(async move {
+                Ok(RpcResponse {
+                    context: RpcResponseContext::new(latest),
+                    value: Vec::new(),
+                })
+            });
+        }
 
-            // Get all block slots and sort them in descending order (most recent first)
-            let mut block_slots: Vec<Slot> = svm_reader.blocks.keys().cloned().collect();
-            block_slots.sort_by(|a, b| b.cmp(a)); // Sort in descending order
-
-            // Iterate through block slots in descending order until we reach the signature limit
-            for slot in block_slots {
-                if signatures.len() >= limit as usize {
-                    break;
-                }
-
-                if let Some(block_header) = svm_reader.blocks.get(&slot) {
-                    // Add signatures from this block until we reach the limit
-                    for signature in &block_header.signatures {
-                        if signatures.len() >= limit as usize {
-                            break;
-                        }
-
-                        let err = svm_reader.transactions.get(signature).and_then(|status| {
-                            status
-                                .expect_processed()
-                                .meta
-                                .status
-                                .as_ref()
-                                .err()
-                                .cloned()
-                        });
-
-                        signatures.push(RpcLogsResponse {
-                            signature: signature.to_string(),
-                            err,
-                            logs: vec![],
-                        });
-                    }
-                }
-            }
-            signatures
+        let mut items: Vec<(
+            String,
+            Slot,
+            Option<solana_transaction_error::TransactionError>,
+            Vec<String>,
+        )> = svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .transactions
+                .iter()
+                .map(|(sig, status)| {
+                    let twsm = status.expect_processed();
+                    (
+                        sig.to_string(),
+                        twsm.slot,
+                        twsm.meta.status.clone().err(),
+                        twsm.meta.log_messages.clone().unwrap_or_default(),
+                    )
+                })
+                .collect()
         });
+
+        items.sort_by(|a, b| b.1.cmp(&a.1));
+        items.truncate(limit as usize);
+
+        let value: Vec<RpcLogsResponse> = items
+            .into_iter()
+            .map(|(signature, _slot, err, logs)| RpcLogsResponse {
+                signature,
+                err,
+                logs,
+            })
+            .collect();
 
         Box::pin(async move {
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
-                value: signatures,
+                context: RpcResponseContext::new(latest),
+                value,
             })
         })
     }
