@@ -11099,7 +11099,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "surfpool-cli"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -11152,7 +11152,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-core"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -11232,7 +11232,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-db"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "diesel",
  "diesel-dynamic-schema",
@@ -11243,7 +11243,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-gql"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "blake3",
  "chrono",
@@ -11265,7 +11265,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-mcp"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "axum 0.8.4",
  "bs58",
@@ -11309,7 +11309,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-subgraph"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "agave-geyser-plugin-interface",
  "ipc-channel",
@@ -11325,7 +11325,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-types"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "anchor-lang-idl",
  "blake3",
