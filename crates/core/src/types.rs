@@ -325,6 +325,24 @@ impl TransactionWithStatusMeta {
             .map(|a| a.clone().map(|a| a.lamports).unwrap_or(0))
             .collect();
 
+        let balances: Vec<TransactionTokenBalance> = pre_token_accounts_with_indexes
+            .iter()
+            .zip(token_mints)
+            .zip(token_program_ids)
+            .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
+                account_index: *i as u8,
+                mint: a.mint().to_string(),
+                ui_token_amount: UiTokenAmount {
+                    ui_amount: Some(format_ui_amount(a.amount(), mint.decimals())),
+                    decimals: mint.decimals(),
+                    amount: a.amount().to_string(),
+                    ui_amount_string: format_ui_amount_string(a.amount(), mint.decimals()),
+                },
+                owner: a.owner().to_string(),
+                program_id: token_program.to_string(),
+            })
+            .collect();
+
         Self {
             slot,
             transaction,
@@ -358,52 +376,8 @@ impl TransactionWithStatusMeta {
                         .collect(),
                 ),
                 log_messages: Some(failure.meta.logs.clone()),
-                pre_token_balances: {
-                    let balances: Vec<TransactionTokenBalance> = pre_token_accounts_with_indexes
-                        .iter()
-                        .zip(token_mints.clone())
-                        .zip(token_program_ids)
-                        .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
-                            account_index: *i as u8,
-                            mint: a.mint().to_string(),
-                            ui_token_amount: UiTokenAmount {
-                                ui_amount: Some(format_ui_amount(a.amount(), mint.decimals())),
-                                decimals: mint.decimals(),
-                                amount: a.amount().to_string(),
-                                ui_amount_string: format_ui_amount_string(
-                                    a.amount(),
-                                    mint.decimals(),
-                                ),
-                            },
-                            owner: a.owner().to_string(),
-                            program_id: token_program.to_string(),
-                        })
-                        .collect();
-                    Some(balances.clone())
-                },
-                post_token_balances: {
-                    let balances: Vec<TransactionTokenBalance> = pre_token_accounts_with_indexes
-                        .iter()
-                        .zip(token_mints)
-                        .zip(token_program_ids)
-                        .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
-                            account_index: *i as u8,
-                            mint: a.mint().to_string(),
-                            ui_token_amount: UiTokenAmount {
-                                ui_amount: Some(format_ui_amount(a.amount(), mint.decimals())),
-                                decimals: mint.decimals(),
-                                amount: a.amount().to_string(),
-                                ui_amount_string: format_ui_amount_string(
-                                    a.amount(),
-                                    mint.decimals(),
-                                ),
-                            },
-                            owner: a.owner().to_string(),
-                            program_id: token_program.to_string(),
-                        })
-                        .collect();
-                    Some(balances)
-                },
+                pre_token_balances: Some(balances.clone()),
+                post_token_balances: Some(balances),
                 rewards: Some(vec![]),
                 loaded_addresses,
                 return_data: Some(failure.meta.return_data.clone()),
