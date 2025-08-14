@@ -99,15 +99,21 @@ impl TransactionWithStatusMeta {
                         .inner_instructions
                         .iter()
                         .enumerate()
-                        .map(|(i, ixs)| InnerInstructions {
-                            index: i as u8,
-                            instructions: ixs
-                                .iter()
-                                .map(|ix| InnerInstruction {
-                                    instruction: ix.instruction.clone(),
-                                    stack_height: Some(ix.stack_height as u32),
+                        .filter_map(|(i, ixs)| {
+                            if ixs.is_empty() {
+                                None
+                            } else {
+                                Some(InnerInstructions {
+                                    index: i as u8,
+                                    instructions: ixs
+                                        .iter()
+                                        .map(|ix| InnerInstruction {
+                                            instruction: ix.instruction.clone(),
+                                            stack_height: Some(ix.stack_height as u32),
+                                        })
+                                        .collect(),
                                 })
-                                .collect(),
+                            }
                         })
                         .collect(),
                 ),
@@ -302,6 +308,9 @@ impl TransactionWithStatusMeta {
         failure: &litesvm::types::FailedTransactionMetadata,
         accounts_before: &[Option<Account>],
         accounts_after: &[Option<Account>],
+        pre_token_accounts_with_indexes: &[(usize, TokenAccount)],
+        token_mints: Vec<MintAccount>,
+        token_program_ids: &[Pubkey],
         loaded_addresses: LoadedAddresses,
     ) -> Self {
         let pre_balances: Vec<u64> = accounts_before
@@ -316,6 +325,24 @@ impl TransactionWithStatusMeta {
             .map(|a| a.clone().map(|a| a.lamports).unwrap_or(0))
             .collect();
 
+        let balances: Vec<TransactionTokenBalance> = pre_token_accounts_with_indexes
+            .iter()
+            .zip(token_mints)
+            .zip(token_program_ids)
+            .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
+                account_index: *i as u8,
+                mint: a.mint().to_string(),
+                ui_token_amount: UiTokenAmount {
+                    ui_amount: Some(format_ui_amount(a.amount(), mint.decimals())),
+                    decimals: mint.decimals(),
+                    amount: a.amount().to_string(),
+                    ui_amount_string: format_ui_amount_string(a.amount(), mint.decimals()),
+                },
+                owner: a.owner().to_string(),
+                program_id: token_program.to_string(),
+            })
+            .collect();
+
         Self {
             slot,
             transaction,
@@ -324,10 +351,33 @@ impl TransactionWithStatusMeta {
                 fee,
                 pre_balances,
                 post_balances,
-                inner_instructions: Some(vec![]),
+                inner_instructions: Some(
+                    failure
+                        .meta
+                        .inner_instructions
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, ixs)| {
+                            if ixs.is_empty() {
+                                None
+                            } else {
+                                Some(InnerInstructions {
+                                    index: i as u8,
+                                    instructions: ixs
+                                        .iter()
+                                        .map(|ix| InnerInstruction {
+                                            instruction: ix.instruction.clone(),
+                                            stack_height: Some(ix.stack_height as u32),
+                                        })
+                                        .collect(),
+                                })
+                            }
+                        })
+                        .collect(),
+                ),
                 log_messages: Some(failure.meta.logs.clone()),
-                pre_token_balances: Some(vec![]),
-                post_token_balances: Some(vec![]),
+                pre_token_balances: Some(balances.clone()),
+                post_token_balances: Some(balances),
                 rewards: Some(vec![]),
                 loaded_addresses,
                 return_data: Some(failure.meta.return_data.clone()),

@@ -1155,6 +1155,8 @@ impl SurfnetSvmLocker {
         simulated_slot: Slot,
         pubkeys_from_message: &[Pubkey],
         accounts_before: &[Option<Account>],
+        token_accounts_before: &[(usize, TokenAccount)],
+        token_programs: &[Pubkey],
         loaded_addresses: &Option<LoadedAddresses>,
         pre_execution_capture: ExecutionCapture,
         status_tx: Sender<TransactionStatusEvent>,
@@ -1188,6 +1190,21 @@ impl SurfnetSvmLocker {
             }
         }
 
+        let token_mints = self
+            .with_svm_reader(|svm_reader| {
+                token_accounts_before
+                    .iter()
+                    .map(|(_, a)| {
+                        svm_reader
+                            .token_mints
+                            .get(&a.mint())
+                            .cloned()
+                            .ok_or(SurfpoolError::token_mint_not_found(a.mint()))
+                    })
+                    .collect::<Result<Vec<_>, SurfpoolError>>()
+            })
+            .unwrap_or_default();
+
         if do_propagate {
             let meta_canonical = convert_transaction_metadata_from_canonical(&meta);
             let simnet_events_tx = self.simnet_events_tx();
@@ -1210,6 +1227,9 @@ impl SurfnetSvmLocker {
                     },
                     accounts_before,
                     &accounts_after,
+                    token_accounts_before,
+                    token_mints,
+                    token_programs,
                     loaded_addresses.clone().unwrap_or_default(),
                 );
                 svm_writer.transactions.insert(
@@ -1448,6 +1468,8 @@ impl SurfnetSvmLocker {
                 self.get_latest_absolute_slot(),
                 transaction_accounts,
                 accounts_before,
+                token_accounts_before,
+                token_programs,
                 &loaded_addresses,
                 pre_execution_capture,
                 status_tx.clone(),
