@@ -94,23 +94,29 @@ impl TransactionWithStatusMeta {
                     .iter()
                     .map(|a| a.clone().map(|a| a.lamports).unwrap_or(0))
                     .collect(),
-                inner_instructions: Some(
-                    transaction_meta
-                        .inner_instructions
-                        .iter()
-                        .enumerate()
-                        .map(|(i, ixs)| InnerInstructions {
-                            index: i as u8,
-                            instructions: ixs
-                                .iter()
-                                .map(|ix| InnerInstruction {
-                                    instruction: ix.instruction.clone(),
-                                    stack_height: Some(ix.stack_height as u32),
-                                })
-                                .collect(),
-                        })
-                        .collect(),
-                ),
+                    inner_instructions: Some(
+                        transaction_meta
+                            .inner_instructions
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, ixs)| {
+                                if ixs.is_empty() {
+                                    None
+                                } else {
+                                    Some(InnerInstructions {
+                                        index: i as u8,
+                                        instructions: ixs
+                                            .iter()
+                                            .map(|ix| InnerInstruction {
+                                                instruction: ix.instruction.clone(),
+                                                stack_height: Some(ix.stack_height as u32),
+                                            })
+                                            .collect(),
+                                    })
+                                }
+                            })
+                            .collect(),
+                    ),
                 log_messages: Some(transaction_meta.logs),
                 pre_token_balances: Some(
                     pre_token_accounts_with_indexes
@@ -324,7 +330,30 @@ impl TransactionWithStatusMeta {
                 fee,
                 pre_balances,
                 post_balances,
-                inner_instructions: Some(vec![]),
+                inner_instructions: Some(
+                    failure
+                        .meta
+                        .inner_instructions
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, ixs)| {
+                            if ixs.is_empty() {
+                                None
+                            } else {
+                                Some(InnerInstructions {
+                                    index: i as u8,
+                                    instructions: ixs
+                                        .iter()
+                                        .map(|ix| InnerInstruction {
+                                            instruction: ix.instruction.clone(),
+                                            stack_height: Some(ix.stack_height as u32),
+                                        })
+                                        .collect(),
+                                })
+                            }
+                        })
+                        .collect(),
+                ),
                 log_messages: Some(failure.meta.logs.clone()),
                 pre_token_balances: Some(vec![]),
                 post_token_balances: Some(vec![]),
