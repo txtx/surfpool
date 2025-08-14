@@ -49,8 +49,9 @@ brew install txtx/taps/surfpool
 brew tap txtx/taps
 brew reinstall surfpool
 
-# Linux (Snapstore)
-snap install surfpool
+# Linux (Snap Store)
+# Note: there have been errors updating the Snap Store to the latest version
+# While this is being resolved, Linux users should install from source
 ```
 
 

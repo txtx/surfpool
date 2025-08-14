@@ -2,7 +2,6 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
 use solana_account::Account;
-use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_response::{RpcLogsResponse, RpcResponseContext};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -11,11 +10,8 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk::{program_option::COption, system_program, transaction::VersionedTransaction};
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    ClockCommand, Idl, SimnetCommand, SimnetEvent,
-    types::{
-        AccountUpdate, ProfileResult, SetSomeAccount, SupplyUpdate, TokenAccountUpdate,
-        UuidOrSignature,
-    },
+    ClockCommand, Idl, RpcProfileResultConfig, SimnetCommand, SimnetEvent, UiKeyedProfileResult,
+    types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
 use super::{RunloopContext, SurfnetRpcContext};
@@ -266,8 +262,8 @@ pub trait SurfnetCheatcodes {
         meta: Self::Metadata,
         transaction_data: String, // Base64 encoded VersionedTransaction
         tag: Option<String>,      // Optional tag for the transaction
-        encoding: Option<UiAccountEncoding>,
-    ) -> BoxFuture<Result<RpcResponse<ProfileResult>>>;
+        config: Option<RpcProfileResultConfig>,
+    ) -> BoxFuture<Result<RpcResponse<UiKeyedProfileResult>>>;
 
     /// Retrieves all profiling results for a given tag.
     ///
@@ -282,7 +278,8 @@ pub trait SurfnetCheatcodes {
         &self,
         meta: Self::Metadata,
         tag: String,
-    ) -> BoxFuture<Result<RpcResponse<Option<Vec<ProfileResult>>>>>;
+        config: Option<RpcProfileResultConfig>,
+    ) -> Result<RpcResponse<Option<Vec<UiKeyedProfileResult>>>>;
 
     /// A "cheat code" method for developers to set or update the network supply information in Surfpool.
     ///
@@ -418,7 +415,8 @@ pub trait SurfnetCheatcodes {
         &self,
         meta: Self::Metadata,
         signature_or_uuid: UuidOrSignature,
-    ) -> BoxFuture<Result<RpcResponse<Option<ProfileResult>>>>;
+        config: Option<RpcProfileResultConfig>,
+    ) -> Result<RpcResponse<Option<UiKeyedProfileResult>>>;
 
     /// A cheat code to register an IDL for a given program in memory.
     ///
@@ -618,7 +616,7 @@ pub trait SurfnetCheatcodes {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
     ///   "method": "surfnet_timeTravel",
-    ///   "params": [ { "epoch": 512 } ]
+    ///   "params": [ { "absoluteSlot": 512 } ]
     /// }
     /// ```
     ///
@@ -934,39 +932,36 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         meta: Self::Metadata,
         transaction_data_b64: String,
         tag: Option<String>,
-        encoding: Option<UiAccountEncoding>,
-    ) -> BoxFuture<Result<RpcResponse<ProfileResult>>> {
-        let SurfnetRpcContext {
-            svm_locker,
-            remote_ctx,
-        } = match meta.get_rpc_context(()) {
-            Ok(ctx) => ctx,
-            Err(e) => return e.into(),
-        };
-        let remote_ctx = remote_ctx.map(|(client, _)| client);
-
-        let transaction_bytes = match STANDARD.decode(&transaction_data_b64) {
-            Ok(bytes) => bytes,
-            Err(e) => return SurfpoolError::invalid_base64_data("transaction", e).into(),
-        };
-
-        let transaction: VersionedTransaction = match bincode::deserialize(&transaction_bytes) {
-            Ok(tx) => tx,
-            Err(e) => return SurfpoolError::deserialize_error("transaction", e).into(),
-        };
-
+        config: Option<RpcProfileResultConfig>,
+    ) -> BoxFuture<Result<RpcResponse<UiKeyedProfileResult>>> {
         Box::pin(async move {
+            let transaction_bytes = STANDARD
+                .decode(&transaction_data_b64)
+                .map_err(|e| SurfpoolError::invalid_base64_data("transaction", e))?;
+            let transaction: VersionedTransaction = bincode::deserialize(&transaction_bytes)
+                .map_err(|e| SurfpoolError::deserialize_error("transaction", e))?;
+
+            let SurfnetRpcContext {
+                svm_locker,
+                remote_ctx,
+            } = meta.get_rpc_context(CommitmentConfig::confirmed())?;
+
             let SvmAccessContext {
-                slot,
-                inner: profile_result,
-                ..
+                slot, inner: uuid, ..
             } = svm_locker
-                .profile_transaction(&remote_ctx, transaction, encoding, tag.clone())
+                .profile_transaction(&remote_ctx, transaction, tag.clone())
                 .await?;
+
+            let key = UuidOrSignature::Uuid(uuid);
+
+            let config = config.unwrap_or_default();
+            let ui_result = svm_locker
+                .get_profile_result(key, &config)?
+                .ok_or(SurfpoolError::expected_profile_not_found(&key))?;
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
-                value: profile_result,
+                value: ui_result,
             })
         })
     }
@@ -975,18 +970,15 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         &self,
         meta: Self::Metadata,
         tag: String,
-    ) -> BoxFuture<Result<RpcResponse<Option<Vec<ProfileResult>>>>> {
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(locker) => locker,
-            Err(e) => return e.into(),
-        };
-        Box::pin(async move {
-            let profiles = svm_locker.get_profile_results_by_tag(tag)?;
-            let slot = svm_locker.get_latest_absolute_slot();
-            Ok(RpcResponse {
-                context: RpcResponseContext::new(slot),
-                value: profiles,
-            })
+        config: Option<RpcProfileResultConfig>,
+    ) -> Result<RpcResponse<Option<Vec<UiKeyedProfileResult>>>> {
+        let config = config.unwrap_or_default();
+        let svm_locker = meta.get_svm_locker()?;
+        let profiles = svm_locker.get_profile_results_by_tag(tag, &config)?;
+        let slot = svm_locker.get_latest_absolute_slot();
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(slot),
+            value: profiles,
         })
     }
 
@@ -1078,21 +1070,18 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         &self,
         meta: Self::Metadata,
         signature_or_uuid: UuidOrSignature,
-    ) -> BoxFuture<Result<RpcResponse<Option<ProfileResult>>>> {
-        let svm_locker = match meta.get_svm_locker() {
-            Ok(locker) => locker,
-            Err(e) => return e.into(),
-        };
-        Box::pin(async move {
-            let profile_result = svm_locker.get_profile_result(signature_or_uuid.clone())?;
-            let context_slot = profile_result
-                .as_ref()
-                .map(|pr| pr.slot)
-                .unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
-            Ok(RpcResponse {
-                context: RpcResponseContext::new(context_slot),
-                value: profile_result,
-            })
+        config: Option<RpcProfileResultConfig>,
+    ) -> Result<RpcResponse<Option<UiKeyedProfileResult>>> {
+        let config = config.unwrap_or_default();
+        let svm_locker = meta.get_svm_locker()?;
+        let profile_result = svm_locker.get_profile_result(signature_or_uuid.clone(), &config)?;
+        let context_slot = profile_result
+            .as_ref()
+            .map(|pr| pr.slot)
+            .unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(context_slot),
+            value: profile_result,
         })
     }
 
@@ -1145,52 +1134,58 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             Err(e) => return e.into(),
         };
 
-        let signatures = svm_locker.with_svm_reader(|svm_reader| {
-            let limit = limit.unwrap_or_else(|| 50);
-            let mut signatures = Vec::new();
+        let limit = limit.unwrap_or_else(|| 50);
+        let latest = svm_locker.get_latest_absolute_slot();
+        if limit == 0 {
+            return Box::pin(async move {
+                Ok(RpcResponse {
+                    context: RpcResponseContext::new(latest),
+                    value: Vec::new(),
+                })
+            });
+        }
 
-            // Get all block slots and sort them in descending order (most recent first)
-            let mut block_slots: Vec<Slot> = svm_reader.blocks.keys().cloned().collect();
-            block_slots.sort_by(|a, b| b.cmp(a)); // Sort in descending order
-
-            // Iterate through block slots in descending order until we reach the signature limit
-            for slot in block_slots {
-                if signatures.len() >= limit as usize {
-                    break;
-                }
-
-                if let Some(block_header) = svm_reader.blocks.get(&slot) {
-                    // Add signatures from this block until we reach the limit
-                    for signature in &block_header.signatures {
-                        if signatures.len() >= limit as usize {
-                            break;
-                        }
-
-                        let err = svm_reader.transactions.get(signature).and_then(|status| {
-                            status
-                                .expect_processed()
-                                .meta
-                                .status
-                                .as_ref()
-                                .err()
-                                .cloned()
-                        });
-
-                        signatures.push(RpcLogsResponse {
-                            signature: signature.to_string(),
-                            err,
-                            logs: vec![],
-                        });
-                    }
-                }
-            }
-            signatures
+        let mut items: Vec<(
+            String,
+            Slot,
+            Option<solana_transaction_error::TransactionError>,
+            Vec<String>,
+        )> = svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .transactions
+                .iter()
+                .map(|(sig, status)| {
+                    let transaction_with_status_meta = status.expect_processed();
+                    (
+                        sig.to_string(),
+                        transaction_with_status_meta.slot,
+                        transaction_with_status_meta.meta.status.clone().err(),
+                        transaction_with_status_meta
+                            .meta
+                            .log_messages
+                            .clone()
+                            .unwrap_or_default(),
+                    )
+                })
+                .collect()
         });
+
+        items.sort_by(|a, b| b.1.cmp(&a.1));
+        items.truncate(limit as usize);
+
+        let value: Vec<RpcLogsResponse> = items
+            .into_iter()
+            .map(|(signature, _slot, err, logs)| RpcLogsResponse {
+                signature,
+                err,
+                logs,
+            })
+            .collect();
 
         Box::pin(async move {
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
-                value: signatures,
+                context: RpcResponseContext::new(latest),
+                value,
             })
         })
     }
@@ -1223,5 +1218,826 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         let epoch_info = svm_locker.time_travel(simnet_command_tx, time_travel_config)?;
 
         Ok(epoch_info)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_account_decoder::{
+        UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount,
+    };
+    use solana_keypair::Keypair;
+    use solana_sdk::{program_pack::Pack, system_instruction::create_account};
+    use solana_signer::Signer;
+    use solana_transaction::Transaction;
+    use spl_associated_token_account::{
+        get_associated_token_address_with_program_id, instruction::create_associated_token_account,
+    };
+    use spl_token::state::Mint;
+    use spl_token_2022::instruction::{initialize_mint2, mint_to, transfer_checked};
+    use surfpool_types::{RpcProfileDepth, UiAccountChange, UiAccountProfileState};
+
+    use super::*;
+    use crate::{rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc, tests::helpers::TestSetup};
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_transaction_profile() {
+        // Create connection to local validator
+        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let recent_blockhash = client
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        // Generate a new keypair for the fee payer
+        let payer = Keypair::new();
+
+        let owner = Keypair::new();
+
+        // Generate a second keypair for the token recipient
+        let recipient = Keypair::new();
+
+        // Airdrop 1 SOL to fee payer
+        client
+            .context
+            .svm_locker
+            .airdrop(&payer.pubkey(), 1_000_000_000)
+            .unwrap();
+
+        // Airdrop 1 SOL to recipient for rent exemption
+        client
+            .context
+            .svm_locker
+            .airdrop(&recipient.pubkey(), 1_000_000_000)
+            .unwrap();
+
+        // Generate keypair to use as address of mint
+        let mint = Keypair::new();
+
+        // Get default mint account size (in bytes), no extensions enabled
+        let mint_space = Mint::LEN;
+        let mint_rent = client.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .inner
+                .minimum_balance_for_rent_exemption(mint_space)
+        });
+
+        // Instruction to create new account for mint (token 2022 program)
+        let create_account_instruction = create_account(
+            &payer.pubkey(),       // payer
+            &mint.pubkey(),        // new account (mint)
+            mint_rent,             // lamports
+            mint_space as u64,     // space
+            &spl_token_2022::id(), // program id
+        );
+
+        // Instruction to initialize mint account data
+        let initialize_mint_instruction = initialize_mint2(
+            &spl_token_2022::id(),
+            &mint.pubkey(),        // mint
+            &payer.pubkey(),       // mint authority
+            Some(&payer.pubkey()), // freeze authority
+            2,                     // decimals
+        )
+        .unwrap();
+
+        // Calculate the associated token account address for fee_payer
+        let source_ata = get_associated_token_address_with_program_id(
+            &owner.pubkey(),       // owner
+            &mint.pubkey(),        // mint
+            &spl_token_2022::id(), // program_id
+        );
+
+        // Instruction to create associated token account for fee_payer
+        let create_source_ata_instruction = create_associated_token_account(
+            &payer.pubkey(),       // funding address
+            &owner.pubkey(),       // wallet address
+            &mint.pubkey(),        // mint address
+            &spl_token_2022::id(), // program id
+        );
+
+        // Calculate the associated token account address for recipient
+        let destination_ata = get_associated_token_address_with_program_id(
+            &recipient.pubkey(),   // owner
+            &mint.pubkey(),        // mint
+            &spl_token_2022::id(), // program_id
+        );
+
+        // Instruction to create associated token account for recipient
+        let create_destination_ata_instruction = create_associated_token_account(
+            &payer.pubkey(),       // funding address
+            &recipient.pubkey(),   // wallet address
+            &mint.pubkey(),        // mint address
+            &spl_token_2022::id(), // program id
+        );
+
+        // Amount of tokens to mint (100 tokens with 2 decimal places)
+        let amount = 100_00;
+
+        // Create mint_to instruction to mint tokens to the source token account
+        let mint_to_instruction = mint_to(
+            &spl_token_2022::id(),
+            &mint.pubkey(),     // mint
+            &source_ata,        // destination
+            &payer.pubkey(),    // authority
+            &[&payer.pubkey()], // signer
+            amount,             // amount
+        )
+        .unwrap();
+
+        // Create transaction and add instructions
+        let transaction = Transaction::new_signed_with_payer(
+            &[
+                create_account_instruction,
+                initialize_mint_instruction,
+                create_source_ata_instruction,
+                create_destination_ata_instruction,
+                mint_to_instruction,
+            ],
+            Some(&payer.pubkey()),
+            &[&payer, &mint],
+            recent_blockhash,
+        );
+
+        let signature = transaction.signatures[0];
+
+        let (status_tx, _status_rx) = crossbeam_channel::unbounded();
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.into(), status_tx.clone(), false, true)
+            .await
+            .unwrap();
+
+        // get profile and verify data
+        {
+            let ui_profile_result = client
+                .rpc
+                .get_transaction_profile(
+                    Some(client.context.clone()),
+                    UuidOrSignature::Signature(signature),
+                    Some(RpcProfileResultConfig {
+                        depth: Some(RpcProfileDepth::Instruction),
+                        ..Default::default()
+                    }),
+                )
+                .unwrap()
+                .value
+                .expect("missing profile result for processed transaction");
+
+            // instruction 1: create_account
+            {
+                let ix_profile = ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .get(0)
+                    .expect("instruction profile should exist");
+                assert!(
+                    ix_profile.error_message.is_none(),
+                    "Profile should succeed, found error: {}",
+                    ix_profile.error_message.as_ref().unwrap()
+                );
+                assert_eq!(ix_profile.compute_units_consumed, 150);
+                assert!(ix_profile.error_message.is_none());
+                let account_states = &ix_profile.account_states;
+
+                let UiAccountProfileState::Writable(sender_account_change) = account_states
+                    .get(&payer.pubkey())
+                    .expect("Payer account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match sender_account_change {
+                    UiAccountChange::Update(before, after) => {
+                        assert_eq!(
+                            after.lamports,
+                            before.lamports - mint_rent - (2 * 5000), // two signers, so 2 * 5000 for fees
+                            "Payer account should be original balance minus rent"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(mint_account_change) = account_states
+                    .get(&mint.pubkey())
+                    .expect("Mint account state should be present")
+                else {
+                    panic!("Expected mint account state to be Writable");
+                };
+                match mint_account_change {
+                    UiAccountChange::Create(mint_account) => {
+                        assert_eq!(
+                            mint_account.lamports, mint_rent,
+                            "Mint account should have the correct rent amount"
+                        );
+                        assert_eq!(
+                            mint_account.owner,
+                            spl_token_2022::id().to_string(),
+                            "Mint account should be owned by the SPL Token program"
+                        );
+                        // initialized account data should be empty bytes
+                        assert_eq!(
+                        mint_account.data,
+                        UiAccountData::Binary(
+                            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==".into(),
+                            UiAccountEncoding::Base64
+                        ),
+                    );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+            }
+
+            // instruction 2: initialize mint
+            {
+                let ix_profile = ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .get(1)
+                    .expect("instruction profile should exist");
+
+                assert!(
+                    ix_profile.error_message.is_none(),
+                    "Profile should succeed, found error: {}",
+                    ix_profile.error_message.as_ref().unwrap()
+                );
+                assert_eq!(ix_profile.compute_units_consumed, 1404);
+                let account_states = &ix_profile.account_states;
+
+                assert!(account_states.get(&payer.pubkey()).is_none());
+
+                let UiAccountProfileState::Writable(mint_account_change) = account_states
+                    .get(&mint.pubkey())
+                    .expect("Mint account state should be present")
+                else {
+                    panic!("Expected mint account state to be Writable");
+                };
+                match mint_account_change {
+                    UiAccountChange::Update(_before, after) => {
+                        assert_eq!(
+                            after.lamports, mint_rent,
+                            "Mint account should have the correct rent amount"
+                        );
+                        assert_eq!(
+                            after.owner,
+                            spl_token_2022::id().to_string(),
+                            "Mint account should be owned by the SPL Token program"
+                        );
+                        // initialized account data should be empty bytes
+                        assert_eq!(
+                            after.data,
+                            UiAccountData::Json(ParsedAccount {
+                                program: "spl-token-2022".to_string(),
+                                parsed: json!({
+                                    "info": {
+                                        "decimals": 2,
+                                        "freezeAuthority": payer.pubkey().to_string(),
+                                        "mintAuthority": payer.pubkey().to_string(),
+                                        "isInitialized": true,
+                                        "supply": "0",
+                                    },
+                                    "type": "mint"
+                                }),
+                                space: 82,
+                            }),
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+            }
+
+            // instruction 3: create token account
+            {
+                let ix_profile = ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .get(2)
+                    .expect("instruction profile should exist");
+                assert!(
+                    ix_profile.error_message.is_none(),
+                    "Profile should succeed, found error: {}",
+                    ix_profile.error_message.as_ref().unwrap()
+                );
+
+                let account_states = &ix_profile.account_states;
+
+                let UiAccountProfileState::Writable(sender_account_change) = account_states
+                    .get(&payer.pubkey())
+                    .expect("Payer account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match sender_account_change {
+                    UiAccountChange::Update(before, after) => {
+                        assert_eq!(
+                            after.lamports,
+                            before.lamports - 2074080,
+                            "Payer account should be original balance minus rent"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(mint_account_change) = account_states
+                    .get(&mint.pubkey())
+                    .expect("Mint account state should be present")
+                else {
+                    panic!("Expected mint account state to be Writable");
+                };
+                match mint_account_change {
+                    UiAccountChange::Unchanged(mint_account) => {
+                        assert!(mint_account.is_some())
+                    }
+                    other => {
+                        panic!("Expected account state to be Unchanged, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(source_ata_change) = account_states
+                    .get(&source_ata)
+                    .expect("account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match source_ata_change {
+                    UiAccountChange::Create(new) => {
+                        assert_eq!(
+                            new.lamports, 2074080,
+                            "Source ATA should have the correct lamports after creation"
+                        );
+                        assert_eq!(
+                            new.owner,
+                            spl_token_2022::id().to_string(),
+                            "Source ATA should be owned by the SPL Token program"
+                        );
+
+                        match &new.data {
+                            UiAccountData::Json(parsed) => {
+                                assert_eq!(
+                                    parsed,
+                                    &ParsedAccount {
+                                        program: "spl-token-2022".into(),
+                                        parsed: json!({
+                                            "info": {
+                                                "extensions": [
+                                                    {
+                                                        "extension": "immutableOwner"
+                                                    }
+                                                ],
+                                                "isNative": false,
+                                                "mint": mint.pubkey().to_string(),
+                                                "owner": owner.pubkey().to_string(),
+                                                "state": "initialized",
+                                                "tokenAmount": {
+                                                    "amount": "0",
+                                                    "decimals": 2,
+                                                    "uiAmount": 0.0,
+                                                    "uiAmountString": "0"
+                                                }
+                                            },
+                                            "type": "account"
+                                        }),
+                                        space: 170
+                                    }
+                                );
+                            }
+                            _ => panic!("Expected source ATA data to be JSON"),
+                        }
+                    }
+                    other => {
+                        panic!("Expected account state to be Create, got: {:?}", other);
+                    }
+                }
+            }
+
+            // instruction 4: create destination ATA
+            {
+                let ix_profile = ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .get(3)
+                    .expect("instruction profile should exist");
+                assert!(
+                    ix_profile.error_message.is_none(),
+                    "Profile should succeed, found error: {}",
+                    ix_profile.error_message.as_ref().unwrap()
+                );
+
+                let account_states = &ix_profile.account_states;
+
+                let UiAccountProfileState::Writable(sender_account_change) = account_states
+                    .get(&payer.pubkey())
+                    .expect("Payer account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match sender_account_change {
+                    UiAccountChange::Update(before, after) => {
+                        assert_eq!(
+                            after.lamports,
+                            before.lamports - 2074080,
+                            "Payer account should be original balance minus rent"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be an Update, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(mint_account_change) = account_states
+                    .get(&mint.pubkey())
+                    .expect("Mint account state should be present")
+                else {
+                    panic!("Expected mint account state to be Writable");
+                };
+                match mint_account_change {
+                    UiAccountChange::Unchanged(mint_account) => {
+                        assert!(mint_account.is_some())
+                    }
+                    other => {
+                        panic!("Expected account state to be Unchanged, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(destination_ata_change) = account_states
+                    .get(&destination_ata)
+                    .expect("account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match destination_ata_change {
+                    UiAccountChange::Create(new) => {
+                        assert_eq!(
+                            new.lamports, 2074080,
+                            "Source ATA should have the correct lamports after creation"
+                        );
+                        assert_eq!(
+                            new.owner,
+                            spl_token_2022::id().to_string(),
+                            "Source ATA should be owned by the SPL Token program"
+                        );
+                        match &new.data {
+                            UiAccountData::Json(parsed) => {
+                                assert_eq!(
+                                    parsed,
+                                    &ParsedAccount {
+                                        program: "spl-token-2022".into(),
+                                        parsed: json!({
+                                            "info": {
+                                                "extensions": [
+                                                    {
+                                                        "extension": "immutableOwner"
+                                                    }
+                                                ],
+                                                "isNative": false,
+                                                "mint": mint.pubkey().to_string(),
+                                                "owner": recipient.pubkey().to_string(),
+                                                "state": "initialized",
+                                                "tokenAmount": {
+                                                    "amount": "0",
+                                                    "decimals": 2,
+                                                    "uiAmount": 0.0,
+                                                    "uiAmountString": "0"
+                                                }
+                                            },
+                                            "type": "account"
+                                        }),
+                                        space: 170
+                                    }
+                                );
+                            }
+                            _ => panic!("Expected source ATA data to be JSON"),
+                        }
+                    }
+                    other => {
+                        panic!("Expected account state to be Create, got: {:?}", other);
+                    }
+                }
+            }
+
+            // instruction 5: mint to
+            {
+                let ix_profile = ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .get(4)
+                    .expect("instruction profile should exist");
+                assert!(
+                    ix_profile.error_message.is_none(),
+                    "Profile should succeed, found error: {}",
+                    ix_profile.error_message.as_ref().unwrap()
+                );
+
+                let account_states = &ix_profile.account_states;
+
+                let UiAccountProfileState::Writable(sender_account_change) = account_states
+                    .get(&payer.pubkey())
+                    .expect("Payer account state should be present")
+                else {
+                    panic!("Expected account state to be Writable");
+                };
+
+                match sender_account_change {
+                    UiAccountChange::Unchanged(unchanged) => {
+                        assert!(unchanged.is_some(), "Payer account should remain unchanged");
+                    }
+                    other => {
+                        panic!("Expected account state to be Unchanged, got: {:?}", other);
+                    }
+                }
+
+                let UiAccountProfileState::Writable(mint_account_change) = account_states
+                    .get(&mint.pubkey())
+                    .expect("Mint account state should be present")
+                else {
+                    panic!("Expected mint account state to be Writable");
+                };
+                match mint_account_change {
+                    UiAccountChange::Update(before, after) => {
+                        assert_eq!(
+                            after.lamports, before.lamports,
+                            "Lamports should stay the same for mint account"
+                        );
+                        assert_eq!(
+                            after.data,
+                            UiAccountData::Json(ParsedAccount {
+                                program: "spl-token-2022".into(),
+                                parsed: json!({
+                                    "info": {
+                                        "decimals": 2,
+                                        "freezeAuthority": payer.pubkey().to_string(),
+                                        "isInitialized": true,
+                                        "mintAuthority": payer.pubkey().to_string(),
+                                        "supply": "10000",
+                                    },
+                                    "type": "mint"
+                                }),
+                                space: 82
+                            }),
+                            "Data should stay the same for mint account"
+                        );
+                    }
+                    other => {
+                        panic!("Expected account state to be Update, got: {:?}", other);
+                    }
+                }
+            }
+
+            assert_eq!(
+                ui_profile_result.transaction_profile.compute_units_consumed,
+                ui_profile_result
+                    .instruction_profiles
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|ix| ix.compute_units_consumed)
+                    .sum::<u64>(),
+            )
+        }
+        // Get the latest blockhash for the transfer transaction
+        let recent_blockhash = client
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+        // Amount of tokens to transfer (0.50 tokens with 2 decimals)
+        let transfer_amount = 50;
+
+        // Create transfer_checked instruction to send tokens from source to destination
+        let transfer_instruction = transfer_checked(
+            &spl_token_2022::id(),               // program id
+            &source_ata,                         // source
+            &mint.pubkey(),                      // mint
+            &destination_ata,                    // destination
+            &owner.pubkey(),                     // owner of source
+            &[&payer.pubkey(), &owner.pubkey()], // signers
+            transfer_amount,                     // amount
+            2,                                   // decimals
+        )
+        .unwrap();
+
+        // Create transaction for transferring tokens
+        let transaction = Transaction::new_signed_with_payer(
+            &[transfer_instruction],
+            Some(&payer.pubkey()),
+            &[&payer, &owner],
+            recent_blockhash,
+        );
+        let signature = transaction.signatures[0];
+        let (status_tx, _status_rx) = crossbeam_channel::unbounded();
+        // Send and confirm transaction
+        client
+            .context
+            .svm_locker
+            .process_transaction(&None, transaction.clone().into(), status_tx, true, true)
+            .await
+            .unwrap();
+
+        {
+            let profile_result = client
+                .rpc
+                .get_transaction_profile(
+                    Some(client.context.clone()),
+                    UuidOrSignature::Signature(signature),
+                    Some(RpcProfileResultConfig {
+                        depth: Some(RpcProfileDepth::Instruction),
+                        ..Default::default()
+                    }),
+                )
+                .unwrap()
+                .value
+                .expect("missing profile result for processed transaction");
+
+            assert!(
+                profile_result.transaction_profile.error_message.is_none(),
+                "Transaction should succeed, found error: {}",
+                profile_result
+                    .transaction_profile
+                    .error_message
+                    .as_ref()
+                    .unwrap()
+            );
+
+            assert_eq!(
+                profile_result.instruction_profiles.as_ref().unwrap().len(),
+                1
+            );
+
+            let ix_profile = profile_result
+                .instruction_profiles
+                .as_ref()
+                .unwrap()
+                .get(0)
+                .expect("instruction profile should exist");
+            assert!(
+                ix_profile.error_message.is_none(),
+                "Profile should succeed, found error: {}",
+                ix_profile.error_message.as_ref().unwrap()
+            );
+
+            let mut account_states = ix_profile.account_states.clone();
+
+            let UiAccountProfileState::Writable(owner_account_change) = account_states
+                .swap_remove(&owner.pubkey())
+                .expect("account state should be present")
+            else {
+                panic!("Expected account state to be Writable");
+            };
+
+            let UiAccountChange::Unchanged(unchanged) = owner_account_change else {
+                panic!(
+                    "Expected account state to be Unchanged, got: {:?}",
+                    owner_account_change
+                );
+            };
+            assert!(unchanged.is_none(), "Owner account shouldn't exist");
+
+            let UiAccountProfileState::Writable(sender_account_change) = account_states
+                .swap_remove(&payer.pubkey())
+                .expect("Payer account state should be present")
+            else {
+                panic!("Expected account state to be Writable");
+            };
+
+            match sender_account_change {
+                UiAccountChange::Update(before, after) => {
+                    assert_eq!(after.lamports, before.lamports - 10000);
+                }
+                other => {
+                    panic!("Expected account state to be an Update, got: {:?}", other);
+                }
+            }
+
+            let UiAccountProfileState::Readonly = account_states
+                .swap_remove(&mint.pubkey())
+                .expect("Mint account state should be present")
+            else {
+                panic!("Expected mint account state to be Readonly");
+            };
+            let UiAccountProfileState::Readonly = account_states
+                .swap_remove(&spl_token_2022::ID)
+                .expect("account state should be present")
+            else {
+                panic!("Expected account state to be Readonly");
+            };
+
+            let UiAccountProfileState::Writable(source_ata_change) = account_states
+                .swap_remove(&source_ata)
+                .expect("account state should be present")
+            else {
+                panic!("Expected account state to be Writable");
+            };
+
+            match source_ata_change {
+                UiAccountChange::Update(before, after) => {
+                    assert_eq!(
+                        after.lamports, before.lamports,
+                        "Source ATA lamports should remain unchanged"
+                    );
+                    assert_eq!(
+                        after.data,
+                        UiAccountData::Json(ParsedAccount {
+                            program: "spl-token-2022".into(),
+                            parsed: json!({
+                                "info": {
+                                    "extensions": [
+                                        {
+                                            "extension": "immutableOwner"
+                                        }
+                                    ],
+                                    "isNative": false,
+                                    "mint": mint.pubkey().to_string(),
+                                    "owner": owner.pubkey().to_string(),
+                                    "state": "initialized",
+                                    "tokenAmount": {
+                                        "amount": "9950",
+                                        "decimals": 2,
+                                        "uiAmount": 99.5,
+                                        "uiAmountString": "99.5"
+                                    }
+                                },
+                                "type": "account"
+                            }),
+                            space: 170
+                        }),
+                        "Source ATA data should be updated after transfer"
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be Update, got: {:?}", other);
+                }
+            }
+
+            let UiAccountProfileState::Writable(destination_ata_change) = account_states
+                .swap_remove(&destination_ata)
+                .expect("account state should be present")
+            else {
+                panic!("Expected account state to be Writable");
+            };
+
+            match destination_ata_change {
+                UiAccountChange::Update(before, after) => {
+                    assert_eq!(
+                        after.lamports, before.lamports,
+                        "Destination ATA lamports should remain unchanged"
+                    );
+                    assert_eq!(
+                        after.data,
+                        UiAccountData::Json(ParsedAccount {
+                            program: "spl-token-2022".into(),
+                            parsed: json!({
+                                "info": {
+                                    "extensions": [
+                                        {
+                                            "extension": "immutableOwner"
+                                        }
+                                    ],
+                                    "isNative": false,
+                                    "mint": mint.pubkey().to_string(),
+                                    "owner": recipient.pubkey().to_string(),
+                                    "state": "initialized",
+                                    "tokenAmount": {
+                                        "amount": transfer_amount.to_string(),
+                                        "decimals": 2,
+                                        "uiAmount": 0.5,
+                                        "uiAmountString": "0.5"
+                                    }
+                                },
+                                "type": "account"
+                            }),
+                            space: 170
+                        }),
+                        "Destination ATA data should be updated after transfer"
+                    );
+                }
+                other => {
+                    panic!("Expected account state to be Update, got: {:?}", other);
+                }
+            }
+
+            assert!(
+                account_states.is_empty(),
+                "All account states should have been processed, found: {:?}",
+                account_states
+            );
+        }
     }
 }

@@ -140,6 +140,7 @@ pub async fn handle_start_local_surfnet_command(
             Ok(SimnetEvent::Aborted(error)) => return Err(error),
             Ok(SimnetEvent::Shutdown) => return Ok(()),
             Ok(SimnetEvent::Connected(_)) => break,
+            Ok(SimnetEvent::Ready) => break,
             _other => continue,
         }
     }
@@ -175,7 +176,7 @@ pub async fn handle_start_local_surfnet_command(
         }
     }
 
-    let displayed_url = if cmd.studio {
+    let displayed_url = if cmd.no_studio {
         DisplayedUrl::Datasource(sanitized_config)
     } else {
         DisplayedUrl::Studio(sanitized_config)
@@ -309,7 +310,7 @@ fn log_events(
                             ctx.expect_logger(),
                             "Profiled [{}]: {} CUs",
                             tag,
-                            result.compute_units.compute_units_consumed
+                            result.transaction_profile.compute_units_consumed
                         );
                     }
                     SimnetEvent::RunbookStarted(runbook_id) => {

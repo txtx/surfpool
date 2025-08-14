@@ -13,10 +13,12 @@ use txtx_addon_network_svm::templates::{
 use txtx_core::{
     kit::{helpers::fs::FileLocation, indexmap::indexmap},
     manifest::{RunbookMetadata, WorkspaceManifest},
-    templates::{TXTX_MANIFEST_TEMPLATE, TXTX_README_TEMPLATE, build_manifest_data},
+    templates::{TXTX_MANIFEST_TEMPLATE, build_manifest_data},
 };
 
 use crate::{cli::DEFAULT_SOLANA_KEYPAIR_PATH, types::Framework};
+
+pub const SURFPOOL_README_TEMPLATE: &str = include_str!("./templates/readme.md.mst");
 
 mod anchor;
 mod native;
@@ -283,7 +285,7 @@ pub fn scaffold_iac_layout(
                 format!("Failed to create Runbook README {}: {e}", readme_file_path)
             })?;
             let readme_file_data = build_manifest_data(&manifest);
-            let template = mustache::compile_str(TXTX_README_TEMPLATE)
+            let template = mustache::compile_str(SURFPOOL_README_TEMPLATE)
                 .map_err(|e| format!("Failed to generate Runbook README: {e}"))?;
             template
                 .render_data(&mut readme_file, &readme_file_data)
