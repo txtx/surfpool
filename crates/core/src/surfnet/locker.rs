@@ -1151,7 +1151,11 @@ impl SurfnetSvmLocker {
     fn handle_execution_failure(
         &self,
         failed_transaction_metadata: FailedTransactionMetadata,
+        transaction: VersionedTransaction,
         simulated_slot: Slot,
+        pubkeys_from_message: &[Pubkey],
+        accounts_before: &[Option<Account>],
+        loaded_addresses: &Option<LoadedAddresses>,
         pre_execution_capture: ExecutionCapture,
         status_tx: Sender<TransactionStatusEvent>,
         do_propagate: bool,
@@ -1163,18 +1167,57 @@ impl SurfnetSvmLocker {
         let err_string = err.to_string();
         let signature = meta.signature;
 
+        let accounts_after = pubkeys_from_message
+            .iter()
+            .map(|p| self.with_svm_reader(|svm_reader| svm_reader.inner.get_account(p)))
+            .collect::<Vec<Option<Account>>>();
+
+        for (pubkey, (before, after)) in pubkeys_from_message
+            .iter()
+            .zip(accounts_before.iter().zip(accounts_after.clone()))
+        {
+            if before.ne(&after) {
+                if let Some(after) = &after {
+                    self.with_svm_writer(|svm_writer| {
+                        let _ = svm_writer.update_account_registries(pubkey, after);
+                    });
+                }
+                self.with_svm_writer(|svm_writer| {
+                    svm_writer.notify_account_subscribers(pubkey, &after.unwrap_or_default());
+                });
+            }
+        }
+
         if do_propagate {
-            let meta = convert_transaction_metadata_from_canonical(&meta);
+            let meta_canonical = convert_transaction_metadata_from_canonical(&meta);
             let simnet_events_tx = self.simnet_events_tx();
             let _ = simnet_events_tx.try_send(SimnetEvent::error(format!(
                 "Transaction execution failed: {}",
                 err
             )));
-
             let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((
                 err.clone(),
-                meta,
+                meta_canonical,
             )));
+
+            self.with_svm_writer(|svm_writer| {
+                let transaction_with_status_meta = TransactionWithStatusMeta::from_failure(
+                    simulated_slot,
+                    transaction.clone(),
+                    &FailedTransactionMetadata {
+                        err: err.clone(),
+                        meta: meta.clone(),
+                    },
+                    accounts_before,
+                    &accounts_after,
+                    loaded_addresses.clone().unwrap_or_default(),
+                );
+                svm_writer.transactions.insert(
+                    signature,
+                    SurfnetTransactionStatus::Processed(Box::new(transaction_with_status_meta)),
+                );
+            });
+
             self.with_svm_writer(|svm_writer| {
                 svm_writer.notify_signature_subscribers(
                     SignatureSubscriptionType::processed(),
@@ -1188,9 +1231,8 @@ impl SurfnetSvmLocker {
                     log_messages.clone(),
                     CommitmentLevel::Processed,
                 );
-            })
+            });
         }
-
         ProfileResult::new(
             pre_execution_capture,
             BTreeMap::new(),
@@ -1400,14 +1442,17 @@ impl SurfnetSvmLocker {
                     status_tx.clone(),
                     do_propagate,
                 ),
-            ProcessTransactionResult::ExecutionFailure(failed_transaction_metadata) => self
-                .handle_execution_failure(
-                    failed_transaction_metadata,
-                    self.get_latest_absolute_slot(),
-                    pre_execution_capture,
-                    status_tx.clone(),
-                    do_propagate,
-                ),
+            ProcessTransactionResult::ExecutionFailure(failed) => self.handle_execution_failure(
+                failed,
+                transaction,
+                self.get_latest_absolute_slot(),
+                transaction_accounts,
+                accounts_before,
+                &loaded_addresses,
+                pre_execution_capture,
+                status_tx.clone(),
+                do_propagate,
+            ),
         };
         Ok(res)
     }

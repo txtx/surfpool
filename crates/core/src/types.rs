@@ -296,6 +296,45 @@ impl TransactionWithStatusMeta {
             }
         }
     }
+    pub fn from_failure(
+        slot: u64,
+        transaction: VersionedTransaction,
+        failure: &litesvm::types::FailedTransactionMetadata,
+        accounts_before: &[Option<Account>],
+        accounts_after: &[Option<Account>],
+        loaded_addresses: LoadedAddresses,
+    ) -> Self {
+        let pre_balances: Vec<u64> = accounts_before
+            .iter()
+            .map(|a| a.as_ref().map(|a| a.lamports).unwrap_or(0))
+            .collect();
+
+        let fee = 5000 * transaction.signatures.len() as u64;
+
+        let post_balances: Vec<u64> = accounts_after
+            .iter()
+            .map(|a| a.clone().map(|a| a.lamports).unwrap_or(0))
+            .collect();
+
+        Self {
+            slot,
+            transaction,
+            meta: TransactionStatusMeta {
+                status: Err(failure.err.clone()),
+                fee,
+                pre_balances,
+                post_balances,
+                inner_instructions: Some(vec![]),
+                log_messages: Some(failure.meta.logs.clone()),
+                pre_token_balances: Some(vec![]),
+                post_token_balances: Some(vec![]),
+                rewards: Some(vec![]),
+                loaded_addresses,
+                return_data: Some(failure.meta.return_data.clone()),
+                compute_units_consumed: Some(failure.meta.compute_units_consumed),
+            },
+        }
+    }
 }
 
 fn parse_ui_transaction_status_meta_with_account_keys(
