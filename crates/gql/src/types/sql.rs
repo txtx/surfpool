@@ -385,6 +385,7 @@ mod tests {
         anchor::types::{Idl, IdlEvent, IdlMetadata, IdlSerialization, IdlTypeDef, IdlTypeDefTy},
         subgraph::{
             EventSubgraphSource, IndexedSubgraphField, IndexedSubgraphSourceType, SubgraphRequest,
+            SubgraphRequestV0,
         },
     };
     use uuid::Uuid;
@@ -425,7 +426,7 @@ mod tests {
             }],
             errors: vec![],
         };
-        SubgraphRequest {
+        SubgraphRequest::V0(SubgraphRequestV0 {
             program_id: program_id.clone(),
             slot: 0,
             subgraph_name: "TestSubgraph".to_string(),
@@ -443,7 +444,8 @@ mod tests {
                 is_indexed: false,
             }],
             intrinsic_fields: vec![],
-        }
+            idl_types: vec![],
+        })
     }
 
     fn test_entry(_schema: &CollectionMetadata) -> Vec<u8> {

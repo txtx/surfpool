@@ -1,7 +1,9 @@
 use base64::{Engine, prelude::BASE64_STANDARD};
+use chrono::Utc;
 use litesvm::types::TransactionMetadata;
 use solana_account::Account;
 use solana_account_decoder::parse_token::UiTokenAmount;
+use solana_clock::{Epoch, Slot};
 use solana_message::{
     AccountKeys, VersionedMessage,
     v0::{LoadedAddresses, LoadedMessage},
@@ -69,12 +71,12 @@ impl TransactionWithStatusMeta {
         slot: u64,
         transaction: VersionedTransaction,
         transaction_meta: TransactionMetadata,
-        accounts_before: Vec<Option<Account>>,
-        accounts_after: Vec<Option<Account>>,
-        pre_token_accounts_with_indexes: Vec<(usize, TokenAccount)>,
-        post_token_accounts_with_indexes: Vec<(usize, TokenAccount)>,
+        accounts_before: &[Option<Account>],
+        accounts_after: &[Option<Account>],
+        pre_token_accounts_with_indexes: &[(usize, TokenAccount)],
+        post_token_accounts_with_indexes: &[(usize, TokenAccount)],
         token_mints: Vec<MintAccount>,
-        token_program_ids: Vec<Pubkey>,
+        token_program_ids: &[Pubkey],
         loaded_addresses: LoadedAddresses,
     ) -> Self {
         let signatures_len = transaction.signatures.len();
@@ -97,15 +99,21 @@ impl TransactionWithStatusMeta {
                         .inner_instructions
                         .iter()
                         .enumerate()
-                        .map(|(i, ixs)| InnerInstructions {
-                            index: i as u8,
-                            instructions: ixs
-                                .iter()
-                                .map(|ix| InnerInstruction {
-                                    instruction: ix.instruction.clone(),
-                                    stack_height: Some(ix.stack_height as u32),
+                        .filter_map(|(i, ixs)| {
+                            if ixs.is_empty() {
+                                None
+                            } else {
+                                Some(InnerInstructions {
+                                    index: i as u8,
+                                    instructions: ixs
+                                        .iter()
+                                        .map(|ix| InnerInstruction {
+                                            instruction: ix.instruction.clone(),
+                                            stack_height: Some(ix.stack_height as u32),
+                                        })
+                                        .collect(),
                                 })
-                                .collect(),
+                            }
                         })
                         .collect(),
                 ),
@@ -114,7 +122,7 @@ impl TransactionWithStatusMeta {
                     pre_token_accounts_with_indexes
                         .iter()
                         .zip(token_mints.clone())
-                        .zip(token_program_ids.clone())
+                        .zip(token_program_ids)
                         .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
                             account_index: *i as u8,
                             mint: a.mint().to_string(),
@@ -294,6 +302,89 @@ impl TransactionWithStatusMeta {
             }
         }
     }
+    pub fn from_failure(
+        slot: u64,
+        transaction: VersionedTransaction,
+        failure: &litesvm::types::FailedTransactionMetadata,
+        accounts_before: &[Option<Account>],
+        accounts_after: &[Option<Account>],
+        pre_token_accounts_with_indexes: &[(usize, TokenAccount)],
+        token_mints: Vec<MintAccount>,
+        token_program_ids: &[Pubkey],
+        loaded_addresses: LoadedAddresses,
+    ) -> Self {
+        let pre_balances: Vec<u64> = accounts_before
+            .iter()
+            .map(|a| a.as_ref().map(|a| a.lamports).unwrap_or(0))
+            .collect();
+
+        let fee = 5000 * transaction.signatures.len() as u64;
+
+        let post_balances: Vec<u64> = accounts_after
+            .iter()
+            .map(|a| a.clone().map(|a| a.lamports).unwrap_or(0))
+            .collect();
+
+        let balances: Vec<TransactionTokenBalance> = pre_token_accounts_with_indexes
+            .iter()
+            .zip(token_mints)
+            .zip(token_program_ids)
+            .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
+                account_index: *i as u8,
+                mint: a.mint().to_string(),
+                ui_token_amount: UiTokenAmount {
+                    ui_amount: Some(format_ui_amount(a.amount(), mint.decimals())),
+                    decimals: mint.decimals(),
+                    amount: a.amount().to_string(),
+                    ui_amount_string: format_ui_amount_string(a.amount(), mint.decimals()),
+                },
+                owner: a.owner().to_string(),
+                program_id: token_program.to_string(),
+            })
+            .collect();
+
+        Self {
+            slot,
+            transaction,
+            meta: TransactionStatusMeta {
+                status: Err(failure.err.clone()),
+                fee,
+                pre_balances,
+                post_balances,
+                inner_instructions: Some(
+                    failure
+                        .meta
+                        .inner_instructions
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, ixs)| {
+                            if ixs.is_empty() {
+                                None
+                            } else {
+                                Some(InnerInstructions {
+                                    index: i as u8,
+                                    instructions: ixs
+                                        .iter()
+                                        .map(|ix| InnerInstruction {
+                                            instruction: ix.instruction.clone(),
+                                            stack_height: Some(ix.stack_height as u32),
+                                        })
+                                        .collect(),
+                                })
+                            }
+                        })
+                        .collect(),
+                ),
+                log_messages: Some(failure.meta.logs.clone()),
+                pre_token_balances: Some(balances.clone()),
+                post_token_balances: Some(balances),
+                rewards: Some(vec![]),
+                loaded_addresses,
+                return_data: Some(failure.meta.return_data.clone()),
+                compute_units_consumed: Some(failure.meta.compute_units_consumed),
+            },
+        }
+    }
 }
 
 fn parse_ui_transaction_status_meta_with_account_keys(
@@ -410,6 +501,46 @@ pub fn surfpool_tx_metadata_to_litesvm_tx_metadata(
 pub enum RemoteRpcResult<T> {
     Ok(T),
     MethodNotSupported,
+}
+
+impl<T> RemoteRpcResult<T> {
+    /// Converts RemoteRpcResult to SurfpoolResult
+    pub fn into_result(self) -> SurfpoolResult<T> {
+        match self {
+            RemoteRpcResult::Ok(value) => Ok(value),
+            RemoteRpcResult::MethodNotSupported => Err(SurfpoolError::rpc_method_not_supported()),
+        }
+    }
+
+    /// Converts RemoteRpcResult to SurfpoolResult, treating MethodNotSupported as a default value
+    pub fn into_result_or_default(self, default: T) -> SurfpoolResult<T> {
+        match self {
+            RemoteRpcResult::Ok(value) => Ok(value),
+            RemoteRpcResult::MethodNotSupported => Ok(default),
+        }
+    }
+
+    /// Handles RemoteRpcResult with a callback for MethodNotSupported that returns a default value
+    pub fn handle_method_not_supported<F>(self, on_not_supported: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        match self {
+            RemoteRpcResult::Ok(value) => value,
+            RemoteRpcResult::MethodNotSupported => on_not_supported(),
+        }
+    }
+
+    /// Maps the Ok variant while preserving MethodNotSupported
+    pub fn map<U, F>(self, f: F) -> RemoteRpcResult<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            RemoteRpcResult::Ok(value) => RemoteRpcResult::Ok(f(value)),
+            RemoteRpcResult::MethodNotSupported => RemoteRpcResult::MethodNotSupported,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -612,3 +743,59 @@ impl GeyserAccountUpdate {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TimeTravelConfig {
+    AbsoluteEpoch(Epoch),
+    AbsoluteSlot(Slot),
+    AbsoluteTimestamp(u64),
+}
+
+impl Default for TimeTravelConfig {
+    fn default() -> Self {
+        // chrono timestamp in ms, 1 hour from now
+        Self::AbsoluteTimestamp(Utc::now().timestamp_millis() as u64 + 3600000)
+    }
+}
+
+#[derive(Debug)]
+pub enum TimeTravelError {
+    PastTimestamp { target: u64, current: u64 },
+    PastSlot { target: u64, current: u64 },
+    PastEpoch { target: u64, current: u64 },
+    ZeroSlotTime,
+}
+
+impl std::fmt::Display for TimeTravelError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TimeTravelError::PastTimestamp { target, current } => {
+                write!(
+                    f,
+                    "Cannot travel to past timestamp: target={}, current={}",
+                    target, current
+                )
+            }
+            TimeTravelError::PastSlot { target, current } => {
+                write!(
+                    f,
+                    "Cannot travel to past slot: target={}, current={}",
+                    target, current
+                )
+            }
+            TimeTravelError::PastEpoch { target, current } => {
+                write!(
+                    f,
+                    "Cannot travel to past epoch: target={}, current={}",
+                    target, current
+                )
+            }
+            TimeTravelError::ZeroSlotTime => {
+                write!(f, "Cannot calculate time travel with zero slot time")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TimeTravelError {}

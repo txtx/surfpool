@@ -45,8 +45,13 @@ Install pre-built binaries:
 # macOS (Homebrew)
 brew install txtx/taps/surfpool
 
-# Linux (Snapstore)
-snap install surfpool
+# Updating surfpool for Homebrew users
+brew tap txtx/taps
+brew reinstall surfpool
+
+# Linux (Snap Store)
+# Note: there have been errors updating the Snap Store to the latest version
+# While this is being resolved, Linux users should install from source
 ```
 
 
@@ -55,6 +60,9 @@ Install from source:
 ```console
 # Clone repo
 git clone https://github.com/txtx/surfpool.git
+
+# Set repo as current directory
+cd surfpool
 
 # Build
 cargo surfpool-install

@@ -11099,7 +11099,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "surfpool-cli"
-version = "0.9.6"
+version = "0.10.3"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -11152,7 +11152,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-core"
-version = "0.9.6"
+version = "0.10.3"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -11225,7 +11225,6 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.13",
  "txtx-addon-kit",
- "txtx-addon-network-svm",
  "txtx-addon-network-svm-types",
  "uuid",
  "zstd 0.13.2",
@@ -11233,7 +11232,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-db"
-version = "0.9.6"
+version = "0.10.3"
 dependencies = [
  "diesel",
  "diesel-dynamic-schema",
@@ -11244,7 +11243,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-gql"
-version = "0.9.6"
+version = "0.10.3"
 dependencies = [
  "blake3",
  "chrono",
@@ -11266,7 +11265,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-mcp"
-version = "0.9.6"
+version = "0.10.3"
 dependencies = [
  "axum 0.8.4",
  "bs58",
@@ -11287,7 +11286,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-studio-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -11310,7 +11309,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-subgraph"
-version = "0.9.6"
+version = "0.10.3"
 dependencies = [
  "agave-geyser-plugin-interface",
  "ipc-channel",
@@ -11326,7 +11325,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-types"
-version = "0.9.6"
+version = "0.10.3"
 dependencies = [
  "anchor-lang-idl",
  "blake3",
@@ -11337,6 +11336,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_with",
+ "solana-account",
  "solana-account-decoder-client-types",
  "solana-blake3-hasher",
  "solana-clock",
@@ -12197,9 +12197,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.2.2"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e622f75e9aab7835480cd0b9e65e13256bcbf40b78c0200be5e2d450b536d0e"
+checksum = "a0c4bdfa3c7f0022bdac240e3bb37256afcfc36901d610b3d241ee911f04c79e"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -12225,11 +12225,12 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54b9535bb9d93e112d9f05c9971aa76bce60563d2eec06de65b7d7e89602c24e"
+checksum = "800b2eafc9068dcc35a9cf07d3cff7b6fd9f930c046c52a7be55cc0cae839222"
 dependencies = [
  "anchor-lang-idl",
+ "borsh 1.5.5",
  "convert_case 0.6.0",
  "lazy_static",
  "serde",
@@ -12245,6 +12246,7 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-context",
  "solana-transaction-error",
+ "solana-transaction-status-client-types",
  "txtx-addon-kit",
 ]
 

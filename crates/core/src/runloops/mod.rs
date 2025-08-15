@@ -33,8 +33,8 @@ use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
-    BlockProductionMode, ClockCommand, ClockEvent, DataIndexingCommand, SimnetCommand, SimnetEvent,
-    SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
+    BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_RPC_URL, DataIndexingCommand,
+    SimnetCommand, SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
 };
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use txtx_addon_kit::helpers::fs::FileLocation;
@@ -45,7 +45,7 @@ use crate::{
         self, RunloopContext, SurfpoolMiddleware, SurfpoolWebsocketMeta,
         SurfpoolWebsocketMiddleware, accounts_data::AccountsData, accounts_scan::AccountsScan,
         admin::AdminRpc, bank_data::BankData, full::Full, minimal::Minimal,
-        surfnet_cheatcodes::SvmTricksRpc, ws::Rpc,
+        surfnet_cheatcodes::SurfnetCheatcodes, ws::Rpc,
     },
     surfnet::{GeyserEvent, locker::SurfnetSvmLocker, remote::SurfnetRemoteClient},
 };
@@ -65,9 +65,19 @@ pub async fn start_local_surfnet_runloop(
     };
     let block_production_mode = simnet.block_production_mode.clone();
 
-    let remote_rpc_client = Some(SurfnetRemoteClient::new(&simnet.remote_rpc_url));
+    let remote_rpc_client = match simnet.offline_mode {
+        true => None,
+        false => Some(SurfnetRemoteClient::new(
+            &simnet
+                .remote_rpc_url
+                .as_ref()
+                .unwrap_or(&DEFAULT_RPC_URL.to_string()),
+        )),
+    };
 
-    let _ = svm_locker.initialize(&remote_rpc_client).await?;
+    svm_locker
+        .initialize(simnet.slot_time, &remote_rpc_client)
+        .await?;
 
     svm_locker.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
     let simnet_events_tx_cc = svm_locker.simnet_events_tx();
@@ -96,7 +106,8 @@ pub async fn start_local_surfnet_runloop(
         }
     };
 
-    let (clock_event_rx, clock_command_tx) = start_clock_runloop(simnet_config.slot_time);
+    let (clock_event_rx, clock_command_tx) =
+        start_clock_runloop(simnet_config.slot_time, Some(simnet_events_tx_cc.clone()));
 
     let _ = simnet_events_tx_cc.send(SimnetEvent::Ready);
 
@@ -123,8 +134,15 @@ pub async fn start_block_production_runloop(
     remote_rpc_client: &Option<SurfnetRemoteClient>,
     expiry_duration_ms: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let remote_client_with_commitment = remote_rpc_client.as_ref().map(|c| {
+        (
+            c.clone(),
+            solana_commitment_config::CommitmentConfig::confirmed(),
+        )
+    });
     let mut next_scheduled_expiry_check: Option<u64> =
         expiry_duration_ms.map(|expiry_val| Utc::now().timestamp_millis() as u64 + expiry_val);
+    let sigverify = true; // always verify signatures during block production 
     loop {
         let mut do_produce_block = false;
 
@@ -164,16 +182,33 @@ pub async fn start_block_production_runloop(
                     SimnetCommand::SlotBackward(_key) => {
 
                     }
-                    SimnetCommand::UpdateClock(update) => {
+                    SimnetCommand::CommandClock(update) => {
+                        if let ClockCommand::UpdateSlotInterval(updated_slot_time) = update {
+                            svm_locker.with_svm_writer(|svm_writer| {
+                                svm_writer.slot_time = updated_slot_time;
+                            });
+                        }
                         let _ = clock_command_tx.send(update);
                         continue
+                    }
+                    SimnetCommand::UpdateInternalClock(clock) => {
+                        svm_locker.with_svm_writer(|svm_writer| {
+                            svm_writer.inner.set_sysvar(&clock);
+                            svm_writer.updated_at = clock.unix_timestamp as u64;
+                            svm_writer.latest_epoch_info.absolute_slot = clock.slot;
+                            svm_writer.latest_epoch_info.epoch = clock.epoch;
+                            svm_writer.latest_epoch_info.slot_index = clock.slot;
+                            svm_writer.latest_epoch_info.epoch = clock.epoch;
+                            svm_writer.latest_epoch_info.absolute_slot = clock.slot + clock.epoch * svm_writer.latest_epoch_info.slots_in_epoch;
+                            let _ = svm_writer.simnet_events_tx.send(SimnetEvent::SystemClockUpdated(clock));
+                        });
                     }
                     SimnetCommand::UpdateBlockProductionMode(update) => {
                         block_production_mode = update;
                         continue
                     }
                     SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
-                       if let Err(e) = svm_locker.process_transaction(remote_rpc_client, transaction, status_tx, skip_preflight).await {
+                       if let Err(e) = svm_locker.process_transaction(&remote_client_with_commitment, transaction, status_tx, skip_preflight, sigverify).await {
                             let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!("Failed to process transaction: {}", e)));
                        }
                     }
@@ -194,7 +229,10 @@ pub async fn start_block_production_runloop(
     Ok(())
 }
 
-pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {
+pub fn start_clock_runloop(
+    mut slot_time: u64,
+    simnet_events_tx: Option<Sender<SimnetEvent>>,
+) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {
     let (clock_event_tx, clock_event_rx) = unbounded::<ClockEvent>();
     let (clock_command_tx, clock_command_rx) = unbounded::<ClockCommand>();
 
@@ -206,12 +244,24 @@ pub fn start_clock_runloop(mut slot_time: u64) -> (Receiver<ClockEvent>, Sender<
             match clock_command_rx.try_recv() {
                 Ok(ClockCommand::Pause) => {
                     enabled = false;
+                    if let Some(ref simnet_events_tx) = simnet_events_tx {
+                        let _ =
+                            simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Pause));
+                    }
                 }
                 Ok(ClockCommand::Resume) => {
                     enabled = true;
+                    if let Some(ref simnet_events_tx) = simnet_events_tx {
+                        let _ =
+                            simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Resume));
+                    }
                 }
                 Ok(ClockCommand::Toggle) => {
                     enabled = !enabled;
+                    if let Some(ref simnet_events_tx) = simnet_events_tx {
+                        let _ =
+                            simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Toggle));
+                    }
                 }
                 Ok(ClockCommand::UpdateSlotInterval(updated_slot_time)) => {
                     slot_time = updated_slot_time;
@@ -243,6 +293,8 @@ fn start_geyser_runloop(
     geyser_events_rx: Receiver<GeyserEvent>,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let handle: JoinHandle<Result<(), String>> = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
+        let mut indexing_enabled = false;
+
         #[cfg(feature = "geyser-plugin")]
         let mut plugin_manager = GeyserPluginManager::new();
         #[cfg(not(feature = "geyser-plugin"))]
@@ -288,6 +340,7 @@ fn start_geyser_runloop(
                 let plugin_raw = constructor();
                 (Box::from_raw(plugin_raw), lib)
             };
+            indexing_enabled = true;
             plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.to_string())));
         }
 
@@ -329,6 +382,9 @@ fn start_geyser_runloop(
                                         let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver::<DataIndexingCommand>(rx);
                                         let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveCollection(subgraph_rx));
                                     };
+
+                                    indexing_enabled = true;
+
                                     let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
                                     surfpool_plugin_manager.push(plugin);
                                     let _ = simnet_events_tx.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
@@ -344,18 +400,16 @@ fn start_geyser_runloop(
                     Err(e) => {
                         break format!("Failed to read new transaction to send to Geyser plugin: {e}");
                     },
-                    Ok(GeyserEvent::NotifyTransaction(transaction_with_status_meta)) => {
+                    Ok(GeyserEvent::NotifyTransaction(transaction_with_status_meta, sanitized_transaction)) => {
 
-                        let transaction = match SanitizedTransaction::try_create(
-                            transaction_with_status_meta.transaction,
-                            MessageHash::Compute,
-                            None,
-                            SimpleAddressLoader::Disabled,
-                            &HashSet::new()
-                        ) {
-                            Ok(tx) => tx,
-                            Err(e) => {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: failed to serialize transaction: {:?}", e)));
+                        if !indexing_enabled {
+                            continue;
+                        }
+
+                        let transaction = match sanitized_transaction {
+                            Some(tx) => tx,
+                            None => {
+                                let _ = simnet_events_tx.send(SimnetEvent::warn(format!("Unable to index sanitized transaction")));
                                 continue;
                             }
                         };
