@@ -11,6 +11,7 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_schedule::EpochSchedule;
 use solana_rpc_client_api::response::Response as RpcResponse;
+use solana_sdk::inflation::Inflation;
 
 use super::{RunloopContext, State};
 use crate::surfnet::SURFPOOL_IDENTITY_PUBKEY;
