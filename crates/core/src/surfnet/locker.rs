@@ -831,12 +831,21 @@ impl SurfnetSvmLocker {
         let loaded_addresses = self
             .get_loaded_addresses(remote_ctx, &transaction.message)
             .await?;
-        let transaction_accounts = self
+
+        // we don't want the pubkeys of the address lookup tables to be included in the transaction accounts,
+        // but we do want the pubkeys of the accounts _loaded_ by the ALT to be in the transaction accounts.
+        let (transaction_accounts, alt_pubkeys) = self
             .get_pubkeys_from_message(&transaction.message, loaded_addresses.clone())
             .clone();
 
         let account_updates = self
             .get_multiple_accounts(remote_ctx, &transaction_accounts, None)
+            .await?
+            .inner;
+
+        // We also need the pubkeys of the ALTs to be pulled from the remote, so we'll do a fetch for them
+        let alt_account_updates = self
+            .get_multiple_accounts(remote_ctx, &alt_pubkeys, None)
             .await?
             .inner;
 
@@ -858,6 +867,9 @@ impl SurfnetSvmLocker {
 
         self.with_svm_writer(|svm_writer| {
             for update in &account_updates {
+                svm_writer.write_account_update(update.clone());
+            }
+            for update in &alt_account_updates {
                 svm_writer.write_account_update(update.clone());
             }
         });
@@ -1851,20 +1863,20 @@ impl SurfnetSvmLocker {
         &self,
         message: &VersionedMessage,
         loaded_addresses: Option<LoadedAddresses>,
-    ) -> Vec<Pubkey> {
+    ) -> (Vec<Pubkey>, Vec<Pubkey>) {
         match message {
-            VersionedMessage::Legacy(message) => message.account_keys.clone(),
+            VersionedMessage::Legacy(message) => (message.account_keys.clone(), vec![]),
             VersionedMessage::V0(message) => {
                 let alts = message.address_table_lookups.clone();
                 let mut acc_keys = message.account_keys.clone();
-                let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
+                let alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
 
-                acc_keys.append(&mut alt_pubkeys);
+                // acc_keys.append(&mut alt_pubkeys);
                 if let Some(mut loaded_addresses) = loaded_addresses {
-                    acc_keys.append(&mut loaded_addresses.readonly);
                     acc_keys.append(&mut loaded_addresses.writable);
+                    acc_keys.append(&mut loaded_addresses.readonly);
                 }
-                acc_keys
+                (acc_keys, alt_pubkeys)
             }
         }
     }
