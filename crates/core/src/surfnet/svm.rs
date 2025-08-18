@@ -29,7 +29,7 @@ use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
+    feature::Feature, genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
     system_instruction, transaction::VersionedTransaction,
 };
 use solana_sdk_ids::system_program;
@@ -125,7 +125,12 @@ pub struct SurfnetSvm {
     /// the update with higher write_version should supersede the one with lower write_version.
     pub write_version: u64,
     pub registered_idls: HashMap<Pubkey, BinaryHeap<VersionedIdl>>,
+    pub feature_set: FeatureSet,
 }
+
+pub const FEATURE: Feature = Feature {
+    activated_at: Some(0),
+};
 
 impl SurfnetSvm {
     /// Creates a new instance of `SurfnetSvm`.
@@ -147,7 +152,7 @@ impl SurfnetSvm {
             .insert(disable_new_loader_v3_deployments::id());
 
         let inner = LiteSVM::new()
-            .with_feature_set(feature_set)
+            .with_feature_set(feature_set.clone())
             .with_blockhash_check(false)
             .with_sigverify(false);
 
@@ -197,6 +202,7 @@ impl SurfnetSvm {
                 inflation: Inflation::default(),
                 write_version: 0,
                 registered_idls: HashMap::new(),
+                feature_set,
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -353,6 +359,22 @@ impl SurfnetSvm {
     /// Returns the latest epoch info known by the `SurfnetSvm`.
     pub fn latest_epoch_info(&self) -> EpochInfo {
         self.latest_epoch_info.clone()
+    }
+
+    pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
+        self.feature_set.active.get(pubkey).map(|_| {
+            let feature_bytes = bincode::serialize(&FEATURE).unwrap();
+            let lamports = self
+                .inner
+                .minimum_balance_for_rent_exemption(feature_bytes.len());
+            Account {
+                lamports,
+                data: feature_bytes,
+                owner: solana_sdk_ids::feature::id(),
+                executable: false,
+                rent_epoch: 0,
+            }
+        })
     }
 
     /// Generates and sets a new blockhash, updating the RecentBlockhashes sysvar.
