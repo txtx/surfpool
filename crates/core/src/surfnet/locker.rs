@@ -231,7 +231,14 @@ impl SurfnetSvmLocker {
                         false,
                     )
                 }
-                None => GetAccountResult::None(*pubkey),
+                None => match svm_reader.get_account_from_feature_set(pubkey) {
+                    Some(account) => GetAccountResult::FoundAccount(
+                        *pubkey, account,
+                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                        false,
+                    ),
+                    None => GetAccountResult::None(*pubkey),
+                },
             }
         })
     }
@@ -298,7 +305,14 @@ impl SurfnetSvmLocker {
                             )
                         }
                     }
-                    None => GetAccountResult::None(*pubkey),
+                    None => match svm_reader.get_account_from_feature_set(pubkey) {
+                        Some(account) => GetAccountResult::FoundAccount(
+                            *pubkey, account,
+                            // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                            false,
+                        ),
+                        None => GetAccountResult::None(*pubkey),
+                    },
                 };
                 accounts.push(res);
             }
