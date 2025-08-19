@@ -29,7 +29,7 @@ use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
+    feature::Feature, genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
     system_instruction, transaction::VersionedTransaction,
 };
 use solana_sdk_ids::system_program;
@@ -50,7 +50,7 @@ use surfpool_types::{
     },
 };
 use txtx_addon_kit::{indexmap::IndexMap, types::types::AddonJsonConverter};
-use txtx_addon_network_svm::codec::idl::parse_bytes_to_value_with_expected_idl_type_def_ty;
+use txtx_addon_network_svm_types::subgraph::idl::parse_bytes_to_value_with_expected_idl_type_def_ty;
 use uuid::Uuid;
 
 use super::{
@@ -125,7 +125,12 @@ pub struct SurfnetSvm {
     /// the update with higher write_version should supersede the one with lower write_version.
     pub write_version: u64,
     pub registered_idls: HashMap<Pubkey, BinaryHeap<VersionedIdl>>,
+    pub feature_set: FeatureSet,
 }
+
+pub const FEATURE: Feature = Feature {
+    activated_at: Some(0),
+};
 
 impl SurfnetSvm {
     /// Creates a new instance of `SurfnetSvm`.
@@ -147,7 +152,7 @@ impl SurfnetSvm {
             .insert(disable_new_loader_v3_deployments::id());
 
         let inner = LiteSVM::new()
-            .with_feature_set(feature_set)
+            .with_feature_set(feature_set.clone())
             .with_blockhash_check(false)
             .with_sigverify(false);
 
@@ -197,6 +202,7 @@ impl SurfnetSvm {
                 inflation: Inflation::default(),
                 write_version: 0,
                 registered_idls: HashMap::new(),
+                feature_set,
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -355,6 +361,22 @@ impl SurfnetSvm {
         self.latest_epoch_info.clone()
     }
 
+    pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
+        self.feature_set.active.get(pubkey).map(|_| {
+            let feature_bytes = bincode::serialize(&FEATURE).unwrap();
+            let lamports = self
+                .inner
+                .minimum_balance_for_rent_exemption(feature_bytes.len());
+            Account {
+                lamports,
+                data: feature_bytes,
+                owner: solana_sdk_ids::feature::id(),
+                executable: false,
+                rent_epoch: 0,
+            }
+        })
+    }
+
     /// Generates and sets a new blockhash, updating the RecentBlockhashes sysvar.
     ///
     /// # Returns
@@ -437,15 +459,20 @@ impl SurfnetSvm {
     ///
     /// # Returns
     /// `Ok(())` on success, or an error if the operation fails.
-    pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
+    pub fn set_account(&mut self, pubkey: &Pubkey, mut account: Account) -> SurfpoolResult<()> {
         self.updated_at = Utc::now().timestamp_millis() as u64;
+
+        if account.lamports == 0 {
+            account.data = vec![];
+            account.owner = Pubkey::default();
+        }
 
         self.inner
             .set_account(*pubkey, account.clone())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
 
         // Update the account registries and indexes
-        self.update_account_registries(pubkey, &account);
+        self.update_account_registries(pubkey, &account)?;
 
         // Notify account subscribers
         self.notify_account_subscribers(pubkey, &account);
@@ -456,7 +483,20 @@ impl SurfnetSvm {
         Ok(())
     }
 
-    pub fn update_account_registries(&mut self, pubkey: &Pubkey, account: &Account) {
+    pub fn update_account_registries(
+        &mut self,
+        pubkey: &Pubkey,
+        account: &Account,
+    ) -> SurfpoolResult<()> {
+        // if the account has zero lamports, it needs to have it's data cleared out to emulate "garbage collection"
+        // our `set_account` method above will clear out the data if the lamports are zero, but there are cases where
+        // that code path isn't directly called, such as when a tx is processed the clears the lamports. so here, we'll
+        // check if the lamports are 0 _and_ the data is not empty - if so this call to update account registries _did not_
+        // come from the above `set_account` method, so we'll call it to clear the data out
+        if account.lamports == 0 && !account.data.is_empty() {
+            return self.set_account(pubkey, account.to_owned());
+        }
+
         // only if successful, update our indexes
         if let Some(old_account) = self.accounts_registry.get(pubkey).cloned() {
             self.remove_from_indexes(pubkey, &old_account);
@@ -533,6 +573,7 @@ impl SurfnetSvm {
                 );
             };
         }
+        Ok(())
     }
 
     fn remove_from_indexes(&mut self, pubkey: &Pubkey, old_account: &Account) {
@@ -1516,12 +1557,22 @@ impl SurfnetSvm {
                             if let Some(account_type) =
                                 idl.types.iter().find(|t| t.name == matching_account.name)
                             {
+                                let empty_vec = vec![];
+                                let idl_type_def_generics = idl
+                                    .types
+                                    .iter()
+                                    .find(|t| t.name == account_type.name)
+                                    .map(|t| &t.generics);
+
                                 // If we found a matching account type, we can use it to parse the account data
                                 let rest = data[8..].as_ref();
                                 if let Ok(parsed_value) =
                                     parse_bytes_to_value_with_expected_idl_type_def_ty(
                                         &rest,
                                         &account_type.ty,
+                                        &idl.types,
+                                        &vec![],
+                                        idl_type_def_generics.unwrap_or(&empty_vec),
                                     )
                                 {
                                     return UiAccount {

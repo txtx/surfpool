@@ -485,10 +485,10 @@ impl BankData for SurfpoolBankDataRpc {
         start_slot: Slot,
         limit: u64,
     ) -> Result<Vec<String>> {
-        if limit == 0 || limit > 5000 {
+        if limit > 5000 {
             return Err(jsonrpc_core::Error {
                 code: jsonrpc_core::ErrorCode::InvalidParams,
-                message: "Limit must be between 1 and 5000".to_string(),
+                message: "Limit must be less than 5000".to_string(),
                 data: None,
             });
         }

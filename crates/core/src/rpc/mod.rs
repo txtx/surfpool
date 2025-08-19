@@ -43,7 +43,7 @@ pub struct SurfpoolRpc;
 
 #[derive(Clone)]
 pub struct RunloopContext {
-    pub id: Option<Hash>,
+    pub id: Option<(Hash, String)>,
     pub svm_locker: SurfnetSvmLocker,
     pub simnet_commands_tx: Sender<SimnetCommand>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,

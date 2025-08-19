@@ -33,8 +33,8 @@ use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
-    BlockProductionMode, ClockCommand, ClockEvent, DataIndexingCommand, SimnetCommand, SimnetEvent,
-    SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
+    BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_RPC_URL, DataIndexingCommand,
+    SimnetCommand, SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
 };
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use txtx_addon_kit::helpers::fs::FileLocation;
@@ -65,9 +65,17 @@ pub async fn start_local_surfnet_runloop(
     };
     let block_production_mode = simnet.block_production_mode.clone();
 
-    let remote_rpc_client = Some(SurfnetRemoteClient::new(&simnet.remote_rpc_url));
+    let remote_rpc_client = match simnet.offline_mode {
+        true => None,
+        false => Some(SurfnetRemoteClient::new(
+            &simnet
+                .remote_rpc_url
+                .as_ref()
+                .unwrap_or(&DEFAULT_RPC_URL.to_string()),
+        )),
+    };
 
-    let _ = svm_locker
+    svm_locker
         .initialize(simnet.slot_time, &remote_rpc_client)
         .await?;
 
@@ -99,7 +107,7 @@ pub async fn start_local_surfnet_runloop(
     };
 
     let (clock_event_rx, clock_command_tx) =
-        start_clock_runloop(simnet_config.slot_time, simnet_events_tx_cc.clone());
+        start_clock_runloop(simnet_config.slot_time, Some(simnet_events_tx_cc.clone()));
 
     let _ = simnet_events_tx_cc.send(SimnetEvent::Ready);
 
@@ -223,7 +231,7 @@ pub async fn start_block_production_runloop(
 
 pub fn start_clock_runloop(
     mut slot_time: u64,
-    simnet_events_tx: Sender<SimnetEvent>,
+    simnet_events_tx: Option<Sender<SimnetEvent>>,
 ) -> (Receiver<ClockEvent>, Sender<ClockCommand>) {
     let (clock_event_tx, clock_event_rx) = unbounded::<ClockEvent>();
     let (clock_command_tx, clock_command_rx) = unbounded::<ClockCommand>();
@@ -236,15 +244,24 @@ pub fn start_clock_runloop(
             match clock_command_rx.try_recv() {
                 Ok(ClockCommand::Pause) => {
                     enabled = false;
-                    let _ = simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Pause));
+                    if let Some(ref simnet_events_tx) = simnet_events_tx {
+                        let _ =
+                            simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Pause));
+                    }
                 }
                 Ok(ClockCommand::Resume) => {
                     enabled = true;
-                    let _ = simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Resume));
+                    if let Some(ref simnet_events_tx) = simnet_events_tx {
+                        let _ =
+                            simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Resume));
+                    }
                 }
                 Ok(ClockCommand::Toggle) => {
                     enabled = !enabled;
-                    let _ = simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Toggle));
+                    if let Some(ref simnet_events_tx) = simnet_events_tx {
+                        let _ =
+                            simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Toggle));
+                    }
                 }
                 Ok(ClockCommand::UpdateSlotInterval(updated_slot_time)) => {
                     slot_time = updated_slot_time;

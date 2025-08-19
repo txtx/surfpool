@@ -189,6 +189,9 @@ pub struct StartSimnet {
     /// Set the Studio port
     #[arg(long = "studio-port", short = 's', default_value_t = CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED)]
     pub studio_port: u16,
+    /// Start surfpool without a remote RPC client to simulate an offline environment (default: false)
+    #[clap(long = "offline", action=ArgAction::SetTrue)]
+    pub offline: bool,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -254,17 +257,21 @@ impl StartSimnet {
     }
 
     pub fn simnet_config(&self, airdrop_addresses: Vec<Pubkey>) -> SimnetConfig {
-        let remote_rpc_url = match &self.network {
-            Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
-            Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
-            Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
-            None => match self.rpc_url {
-                Some(ref rpc_url) => rpc_url.clone(),
-                None => match env::var("SURFPOOL_DATASOURCE_RPC_URL") {
-                    Ok(value) => value,
-                    _ => DEFAULT_RPC_URL.to_string(),
+        let remote_rpc_url = if !self.offline {
+            Some(match &self.network {
+                Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
+                Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
+                Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
+                None => match self.rpc_url {
+                    Some(ref rpc_url) => rpc_url.clone(),
+                    None => match env::var("SURFPOOL_DATASOURCE_RPC_URL") {
+                        Ok(value) => value,
+                        _ => DEFAULT_RPC_URL.to_string(),
+                    },
                 },
-            },
+            })
+        } else {
+            None
         };
 
         SimnetConfig {
@@ -274,6 +281,7 @@ impl StartSimnet {
             airdrop_addresses,
             airdrop_token_amount: self.airdrop_token_amount,
             expiry: None,
+            offline_mode: self.offline,
         }
     }
 

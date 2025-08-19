@@ -126,7 +126,12 @@ impl App {
         events.push((
             EventType::Info,
             Local::now(),
-            format!("Connecting surfnet to datasource {datasource}..."),
+            match &datasource {
+                Some(url) => {
+                    format!("Connecting surfnet to datasource {url}")
+                }
+                None => "No datasource configured, working in offline mode".to_string(),
+            },
         ));
 
         App {
@@ -597,51 +602,77 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
-    let infos = match app.displayed_url {
+    match app.displayed_url {
         DisplayedUrl::Datasource(ref config) => {
-            vec![
-                Line::from(vec![
-                    Span::styled("۬", app.colors.white),
-                    Span::styled("Surfnet   ", app.colors.light_gray),
-                    Span::styled(&config.rpc_url, app.colors.white),
-                ]),
-                Line::from(vec![
+            let mut lines = vec![Line::from(vec![
+                Span::styled("۬", app.colors.white),
+                Span::styled("Surfnet   ", app.colors.light_gray),
+                Span::styled(&config.rpc_url, app.colors.white),
+            ])];
+            if let Some(datasource_url) = &config.rpc_datasource_url {
+                lines.push(Line::from(vec![
                     Span::styled("۬", app.colors.white),
                     Span::styled("Provider  ", app.colors.light_gray),
-                    Span::styled(&config.rpc_datasource_url, app.colors.white),
-                ]),
-                Line::from(vec![Span::styled("۬-", app.colors.light_gray)]),
-                Line::from(vec![
-                    Span::styled("۬", app.colors.white),
-                    Span::styled(
-                        format!("{} ", app.successful_transactions),
-                        app.colors.accent,
-                    ),
-                    Span::styled("transactions processed", app.colors.white),
-                ]),
-            ]
+                    Span::styled(datasource_url, app.colors.white),
+                ]));
+            }
+            lines.push(Line::from(vec![Span::styled("۬-", app.colors.light_gray)]));
+            lines.push(Line::from(vec![
+                Span::styled("۬", app.colors.white),
+                Span::styled(
+                    format!("{} ", app.successful_transactions),
+                    app.colors.accent,
+                ),
+                Span::styled("transactions processed", app.colors.white),
+            ]));
+            let title = Paragraph::new(lines);
+            f.render_widget(title.style(app.colors.white), area);
         }
         DisplayedUrl::Studio(ref config) => {
-            vec![
-                Line::from(vec![
-                    Span::styled("۬", app.colors.white),
-                    Span::styled("Explorer  ", app.colors.light_gray),
-                    Span::styled(&config.studio_url, app.colors.white),
-                ]),
-                Line::from(vec![Span::styled("۬-", app.colors.light_gray)]),
-                Line::from(vec![
-                    Span::styled("۬", app.colors.white),
-                    Span::styled(
-                        format!("{} ", app.successful_transactions),
-                        app.colors.accent,
-                    ),
-                    Span::styled("transactions processed", app.colors.white),
-                ]),
-            ]
+            let rects = Layout::vertical([
+                Constraint::Length(3), // Bordered URL area
+                Constraint::Length(1), // Transactions
+            ])
+            .split(area);
+
+            // Bordered URL area split horizontally
+            let url_rects = Layout::horizontal([
+                Constraint::Length(1), // Studio label width
+                Constraint::Length(8), // Studio label width
+                Constraint::Min(1),    // URL takes remaining space
+            ])
+            .split(rects[0].inner(Margin::new(1, 1)));
+
+            // Left side: Studio label with purple background
+            let studio_label =
+                Paragraph::new(" Studio ").style(Style::new().white().on_light_magenta());
+            f.render_widget(studio_label, url_rects[1]);
+
+            // Right side: URL
+            let url_paragraph = Paragraph::new(format!("  {}", config.studio_url.clone()))
+                .style(Style::default().fg(app.colors.white));
+            f.render_widget(url_paragraph, url_rects[2]);
+
+            // Border around the entire area
+            let bordered_area = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Rgb(154, 92, 255)))
+                .border_type(BorderType::Plain);
+            f.render_widget(bordered_area, rects[0]);
+
+            // Transactions
+            let transactions = Line::from(vec![
+                Span::styled("۬", app.colors.white),
+                Span::styled(
+                    format!("{} ", app.successful_transactions),
+                    app.colors.accent,
+                ),
+                Span::styled("transactions processed", app.colors.white),
+            ]);
+            let title = Paragraph::new(transactions);
+            f.render_widget(title.style(app.colors.white), rects[1]);
         }
-    };
-    let title = Paragraph::new(infos);
-    f.render_widget(title.style(app.colors.white), area);
+    }
 }
 
 fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {

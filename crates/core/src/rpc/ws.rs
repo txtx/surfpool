@@ -816,21 +816,17 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = if let Ok(mut guard) = self.signature_subscription_map.write() {
-            guard.remove(&subscription)
+        if let Ok(mut guard) = self.signature_subscription_map.write() {
+            guard.remove(&subscription);
         } else {
             log::error!("Failed to acquire write lock on signature_subscription_map");
-            None
-        };
-        if removed.is_some() {
-            Ok(true)
-        } else {
-            Err(Error {
-                code: ErrorCode::InvalidParams,
-                message: "Invalid subscription.".into(),
+            return Err(Error {
+                code: ErrorCode::InternalError,
+                message: "Internal error.".into(),
                 data: None,
-            })
-        }
+            });
+        };
+        Ok(true)
     }
 
     /// Implementation of account subscription for WebSocket clients.
@@ -968,21 +964,17 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = if let Ok(mut guard) = self.account_subscription_map.write() {
+        if let Ok(mut guard) = self.account_subscription_map.write() {
             guard.remove(&subscription)
         } else {
             log::error!("Failed to acquire write lock on account_subscription_map");
-            None
-        };
-        if removed.is_some() {
-            Ok(true)
-        } else {
-            Err(Error {
-                code: ErrorCode::InvalidParams,
-                message: "Invalid subscription.".into(),
+            return Err(Error {
+                code: ErrorCode::InternalError,
+                message: "Internal error.".into(),
                 data: None,
-            })
-        }
+            });
+        };
+        Ok(true)
     }
 
     fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<SlotInfo>) {
@@ -1049,21 +1041,17 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = if let Ok(mut guard) = self.slot_subscription_map.write() {
+        if let Ok(mut guard) = self.slot_subscription_map.write() {
             guard.remove(&subscription)
         } else {
             log::error!("Failed to acquire write lock on slot_subscription_map");
-            None
-        };
-        if removed.is_some() {
-            Ok(true)
-        } else {
-            Err(Error {
-                code: ErrorCode::InvalidParams,
-                message: "Invalid subscription.".into(),
+            return Err(Error {
+                code: ErrorCode::InternalError,
+                message: "Internal error.".into(),
                 data: None,
-            })
-        }
+            });
+        };
+        Ok(true)
     }
 
     fn logs_subscribe(
@@ -1142,20 +1130,16 @@ impl Rpc for SurfpoolWsRpc {
         _meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool> {
-        let removed = if let Ok(mut guard) = self.logs_subscription_map.write() {
-            guard.remove(&subscription)
+        if let Ok(mut guard) = self.logs_subscription_map.write() {
+            guard.remove(&subscription);
         } else {
             log::error!("Failed to acquire write lock on logs_subscription_map");
-            None
-        };
-        if removed.is_some() {
-            Ok(true)
-        } else {
-            Err(Error {
-                code: ErrorCode::InvalidParams,
-                message: "Invalid subscription.".into(),
+            return Err(Error {
+                code: ErrorCode::InternalError,
+                message: "Internal error.".into(),
                 data: None,
-            })
-        }
+            });
+        };
+        Ok(true)
     }
 }
