@@ -1,3 +1,5 @@
+use std::{collections::HashSet, vec};
+
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use litesvm::types::TransactionMetadata;
@@ -6,7 +8,7 @@ use solana_account_decoder::parse_token::UiTokenAmount;
 use solana_clock::{Epoch, Slot};
 use solana_message::{
     AccountKeys, VersionedMessage,
-    v0::{LoadedAddresses, LoadedMessage},
+    v0::{LoadedAddresses, LoadedMessage, MessageAddressTableLookup},
 };
 use solana_pubkey::Pubkey;
 use solana_sdk::{
@@ -26,6 +28,7 @@ use solana_transaction_status::{
     parse_ui_inner_instructions,
 };
 use spl_token_2022::extension::StateWithExtensions;
+use txtx_addon_kit::indexmap::IndexMap;
 
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -799,3 +802,136 @@ impl std::fmt::Display for TimeTravelError {
 }
 
 impl std::error::Error for TimeTravelError {}
+
+#[derive(Debug, Default)]
+/// Tracks the loaded addresses with its associated index within an Address Lookup Table
+pub struct IndexedLoadedAddresses {
+    pub writable: Vec<(u8, Pubkey)>,
+    pub readonly: Vec<(u8, Pubkey)>,
+}
+
+impl IndexedLoadedAddresses {
+    pub fn new(writable: Vec<(u8, Pubkey)>, readonly: Vec<(u8, Pubkey)>) -> Self {
+        Self { writable, readonly }
+    }
+    pub fn writable_keys(&self) -> Vec<&Pubkey> {
+        self.writable.iter().map(|(_, pubkey)| pubkey).collect()
+    }
+    pub fn readonly_keys(&self) -> Vec<&Pubkey> {
+        self.readonly.iter().map(|(_, pubkey)| pubkey).collect()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.writable.is_empty() && self.readonly.is_empty()
+    }
+}
+
+#[derive(Debug, Default)]
+/// Maps an Address Lookup Table entry to its indexed loaded addresses
+pub struct TransactionLoadedAddresses(IndexMap<Pubkey, IndexedLoadedAddresses>);
+
+impl TransactionLoadedAddresses {
+    pub fn new() -> Self {
+        Self(IndexMap::new())
+    }
+
+    /// Filters the loaded addresses based on the provided writable and readonly sets.
+    pub fn filter_from_members(
+        &self,
+        writable: &HashSet<Pubkey>,
+        readonly: &HashSet<Pubkey>,
+    ) -> Self {
+        let mut filtered = Self::new();
+        for (pubkey, loaded_addresses) in &self.0 {
+            let mut new_loaded_addresses = IndexedLoadedAddresses::default();
+            new_loaded_addresses.writable.extend(
+                loaded_addresses
+                    .writable
+                    .iter()
+                    .filter(|&(_, addr)| writable.contains(addr)),
+            );
+            new_loaded_addresses.readonly.extend(
+                loaded_addresses
+                    .readonly
+                    .iter()
+                    .filter(|&(_, addr)| readonly.contains(addr)),
+            );
+            if !new_loaded_addresses.is_empty() {
+                filtered.insert(*pubkey, new_loaded_addresses);
+            }
+        }
+        filtered
+    }
+
+    pub fn insert(&mut self, pubkey: Pubkey, loaded_addresses: IndexedLoadedAddresses) {
+        self.0.insert(pubkey, loaded_addresses);
+    }
+
+    pub fn insert_members(
+        &mut self,
+        pubkey: Pubkey,
+        writable: Vec<(u8, Pubkey)>,
+        readonly: Vec<(u8, Pubkey)>,
+    ) {
+        self.0
+            .insert(pubkey, IndexedLoadedAddresses::new(writable, readonly));
+    }
+
+    pub fn loaded_addresses(&self) -> LoadedAddresses {
+        let mut loaded = LoadedAddresses::default();
+        for (_, loaded_addresses) in &self.0 {
+            loaded.writable.extend(loaded_addresses.writable_keys());
+            loaded.readonly.extend(loaded_addresses.readonly_keys());
+        }
+        loaded
+    }
+
+    pub fn all_loaded_addresses(&self) -> Vec<&Pubkey> {
+        let mut writable = vec![];
+        let mut readonly = vec![];
+
+        for (_, loaded_addresses) in &self.0 {
+            writable.extend(loaded_addresses.writable_keys());
+            readonly.extend(loaded_addresses.readonly_keys());
+        }
+
+        writable.append(&mut readonly);
+        writable
+    }
+
+    pub fn alt_addresses(&self) -> Vec<Pubkey> {
+        self.0.keys().cloned().collect()
+    }
+
+    pub fn to_address_table_lookups(&self) -> Vec<MessageAddressTableLookup> {
+        self.0
+            .iter()
+            .map(|(pubkey, loaded_addresses)| MessageAddressTableLookup {
+                account_key: *pubkey,
+                writable_indexes: loaded_addresses
+                    .writable
+                    .iter()
+                    .map(|(idx, _)| *idx)
+                    .collect(),
+                readonly_indexes: loaded_addresses
+                    .readonly
+                    .iter()
+                    .map(|(idx, _)| *idx)
+                    .collect(),
+            })
+            .collect()
+    }
+
+    pub fn writable_len(&self) -> usize {
+        self.0
+            .values()
+            .map(|loaded_addresses| loaded_addresses.writable.len())
+            .sum()
+    }
+
+    pub fn readonly_len(&self) -> usize {
+        self.0
+            .values()
+            .map(|loaded_addresses| loaded_addresses.readonly.len())
+            .sum()
+    }
+}
