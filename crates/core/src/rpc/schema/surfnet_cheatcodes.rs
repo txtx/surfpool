@@ -1,5 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_tuple::Serialize_tuple;
 use solana_pubkey::Pubkey;
 use solana_sdk::system_program;
 
@@ -57,6 +58,18 @@ pub struct TokenAccountUpdate {
     pub close_authority: Option<SetSomeAccount>,
 }
 
+impl TokenAccountUpdate {
+    pub fn example() -> Self {
+        Self {
+            amount: Some(1_000_000_000),
+            delegate: Some(SetSomeAccount::Account(Pubkey::new_unique().to_string())),
+            state: Some("initialized".to_string()),
+            delegated_amount: Some(1_000_000_000),
+            close_authority: Some(SetSomeAccount::Account(Pubkey::new_unique().to_string())),
+        }
+    } 
+}
+
 #[derive(JsonSchema, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SetSomeAccount {
@@ -93,6 +106,17 @@ pub struct SupplyUpdate {
     pub non_circulating_accounts: Option<Vec<String>>,
 }
 
+impl SupplyUpdate {
+    pub fn example() -> Self {
+        Self {
+            total: Some(1_000_000_000),
+            circulating: Some(1_000_000_000),
+            non_circulating: Some(1_000_000_000),
+            non_circulating_accounts: Some(vec![]),
+        }
+    } 
+}
+
 #[derive(JsonSchema, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcProfileResultConfig {
@@ -104,6 +128,15 @@ pub struct RpcProfileResultConfig {
         description = "The depth of profiling - 'transaction' for overall transaction profile, 'instruction' for per-instruction breakdown."
     )]
     pub depth: Option<String>,
+}
+
+impl RpcProfileResultConfig {
+    pub fn example() -> Self {
+        Self {
+            encoding: Some("base64".to_string()),
+            depth: Some("transaction".to_string()),
+        }
+    } 
 }
 
 #[derive(JsonSchema, Serialize, Deserialize)]
@@ -171,7 +204,28 @@ pub struct Idl {
     pub state: Option<serde_json::Value>,
 }
 
-#[derive(JsonSchema)]
+impl Idl {
+    pub fn example() -> Self {
+        Self {
+            address: Pubkey::new_unique().to_string(),
+            metadata: serde_json::json!({
+                "name": "Test Program",
+                "version": "1.0.0",
+                "description": "A test program for the Surfnet Cheatcodes"
+            }),
+            instructions: vec![],
+            accounts: vec![],
+            types: vec![],
+            events: vec![],
+            errors: vec![],
+            constants: vec![],
+            state: None,
+        }
+    }
+    
+}
+
+#[derive(JsonSchema, Serialize)]
 #[serde(rename_all = "camelCase", rename = "endpoints")]
 pub enum SurfnetCheatcodes {
     #[schemars(
@@ -230,13 +284,13 @@ pub enum SurfnetCheatcodes {
     ResumeClock(ResumeClock),
 }
 
-#[derive(JsonSchema, Serialize)]
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct SetAccount {
     #[schemars(
         description = "The public key of the account to update, as a base-58 encoded string. This identifies which account will be modified."
     )]
-    pub pubkey: String,
+    pub pubkey: String, 
     #[schemars(
         description = "The account data to update. Contains the new values for lamports, owner, executable status, rent epoch, and data."
     )]
@@ -252,7 +306,7 @@ impl SetAccount {
     }
 }
 
-#[derive(JsonSchema)]
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct SetTokenAccount {
     #[schemars(
@@ -273,7 +327,18 @@ pub struct SetTokenAccount {
     pub token_program: Option<String>,
 }
 
-#[derive(JsonSchema)]
+impl SetTokenAccount {
+    pub fn example() -> Self {
+        Self {
+            owner: Pubkey::new_unique().to_string(),
+            mint: Pubkey::new_unique().to_string(),
+            update: TokenAccountUpdate::example(),
+            token_program: Some(spl_token::ID.to_string()),
+        }
+    }
+}
+
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct CloneProgramAccount {
     #[schemars(
@@ -286,7 +351,16 @@ pub struct CloneProgramAccount {
     pub destination_program_id: String,
 }
 
-#[derive(JsonSchema)]
+impl CloneProgramAccount {
+    pub fn example() -> Self {
+        Self {
+            source_program_id: Pubkey::new_unique().to_string(),
+            destination_program_id: Pubkey::new_unique().to_string(),
+        }
+    }
+}
+
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileTransaction {
     #[schemars(
@@ -303,7 +377,18 @@ pub struct ProfileTransaction {
     pub config: Option<RpcProfileResultConfig>,
 }
 
-#[derive(JsonSchema)]
+impl ProfileTransaction {
+    pub fn example() -> Self {
+        Self {
+            transaction_data: "0x123456".to_string(),
+            tag: Some("Tag".to_string()),
+            config: Some(RpcProfileResultConfig::example()),
+        }
+    }
+    
+}
+
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct GetProfileResults {
     #[schemars(
@@ -316,7 +401,16 @@ pub struct GetProfileResults {
     pub config: Option<RpcProfileResultConfig>,
 }
 
-#[derive(JsonSchema)]
+impl GetProfileResults {
+    pub fn example() -> Self {
+        Self {
+            tag: "Tag".to_string(),
+            config: Some(RpcProfileResultConfig::example()),
+        }
+    } 
+}
+
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct SetSupply {
     #[schemars(
@@ -325,7 +419,16 @@ pub struct SetSupply {
     pub update: SupplyUpdate,
 }
 
-#[derive(JsonSchema)]
+impl SetSupply {
+    pub fn example() -> Self {
+        Self {
+            update: SupplyUpdate::example(),
+        }
+    }
+    
+}
+
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct SetProgramAuthority {
     #[schemars(
@@ -338,7 +441,16 @@ pub struct SetProgramAuthority {
     pub new_authority: Option<String>,
 }
 
-#[derive(JsonSchema)]
+impl SetProgramAuthority {
+    pub fn example() -> Self {
+        Self {
+            program_id: Pubkey::new_unique().to_string(),
+            new_authority: Some(Pubkey::new_unique().to_string()),
+        }
+    } 
+}
+
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct GetTransactionProfile {
     #[schemars(
@@ -351,7 +463,16 @@ pub struct GetTransactionProfile {
     pub config: Option<RpcProfileResultConfig>,
 }
 
-#[derive(JsonSchema)]
+impl GetTransactionProfile {
+    pub fn example() -> Self {
+        Self {
+            signature_or_uuid: UuidOrSignature::Signature(Pubkey::new_unique().to_string()),
+            config: Some(RpcProfileResultConfig::example()),
+        }
+    } 
+}
+
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterIdl {
     #[schemars(
@@ -364,7 +485,17 @@ pub struct RegisterIdl {
     pub slot: Option<u64>,
 }
 
-#[derive(JsonSchema)]
+impl RegisterIdl {
+    pub fn example() -> Self {
+        Self {
+            idl: Idl::example(),
+            slot: Some(0),
+        }
+    }
+    
+}
+
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct GetIdl {
     #[schemars(
@@ -377,7 +508,16 @@ pub struct GetIdl {
     pub slot: Option<u64>,
 }
 
-#[derive(JsonSchema)]
+impl GetIdl {
+    pub fn example() -> Self {
+        Self {
+            program_id: Pubkey::new_unique().to_string(),
+            slot: Some(0),
+        }
+    }
+}
+
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct GetLocalSignatures {
     #[schemars(
@@ -386,7 +526,15 @@ pub struct GetLocalSignatures {
     pub limit: Option<u64>,
 }
 
-#[derive(JsonSchema)]
+impl GetLocalSignatures {
+    pub fn example() -> Self {
+        Self {
+            limit: Some(50),
+        }
+    } 
+}
+
+#[derive(JsonSchema, Serialize_tuple)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeTravel {
     #[schemars(
@@ -395,10 +543,36 @@ pub struct TimeTravel {
     pub config: Option<TimeTravelConfig>,
 }
 
-#[derive(JsonSchema)]
+impl TimeTravel {
+    pub fn example() -> Self {
+        Self {
+            config: Some(TimeTravelConfig::AbsoluteEpoch(0)),
+        }
+    }
+}
+
+impl TimeTravelConfig {
+    pub fn example() -> Self {
+        Self::AbsoluteEpoch(0)
+    }
+}
+
+#[derive(JsonSchema, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PauseClock {}
 
-#[derive(JsonSchema)]
+impl PauseClock {
+    pub fn example() -> Self {
+        Self {}
+    }
+}
+
+#[derive(JsonSchema, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResumeClock {}
+
+impl ResumeClock {
+    pub fn example() -> Self {
+        Self {}
+    }
+}

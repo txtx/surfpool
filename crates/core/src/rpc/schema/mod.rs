@@ -2,7 +2,8 @@ use schemars::JsonSchema;
 
 use crate::rpc::schema::{
     accounts_data::AccountsData, accounts_scan::AccountsScan, admin::Admin, bank_data::BankData,
-    full::Full, minimal::Minimal, surfnet_cheatcodes::SurfnetCheatcodes,
+    full::Full, minimal::Minimal, payload::SurfnetCheatcodesRequestPayloads,
+    surfnet_cheatcodes::SurfnetCheatcodes,
 };
 
 mod accounts_data;
@@ -17,7 +18,6 @@ mod solana_types;
 mod surfnet_cheatcodes;
 mod ws;
 
-pub use payload::SurfnetCheatcodesRequestPayloads;
 pub use response::{RpcErrorResponse, RpcResponseContext, SurfpoolRpcEndpoints};
 pub use ws::{SurfpoolWebSocketApiDocumentation, SurfpoolWebSocketEndpoints};
 
@@ -58,8 +58,6 @@ pub enum RpcResponse {
 
 #[cfg(test)]
 mod test {
-    use crate::rpc::schema::surfnet_cheatcodes::SetAccount;
-
     use super::*;
 
     #[test]
@@ -91,9 +89,16 @@ mod test {
     }
 
     #[test]
+    fn test_surfnet_cheatcodes_payloads_example() {
+        let payloads = SurfnetCheatcodesRequestPayloads::example();
+        let schema = schemars::schema_for_value!(payloads);
+        let json = serde_json::to_string_pretty(&schema).unwrap();
+        std::fs::write("payload_example.json", json).unwrap();
+    }
+
+    #[test]
     fn test_surfnet_cheatcodes_payloads_schema() {
-        let value = SurfnetCheatcodesRequestPayloads::example();
-        let schema = schemars::schema_for_value!(value);
+        let schema = schemars::schema_for!(SurfnetCheatcodesRequestPayloads);
         let json = serde_json::to_string_pretty(&schema).unwrap();
         std::fs::write("payload_schema.json", json).unwrap();
     }

@@ -1,0 +1,463 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SurfnetCheatcodesRequestPayloads",
+  "type": "object",
+  "properties": {
+    "cloneProgramAccount": {
+      "type": "array",
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "getIdl": {
+      "type": "array",
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      ]
+    },
+    "getLocalSignatures": {
+      "type": "array",
+      "maxItems": 1,
+      "minItems": 1,
+      "prefixItems": [
+        {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      ]
+    },
+    "getProfileResults": {
+      "type": "array",
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "depth": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "encoding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "getTransactionProfile": {
+      "type": "array",
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        true,
+        {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "depth": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "encoding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "pauseClock": {
+      "type": "object",
+      "properties": {}
+    },
+    "profileTransaction": {
+      "type": "array",
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "depth": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "encoding": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "registerIdl": {
+      "type": "array",
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "object",
+          "properties": {
+            "accounts": {
+              "type": "array",
+              "items": true
+            },
+            "address": {
+              "type": "string"
+            },
+            "constants": {
+              "type": "array",
+              "items": true
+            },
+            "errors": {
+              "type": "array",
+              "items": true
+            },
+            "events": {
+              "type": "array",
+              "items": true
+            },
+            "instructions": {
+              "type": "array",
+              "items": true
+            },
+            "metadata": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              }
+            },
+            "state": true,
+            "types": {
+              "type": "array",
+              "items": true
+            }
+          }
+        },
+        {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      ]
+    },
+    "resumeClock": {
+      "type": "object",
+      "properties": {}
+    },
+    "setAccount": {
+      "type": "array",
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "data": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "executable": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "lamports": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "owner": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "rentEpoch": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "setProgramAuthority": {
+      "type": "array",
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      ]
+    },
+    "setSupply": {
+      "type": "array",
+      "maxItems": 1,
+      "minItems": 1,
+      "prefixItems": [
+        {
+          "type": "object",
+          "properties": {
+            "circulating": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "nonCirculating": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "nonCirculatingAccounts": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": true
+            },
+            "total": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "setTokenAccount": {
+      "type": "array",
+      "maxItems": 4,
+      "minItems": 4,
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "amount": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "closeAuthority": true,
+            "delegate": true,
+            "delegatedAmount": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "state": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      ]
+    },
+    "timeTravel": {
+      "type": "array",
+      "maxItems": 1,
+      "minItems": 1,
+      "prefixItems": [
+        true
+      ]
+    }
+  },
+  "examples": [
+    {
+      "cloneProgramAccount": [
+        "11111113R2cuenjG5nFubqX9Wzuukdin2YfGQVzu5",
+        "11111113pNDtm61yGF8j2ycAwLEPsuWQXobye5qDR"
+      ],
+      "getIdl": [
+        "11111115q4EpJaTXAZWpCg3J2zppWGSZ46KXozzo9",
+        0
+      ],
+      "getLocalSignatures": [
+        50
+      ],
+      "getProfileResults": [
+        "Tag",
+        {
+          "depth": "transaction",
+          "encoding": "base64"
+        }
+      ],
+      "getTransactionProfile": [
+        {
+          "signature": "111111152P2r5yt6odmBLPsFCLBrFisJ3aS7LqLAT"
+        },
+        {
+          "depth": "transaction",
+          "encoding": "base64"
+        }
+      ],
+      "pauseClock": {},
+      "profileTransaction": [
+        "0x123456",
+        "Tag",
+        {
+          "depth": "transaction",
+          "encoding": "base64"
+        }
+      ],
+      "registerIdl": [
+        {
+          "accounts": [],
+          "address": "11111115RidqCHAoz6dzmXxGcfWLNzevYqNpaRAUo",
+          "constants": [],
+          "errors": [],
+          "events": [],
+          "instructions": [],
+          "metadata": {
+            "description": "A test program for the Surfnet Cheatcodes",
+            "name": "Test Program",
+            "version": "1.0.0"
+          },
+          "state": null,
+          "types": []
+        },
+        0
+      ],
+      "resumeClock": {},
+      "setAccount": [
+        "1111111QLbz7JHiBTspS962RLKV8GndWFwiEaqKM",
+        {
+          "data": "0x123456",
+          "executable": false,
+          "lamports": 1000000000,
+          "owner": "11111111111111111111111111111111",
+          "rentEpoch": 0
+        }
+      ],
+      "setProgramAuthority": [
+        "11111114DhpssPJgSi1YU7hCMfYt1BJ334YgsffXm",
+        "11111114d3RrygbPdAtMuFnDmzsN8T5fYKVQ7FVr7"
+      ],
+      "setSupply": [
+        {
+          "circulating": 1000000000,
+          "nonCirculating": 1000000000,
+          "nonCirculatingAccounts": [],
+          "total": 1000000000
+        }
+      ],
+      "setTokenAccount": [
+        "1111111ogCyDbaRMvkdsHB3qfdyFYaG1WtRUAfdh",
+        "11111112D1oxKts8YPdTJRG5FzxTNpMtWmq8hkVx3",
+        {
+          "amount": 1000000000,
+          "closeAuthority": {
+            "account": "111111131h1vYVSYuKP6AhS86fbRdMw9XHiZAvAaj"
+          },
+          "delegate": {
+            "account": "11111112cMQwSC9qirWGjZM6gLGwW69X22mqwLLGP"
+          },
+          "delegatedAmount": 1000000000,
+          "state": "initialized"
+        },
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "timeTravel": [
+        {
+          "absoluteEpoch": 0
+        }
+      ]
+    }
+  ]
+}

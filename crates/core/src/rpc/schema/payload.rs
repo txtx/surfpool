@@ -6,7 +6,7 @@ use super::surfnet_cheatcodes::{
     SetSupply, SetTokenAccount, TimeTravel,
 };
 
-#[derive(JsonSchema)]
+#[derive(JsonSchema, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[schemars(description = "Request payload types for all Surfnet cheatcodes JSON-RPC endpoints")]
 pub struct SurfnetCheatcodesRequestPayloads {
