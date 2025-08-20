@@ -58,6 +58,8 @@ pub enum RpcResponse {
 
 #[cfg(test)]
 mod test {
+    use crate::rpc::schema::surfnet_cheatcodes::SetAccount;
+
     use super::*;
 
     #[test]
@@ -90,7 +92,8 @@ mod test {
 
     #[test]
     fn test_surfnet_cheatcodes_payloads_schema() {
-        let schema = schemars::schema_for!(SurfnetCheatcodesRequestPayloads);
+        let value = SurfnetCheatcodesRequestPayloads::example();
+        let schema = schemars::schema_for_value!(value);
         let json = serde_json::to_string_pretty(&schema).unwrap();
         std::fs::write("payload_schema.json", json).unwrap();
     }

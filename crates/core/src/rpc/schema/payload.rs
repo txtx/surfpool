@@ -52,3 +52,24 @@ pub struct SurfnetCheatcodesRequestPayloads {
     #[schemars(description = "Payload for surfnet_resumeClock")]
     pub resume_clock: ResumeClock,
 }
+
+impl SurfnetCheatcodesRequestPayloads {
+    pub fn example() -> Self {
+        Self {
+            set_account: SetAccount::example(),
+            set_token_account: SetTokenAccount::example(),
+            clone_program_account: CloneProgramAccount::example(),
+            profile_transaction: ProfileTransaction::example(),
+            get_profile_results: GetProfileResults::example(),
+            set_supply: SetSupply::example(),
+            set_program_authority: SetProgramAuthority::example(),
+            get_transaction_profile: GetTransactionProfile::example(),
+            register_idl: RegisterIdl::example(),
+            get_idl: GetIdl::example(),
+            get_local_signatures: GetLocalSignatures::example(),
+            time_travel: TimeTravel::example(),
+            pause_clock: PauseClock::example(),
+            resume_clock: ResumeClock::example(),
+        }
+    }
+}

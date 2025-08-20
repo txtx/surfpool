@@ -132,7 +132,8 @@
         "sourceProgramId": {
           "description": "The public key of the source program to clone, as a base-58 encoded string. This program's account and data will be copied.",
           "type": "string"
-        }
+        },
+        "examples": {}
       },
       "required": [
         "sourceProgramId",

@@ -1,5 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use solana_pubkey::Pubkey;
+use solana_sdk::system_program;
 
 #[derive(JsonSchema, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +22,18 @@ pub struct AccountUpdate {
         description = "The new account data, as a base-64 encoded string. This contains the actual data stored in the account."
     )]
     pub data: Option<String>,
+}
+
+impl AccountUpdate {
+    pub fn example() -> Self {
+        Self {
+            lamports: Some(1_000_000_000), // 1 SOL
+            owner: Some(system_program::id().to_string()),
+            executable: Some(false),
+            rent_epoch: Some(0),
+            data: Some("0x123456".to_string()),
+        }
+    }
 }
 
 #[derive(JsonSchema, Serialize, Deserialize)]
@@ -216,7 +230,7 @@ pub enum SurfnetCheatcodes {
     ResumeClock(ResumeClock),
 }
 
-#[derive(JsonSchema)]
+#[derive(JsonSchema, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetAccount {
     #[schemars(
@@ -227,6 +241,15 @@ pub struct SetAccount {
         description = "The account data to update. Contains the new values for lamports, owner, executable status, rent epoch, and data."
     )]
     pub update: AccountUpdate,
+}
+
+impl SetAccount {
+    pub fn example() -> Self {
+        Self {
+            pubkey: Pubkey::new_unique().to_string(),
+            update: AccountUpdate::example(),
+        }
+    }
 }
 
 #[derive(JsonSchema)]
