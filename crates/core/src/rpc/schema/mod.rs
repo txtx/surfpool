@@ -11,11 +11,13 @@ mod admin;
 mod bank_data;
 mod full;
 mod minimal;
+mod payload;
 pub mod response;
 mod solana_types;
 mod surfnet_cheatcodes;
 mod ws;
 
+pub use payload::SurfnetCheatcodesRequestPayloads;
 pub use response::{RpcErrorResponse, RpcResponseContext, SurfpoolRpcEndpoints};
 pub use ws::{SurfpoolWebSocketApiDocumentation, SurfpoolWebSocketEndpoints};
 
@@ -84,5 +86,12 @@ mod test {
         let schema = schemars::schema_for!(SurfpoolWebSocketApiDocumentation);
         let json = serde_json::to_string_pretty(&schema).unwrap();
         std::fs::write("websocket_api_documentation_schema.json", json).unwrap();
+    }
+
+    #[test]
+    fn test_surfnet_cheatcodes_payloads_schema() {
+        let schema = schemars::schema_for!(SurfnetCheatcodesRequestPayloads);
+        let json = serde_json::to_string_pretty(&schema).unwrap();
+        std::fs::write("payload_schema.json", json).unwrap();
     }
 }
