@@ -225,17 +225,8 @@ impl StartSimnet {
 
         for keypair_path in self.airdrop_keypair_path.iter() {
             let path = resolve_path(keypair_path);
-            match Keypair::read_from_file(&path) {
-                Ok(pubkey) => {
-                    airdrop_addresses.push(pubkey.pubkey());
-                }
-                Err(e) => {
-                    errors.push(format!(
-                        "Unable to complete airdrop; Error reading keypair file: {}: {e}",
-                        path.display()
-                    ));
-                    continue;
-                }
+            if let Ok(pubkey) = Keypair::read_from_file(&path) {
+                airdrop_addresses.push(pubkey.pubkey());
             }
         }
         (airdrop_addresses, errors)
@@ -243,7 +234,10 @@ impl StartSimnet {
 
     pub fn rpc_config(&self) -> RpcConfig {
         RpcConfig {
-            bind_host: self.network_host.clone(),
+            bind_host: match env::var("SURFPOOL_NETWORK_HOST") {
+                Ok(value) => value,
+                _ => self.network_host.clone(),
+            },
             bind_port: self.simnet_port,
             ws_port: self.ws_port,
         }
@@ -251,7 +245,10 @@ impl StartSimnet {
 
     pub fn studio_config(&self) -> StudioConfig {
         StudioConfig {
-            bind_host: self.network_host.clone(),
+            bind_host: match env::var("SURFPOOL_NETWORK_HOST") {
+                Ok(value) => value,
+                _ => self.network_host.clone(),
+            },
             bind_port: self.studio_port,
         }
     }
