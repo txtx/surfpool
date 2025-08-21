@@ -1,0 +1,643 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SurfnetCheatcodesRequestPayloads",
+  "description": "Request payload types for all Surfnet cheatcodes JSON-RPC endpoints",
+  "type": "object",
+  "properties": {
+    "cloneProgramAccount": {
+      "description": "Payload for surfnet_cloneProgramAccount",
+      "$ref": "#/$defs/CloneProgramAccount"
+    },
+    "getIdl": {
+      "description": "Payload for surfnet_getActiveIdl",
+      "$ref": "#/$defs/GetIdl"
+    },
+    "getLocalSignatures": {
+      "description": "Payload for surfnet_getLocalSignatures",
+      "$ref": "#/$defs/GetLocalSignatures"
+    },
+    "getProfileResults": {
+      "description": "Payload for surfnet_getProfileResultsByTag",
+      "$ref": "#/$defs/GetProfileResults"
+    },
+    "getTransactionProfile": {
+      "description": "Payload for surfnet_getTransactionProfile",
+      "$ref": "#/$defs/GetTransactionProfile"
+    },
+    "pauseClock": {
+      "description": "Payload for surfnet_pauseClock",
+      "$ref": "#/$defs/PauseClock"
+    },
+    "profileTransaction": {
+      "description": "Payload for surfnet_profileTransaction",
+      "$ref": "#/$defs/ProfileTransaction"
+    },
+    "registerIdl": {
+      "description": "Payload for surfnet_registerIdl",
+      "$ref": "#/$defs/RegisterIdl"
+    },
+    "resumeClock": {
+      "description": "Payload for surfnet_resumeClock",
+      "$ref": "#/$defs/ResumeClock"
+    },
+    "setAccount": {
+      "description": "Payload for surfnet_setAccount",
+      "$ref": "#/$defs/SetAccount"
+    },
+    "setProgramAuthority": {
+      "description": "Payload for surfnet_setProgramAuthority",
+      "$ref": "#/$defs/SetProgramAuthority"
+    },
+    "setSupply": {
+      "description": "Payload for surfnet_setSupply",
+      "$ref": "#/$defs/SetSupply"
+    },
+    "setTokenAccount": {
+      "description": "Payload for surfnet_setTokenAccount",
+      "$ref": "#/$defs/SetTokenAccount"
+    },
+    "timeTravel": {
+      "description": "Payload for surfnet_timeTravel",
+      "$ref": "#/$defs/TimeTravel"
+    }
+  },
+  "required": [
+    "setAccount",
+    "setTokenAccount",
+    "cloneProgramAccount",
+    "profileTransaction",
+    "getProfileResults",
+    "setSupply",
+    "setProgramAuthority",
+    "getTransactionProfile",
+    "registerIdl",
+    "getIdl",
+    "getLocalSignatures",
+    "timeTravel",
+    "pauseClock",
+    "resumeClock"
+  ],
+  "$defs": {
+    "AccountUpdate": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "description": "The new account data, as a base-64 encoded string. This contains the actual data stored in the account.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "executable": {
+          "description": "Whether the account should be executable (true for program accounts, false for data accounts).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "lamports": {
+          "description": "The new balance in lamports (1 SOL = 1,000,000,000 lamports).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "owner": {
+          "description": "The new owner program ID that controls this account, as a base-58 encoded string.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rentEpoch": {
+          "description": "The new rent epoch when this account will next owe rent.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "CloneProgramAccount": {
+      "type": "object",
+      "properties": {
+        "destinationProgramId": {
+          "description": "The public key of the destination program, as a base-58 encoded string. This is where the cloned program will be placed.",
+          "type": "string"
+        },
+        "sourceProgramId": {
+          "description": "The public key of the source program to clone, as a base-58 encoded string. This program's account and data will be copied.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sourceProgramId",
+        "destinationProgramId"
+      ]
+    },
+    "GetIdl": {
+      "type": "object",
+      "properties": {
+        "programId": {
+          "description": "The public key of the program whose IDL is being requested, as a base-58 encoded string. This identifies which program's IDL to retrieve.",
+          "type": "string"
+        },
+        "slot": {
+          "description": "The slot at which to query the IDL. If omitted, uses the latest slot. This determines which version of the IDL to return.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "programId"
+      ]
+    },
+    "GetLocalSignatures": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "description": "The maximum number of signatures to return. Defaults to 50 if not specified. Returns the most recent signatures first.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "GetProfileResults": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "description": "Configuration for the profile result, including encoding format and profiling depth.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcProfileResultConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tag": {
+          "description": "The tag to retrieve profiling results for. Returns all transaction profiles that were tagged with this identifier.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag"
+      ]
+    },
+    "GetTransactionProfile": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "description": "Configuration for the profile result, including encoding format and profiling depth.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcProfileResultConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signatureOrUuid": {
+          "description": "The transaction signature (as a base-58 string) or a UUID (as a string) for which to retrieve the profile. This identifies the specific transaction to analyze.",
+          "$ref": "#/$defs/UuidOrSignature"
+        }
+      },
+      "required": [
+        "signatureOrUuid"
+      ]
+    },
+    "Idl": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "description": "The IDL accounts array defining all account types that the program can create or interact with.",
+          "type": "array",
+          "items": true
+        },
+        "address": {
+          "description": "The program address that this IDL describes, as a base-58 encoded string.",
+          "type": "string"
+        },
+        "constants": {
+          "description": "The IDL constants array defining constant values used by the program.",
+          "type": "array",
+          "items": true
+        },
+        "errors": {
+          "description": "The IDL errors array defining custom error types that the program can return.",
+          "type": "array",
+          "items": true
+        },
+        "events": {
+          "description": "The IDL events array defining events that the program can emit.",
+          "type": "array",
+          "items": true
+        },
+        "instructions": {
+          "description": "The IDL instructions array defining all available program instructions and their parameters.",
+          "type": "array",
+          "items": true
+        },
+        "metadata": {
+          "description": "The IDL metadata containing program name, version, and description information."
+        },
+        "state": {
+          "description": "The IDL state object defining the program's state account structure (if applicable)."
+        },
+        "types": {
+          "description": "The IDL types array defining custom data types used by the program.",
+          "type": "array",
+          "items": true
+        }
+      },
+      "required": [
+        "address",
+        "metadata",
+        "instructions",
+        "accounts",
+        "types",
+        "events",
+        "errors",
+        "constants"
+      ]
+    },
+    "PauseClock": {
+      "type": "object"
+    },
+    "ProfileTransaction": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "description": "Configuration for the profile result, including encoding format and profiling depth.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcProfileResultConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tag": {
+          "description": "An optional tag to identify the profiling results. Useful for grouping related transaction profiles.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "transactionData": {
+          "description": "The transaction data to profile, as a base-64 encoded string. This should be a serialized VersionedTransaction.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transactionData"
+      ]
+    },
+    "RegisterIdl": {
+      "type": "object",
+      "properties": {
+        "idl": {
+          "description": "The full IDL object to be registered in memory. The `address` field should match the program's public key. This enables account data parsing for the program.",
+          "$ref": "#/$defs/Idl"
+        },
+        "slot": {
+          "description": "The slot at which to register the IDL. If omitted, uses the latest slot. This determines when the IDL becomes active for account parsing.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "idl"
+      ]
+    },
+    "ResumeClock": {
+      "type": "object"
+    },
+    "RpcProfileResultConfig": {
+      "type": "object",
+      "properties": {
+        "depth": {
+          "description": "The depth of profiling - 'transaction' for overall transaction profile, 'instruction' for per-instruction breakdown.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "encoding": {
+          "description": "The encoding format for returned account data (e.g., 'base64', 'base58', 'jsonParsed').",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "SetAccount": {
+      "type": "object",
+      "properties": {
+        "pubkey": {
+          "description": "The public key of the account to update, as a base-58 encoded string. This identifies which account will be modified.",
+          "type": "string"
+        },
+        "update": {
+          "description": "The account data to update. Contains the new values for lamports, owner, executable status, rent epoch, and data.",
+          "$ref": "#/$defs/AccountUpdate"
+        }
+      },
+      "required": [
+        "pubkey",
+        "update"
+      ]
+    },
+    "SetProgramAuthority": {
+      "type": "object",
+      "properties": {
+        "newAuthority": {
+          "description": "The public key of the new authority, as a base-58 encoded string. If omitted, the program will have no upgrade authority (immutable).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "programId": {
+          "description": "The public key of the program, as a base-58 encoded string. This is the program whose upgrade authority will be modified.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "programId"
+      ]
+    },
+    "SetSomeAccount": {
+      "oneOf": [
+        {
+          "description": "Specifies an account, as a base-58 encoded string. Use this to set a specific account as the delegate or authority.",
+          "type": "object",
+          "properties": {
+            "account": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "account"
+          ]
+        },
+        {
+          "description": "Specifies no account. Use this to remove a delegate or authority (set to None).",
+          "type": "string",
+          "const": "noAccount"
+        }
+      ]
+    },
+    "SetSupply": {
+      "type": "object",
+      "properties": {
+        "update": {
+          "description": "The supply data to update. Contains new values for total, circulating, and non-circulating SOL amounts.",
+          "$ref": "#/$defs/SupplyUpdate"
+        }
+      },
+      "required": [
+        "update"
+      ]
+    },
+    "SetTokenAccount": {
+      "type": "object",
+      "properties": {
+        "mint": {
+          "description": "The public key of the token mint, as a base-58 encoded string. This identifies the specific token type (e.g., USDC, SOL).",
+          "type": "string"
+        },
+        "owner": {
+          "description": "The public key of the token account owner, as a base-58 encoded string. This is the wallet that owns the token account.",
+          "type": "string"
+        },
+        "tokenProgram": {
+          "description": "The token program ID, as a base-58 encoded string. Defaults to SPL Token program if not specified.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "update": {
+          "description": "The token account data to update. Contains new values for balance, delegate, state, and authorities.",
+          "$ref": "#/$defs/TokenAccountUpdate"
+        }
+      },
+      "required": [
+        "owner",
+        "mint",
+        "update"
+      ]
+    },
+    "SupplyUpdate": {
+      "type": "object",
+      "properties": {
+        "circulating": {
+          "description": "The new circulating supply of SOL in lamports (total supply minus non-circulating).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "nonCirculating": {
+          "description": "The new non-circulating supply of SOL in lamports (locked in non-circulating accounts).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "nonCirculatingAccounts": {
+          "description": "The new list of non-circulating account addresses that hold locked SOL.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "total": {
+          "description": "The new total supply of SOL in lamports across the entire network.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "TimeTravel": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "description": "Configuration specifying how to modify the clock. Can move to a specific epoch, slot, or timestamp.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeTravelConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "TimeTravelConfig": {
+      "oneOf": [
+        {
+          "description": "Move to the specified absolute epoch number (each epoch = 432,000 slots).",
+          "type": "object",
+          "properties": {
+            "absoluteEpoch": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "absoluteEpoch"
+          ]
+        },
+        {
+          "description": "Move to the specified absolute slot number in the blockchain.",
+          "type": "object",
+          "properties": {
+            "absoluteSlot": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "absoluteSlot"
+          ]
+        },
+        {
+          "description": "Move to the specified UNIX timestamp in milliseconds since epoch.",
+          "type": "object",
+          "properties": {
+            "absoluteTimestamp": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "absoluteTimestamp"
+          ]
+        }
+      ]
+    },
+    "TokenAccountUpdate": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "description": "The new token balance amount in the smallest unit (e.g., lamports for SOL, or the smallest token unit).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "closeAuthority": {
+          "description": "The new close authority that can close the account and recover rent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetSomeAccount"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delegate": {
+          "description": "The new delegate account that can spend tokens on behalf of the owner.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetSomeAccount"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delegatedAmount": {
+          "description": "The new delegated amount that the delegate is authorized to spend.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "state": {
+          "description": "The new account state (e.g., 'initialized', 'frozen', 'closed').",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "UuidOrSignature": {
+      "oneOf": [
+        {
+          "description": "A UUID string that uniquely identifies a transaction profile in the system.",
+          "type": "object",
+          "properties": {
+            "uuid": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "uuid"
+          ]
+        },
+        {
+          "description": "A transaction signature as a base-58 encoded string that identifies a specific transaction.",
+          "type": "object",
+          "properties": {
+            "signature": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "signature"
+          ]
+        }
+      ]
+    }
+  }
+}
