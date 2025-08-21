@@ -80,7 +80,9 @@
       "maxItems": 2,
       "minItems": 2,
       "prefixItems": [
-        true,
+        {
+          "type": "string"
+        },
         {
           "type": [
             "object",
@@ -389,9 +391,7 @@
         }
       ],
       "getTransactionProfile": [
-        {
-          "signature": "111111152P2r5yt6odmBLPsFCLBrFisJ3aS7LqLAT"
-        },
+        "111111152P2r5yt6odmBLPsFCLBrFisJ3aS7LqLAT",
         {
           "depth": "transaction",
           "encoding": "base64"

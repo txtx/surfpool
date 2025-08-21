@@ -1,10 +1,12 @@
 use std::fmt;
 
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Deserializer, Serializer};
 use serde_tuple::Serialize_tuple;
 use solana_pubkey::Pubkey;
 use solana_sdk::system_program;
+use solana_signature::Signature;
+use uuid::Uuid;
 
 #[derive(JsonSchema, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,7 +130,7 @@ impl RpcProfileResultConfig {
     }
 }
 
-#[derive(JsonSchema, Serialize, Deserialize)]
+#[derive(JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum UuidOrSignature {
     #[schemars(
@@ -145,6 +147,42 @@ impl std::fmt::Display for UuidOrSignature {
         match self {
             UuidOrSignature::Uuid(uuid) => write!(f, "{}", uuid),
             UuidOrSignature::Signature(signature) => write!(f, "{}", signature),
+        }
+    }
+}
+
+
+impl<'de> Deserialize<'de> for UuidOrSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        if let Ok(uuid) = Uuid::parse_str(&s) {
+            return Ok(UuidOrSignature::Uuid(uuid.to_string()));
+        }
+
+        if let Ok(signature) = s.parse::<Signature>() {
+            return Ok(UuidOrSignature::Signature(signature.to_string()));
+        }
+
+        Err(serde::de::Error::custom(
+            "expected a Uuid or a valid Solana Signature",
+        ))
+    }
+}
+
+impl Serialize for UuidOrSignature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            UuidOrSignature::Uuid(uuid) => serializer.serialize_str(uuid),
+            UuidOrSignature::Signature(signature) => {
+                serializer.serialize_str(signature)
+            }
         }
     }
 }
