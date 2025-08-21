@@ -325,8 +325,18 @@
                 "null"
               ]
             },
-            "closeAuthority": true,
-            "delegate": true,
+            "closeAuthority": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "delegate": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "delegatedAmount": {
               "type": [
                 "integer",
@@ -389,7 +399,7 @@
       ],
       "pauseClock": {},
       "profileTransaction": [
-        "0x123456",
+        "AQIDBAUGBwgJCg==",
         "Tag",
         {
           "depth": "transaction",
@@ -442,12 +452,8 @@
         "11111112D1oxKts8YPdTJRG5FzxTNpMtWmq8hkVx3",
         {
           "amount": 1000000000,
-          "closeAuthority": {
-            "account": "111111131h1vYVSYuKP6AhS86fbRdMw9XHiZAvAaj"
-          },
-          "delegate": {
-            "account": "11111112cMQwSC9qirWGjZM6gLGwW69X22mqwLLGP"
-          },
+          "closeAuthority": "111111131h1vYVSYuKP6AhS86fbRdMw9XHiZAvAaj",
+          "delegate": "11111112cMQwSC9qirWGjZM6gLGwW69X22mqwLLGP",
           "delegatedAmount": 1000000000,
           "state": "initialized"
         },

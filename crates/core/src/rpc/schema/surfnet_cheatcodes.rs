@@ -1,3 +1,5 @@
+use std::fmt;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_tuple::Serialize_tuple;
@@ -47,7 +49,7 @@ pub struct TokenAccountUpdate {
     #[schemars(
         description = "The new delegate account that can spend tokens on behalf of the owner."
     )]
-    pub delegate: Option<SetSomeAccount>,
+    pub delegate: Option<String>,
     #[schemars(description = "The new account state (e.g., 'initialized', 'frozen', 'closed').")]
     pub state: Option<String>,
     #[schemars(description = "The new delegated amount that the delegate is authorized to spend.")]
@@ -55,32 +57,19 @@ pub struct TokenAccountUpdate {
     #[schemars(
         description = "The new close authority that can close the account and recover rent."
     )]
-    pub close_authority: Option<SetSomeAccount>,
+    pub close_authority: Option<String>,
 }
 
 impl TokenAccountUpdate {
     pub fn example() -> Self {
         Self {
             amount: Some(1_000_000_000),
-            delegate: Some(SetSomeAccount::Account(Pubkey::new_unique().to_string())),
+            delegate: Some(Pubkey::new_unique().to_string()),
             state: Some("initialized".to_string()),
             delegated_amount: Some(1_000_000_000),
-            close_authority: Some(SetSomeAccount::Account(Pubkey::new_unique().to_string())),
+            close_authority: Some(Pubkey::new_unique().to_string()),
         }
-    } 
-}
-
-#[derive(JsonSchema, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SetSomeAccount {
-    #[schemars(
-        description = "Specifies an account, as a base-58 encoded string. Use this to set a specific account as the delegate or authority."
-    )]
-    Account(String),
-    #[schemars(
-        description = "Specifies no account. Use this to remove a delegate or authority (set to None)."
-    )]
-    NoAccount,
+    }
 }
 
 #[derive(JsonSchema, Serialize, Deserialize)]
@@ -114,7 +103,7 @@ impl SupplyUpdate {
             non_circulating: Some(1_000_000_000),
             non_circulating_accounts: Some(vec![]),
         }
-    } 
+    }
 }
 
 #[derive(JsonSchema, Serialize, Deserialize)]
@@ -136,7 +125,7 @@ impl RpcProfileResultConfig {
             encoding: Some("base64".to_string()),
             depth: Some("transaction".to_string()),
         }
-    } 
+    }
 }
 
 #[derive(JsonSchema, Serialize, Deserialize)]
@@ -150,6 +139,14 @@ pub enum UuidOrSignature {
         description = "A transaction signature as a base-58 encoded string that identifies a specific transaction."
     )]
     Signature(String),
+}
+impl std::fmt::Display for UuidOrSignature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UuidOrSignature::Uuid(uuid) => write!(f, "{}", uuid),
+            UuidOrSignature::Signature(signature) => write!(f, "{}", signature),
+        }
+    }
 }
 
 #[derive(JsonSchema, Serialize, Deserialize)]
@@ -222,7 +219,6 @@ impl Idl {
             state: None,
         }
     }
-    
 }
 
 #[derive(JsonSchema, Serialize)]
@@ -290,7 +286,7 @@ pub struct SetAccount {
     #[schemars(
         description = "The public key of the account to update, as a base-58 encoded string. This identifies which account will be modified."
     )]
-    pub pubkey: String, 
+    pub pubkey: String,
     #[schemars(
         description = "The account data to update. Contains the new values for lamports, owner, executable status, rent epoch, and data."
     )]
@@ -380,12 +376,11 @@ pub struct ProfileTransaction {
 impl ProfileTransaction {
     pub fn example() -> Self {
         Self {
-            transaction_data: "0x123456".to_string(),
+            transaction_data: "AQIDBAUGBwgJCg==".to_string(),
             tag: Some("Tag".to_string()),
             config: Some(RpcProfileResultConfig::example()),
         }
     }
-    
 }
 
 #[derive(JsonSchema, Serialize_tuple)]
@@ -407,7 +402,7 @@ impl GetProfileResults {
             tag: "Tag".to_string(),
             config: Some(RpcProfileResultConfig::example()),
         }
-    } 
+    }
 }
 
 #[derive(JsonSchema, Serialize_tuple)]
@@ -425,7 +420,6 @@ impl SetSupply {
             update: SupplyUpdate::example(),
         }
     }
-    
 }
 
 #[derive(JsonSchema, Serialize_tuple)]
@@ -447,7 +441,7 @@ impl SetProgramAuthority {
             program_id: Pubkey::new_unique().to_string(),
             new_authority: Some(Pubkey::new_unique().to_string()),
         }
-    } 
+    }
 }
 
 #[derive(JsonSchema, Serialize_tuple)]
@@ -469,7 +463,7 @@ impl GetTransactionProfile {
             signature_or_uuid: UuidOrSignature::Signature(Pubkey::new_unique().to_string()),
             config: Some(RpcProfileResultConfig::example()),
         }
-    } 
+    }
 }
 
 #[derive(JsonSchema, Serialize_tuple)]
@@ -492,7 +486,6 @@ impl RegisterIdl {
             slot: Some(0),
         }
     }
-    
 }
 
 #[derive(JsonSchema, Serialize_tuple)]
@@ -528,10 +521,8 @@ pub struct GetLocalSignatures {
 
 impl GetLocalSignatures {
     pub fn example() -> Self {
-        Self {
-            limit: Some(50),
-        }
-    } 
+        Self { limit: Some(50) }
+    }
 }
 
 #[derive(JsonSchema, Serialize_tuple)]
@@ -576,3 +567,4 @@ impl ResumeClock {
         Self {}
     }
 }
+
