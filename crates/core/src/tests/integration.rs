@@ -3417,3 +3417,193 @@ fn test_time_travel_absolute_epoch() {
 
     println!("Time travel to absolute epoch test passed successfully!");
 }
+
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_alt_with_spl_token() {
+    let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400));
+
+    let p1 = Keypair::new();
+    let p2 = Keypair::new();
+
+    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap();
+    svm_locker.airdrop(&p2.pubkey(), LAMPORTS_PER_SOL).unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    let mint = Keypair::new();
+    let mint_rent = 1461600;
+    let create_mint_ix = system_instruction::create_account(
+        &p1.pubkey(),
+        &mint.pubkey(),
+        mint_rent,
+        82,
+        &spl_token_2022::id(),
+    );
+
+    let initialize_mint_ix = spl_token_2022::instruction::initialize_mint2(
+        &spl_token_2022::id(),
+        &mint.pubkey(),
+        &p1.pubkey(),
+        Some(&p1.pubkey()),
+        2,
+    )
+    .unwrap();
+
+    let at1 = spl_associated_token_account::get_associated_token_address_with_program_id(
+        &p1.pubkey(),
+        &mint.pubkey(),
+        &spl_token_2022::id(),
+    );
+    let at2 = spl_associated_token_account::get_associated_token_address_with_program_id(
+        &p2.pubkey(),
+        &mint.pubkey(),
+        &spl_token_2022::id(),
+    );
+
+    let create_at1_ix = spl_associated_token_account::instruction::create_associated_token_account(
+        &p1.pubkey(),
+        &p1.pubkey(),
+        &mint.pubkey(),
+        &spl_token_2022::id(),
+    );
+
+    let create_at2_ix = spl_associated_token_account::instruction::create_associated_token_account(
+        &p1.pubkey(),
+        &p2.pubkey(),
+        &mint.pubkey(),
+        &spl_token_2022::id(),
+    );
+
+    let mint_amount = 100_00;
+    let mint_to_ix = spl_token_2022::instruction::mint_to(
+        &spl_token_2022::id(),
+        &mint.pubkey(),
+        &at1,
+        &p1.pubkey(),
+        &[&p1.pubkey()],
+        mint_amount,
+    )
+    .unwrap();
+
+    let setup_instructions = vec![
+        create_mint_ix,
+        initialize_mint_ix,
+        create_at1_ix,
+        create_at2_ix,
+        mint_to_ix,
+    ];
+
+    let setup_message =
+        Message::new_with_blockhash(&setup_instructions, Some(&p1.pubkey()), &recent_blockhash);
+
+    let setup_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(setup_message), &[&p1, &mint])
+            .unwrap();
+
+    let status_tx = crossbeam_unbounded::<TransactionStatusEvent>().0;
+    svm_locker
+        .process_transaction(&None, setup_tx, status_tx, false, true)
+        .await
+        .unwrap();
+
+    let alt_key = Pubkey::new_unique();
+
+    let address_lookup_table_account = AddressLookupTableAccount {
+        key: alt_key,
+        addresses: vec![at1, at2, spl_token_2022::id()],
+    };
+
+    use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
+
+    let alt_account_data = AddressLookupTable {
+        meta: LookupTableMeta {
+            authority: Some(p1.pubkey()),
+            ..Default::default()
+        },
+        addresses: address_lookup_table_account.addresses.clone().into(),
+    };
+
+    svm_locker.with_svm_writer(|svm| {
+        let alt_data = alt_account_data.serialize_for_tests().unwrap();
+        let alt_account = solana_sdk::account::Account {
+            lamports: 1000000,
+            data: alt_data,
+            owner: solana_address_lookup_table_interface::program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        svm.set_account(&alt_key, alt_account).unwrap();
+    });
+
+    let transfer_amount = 50_00;
+    let transfer_ix = spl_token_2022::instruction::transfer_checked(
+        &spl_token_2022::id(),
+        &at1,
+        &mint.pubkey(),
+        &at2,
+        &p1.pubkey(),
+        &[&p1.pubkey()],
+        transfer_amount,
+        2,
+    )
+    .unwrap();
+
+    let alt_message = v0::Message::try_compile(
+        &p1.pubkey(),
+        &[transfer_ix],
+        &[address_lookup_table_account],
+        recent_blockhash,
+    )
+    .expect("Failed to compile ALT message");
+
+    let alt_tx = VersionedTransaction::try_new(VersionedMessage::V0(alt_message), &[&p1])
+        .expect("Failed to create ALT transaction");
+
+    // Process the ALT transaction
+    let status_tx2 = crossbeam_unbounded::<TransactionStatusEvent>().0;
+    let result = svm_locker
+        .process_transaction(&None, alt_tx, status_tx2, false, true)
+        .await;
+    assert!(
+        result.is_ok(),
+        "ALT transaction should succeed: {:?}",
+        result.err()
+    );
+
+    let at1_account = svm_locker
+        .get_account_local(&at1)
+        .inner
+        .map_account()
+        .unwrap();
+    let at2_account = svm_locker
+        .get_account_local(&at2)
+        .inner
+        .map_account()
+        .unwrap();
+
+    assert_eq!(
+        at1_account.owner,
+        spl_token_2022::id(),
+        "AT1 should be owned by SPL Token program"
+    );
+    assert_eq!(
+        at2_account.owner,
+        spl_token_2022::id(),
+        "AT2 should be owned by SPL Token program"
+    );
+
+    assert!(!at1_account.data.is_empty(), "AT1 should have account data");
+    assert!(!at2_account.data.is_empty(), "AT2 should have account data");
+
+    println!("✅Successfully transferred tokens using Address Lookup Table");
+    println!(
+        "   ALT contained addresses: [AT1: {}, AT2: {}, SPL_TOKEN: {}]",
+        at1,
+        at2,
+        spl_token_2022::id()
+    );
+    println!("   Transaction used ALT with writable_indexes: [0, 1], readonly_indexes: [2]");
+}
