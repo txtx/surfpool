@@ -8,6 +8,7 @@ use jsonrpc_core::{
 };
 use jsonrpc_core_client::transports::http;
 use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount};
+use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
 use solana_client::rpc_response::RpcLogsResponse;
 use solana_clock::{Clock, Slot};
 use solana_epoch_info::EpochInfo;
@@ -33,7 +34,6 @@ use surfpool_types::{
 };
 use tokio::{sync::RwLock, task};
 use uuid::Uuid;
-use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
 
 use crate::{
     PluginManagerCommand,
@@ -3516,8 +3516,10 @@ async fn test_alt_with_spl_token() {
         addresses: vec![at1, at2, spl_token_2022::id(), mint.pubkey()],
     };
 
-    println!("addresses present on the ALT: {:?}", address_lookup_table_account.addresses);
-
+    println!(
+        "addresses present on the ALT: {:?}",
+        address_lookup_table_account.addresses
+    );
 
     let alt_account_data = AddressLookupTable {
         meta: LookupTableMeta {
