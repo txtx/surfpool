@@ -1052,8 +1052,6 @@ impl SurfnetSvmLocker {
 
         let mut ix_profile_results: Vec<ProfileResult> = vec![];
 
-        println!("\nOriginal transaction: {:?}", transaction);
-        println!("\nOriginal loaded addresses: {:?}", loaded_addresses);
         for idx in 1..=ix_count {
             if let Some((partial_tx, all_required_accounts_for_last_ix)) = self
                 .create_partial_transaction(
