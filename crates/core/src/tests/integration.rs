@@ -21,7 +21,9 @@ use solana_message::{
 use solana_native_token::LAMPORTS_PER_SOL;
 use solana_pubkey::{Pubkey, pubkey};
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{system_instruction::transfer, system_program, transaction::Transaction};
+use solana_sdk::{
+    compute_budget, system_instruction::transfer, system_program, transaction::Transaction,
+};
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
@@ -3419,7 +3421,6 @@ fn test_time_travel_absolute_epoch() {
     println!("Time travel to absolute epoch test passed successfully!");
 }
 
-#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ix_profiling_with_alt_tx() {
     let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
@@ -3695,4 +3696,68 @@ async fn test_ix_profiling_with_alt_tx() {
         }
         _ => panic!("expected Update for destination ATA"),
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_compute_budget_profiling() {
+    let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400));
+
+    let p1 = Keypair::new();
+    let p2 = Keypair::new();
+
+    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    let message = Message::new_with_blockhash(
+        &[
+            compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(1_000_000),
+            compute_budget::ComputeBudgetInstruction::set_compute_unit_price(1),
+            system_instruction::transfer(&p1.pubkey(), &p2.pubkey(), LAMPORTS_PER_SOL),
+        ],
+        Some(&p1.pubkey()),
+        &recent_blockhash,
+    );
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&p1]).unwrap();
+
+    let uuid = svm_locker
+        .profile_transaction(&None, tx, None)
+        .await
+        .unwrap()
+        .inner;
+    let profile_result = svm_locker
+        .get_profile_result(
+            UuidOrSignature::Uuid(uuid),
+            &RpcProfileResultConfig::default(),
+        )
+        .unwrap()
+        .unwrap();
+
+    let ix_profile = profile_result.instruction_profiles.unwrap();
+    assert_eq!(ix_profile.len(), 3, "Should have 3 instruction profiles");
+
+    let ix = &ix_profile[0];
+    assert!(
+        ix.error_message.is_none(),
+        "Expected no error for instruction, found {}",
+        ix.error_message.as_ref().unwrap()
+    );
+    assert_eq!(ix.compute_units_consumed, 150);
+
+    let ix = &ix_profile[1];
+    assert!(
+        ix.error_message.is_none(),
+        "Expected no error for instruction, found {}",
+        ix.error_message.as_ref().unwrap()
+    );
+    assert_eq!(ix.compute_units_consumed, 150);
+
+    let ix = &ix_profile[1];
+    assert!(
+        ix.error_message.is_none(),
+        "Expected no error for instruction, found {}",
+        ix.error_message.as_ref().unwrap()
+    );
+    assert_eq!(ix.compute_units_consumed, 150);
 }
