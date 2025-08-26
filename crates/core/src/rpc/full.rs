@@ -1637,8 +1637,10 @@ impl Full for SurfpoolFullRpc {
             let loaded_addresses = svm_locker
                 .get_loaded_addresses(&remote_ctx, &unsanitized_tx.message)
                 .await?;
-            let pubkeys =
-                svm_locker.get_pubkeys_from_message(&unsanitized_tx.message, loaded_addresses);
+            let transaction_pubkeys = svm_locker.get_pubkeys_from_message(
+                &unsanitized_tx.message,
+                loaded_addresses.as_ref().map(|l| l.all_loaded_addresses()),
+            );
 
             let SvmAccessContext {
                 slot,
@@ -1646,10 +1648,18 @@ impl Full for SurfpoolFullRpc {
                 latest_blockhash,
                 latest_epoch_info,
             } = svm_locker
-                .get_multiple_accounts(&remote_ctx, &pubkeys, None)
+                .get_multiple_accounts(&remote_ctx, &transaction_pubkeys, None)
                 .await?;
 
             svm_locker.write_multiple_account_updates(&account_updates);
+
+            if let Some(alt_pubkeys) = loaded_addresses.map(|l| l.alt_addresses()) {
+                let alt_updates = svm_locker
+                    .get_multiple_accounts(&remote_ctx, &alt_pubkeys, None)
+                    .await?
+                    .inner;
+                svm_locker.write_multiple_account_updates(&alt_updates);
+            }
 
             let replacement_blockhash = if config.replace_recent_blockhash {
                 match &mut unsanitized_tx.message {
@@ -2270,8 +2280,10 @@ impl Full for SurfpoolFullRpc {
                         let loaded_addresses = svm_locker
                             .get_loaded_addresses(&remote_ctx, &tx.message)
                             .await?;
-                        let account_keys =
-                            svm_locker.get_pubkeys_from_message(&tx.message, loaded_addresses);
+                        let account_keys = svm_locker.get_pubkeys_from_message(
+                            &tx.message,
+                            loaded_addresses.as_ref().map(|l| l.all_loaded_addresses()),
+                        );
 
                         let instructions = match &tx.message {
                             VersionedMessage::V0(msg) => &msg.instructions,

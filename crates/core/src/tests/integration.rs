@@ -46,7 +46,7 @@ use crate::{
     runloops::start_local_surfnet_runloop,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
     tests::helpers::get_free_port,
-    types::TimeTravelConfig,
+    types::{TimeTravelConfig, TransactionLoadedAddresses},
 };
 
 fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<SimnetEvent>) {
@@ -437,18 +437,22 @@ async fn test_add_alt_entries_fetching() {
     let mut acc_keys = tx.message.static_account_keys().to_vec();
     let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
     let mut table_entries = join_all(alts.iter().map(|msg| async {
-        let loaded_addresses = svm_locker
-            .get_lookup_table_addresses(&None, msg)
-            .await?
-            .inner;
-        let mut combined = loaded_addresses.writable;
-        combined.extend(loaded_addresses.readonly);
-        Ok::<_, SurfpoolError>(combined)
+        let mut loaded_addresses = TransactionLoadedAddresses::new();
+        svm_locker
+            .get_lookup_table_addresses(&None, msg, &mut loaded_addresses)
+            .await?;
+        Ok::<_, SurfpoolError>(
+            loaded_addresses
+                .all_loaded_addresses()
+                .into_iter()
+                .map(|p| *p)
+                .collect::<Vec<Pubkey>>(),
+        )
     }))
     .await
     .into_iter()
     .collect::<Result<Vec<Vec<Pubkey>>, SurfpoolError>>()
-    .unwrap() // Result<Vec<Vec<Pubkey>>, _>
+    .unwrap()
     .into_iter()
     .flatten()
     .collect();

@@ -42,10 +42,9 @@ use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     bpf_loader_upgradeable::{UpgradeableLoaderState, get_program_data_address},
     instruction::CompiledInstruction,
-    transaction::{SanitizedTransaction, VersionedTransaction},
+    transaction::{SanitizedTransaction, TransactionVersion, VersionedTransaction},
 };
 use solana_signature::Signature;
-use solana_transaction::Transaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta,
@@ -72,7 +71,7 @@ use crate::{
     surfnet::FINALIZATION_SLOT_THRESHOLD,
     types::{
         GeyserAccountUpdate, RemoteRpcResult, SurfnetTransactionStatus, TimeTravelConfig,
-        TokenAccount, TransactionWithStatusMeta,
+        TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
     },
 };
 
@@ -231,7 +230,14 @@ impl SurfnetSvmLocker {
                         false,
                     )
                 }
-                None => GetAccountResult::None(*pubkey),
+                None => match svm_reader.get_account_from_feature_set(pubkey) {
+                    Some(account) => GetAccountResult::FoundAccount(
+                        *pubkey, account,
+                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                        false,
+                    ),
+                    None => GetAccountResult::None(*pubkey),
+                },
             }
         })
     }
@@ -298,7 +304,14 @@ impl SurfnetSvmLocker {
                             )
                         }
                     }
-                    None => GetAccountResult::None(*pubkey),
+                    None => match svm_reader.get_account_from_feature_set(pubkey) {
+                        Some(account) => GetAccountResult::FoundAccount(
+                            *pubkey, account,
+                            // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                            false,
+                        ),
+                        None => GetAccountResult::None(*pubkey),
+                    },
                 };
                 accounts.push(res);
             }
@@ -828,15 +841,36 @@ impl SurfnetSvmLocker {
 
         // find accounts that are needed for this transaction but are missing from the local
         // svm cache, fetch them from the RPC, and insert them locally
-        let loaded_addresses = self
+        let tx_loaded_addresses = self
             .get_loaded_addresses(remote_ctx, &transaction.message)
             .await?;
+
+        // we don't want the pubkeys of the address lookup tables to be included in the transaction accounts,
+        // but we do want the pubkeys of the accounts _loaded_ by the ALT to be in the transaction accounts.
         let transaction_accounts = self
-            .get_pubkeys_from_message(&transaction.message, loaded_addresses.clone())
+            .get_pubkeys_from_message(
+                &transaction.message,
+                tx_loaded_addresses
+                    .as_ref()
+                    .map(|l| l.all_loaded_addresses()),
+            )
             .clone();
 
         let account_updates = self
             .get_multiple_accounts(remote_ctx, &transaction_accounts, None)
+            .await?
+            .inner;
+
+        // We also need the pubkeys of the ALTs to be pulled from the remote, so we'll do a fetch for them
+        let alt_account_updates = self
+            .get_multiple_accounts(
+                remote_ctx,
+                &tx_loaded_addresses
+                    .as_ref()
+                    .map(|l| l.alt_addresses())
+                    .unwrap_or_default(),
+                None,
+            )
             .await?
             .inner;
 
@@ -858,6 +892,9 @@ impl SurfnetSvmLocker {
 
         self.with_svm_writer(|svm_writer| {
             for update in &account_updates {
+                svm_writer.write_account_update(update.clone());
+            }
+            for update in &alt_account_updates {
                 svm_writer.write_account_update(update.clone());
             }
         });
@@ -913,12 +950,14 @@ impl SurfnetSvmLocker {
                 (accounts_before, token_accounts_before, token_programs)
             });
 
+        let loaded_addresses = tx_loaded_addresses.as_ref().map(|l| l.loaded_addresses());
+
         let ix_profiles = if self.do_profile_instructions() {
             match self
                 .generate_instruction_profiles(
                     &transaction,
                     &transaction_accounts,
-                    &loaded_addresses,
+                    &tx_loaded_addresses,
                     &accounts_before,
                     &token_accounts_before,
                     &token_programs,
@@ -969,7 +1008,7 @@ impl SurfnetSvmLocker {
         &self,
         transaction: &VersionedTransaction,
         transaction_accounts: &[Pubkey],
-        loaded_addresses: &Option<LoadedAddresses>,
+        loaded_addresses: &Option<TransactionLoadedAddresses>,
         accounts_before: &[Option<Account>],
         token_accounts_before: &[(usize, TokenAccount)],
         token_programs: &[Pubkey],
@@ -983,16 +1022,33 @@ impl SurfnetSvmLocker {
         }
 
         // Extract account categories from original transaction
+        let mutable_loaded_addresses = loaded_addresses
+            .as_ref()
+            .map(|l| l.writable_len())
+            .unwrap_or(0);
+        let readonly_loaded_addresses = loaded_addresses
+            .as_ref()
+            .map(|l| l.readonly_len())
+            .unwrap_or(0);
+        let loaded_address_count = mutable_loaded_addresses + readonly_loaded_addresses;
         let last_signer_index = transaction.message.header().num_required_signatures as usize;
         let last_mutable_signer_index =
             last_signer_index - transaction.message.header().num_readonly_signed_accounts as usize;
         let last_mutable_non_signer_index = transaction_accounts.len()
-            - transaction.message.header().num_readonly_unsigned_accounts as usize;
+            - transaction.message.header().num_readonly_unsigned_accounts as usize
+            - loaded_address_count;
+        let last_readonly_non_signer_index = transaction_accounts.len() - loaded_address_count;
+        let last_mutable_loaded_index = transaction_accounts.len() - readonly_loaded_addresses;
 
         let mutable_signers = &transaction_accounts[0..last_mutable_signer_index];
         let readonly_signers = &transaction_accounts[last_mutable_signer_index..last_signer_index];
         let mutable_non_signers =
             &transaction_accounts[last_signer_index..last_mutable_non_signer_index];
+        let readonly_non_signers =
+            &transaction_accounts[last_mutable_non_signer_index..last_readonly_non_signer_index];
+        let mutable_loaded =
+            &transaction_accounts[last_readonly_non_signer_index..last_mutable_loaded_index];
+        let readonly_loaded = &transaction_accounts[last_mutable_loaded_index..];
 
         let mut ix_profile_results: Vec<ProfileResult> = vec![];
 
@@ -1004,8 +1060,12 @@ impl SurfnetSvmLocker {
                     mutable_signers,
                     readonly_signers,
                     mutable_non_signers,
+                    readonly_non_signers,
+                    mutable_loaded,
+                    readonly_loaded,
                     &transaction,
                     idx,
+                    loaded_addresses,
                 )
             {
                 let (mut previous_execution_capture, previous_cus, previous_log_count) = {
@@ -1059,7 +1119,7 @@ impl SurfnetSvmLocker {
                             skip_preflight,
                             sigverify,
                             transaction_accounts,
-                            loaded_addresses,
+                            &loaded_addresses.as_ref().map(|l| l.loaded_addresses()),
                             accounts_before,
                             token_accounts_before,
                             token_programs,
@@ -1850,19 +1910,16 @@ impl SurfnetSvmLocker {
     pub fn get_pubkeys_from_message(
         &self,
         message: &VersionedMessage,
-        loaded_addresses: Option<LoadedAddresses>,
+        all_transaction_lookup_table_addresses: Option<Vec<&Pubkey>>,
     ) -> Vec<Pubkey> {
         match message {
             VersionedMessage::Legacy(message) => message.account_keys.clone(),
             VersionedMessage::V0(message) => {
-                let alts = message.address_table_lookups.clone();
                 let mut acc_keys = message.account_keys.clone();
-                let mut alt_pubkeys = alts.iter().map(|msg| msg.account_key).collect::<Vec<_>>();
 
-                acc_keys.append(&mut alt_pubkeys);
-                if let Some(mut loaded_addresses) = loaded_addresses {
-                    acc_keys.append(&mut loaded_addresses.readonly);
-                    acc_keys.append(&mut loaded_addresses.writable);
+                // acc_keys.append(&mut alt_pubkeys);
+                if let Some(loaded_addresses) = all_transaction_lookup_table_addresses {
+                    acc_keys.extend(loaded_addresses.into_iter());
                 }
                 acc_keys
             }
@@ -1874,7 +1931,7 @@ impl SurfnetSvmLocker {
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
         message: &VersionedMessage,
-    ) -> SurfpoolResult<Option<LoadedAddresses>> {
+    ) -> SurfpoolResult<Option<TransactionLoadedAddresses>> {
         match message {
             VersionedMessage::Legacy(_) => Ok(None),
             VersionedMessage::V0(message) => {
@@ -1882,17 +1939,13 @@ impl SurfnetSvmLocker {
                 if alts.is_empty() {
                     return Ok(None);
                 }
-                let mut combined = LoadedAddresses::default();
+                let mut loaded = TransactionLoadedAddresses::new();
                 for alt in alts {
-                    let mut loaded_addresses = self
-                        .get_lookup_table_addresses(remote_ctx, &alt)
-                        .await?
-                        .inner;
-                    combined.readonly.append(&mut loaded_addresses.readonly);
-                    combined.writable.append(&mut loaded_addresses.writable);
+                    self.get_lookup_table_addresses(remote_ctx, &alt, &mut loaded)
+                        .await?;
                 }
 
-                Ok(Some(combined))
+                Ok(Some(loaded))
             }
         }
     }
@@ -1902,11 +1955,13 @@ impl SurfnetSvmLocker {
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
         address_table_lookup: &MessageAddressTableLookup,
-    ) -> SurfpoolContextualizedResult<LoadedAddresses> {
-        let result = self
+        transaction_loaded_addresses: &mut TransactionLoadedAddresses,
+    ) -> SurfpoolResult<()> {
+        let table_account = self
             .get_account(remote_ctx, &address_table_lookup.account_key, None)
-            .await?;
-        let table_account = result.inner.clone().map_account()?;
+            .await?
+            .inner
+            .map_account()?;
 
         if table_account.owner == solana_sdk_ids::address_lookup_table::id() {
             let SvmAccessContext {
@@ -1929,27 +1984,45 @@ impl SurfnetSvmLocker {
                 )
             })?;
 
-            let loaded_addresses = LoadedAddresses {
-                writable: lookup_table
-                    .lookup(
-                        current_slot,
-                        &address_table_lookup.writable_indexes,
-                        &slot_hashes,
-                    )
-                    .map_err(|_ix_err| {
-                        SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
-                    })?,
-                readonly: lookup_table
-                    .lookup(
-                        current_slot,
-                        &address_table_lookup.readonly_indexes,
-                        &slot_hashes,
-                    )
-                    .map_err(|_ix_err| {
-                        SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
-                    })?,
-            };
-            Ok(result.with_new_value(loaded_addresses))
+            let writable = lookup_table
+                .lookup(
+                    current_slot,
+                    &address_table_lookup.writable_indexes,
+                    &slot_hashes,
+                )
+                .map_err(|_ix_err| {
+                    SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
+                })?;
+
+            let readable = lookup_table
+                .lookup(
+                    current_slot,
+                    &address_table_lookup.readonly_indexes,
+                    &slot_hashes,
+                )
+                .map_err(|_ix_err| {
+                    SurfpoolError::invalid_lookup_index(address_table_lookup.account_key)
+                })?;
+
+            let MessageAddressTableLookup {
+                account_key,
+                writable_indexes,
+                readonly_indexes,
+            } = address_table_lookup.to_owned();
+
+            transaction_loaded_addresses.insert_members(
+                account_key,
+                writable_indexes
+                    .into_iter()
+                    .zip(writable.into_iter())
+                    .collect(),
+                readonly_indexes
+                    .into_iter()
+                    .zip(readable.into_iter())
+                    .collect(),
+            );
+
+            Ok(())
         } else {
             Err(SurfpoolError::invalid_account_owner(
                 table_account.owner,
@@ -2000,8 +2073,12 @@ impl SurfnetSvmLocker {
         mutable_signers: &[Pubkey],
         readonly_signers: &[Pubkey],
         mutable_non_signers: &[Pubkey],
+        readonly_non_signers: &[Pubkey],
+        mutable_loaded_addresses: &[Pubkey],
+        readonly_loaded_addresses: &[Pubkey],
         transaction: &VersionedTransaction,
         idx: usize,
+        loaded_addresses: &Option<TransactionLoadedAddresses>,
     ) -> Option<(VersionedTransaction, IndexSet<Pubkey>)> {
         let ixs_for_tx = instructions[0..idx].to_vec();
 
@@ -2031,21 +2108,49 @@ impl SurfnetSvmLocker {
         let mut new_readonly_signers = HashSet::new();
         let mut new_mutable_non_signers = HashSet::new();
         let mut new_readonly_non_signers = HashSet::new();
+        let mut new_mutable_loaded = HashSet::new();
+        let mut new_readonly_loaded = HashSet::new();
 
         for &account in &all_required_accounts {
             if let Some(idx) = message_accounts.iter().position(|pk| pk == &account) {
                 match idx {
-                    i if i < mutable_signers.len() => new_mutable_signers.insert(account),
+                    i if i < mutable_signers.len() => {
+                        new_mutable_signers.insert(account);
+                    }
                     i if i < mutable_signers.len() + readonly_signers.len() => {
-                        new_readonly_signers.insert(account)
+                        new_readonly_signers.insert(account);
                     }
                     i if i < mutable_signers.len()
                         + readonly_signers.len()
                         + mutable_non_signers.len() =>
                     {
-                        new_mutable_non_signers.insert(account)
+                        new_mutable_non_signers.insert(account);
                     }
-                    _ => new_readonly_non_signers.insert(account),
+                    i if i < mutable_signers.len()
+                        + readonly_signers.len()
+                        + mutable_non_signers.len()
+                        + readonly_non_signers.len() =>
+                    {
+                        new_readonly_non_signers.insert(account);
+                    }
+                    i if i < mutable_signers.len()
+                        + readonly_signers.len()
+                        + mutable_non_signers.len()
+                        + readonly_non_signers.len()
+                        + mutable_loaded_addresses.len() =>
+                    {
+                        new_mutable_loaded.insert(account);
+                    }
+                    i if i < mutable_signers.len()
+                        + readonly_signers.len()
+                        + mutable_non_signers.len()
+                        + readonly_non_signers.len()
+                        + mutable_loaded_addresses.len()
+                        + readonly_loaded_addresses.len() =>
+                    {
+                        new_readonly_loaded.insert(account);
+                    }
+                    _ => {}
                 };
             }
         }
@@ -2075,9 +2180,35 @@ impl SurfnetSvmLocker {
 
         // Create account index mapping
         let mut account_index_mapping = HashMap::new();
-        for (new_idx, pubkey) in new_account_keys.iter().enumerate() {
-            if let Some(old_idx) = message_accounts.iter().position(|pk| pk == pubkey) {
-                account_index_mapping.insert(old_idx, new_idx);
+        {
+            for (new_idx, pubkey) in new_account_keys.iter().enumerate() {
+                if let Some(old_idx) = message_accounts.iter().position(|pk| pk == pubkey) {
+                    account_index_mapping.insert(old_idx, new_idx);
+                }
+            }
+
+            // Accounts loaded from an ALT shouldn't be in the overall message accounts, but their
+            // indices should be remapped correctly.
+            let non_loaded_address_len = mutable_signers.len()
+                + readonly_signers.len()
+                + mutable_non_signers.len()
+                + readonly_non_signers.len();
+            for pubkey in new_mutable_loaded.iter() {
+                if let Some(old_idx) = message_accounts.iter().position(|pk| pk == pubkey) {
+                    let placement = old_idx - non_loaded_address_len;
+                    account_index_mapping.insert(old_idx, new_account_keys.len() + placement);
+                }
+            }
+
+            for pubkey in new_readonly_loaded.iter() {
+                if let Some(old_idx) = message_accounts.iter().position(|pk| pk == pubkey) {
+                    let placement =
+                        old_idx - non_loaded_address_len - mutable_loaded_addresses.len();
+                    account_index_mapping.insert(
+                        old_idx,
+                        new_account_keys.len() + new_mutable_loaded.len() + placement,
+                    );
+                }
             }
         }
 
@@ -2117,29 +2248,45 @@ impl SurfnetSvmLocker {
         let num_readonly_signed_accounts = new_readonly_signers.len();
         let num_readonly_unsigned_accounts = new_readonly_non_signers.len();
 
-        let new_message = Message {
-            header: MessageHeader {
-                num_required_signatures: num_required_signatures as u8,
-                num_readonly_signed_accounts: num_readonly_signed_accounts as u8,
-                num_readonly_unsigned_accounts: num_readonly_unsigned_accounts as u8,
-            },
-            account_keys: new_account_keys,
-            recent_blockhash: *transaction.message.recent_blockhash(),
-            instructions: remapped_instructions,
+        let new_message = match transaction.version() {
+            TransactionVersion::Legacy(_) => VersionedMessage::Legacy(Message {
+                header: MessageHeader {
+                    num_required_signatures: num_required_signatures as u8,
+                    num_readonly_signed_accounts: num_readonly_signed_accounts as u8,
+                    num_readonly_unsigned_accounts: num_readonly_unsigned_accounts as u8,
+                },
+                account_keys: new_account_keys,
+                recent_blockhash: *transaction.message.recent_blockhash(),
+                instructions: remapped_instructions,
+            }),
+            TransactionVersion::Number(_) => VersionedMessage::V0(solana_message::v0::Message {
+                header: MessageHeader {
+                    num_required_signatures: num_required_signatures as u8,
+                    num_readonly_signed_accounts: num_readonly_signed_accounts as u8,
+                    num_readonly_unsigned_accounts: num_readonly_unsigned_accounts as u8,
+                },
+                account_keys: new_account_keys,
+                recent_blockhash: *transaction.message.recent_blockhash(),
+                instructions: remapped_instructions,
+                address_table_lookups: loaded_addresses
+                    .as_ref()
+                    .map(|l| {
+                        l.filter_from_members(&new_mutable_loaded, &new_readonly_loaded)
+                            .to_address_table_lookups()
+                    })
+                    .unwrap_or_default(),
+            }),
         };
 
         // Create partial transaction with appropriate signatures
         let signatures_to_use = transaction.signatures[0..num_required_signatures].to_vec();
 
-        let tx = Transaction {
+        let tx = VersionedTransaction {
             signatures: signatures_to_use,
             message: new_message,
         };
 
-        Some((
-            VersionedTransaction::from(tx),
-            all_required_accounts_for_last_ix,
-        ))
+        Some((tx, all_required_accounts_for_last_ix))
     }
 
     /// Returns the profile result for a given signature or UUID, and whether it exists in the SVM.
