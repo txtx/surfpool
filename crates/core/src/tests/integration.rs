@@ -8,6 +8,7 @@ use jsonrpc_core::{
 };
 use jsonrpc_core_client::transports::http;
 use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount};
+use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
 use solana_client::rpc_response::RpcLogsResponse;
 use solana_clock::{Clock, Slot};
 use solana_epoch_info::EpochInfo;
@@ -3416,4 +3417,282 @@ fn test_time_travel_absolute_epoch() {
     );
 
     println!("Time travel to absolute epoch test passed successfully!");
+}
+
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ix_profiling_with_alt_tx() {
+    let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400));
+
+    let p1 = Keypair::new();
+    let p2 = Keypair::new();
+
+    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap();
+    svm_locker.airdrop(&p2.pubkey(), LAMPORTS_PER_SOL).unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    let mint = Keypair::new();
+    let mint_rent = 1461600;
+    let create_mint_ix = system_instruction::create_account(
+        &p1.pubkey(),
+        &mint.pubkey(),
+        mint_rent,
+        82,
+        &spl_token_2022::id(),
+    );
+
+    let initialize_mint_ix = spl_token_2022::instruction::initialize_mint2(
+        &spl_token_2022::id(),
+        &mint.pubkey(),
+        &p1.pubkey(),
+        Some(&p1.pubkey()),
+        2,
+    )
+    .unwrap();
+
+    let at1 = spl_associated_token_account::get_associated_token_address_with_program_id(
+        &p1.pubkey(),
+        &mint.pubkey(),
+        &spl_token_2022::id(),
+    );
+    let at2 = spl_associated_token_account::get_associated_token_address_with_program_id(
+        &p2.pubkey(),
+        &mint.pubkey(),
+        &spl_token_2022::id(),
+    );
+
+    let create_at1_ix = spl_associated_token_account::instruction::create_associated_token_account(
+        &p1.pubkey(),
+        &p1.pubkey(),
+        &mint.pubkey(),
+        &spl_token_2022::id(),
+    );
+
+    let create_at2_ix = spl_associated_token_account::instruction::create_associated_token_account(
+        &p1.pubkey(),
+        &p2.pubkey(),
+        &mint.pubkey(),
+        &spl_token_2022::id(),
+    );
+
+    let mint_amount = 100_00;
+    let mint_to_ix = spl_token_2022::instruction::mint_to(
+        &spl_token_2022::id(),
+        &mint.pubkey(),
+        &at1,
+        &p1.pubkey(),
+        &[&p1.pubkey()],
+        mint_amount,
+    )
+    .unwrap();
+
+    let setup_instructions = vec![
+        create_mint_ix,
+        initialize_mint_ix,
+        create_at1_ix,
+        create_at2_ix,
+        mint_to_ix,
+    ];
+
+    let setup_message =
+        Message::new_with_blockhash(&setup_instructions, Some(&p1.pubkey()), &recent_blockhash);
+
+    let setup_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(setup_message), &[&p1, &mint])
+            .unwrap();
+
+    let status_tx = crossbeam_unbounded::<TransactionStatusEvent>().0;
+    svm_locker
+        .process_transaction(&None, setup_tx, status_tx, false, true)
+        .await
+        .unwrap();
+
+    let alt_key = Pubkey::new_unique();
+
+    let address_lookup_table_account = AddressLookupTableAccount {
+        key: alt_key,
+        addresses: vec![at1, at2, spl_token_2022::id(), mint.pubkey()],
+    };
+
+    println!(
+        "addresses present on the ALT: {:?}",
+        address_lookup_table_account.addresses
+    );
+
+    let alt_account_data = AddressLookupTable {
+        meta: LookupTableMeta {
+            authority: Some(p1.pubkey()),
+            ..Default::default()
+        },
+        addresses: address_lookup_table_account.addresses.clone().into(),
+    };
+
+    svm_locker.with_svm_writer(|svm| {
+        let alt_data = alt_account_data.serialize_for_tests().unwrap();
+        let alt_account = solana_sdk::account::Account {
+            lamports: 1000000,
+            data: alt_data,
+            owner: solana_address_lookup_table_interface::program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        svm.set_account(&alt_key, alt_account).unwrap();
+    });
+
+    let transfer_amount = 50_00;
+    let transfer_ix = spl_token_2022::instruction::transfer_checked(
+        &spl_token_2022::id(),
+        &at1,
+        &mint.pubkey(),
+        &at2,
+        &p1.pubkey(),
+        &[&p1.pubkey()],
+        transfer_amount,
+        2,
+    )
+    .unwrap();
+
+    let alt_message = v0::Message::try_compile(
+        &p1.pubkey(),
+        &[transfer_ix],
+        &[address_lookup_table_account.clone()],
+        recent_blockhash,
+    )
+    .expect("Failed to compile ALT message");
+
+    let alt_tx = VersionedTransaction::try_new(VersionedMessage::V0(alt_message.clone()), &[&p1])
+        .expect("Failed to create ALT transaction");
+
+    let binding = svm_locker
+        .profile_transaction(&None, alt_tx.clone(), None)
+        .await
+        .unwrap();
+    let profile_result_uuid = binding.inner();
+
+    let profile_result = svm_locker
+        .get_profile_result(
+            UuidOrSignature::Uuid(*profile_result_uuid),
+            &RpcProfileResultConfig::default(),
+        )
+        .unwrap()
+        .unwrap();
+    let ix_profiles = profile_result
+        .instruction_profiles
+        .as_ref()
+        .expect("instruction profiles should exist");
+    assert_eq!(
+        ix_profiles.len(),
+        1,
+        "ALT transfer should have one instruction"
+    );
+    let ix_profile = ix_profiles.get(0).unwrap();
+    assert!(
+        ix_profile.error_message.is_none(),
+        "Profile should succeed, found error: {:?}",
+        ix_profile.error_message.as_ref().unwrap()
+    );
+    assert!(
+        ix_profile.account_states.get(&alt_key).is_none(),
+        "ALT account should not be in instruction account states"
+    );
+    assert!(
+        profile_result
+            .readonly_account_states
+            .get(&alt_key)
+            .is_none(),
+        "ALT account should not be in readonly account states"
+    );
+
+    let table = alt_message
+        .address_table_lookups
+        .first()
+        .expect("ALT lookups should exist");
+    let expected_loaded_writable: Vec<Pubkey> = table
+        .writable_indexes
+        .iter()
+        .map(|&i| address_lookup_table_account.addresses[i as usize])
+        .collect();
+    let expected_loaded_readonly: Vec<Pubkey> = table
+        .readonly_indexes
+        .iter()
+        .map(|&i| address_lookup_table_account.addresses[i as usize])
+        .collect();
+
+    for pk in &expected_loaded_writable {
+        match ix_profile
+            .account_states
+            .get(pk)
+            .expect("loaded writable address must be present")
+        {
+            UiAccountProfileState::Writable(_) => {}
+            other => panic!(
+                "expected Writable for loaded writable address {}, got {:?}",
+                pk, other
+            ),
+        }
+    }
+    for pk in &expected_loaded_readonly {
+        match ix_profile
+            .account_states
+            .get(pk)
+            .expect("loaded readonly address must be present")
+        {
+            UiAccountProfileState::Readonly => {}
+            other => panic!(
+                "expected Readonly for loaded readonly address {}, got {:?}",
+                pk, other
+            ),
+        }
+    }
+
+    let account_states = ix_profile.account_states.clone();
+
+    let UiAccountProfileState::Readonly = account_states
+        .get(&spl_token_2022::id())
+        .expect("token-2022 program should be present")
+    else {
+        panic!("expected token-2022 program to be Readonly");
+    };
+
+    let UiAccountProfileState::Readonly = account_states
+        .get(&mint.pubkey())
+        .expect("mint should be present")
+    else {
+        panic!("expected mint to be Readonly");
+    };
+
+    let UiAccountProfileState::Writable(src_change) = account_states
+        .get(&at1)
+        .expect("source ATA should be present")
+    else {
+        panic!("expected source ATA to be Writable");
+    };
+    match src_change {
+        UiAccountChange::Update(before, after) => {
+            assert_ne!(
+                before.data, after.data,
+                "token data should change on source"
+            );
+        }
+        _ => panic!("expected Update for source ATA"),
+    }
+
+    let UiAccountProfileState::Writable(dst_change) = account_states
+        .get(&at2)
+        .expect("destination ATA should be present")
+    else {
+        panic!("expected destination ATA to be Writable");
+    };
+    match dst_change {
+        UiAccountChange::Update(before, after) => {
+            assert_ne!(
+                before.data, after.data,
+                "token data should change on destination"
+            );
+        }
+        _ => panic!("expected Update for destination ATA"),
+    }
 }
