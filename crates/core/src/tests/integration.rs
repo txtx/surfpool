@@ -3421,7 +3421,7 @@ fn test_time_travel_absolute_epoch() {
 
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_alt_with_spl_token() {
+async fn test_ix_profiling_with_alt_tx() {
     let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400));
 
