@@ -77,8 +77,8 @@ symlink = "0.1.0"
 tokio = { version = "1.45.0", features = ["full"] }
 tokio-util = "0.7.13"
 txtx-addon-kit = { workspace = true }
-spl-token-2022 = "7.0.0"
-spl-token = "7.0.0"
+spl-token-2022 = { workspace = true }
+spl-token = { workspace = true }
 zstd = "0.13.2"
 libloading = "0.7.4"
 json5 = "0.4.1"
