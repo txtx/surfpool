@@ -192,6 +192,7 @@ impl SurfnetSvmLocker {
         &self,
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
+        do_profile_instructions: bool,
     ) -> SurfpoolResult<EpochInfo> {
         let epoch_info = if let Some(remote_client) = remote_ctx {
             remote_client.get_epoch_info().await?
@@ -207,7 +208,12 @@ impl SurfnetSvmLocker {
         };
 
         self.with_svm_writer(|svm_writer| {
-            svm_writer.initialize(epoch_info.clone(), slot_time, remote_ctx);
+            svm_writer.initialize(
+                epoch_info.clone(),
+                slot_time,
+                remote_ctx,
+                do_profile_instructions,
+            );
         });
         Ok(epoch_info)
     }
@@ -745,7 +751,7 @@ impl SurfnetSvmLocker {
     }
 
     pub fn do_profile_instructions(&self) -> bool {
-        true // todo
+        self.with_svm_reader(|svm_reader| svm_reader.do_profile_instructions)
     }
 
     pub async fn process_transaction(

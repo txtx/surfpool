@@ -126,6 +126,7 @@ pub struct SurfnetSvm {
     pub write_version: u64,
     pub registered_idls: HashMap<Pubkey, BinaryHeap<VersionedIdl>>,
     pub feature_set: FeatureSet,
+    pub do_profile_instructions: bool,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -203,6 +204,7 @@ impl SurfnetSvm {
                 write_version: 0,
                 registered_idls: HashMap::new(),
                 feature_set,
+                do_profile_instructions: true,
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -227,10 +229,12 @@ impl SurfnetSvm {
         epoch_info: EpochInfo,
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
+        do_profile_instructions: bool,
     ) {
         self.latest_epoch_info = epoch_info.clone();
         self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_time = slot_time;
+        self.do_profile_instructions = do_profile_instructions;
 
         if let Some(remote_client) = remote_ctx {
             let _ = self
@@ -250,6 +254,10 @@ impl SurfnetSvm {
         };
 
         self.inner.set_sysvar(&clock);
+    }
+
+    pub fn set_profile_instructions(&mut self, do_profile_instructions: bool) {
+        self.do_profile_instructions = do_profile_instructions;
     }
 
     /// Airdrops a specified amount of lamports to a single public key.
