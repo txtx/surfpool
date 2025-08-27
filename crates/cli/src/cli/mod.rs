@@ -168,7 +168,7 @@ pub struct StartSimnet {
     /// Quantity of tokens to airdrop
     #[arg(long = "airdrop-amount", short = 'q', default_value = DEFAULT_AIRDROP_AMOUNT)]
     pub airdrop_token_amount: u64,
-    /// List of keypair paths to airdrop
+    /// List of keypair paths to airdrop (default: ~/.config/solana/id.json)
     #[arg(long = "airdrop-keypair-path", short = 'k')]
     pub airdrop_keypair_path: Vec<String>,
     /// Disable explorer (default: false)
