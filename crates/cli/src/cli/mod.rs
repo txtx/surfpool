@@ -169,7 +169,7 @@ pub struct StartSimnet {
     #[arg(long = "airdrop-amount", short = 'q', default_value = DEFAULT_AIRDROP_AMOUNT)]
     pub airdrop_token_amount: u64,
     /// List of keypair paths to airdrop
-    #[arg(long = "airdrop-keypair-path", short = 'k', default_value = DEFAULT_SOLANA_KEYPAIR_PATH.as_str())]
+    #[arg(long = "airdrop-keypair-path", short = 'k')]
     pub airdrop_keypair_path: Vec<String>,
     /// Disable explorer (default: false)
     #[clap(long = "no-explorer")]
@@ -205,9 +205,10 @@ pub enum NetworkType {
 }
 
 impl StartSimnet {
-    pub fn get_airdrop_addresses(&self) -> (Vec<Pubkey>, Vec<String>) {
+    pub fn get_airdrop_addresses(&self) -> (Vec<Pubkey>, Vec<String>, bool) {
         let mut airdrop_addresses = vec![];
         let mut errors = vec![];
+        let mut using_default_keypair = false;
         for address in self.airdrop_addresses.iter() {
             match Pubkey::from_str(address).map_err(|e| e.to_string()) {
                 Ok(pubkey) => {
@@ -223,7 +224,13 @@ impl StartSimnet {
             }
         }
 
-        for keypair_path in self.airdrop_keypair_path.iter() {
+        let mut airdrop_keypair_path = self.airdrop_keypair_path.clone();
+        if airdrop_keypair_path.is_empty() {
+            using_default_keypair = true;
+            airdrop_keypair_path.push(DEFAULT_SOLANA_KEYPAIR_PATH.clone());
+        }
+
+        for keypair_path in airdrop_keypair_path.iter() {
             let path = resolve_path(keypair_path);
             match Keypair::read_from_file(&path) {
                 Ok(pubkey) => {
@@ -238,7 +245,7 @@ impl StartSimnet {
                 }
             }
         }
-        (airdrop_addresses, errors)
+        (airdrop_addresses, errors, using_default_keypair)
     }
 
     pub fn rpc_config(&self) -> RpcConfig {
