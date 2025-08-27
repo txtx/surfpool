@@ -147,7 +147,7 @@ pub async fn handle_start_local_surfnet_command(
 
     if using_default_keypair {
         let _ = simnet_events_tx.send(SimnetEvent::info(format!(
-            "No airdrop addresses provided; Using default one from {}",
+            "No airdrop addresses provided; Using default keypair at {}",
             DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
         )));
     }
