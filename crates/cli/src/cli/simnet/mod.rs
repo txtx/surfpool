@@ -51,7 +51,7 @@ pub async fn handle_start_local_surfnet_command(
     let simnet_events_tx = surfnet_svm.simnet_events_tx.clone();
 
     // Check aidrop addresses
-    let (mut airdrop_addresses, airdrop_errors, using_default_keypair) =
+    let (mut airdrop_addresses, airdrop_errors, using_default_keypair, default_keypair_loaded) =
         cmd.get_airdrop_addresses();
 
     let breaker = if cmd.no_tui {
@@ -145,7 +145,7 @@ pub async fn handle_start_local_surfnet_command(
         }
     }
 
-    if using_default_keypair {
+    if using_default_keypair && default_keypair_loaded {
         let _ = simnet_events_tx.send(SimnetEvent::info(format!(
             "No airdrop addresses provided; Using default keypair at {}",
             DEFAULT_SOLANA_KEYPAIR_PATH.as_str()

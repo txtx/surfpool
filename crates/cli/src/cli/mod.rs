@@ -205,10 +205,11 @@ pub enum NetworkType {
 }
 
 impl StartSimnet {
-    pub fn get_airdrop_addresses(&self) -> (Vec<Pubkey>, Vec<String>, bool) {
+    pub fn get_airdrop_addresses(&self) -> (Vec<Pubkey>, Vec<String>, bool, bool) {
         let mut airdrop_addresses = vec![];
         let mut errors = vec![];
         let mut using_default_keypair = false;
+        let mut default_keypair_loaded = false;
         for address in self.airdrop_addresses.iter() {
             match Pubkey::from_str(address).map_err(|e| e.to_string()) {
                 Ok(pubkey) => {
@@ -230,22 +231,41 @@ impl StartSimnet {
             airdrop_keypair_path.push(DEFAULT_SOLANA_KEYPAIR_PATH.clone());
         }
 
+        let default_resolved_path = resolve_path(DEFAULT_SOLANA_KEYPAIR_PATH.as_str());
+
         for keypair_path in airdrop_keypair_path.iter() {
             let path = resolve_path(keypair_path);
             match Keypair::read_from_file(&path) {
                 Ok(pubkey) => {
                     airdrop_addresses.push(pubkey.pubkey());
+                    if using_default_keypair && path == default_resolved_path {
+                        default_keypair_loaded = true;
+                    }
                 }
-                Err(e) => {
-                    errors.push(format!(
-                        "Unable to complete airdrop; Error reading keypair file: {}: {e}",
-                        path.display()
-                    ));
+                Err(_) => {
+                    match using_default_keypair {
+                        true => {
+                            errors.push(
+                                format!("No keypair found at {}, if you want to airdrop to a specific keypair provide the -k flag; skipping airdrops", DEFAULT_SOLANA_KEYPAIR_PATH.to_string())
+                            );
+                        }
+                        false => {
+                            errors.push(format!(
+                                "No keypair found at provided path {}; skipping airdrops;",
+                                path.display()
+                            ));
+                        }
+                    }
                     continue;
                 }
             }
         }
-        (airdrop_addresses, errors, using_default_keypair)
+        (
+            airdrop_addresses,
+            errors,
+            using_default_keypair,
+            default_keypair_loaded,
+        )
     }
 
     pub fn rpc_config(&self) -> RpcConfig {
