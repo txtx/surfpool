@@ -9,8 +9,8 @@ use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
 use surfpool_types::{
     CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED, DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT,
-    DEFAULT_SLOT_TIME_MS, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, StudioConfig, SubgraphConfig,
-    SurfpoolConfig,
+    DEFAULT_SLOT_TIME_MS, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, SimnetEvent, StudioConfig,
+    SubgraphConfig, SurfpoolConfig,
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -205,67 +205,72 @@ pub enum NetworkType {
 }
 
 impl StartSimnet {
-    pub fn get_airdrop_addresses(&self) -> (Vec<Pubkey>, Vec<String>, bool, bool) {
+    pub fn get_airdrop_addresses(&self) -> (Vec<Pubkey>, Vec<SimnetEvent>) {
         let mut airdrop_addresses = vec![];
-        let mut errors = vec![];
-        let mut using_default_keypair = false;
-        let mut default_keypair_loaded = false;
+        let mut events = vec![];
+
         for address in self.airdrop_addresses.iter() {
             match Pubkey::from_str(address).map_err(|e| e.to_string()) {
-                Ok(pubkey) => {
-                    airdrop_addresses.push(pubkey);
-                }
+                Ok(pubkey) => airdrop_addresses.push(pubkey),
                 Err(e) => {
-                    errors.push(format!(
+                    events.push(SimnetEvent::error(format!(
                         "Unable to airdrop pubkey {}: Error parsing pubkey: {e}",
                         address
-                    ));
+                    )));
                     continue;
                 }
             }
         }
 
-        let mut airdrop_keypair_path = self.airdrop_keypair_path.clone();
+        let airdrop_keypair_path = self.airdrop_keypair_path.clone();
+        let default_keypair_path = DEFAULT_SOLANA_KEYPAIR_PATH.clone();
+        let default_resolved_path = resolve_path(default_keypair_path.as_str());
+
+        let mut none_provided_default_exists = false;
+        let mut none_provided_default_does_not_exist = false;
+
         if airdrop_keypair_path.is_empty() {
-            using_default_keypair = true;
-            airdrop_keypair_path.push(DEFAULT_SOLANA_KEYPAIR_PATH.clone());
-        }
-
-        let default_resolved_path = resolve_path(DEFAULT_SOLANA_KEYPAIR_PATH.as_str());
-
-        for keypair_path in airdrop_keypair_path.iter() {
-            let path = resolve_path(keypair_path);
-            match Keypair::read_from_file(&path) {
-                Ok(pubkey) => {
-                    airdrop_addresses.push(pubkey.pubkey());
-                    if using_default_keypair && path == default_resolved_path {
-                        default_keypair_loaded = true;
-                    }
+            // No keypair paths provided: try default
+            match Keypair::read_from_file(&default_resolved_path) {
+                Ok(kp) => {
+                    airdrop_addresses.push(kp.pubkey());
+                    none_provided_default_exists = true;
                 }
                 Err(_) => {
-                    match using_default_keypair {
-                        true => {
-                            errors.push(
-                                format!("No keypair found at {}, if you want to airdrop to a specific keypair provide the -k flag; skipping airdrops", DEFAULT_SOLANA_KEYPAIR_PATH.to_string())
-                            );
-                        }
-                        false => {
-                            errors.push(format!(
-                                "No keypair found at provided path {}; skipping airdrops;",
-                                path.display()
-                            ));
-                        }
+                    none_provided_default_does_not_exist = true;
+                }
+            }
+        } else {
+            // User provided paths: load each, warn on failures
+            for keypair_path in airdrop_keypair_path.iter() {
+                let path = resolve_path(keypair_path);
+                match Keypair::read_from_file(&path) {
+                    Ok(pubkey) => {
+                        airdrop_addresses.push(pubkey.pubkey());
                     }
-                    continue;
+                    Err(_) => {
+                        events.push(SimnetEvent::warn(format!(
+                            "No keypair found at provided path {}; skipping airdrop for that keypair;",
+                            path.display()
+                        )));
+                    }
                 }
             }
         }
-        (
-            airdrop_addresses,
-            errors,
-            using_default_keypair,
-            default_keypair_loaded,
-        )
+
+        if none_provided_default_exists {
+            events.push(SimnetEvent::info(format!(
+                "No airdrop addresses provided; Using default keypair at {}",
+                DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
+            )));
+        } else if none_provided_default_does_not_exist {
+            events.push(SimnetEvent::info(format!(
+                "No keypair found at default location {}, if you want to airdrop to a specific keypair provide the -k flag; skipping airdrops",
+                DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
+            )));
+        }
+
+        (airdrop_addresses, events)
     }
 
     pub fn rpc_config(&self) -> RpcConfig {

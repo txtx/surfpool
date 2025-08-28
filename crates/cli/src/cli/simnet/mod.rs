@@ -25,7 +25,7 @@ use txtx_core::kit::{
 };
 use txtx_gql::kit::reqwest;
 
-use super::{Context, DEFAULT_CLOUD_URL, DEFAULT_SOLANA_KEYPAIR_PATH, ExecuteRunbook, StartSimnet};
+use super::{Context, DEFAULT_CLOUD_URL, ExecuteRunbook, StartSimnet};
 use crate::{
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
@@ -51,8 +51,7 @@ pub async fn handle_start_local_surfnet_command(
     let simnet_events_tx = surfnet_svm.simnet_events_tx.clone();
 
     // Check aidrop addresses
-    let (mut airdrop_addresses, airdrop_errors, using_default_keypair, default_keypair_loaded) =
-        cmd.get_airdrop_addresses();
+    let (mut airdrop_addresses, airdrop_events) = cmd.get_airdrop_addresses();
 
     let breaker = if cmd.no_tui {
         None
@@ -145,15 +144,8 @@ pub async fn handle_start_local_surfnet_command(
         }
     }
 
-    if using_default_keypair && default_keypair_loaded {
-        let _ = simnet_events_tx.send(SimnetEvent::info(format!(
-            "No airdrop addresses provided; Using default keypair at {}",
-            DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
-        )));
-    }
-
-    for error in airdrop_errors {
-        let _ = simnet_events_tx.send(SimnetEvent::warn(error));
+    for event in airdrop_events {
+        let _ = simnet_events_tx.send(event);
     }
 
     let mut deploy_progress_rx = vec![];
