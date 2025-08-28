@@ -311,6 +311,7 @@ impl SurfnetSvm {
                         loaded_addresses: LoadedAddresses::default(),
                         return_data: Some(tx_result.return_data.clone()),
                         compute_units_consumed: Some(tx_result.compute_units_consumed),
+                        cost_units: None,
                     },
                 })),
             );
