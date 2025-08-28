@@ -141,16 +141,7 @@ impl SurfnetSvm {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
 
-        let mut feature_set = FeatureSet::all_enabled();
-        // v2.2 of the solana_sdk deprecates the v3 loader, and enables the v4 loader by default.
-        // In order to keep the v3 deployments enabled, we need to remove the
-        // `disable_new_loader_v3_deployments` feature from the active set, and add it to the inactive set.
-        let _ = feature_set
-            .active
-            .remove(&disable_new_loader_v3_deployments::id());
-        feature_set
-            .inactive
-            .insert(disable_new_loader_v3_deployments::id());
+        let feature_set = FeatureSet::all_enabled();
 
         let inner = LiteSVM::new()
             .with_feature_set(feature_set.clone())
@@ -363,7 +354,7 @@ impl SurfnetSvm {
     }
 
     pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
-        self.feature_set.active.get(pubkey).map(|_| {
+        self.feature_set.active().get(pubkey).map(|_| {
             let feature_bytes = bincode::serialize(&FEATURE).unwrap();
             let lamports = self
                 .inner
@@ -460,7 +451,7 @@ impl SurfnetSvm {
     ///
     /// # Returns
     /// `Ok(())` on success, or an error if the operation fails.
-    pub fn set_account(&mut self, pubkey: &Pubkey, mut account: Account) -> SurfpoolResult<()> {
+    pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
         self.updated_at = Utc::now().timestamp_millis() as u64;
 
         self.inner
