@@ -213,7 +213,7 @@ impl StartSimnet {
             match Pubkey::from_str(address).map_err(|e| e.to_string()) {
                 Ok(pubkey) => airdrop_addresses.push(pubkey),
                 Err(e) => {
-                    events.push(SimnetEvent::error(format!(
+                    events.push(SimnetEvent::warn(format!(
                         "Unable to airdrop pubkey {}: Error parsing pubkey: {e}",
                         address
                     )));
@@ -223,21 +223,23 @@ impl StartSimnet {
         }
 
         let airdrop_keypair_path = self.airdrop_keypair_path.clone();
-        let default_keypair_path = DEFAULT_SOLANA_KEYPAIR_PATH.clone();
-        let default_resolved_path = resolve_path(default_keypair_path.as_str());
-
-        let mut none_provided_default_exists = false;
-        let mut none_provided_default_does_not_exist = false;
 
         if airdrop_keypair_path.is_empty() {
+            let default_resolved_path = resolve_path(&DEFAULT_SOLANA_KEYPAIR_PATH);
             // No keypair paths provided: try default
             match Keypair::read_from_file(&default_resolved_path) {
                 Ok(kp) => {
                     airdrop_addresses.push(kp.pubkey());
-                    none_provided_default_exists = true;
+                    events.push(SimnetEvent::info(format!(
+                        "No airdrop addresses provided; Using default keypair at {}",
+                        DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
+                    )));
                 }
                 Err(_) => {
-                    none_provided_default_does_not_exist = true;
+                    events.push(SimnetEvent::info(format!(
+                        "No keypair found at default location {}, if you want to airdrop to a specific keypair provide the -k flag; skipping airdrops",
+                        DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
+                    )));
                 }
             }
         } else {
@@ -250,24 +252,12 @@ impl StartSimnet {
                     }
                     Err(_) => {
                         events.push(SimnetEvent::warn(format!(
-                            "No keypair found at provided path {}; skipping airdrop for that keypair;",
+                            "No keypair found at provided path {}; skipping airdrop for that keypair",
                             path.display()
                         )));
                     }
                 }
             }
-        }
-
-        if none_provided_default_exists {
-            events.push(SimnetEvent::info(format!(
-                "No airdrop addresses provided; Using default keypair at {}",
-                DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
-            )));
-        } else if none_provided_default_does_not_exist {
-            events.push(SimnetEvent::info(format!(
-                "No keypair found at default location {}, if you want to airdrop to a specific keypair provide the -k flag; skipping airdrops",
-                DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
-            )));
         }
 
         (airdrop_addresses, events)
