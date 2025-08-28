@@ -21,9 +21,9 @@ use solana_message::{
 use solana_native_token::LAMPORTS_PER_SOL;
 use solana_pubkey::{Pubkey, pubkey};
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{system_instruction::transfer, system_program, transaction::Transaction};
+use solana_sdk::{system_instruction::transfer, transaction::Transaction};
 use solana_signer::Signer;
-use solana_system_interface::instruction as system_instruction;
+use solana_system_interface::{instruction as system_instruction, program as system_program};
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
     DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,

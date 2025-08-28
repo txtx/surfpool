@@ -1,5 +1,6 @@
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 
+use agave_feature_set::FeatureSet;
 use chrono::Utc;
 use convert_case::Casing;
 use crossbeam_channel::{Receiver, Sender, unbounded};
@@ -22,7 +23,6 @@ use solana_client::{
 use solana_clock::{Clock, MAX_RECENT_BLOCKHASHES, Slot};
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
-use solana_feature_set::{FeatureSet, disable_new_loader_v3_deployments};
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
@@ -30,11 +30,12 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
     feature::Feature, genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
-    system_instruction, transaction::VersionedTransaction,
+    transaction::VersionedTransaction,
 };
 use solana_sdk_ids::system_program;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use solana_system_interface::instruction as system_instruction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{TransactionDetails, TransactionStatusMeta, UiConfirmedBlock};
 use spl_token_2022::extension::{

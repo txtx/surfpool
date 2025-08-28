@@ -7,7 +7,8 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{program_option::COption, system_program, transaction::VersionedTransaction};
+use solana_sdk::{program_option::COption, transaction::VersionedTransaction};
+use solana_system_interface::program as system_program;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
     ClockCommand, Idl, RpcProfileResultConfig, SimnetCommand, SimnetEvent, UiKeyedProfileResult,
