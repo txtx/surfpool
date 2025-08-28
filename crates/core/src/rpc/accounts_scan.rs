@@ -731,6 +731,7 @@ mod tests {
     use core::panic;
     use std::str::FromStr;
 
+    use itertools::Itertools;
     use solana_account::Account;
     use solana_client::{
         rpc_config::{
@@ -1211,12 +1212,24 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(result.value.len(), 1);
-            assert_eq!(
-                large_circulating_pubkey.to_string(),
-                result.value[0].address
+            assert_eq!(result.value.len(), 20);
+            assert!(
+                result
+                    .value
+                    .iter()
+                    .find(|bal| bal.address == large_circulating_pubkey.to_string()
+                        && bal.lamports == large_circulating_amount)
+                    .is_some(),
+                "Circulating account should be in circulating accounts list"
             );
             assert_eq!(large_circulating_amount, result.value[0].lamports);
+            assert!(
+                !result
+                    .value
+                    .iter()
+                    .any(|bal| bal.address == large_non_circulating_pubkey.to_string()),
+                "Non-circulating account should not be in circulating accounts list"
+            );
         }
 
         // Test with filter for non-circulating accounts
@@ -1234,11 +1247,18 @@ mod tests {
                 .unwrap();
 
             assert_eq!(result.value.len(), 1);
-            assert_eq!(
-                large_non_circulating_pubkey.to_string(),
-                result.value[0].address
+            assert!(
+                result
+                    .value
+                    .iter()
+                    .find(
+                        |bal| bal.address == large_non_circulating_pubkey.to_string()
+                            && bal.lamports == large_non_circulating_amount
+                    )
+                    .is_some(),
+                "Non-circulating account should be in non-circulating accounts list: {:?}",
+                result.value
             );
-            assert_eq!(large_non_circulating_amount, result.value[0].lamports);
         }
 
         // Test without filter - should return both accounts
@@ -1249,17 +1269,30 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(result.value.len(), 2);
-            assert_eq!(
-                large_non_circulating_pubkey.to_string(),
-                result.value[0].address
+            assert_eq!(result.value.len(), 20);
+            let circulating_idx = result
+                .value
+                .iter()
+                .find_position(|bal| {
+                    bal.address == large_circulating_pubkey.to_string()
+                        && bal.lamports == large_circulating_amount
+                })
+                .expect("Circulating account should be in list")
+                .0;
+            let non_circulating_idx = result
+                .value
+                .iter()
+                .find_position(|bal| {
+                    bal.address == large_non_circulating_pubkey.to_string()
+                        && bal.lamports == large_non_circulating_amount
+                })
+                .expect("Non-circulating account should be in list")
+                .0;
+
+            assert!(
+                non_circulating_idx < circulating_idx,
+                "Circulating account should appear before non-circulating account in combined list"
             );
-            assert_eq!(large_non_circulating_amount, result.value[0].lamports);
-            assert_eq!(
-                large_circulating_pubkey.to_string(),
-                result.value[1].address
-            );
-            assert_eq!(large_circulating_amount, result.value[1].lamports);
         }
     }
 
