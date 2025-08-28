@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{any::type_name, sync::Arc};
+use std::any::type_name;
 
 use base64::prelude::*;
 use bincode::Options;
@@ -8,7 +8,6 @@ use jsonrpc_core::{Error, Result};
 use litesvm::types::TransactionMetadata;
 use solana_client::{
     rpc_config::{RpcTokenAccountsFilter, RpcTransactionConfig},
-    rpc_custom_error::RpcCustomError,
     rpc_filter::RpcFilterType,
     rpc_request::{MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS2_LIMIT, TokenAccountsFilter},
 };
@@ -16,9 +15,7 @@ use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
 use solana_packet::PACKET_DATA_SIZE;
 use solana_pubkey::{ParsePubkeyError, Pubkey};
-use solana_runtime::verify_precompiles::verify_precompiles;
 use solana_signature::Signature;
-use solana_transaction::sanitized::SanitizedTransaction;
 use solana_transaction_status::{
     InnerInstruction, InnerInstructions, TransactionBinaryEncoding, UiInnerInstructions,
     UiTransactionEncoding,
@@ -47,26 +44,6 @@ fn optimize_filters(filters: &mut [RpcFilterType]) {
             }
         }
     })
-}
-
-fn verify_transaction(
-    transaction: &SanitizedTransaction,
-    feature_set: &Arc<solana_feature_set::FeatureSet>,
-) -> Result<()> {
-    #[allow(clippy::question_mark)]
-    if transaction.verify().is_err() {
-        return Err(RpcCustomError::TransactionSignatureVerificationFailure.into());
-    }
-
-    let move_precompile_verification_to_svm =
-        feature_set.is_active(&solana_feature_set::move_precompile_verification_to_svm::id());
-    if !move_precompile_verification_to_svm {
-        if let Err(e) = verify_precompiles(transaction, feature_set) {
-            return Err(RpcCustomError::TransactionPrecompileVerificationFailure(e).into());
-        }
-    }
-
-    Ok(())
 }
 
 fn verify_filter(input: &RpcFilterType) -> Result<()> {
