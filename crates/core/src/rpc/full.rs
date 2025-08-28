@@ -3044,12 +3044,12 @@ mod tests {
             VersionedMessage::Legacy(message) => message
                 .instructions
                 .iter()
-                .map(|ix| UiCompiledInstruction::from(ix, None))
+                .map(|ix| UiCompiledInstruction::from(ix, Some(1)))
                 .collect(),
             VersionedMessage::V0(message) => message
                 .instructions
                 .iter()
-                .map(|ix| UiCompiledInstruction::from(ix, None))
+                .map(|ix| UiCompiledInstruction::from(ix, Some(1)))
                 .collect(),
         };
 
