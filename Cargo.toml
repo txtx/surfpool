@@ -90,13 +90,13 @@ solana-version = "2.3.7"
 spl-associated-token-account =  "7.0.0"
 spl-token = "8.0.0"
 spl-token-2022 = "8.0.0"
-txtx-addon-kit = { version = "0.4.4", features = ["wasm"] }
-txtx-core = { version = "0.4.7" }
+txtx-addon-kit = { version = "0.4.5", features = ["wasm"] }
+txtx-core = { version = "0.4.8" }
 txtx-addon-network-svm = { version = "0.3.1" }
 txtx-addon-network-svm-types = { version = "0.3.0" }
-txtx-gql = { version = "0.3.1" }
-txtx-supervisor-ui = { version = "0.2.3", default-features = false, features = ["crates_build"]}
-txtx-cloud = "0.1.8"
+txtx-gql = { version = "0.3.2" }
+txtx-supervisor-ui = { version = "0.2.4", default-features = false, features = ["crates_build"]}
+txtx-cloud = "0.1.9"
 tracing = "0.1"
 uuid = "1.15.1"
 tokio = "1.43.0"
