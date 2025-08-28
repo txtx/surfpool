@@ -3696,3 +3696,48 @@ async fn test_ix_profiling_with_alt_tx() {
         _ => panic!("expected Update for destination ATA"),
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn it_should_delete_accounts_with_no_lamports() {
+    let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400));
+
+    let p1 = Keypair::new();
+    let p2 = Keypair::new();
+
+    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    let message = Message::new_with_blockhash(
+        &[system_instruction::transfer(
+            &p1.pubkey(),
+            &p2.pubkey(),
+            LAMPORTS_PER_SOL - 5000,
+        )],
+        Some(&p1.pubkey()),
+        &recent_blockhash,
+    );
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&p1]).unwrap();
+
+    let (status_tx, rx) = unbounded();
+    let _ = svm_locker
+        .process_transaction(&None, tx, status_tx, true, false)
+        .await
+        .unwrap();
+
+    loop {
+        match rx.recv() {
+            Ok(status) => {
+                println!("Transaction status: {:?}", status);
+                break;
+            }
+            Err(_) => panic!("status channel closed unexpectedly"),
+        }
+    }
+
+    assert!(
+        svm_locker.get_account_local(&p1.pubkey()).inner.is_none(),
+        "Account should be deleted"
+    );
+}

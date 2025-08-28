@@ -219,17 +219,11 @@ impl SurfnetSvmLocker {
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
             match svm_reader.inner.get_account(pubkey) {
-                Some(account) => {
-                    if account.eq(&Account::default()) {
-                        // If the account is default, it means it was deleted but still exists in our litesvm store
-                        return GetAccountResult::None(*pubkey);
-                    }
-                    GetAccountResult::FoundAccount(
-                        *pubkey, account,
-                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                        false,
-                    )
-                }
+                Some(account) => GetAccountResult::FoundAccount(
+                    *pubkey, account,
+                    // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                    false,
+                ),
                 None => match svm_reader.get_account_from_feature_set(pubkey) {
                     Some(account) => GetAccountResult::FoundAccount(
                         *pubkey, account,
@@ -292,18 +286,11 @@ impl SurfnetSvmLocker {
 
             for pubkey in pubkeys {
                 let res = match svm_reader.inner.get_account(pubkey) {
-                    Some(account) => {
-                        if account.eq(&Account::default()) {
-                            // If the account is default, it means it was deleted but still exists in our litesvm store
-                            GetAccountResult::None(*pubkey)
-                        } else {
-                            GetAccountResult::FoundAccount(
-                                *pubkey, account,
-                                // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                                false,
-                            )
-                        }
-                    }
+                    Some(account) => GetAccountResult::FoundAccount(
+                        *pubkey, account,
+                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                        false,
+                    ),
                     None => match svm_reader.get_account_from_feature_set(pubkey) {
                         Some(account) => GetAccountResult::FoundAccount(
                             *pubkey, account,
