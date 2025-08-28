@@ -10,7 +10,7 @@ use litesvm::{
         FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
     },
 };
-use solana_account::{Account, ReadableAccount};
+use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_account_decoder::{
     UiAccount, UiAccountData, UiAccountEncoding, UiDataSliceConfig, encode_ui_account,
     parse_account_data::{AccountAdditionalDataV3, ParsedAccount, SplTokenAdditionalDataV2},
@@ -107,7 +107,6 @@ pub struct SurfnetSvm {
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
-    pub accounts_registry: HashMap<Pubkey, Account>,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: HashMap<Pubkey, TokenAccount>,
@@ -178,7 +177,6 @@ impl SurfnetSvm {
                 logs_subscriptions: Vec::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 slot_time: DEFAULT_SLOT_TIME_MS,
-                accounts_registry: HashMap::new(),
                 accounts_by_owner: HashMap::new(),
                 account_associated_data: HashMap::new(),
                 token_accounts: HashMap::new(),
@@ -260,7 +258,7 @@ impl SurfnetSvm {
         if let Ok(ref tx_result) = res {
             let airdrop_keypair = Keypair::new();
             let slot = self.latest_epoch_info.absolute_slot;
-            let account = self.inner.get_account(pubkey).unwrap();
+            let account = self.get_account(pubkey).unwrap();
 
             let mut tx = VersionedTransaction::try_new(
                 VersionedMessage::Legacy(Message::new(
@@ -281,7 +279,6 @@ impl SurfnetSvm {
             tx.signatures[0] = tx_result.signature.clone();
 
             let system_lamports = self
-                .inner
                 .get_account(&system_program::id())
                 .map(|a| a.lamports())
                 .unwrap_or(1);
@@ -317,7 +314,7 @@ impl SurfnetSvm {
             );
             self.transactions_queued_for_confirmation
                 .push_back((tx, status_tx.clone()));
-            let account = self.inner.get_account(pubkey).unwrap();
+            let account = self.get_account(pubkey).unwrap();
             let _ = self.set_account(pubkey, account);
         }
         res
@@ -476,14 +473,10 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         account: &Account,
     ) -> SurfpoolResult<()> {
-        // only if successful, update our indexes
-        if let Some(old_account) = self.accounts_registry.get(pubkey).cloned() {
+        // only update our indexes if the account exists in the svm accounts db
+        if let Some(old_account) = self.get_account(pubkey) {
             self.remove_from_indexes(pubkey, &old_account);
         }
-
-        // update the main registry
-        self.accounts_registry.insert(*pubkey, account.clone());
-
         // add to owner index (check for duplicates)
         let owner_accounts = self.accounts_by_owner.entry(account.owner).or_default();
         if !owner_accounts.contains(pubkey) {
@@ -1138,8 +1131,7 @@ impl SurfnetSvm {
             account_pubkeys
                 .iter()
                 .filter_map(|pubkey| {
-                    self.accounts_registry
-                        .get(pubkey)
+                    self.get_account(pubkey)
                         .map(|account| (*pubkey, account.clone()))
                 })
                 .collect()
@@ -1232,11 +1224,7 @@ impl SurfnetSvm {
             .map(|account_pubkeys| {
                 account_pubkeys
                     .iter()
-                    .filter_map(|pk| {
-                        self.accounts_registry
-                            .get(pk)
-                            .map(|account| (*pk, account.clone()))
-                    })
+                    .filter_map(|pk| self.get_account(pk).map(|account| (*pk, account.clone())))
                     .collect()
             })
             .unwrap_or_default()
@@ -1586,6 +1574,14 @@ impl SurfnetSvm {
             data_slice_config,
         )
     }
+
+    pub fn get_account(&self, pubkey: &Pubkey) -> Option<Account> {
+        self.inner.get_account(pubkey)
+    }
+
+    pub fn iter_accounts(&self) -> std::collections::hash_map::Iter<'_, Pubkey, AccountSharedData> {
+        self.inner.accounts_db().inner.iter()
+    }
 }
 
 #[cfg(test)]
@@ -1637,7 +1633,6 @@ mod tests {
         svm.set_account(&token_account_pubkey, account).unwrap();
 
         // test all indexes were created correctly
-        assert_eq!(svm.accounts_registry.len(), 1);
         assert_eq!(svm.token_accounts.len(), 1);
 
         // test owner index
@@ -1742,7 +1737,6 @@ mod tests {
         svm.set_account(&system_account_pubkey, account).unwrap();
 
         // should be in general registry but not token indexes
-        assert_eq!(svm.accounts_registry.len(), 1);
         assert_eq!(svm.token_accounts.len(), 0);
         assert_eq!(svm.token_accounts_by_owner.len(), 0);
         assert_eq!(svm.token_accounts_by_delegate.len(), 0);
@@ -1759,7 +1753,7 @@ mod tests {
             Ok(event) => match event {
                 SimnetEvent::AccountUpdate(_, account_pubkey) => {
                     assert_eq!(pubkey, &account_pubkey);
-                    assert_eq!(svm.accounts_registry.get(&pubkey), Some(expected_account));
+                    assert_eq!(svm.get_account(&pubkey).as_ref(), Some(expected_account));
                     true
                 }
                 event => {
@@ -1841,26 +1835,29 @@ mod tests {
 
         // GetAccountResult::None should be a noop when writing account updates
         {
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let empty_update = GetAccountResult::None(pubkey);
             svm.write_account_update(empty_update);
-            assert_eq!(svm.accounts_registry, index_before);
+            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to false should be a noop
         {
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), false);
             svm.write_account_update(found_update);
-            assert_eq!(svm.accounts_registry, index_before);
+            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to true should update the account
         {
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), true);
             svm.write_account_update(found_update);
-            assert_eq!(svm.accounts_registry.len(), index_before.len() + 1);
+            assert_eq!(
+                svm.inner.accounts_db().clone().inner.len(),
+                index_before.len() + 1
+            );
             if !expect_account_update_event(&events_rx, &svm, &pubkey, &account) {
                 panic!(
                     "Expected account update event not received after GetAccountResult::FoundAccount update"
@@ -1873,7 +1870,7 @@ mod tests {
             let (program_address, program_account, program_data_address, _) =
                 create_program_accounts();
 
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
@@ -1891,7 +1888,7 @@ mod tests {
                     "Expected error event not received after inserting program account with no program data account"
                 );
             }
-            assert_eq!(svm.accounts_registry, index_before);
+            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
         }
 
         // GetAccountResult::FoundProgramAccount with program account + program data account inserts two accounts
@@ -1899,13 +1896,16 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, Some(program_data_account.clone())),
             );
             svm.write_account_update(found_program_account_update);
-            assert_eq!(svm.accounts_registry.len(), index_before.len() + 2);
+            assert_eq!(
+                svm.inner.accounts_db().clone().inner.len(),
+                index_before.len() + 2
+            );
             if !expect_account_update_event(
                 &events_rx,
                 &svm,
@@ -1930,14 +1930,17 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let found_update = GetAccountResult::FoundAccount(
                 program_data_address,
                 program_data_account.clone(),
                 true,
             );
             svm.write_account_update(found_update);
-            assert_eq!(svm.accounts_registry.len(), index_before.len() + 1);
+            assert_eq!(
+                svm.inner.accounts_db().clone().inner.len(),
+                index_before.len() + 1
+            );
             if !expect_account_update_event(
                 &events_rx,
                 &svm,
@@ -1949,13 +1952,16 @@ mod tests {
                 );
             }
 
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let program_account_found_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
             );
             svm.write_account_update(program_account_found_update);
-            assert_eq!(svm.accounts_registry.len(), index_before.len() + 1);
+            assert_eq!(
+                svm.inner.accounts_db().clone().inner.len(),
+                index_before.len() + 1
+            );
             if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
                 panic!(
                     "Expected account update event not received after GetAccountResult::FoundAccount update"
