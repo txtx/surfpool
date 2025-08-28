@@ -24,7 +24,9 @@ default-members = ["crates/cli"]
 resolver = "2"
 
 [workspace.dependencies]
+agave-feature-set = "2.3.7"
 agave-geyser-plugin-interface = "2.3.7"
+agave-precompiles = "2.3.7"
 anchor-lang-idl = "0.1.2"
 axum = { version = "0.8.0", features = ["macros"] }
 blake3 = "1.8.2"
@@ -60,9 +62,9 @@ solana-blake3-hasher = { version = "2.2.1", features = ["serde"]}
 solana-client = "2.3.7"
 solana-clock = { version = "2.2.2", features = ["serde"]}
 solana-commitment-config = "2.2.1"
+solana-compute-budget-interface = "2.2.1"
 solana-epoch-info = { version = "2.2.1", features = ["serde"] }
 solana-epoch-schedule = "2.2.1"
-solana-feature-set = "2.2.5"
 solana-geyser-plugin-manager = "3.0.0"
 solana-hash = "2.3.0"
 solana-keypair = "2.2.3"
