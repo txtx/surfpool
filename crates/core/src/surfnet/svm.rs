@@ -20,7 +20,7 @@ use solana_client::{
     rpc_config::{RpcAccountInfoConfig, RpcBlockConfig, RpcTransactionLogsFilter},
     rpc_response::{RpcKeyedAccount, RpcLogsResponse, RpcPerfSample},
 };
-use solana_clock::{Clock, MAX_RECENT_BLOCKHASHES, Slot};
+use solana_clock::{Clock, Slot};
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
@@ -373,52 +373,43 @@ impl SurfnetSvm {
     /// A new `BlockIdentifier` for the updated blockhash.
     #[allow(deprecated)]
     fn new_blockhash(&mut self) -> BlockIdentifier {
+        use solana_sdk::sysvar::recent_blockhashes::{IterItem, MAX_ENTRIES, RecentBlockhashes};
+        use solana_sdk::sysvar::slot_hashes::SlotHashes;
         self.updated_at = Utc::now().timestamp_millis() as u64;
         // cache the current blockhashes
-        let blockhashes = self
-            .inner
-            .get_sysvar::<solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes>();
-        let max_entries_len = blockhashes.len().min(MAX_RECENT_BLOCKHASHES);
+        let blockhashes = self.inner.get_sysvar::<RecentBlockhashes>();
+        let max_entries_len = blockhashes.len().min(MAX_ENTRIES);
         let mut entries = Vec::with_capacity(max_entries_len);
         // note: expire blockhash has a bug with liteSVM.
         // they only keep one blockhash in their RecentBlockhashes sysvar, so this function
         // clears out the other valid hashes.
         // so we manually rehydrate the sysvar with new latest blockhash + cached blockhashes.
         self.inner.expire_blockhash();
-        let latest_entries = self
-            .inner
-            .get_sysvar::<solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes>();
+        let latest_entries = self.inner.get_sysvar::<RecentBlockhashes>();
         let latest_entry = latest_entries.first().unwrap();
-        entries.push(solana_sdk::sysvar::recent_blockhashes::IterItem(
+        entries.push(IterItem(
             0,
             &latest_entry.blockhash,
             latest_entry.fee_calculator.lamports_per_signature,
         ));
         for (i, entry) in blockhashes.iter().enumerate() {
-            if i == MAX_RECENT_BLOCKHASHES - 1 {
+            if i == MAX_ENTRIES - 1 {
                 break;
             }
 
-            entries.push(solana_sdk::sysvar::recent_blockhashes::IterItem(
+            entries.push(IterItem(
                 i as u64 + 1,
                 &entry.blockhash,
                 entry.fee_calculator.lamports_per_signature,
             ));
         }
 
-        self.inner.set_sysvar(
-            &solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes::from_iter(entries),
-        );
-
-        let mut slot_hashes = self
-            .inner
-            .get_sysvar::<solana_sdk::sysvar::slot_hashes::SlotHashes>();
+        self.inner
+            .set_sysvar(&RecentBlockhashes::from_iter(entries));
+        let mut slot_hashes = self.inner.get_sysvar::<SlotHashes>();
         slot_hashes.add(self.get_latest_absolute_slot() + 1, latest_entry.blockhash);
 
-        self.inner
-            .set_sysvar(&solana_sdk::sysvar::slot_hashes::SlotHashes::new(
-                &slot_hashes,
-            ));
+        self.inner.set_sysvar(&SlotHashes::new(&slot_hashes));
 
         BlockIdentifier::new(
             self.chain_tip.index + 1,
