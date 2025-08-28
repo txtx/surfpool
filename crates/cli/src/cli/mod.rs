@@ -9,8 +9,8 @@ use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
 use surfpool_types::{
     CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED, DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT,
-    DEFAULT_SLOT_TIME_MS, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, StudioConfig, SubgraphConfig,
-    SurfpoolConfig,
+    DEFAULT_SLOT_TIME_MS, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, SimnetEvent, StudioConfig,
+    SubgraphConfig, SurfpoolConfig,
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -168,8 +168,8 @@ pub struct StartSimnet {
     /// Quantity of tokens to airdrop
     #[arg(long = "airdrop-amount", short = 'q', default_value = DEFAULT_AIRDROP_AMOUNT)]
     pub airdrop_token_amount: u64,
-    /// List of keypair paths to airdrop
-    #[arg(long = "airdrop-keypair-path", short = 'k', default_value = DEFAULT_SOLANA_KEYPAIR_PATH.as_str())]
+    /// List of keypair paths to airdrop (default: ~/.config/solana/id.json)
+    #[arg(long = "airdrop-keypair-path", short = 'k')]
     pub airdrop_keypair_path: Vec<String>,
     /// Disable explorer (default: false)
     #[clap(long = "no-explorer")]
@@ -205,40 +205,62 @@ pub enum NetworkType {
 }
 
 impl StartSimnet {
-    pub fn get_airdrop_addresses(&self) -> (Vec<Pubkey>, Vec<String>) {
+    pub fn get_airdrop_addresses(&self) -> (Vec<Pubkey>, Vec<SimnetEvent>) {
         let mut airdrop_addresses = vec![];
-        let mut errors = vec![];
+        let mut events = vec![];
+
         for address in self.airdrop_addresses.iter() {
             match Pubkey::from_str(address).map_err(|e| e.to_string()) {
-                Ok(pubkey) => {
-                    airdrop_addresses.push(pubkey);
-                }
+                Ok(pubkey) => airdrop_addresses.push(pubkey),
                 Err(e) => {
-                    errors.push(format!(
+                    events.push(SimnetEvent::warn(format!(
                         "Unable to airdrop pubkey {}: Error parsing pubkey: {e}",
                         address
-                    ));
+                    )));
                     continue;
                 }
             }
         }
 
-        for keypair_path in self.airdrop_keypair_path.iter() {
-            let path = resolve_path(keypair_path);
-            match Keypair::read_from_file(&path) {
-                Ok(pubkey) => {
-                    airdrop_addresses.push(pubkey.pubkey());
+        let airdrop_keypair_path = self.airdrop_keypair_path.clone();
+
+        if airdrop_keypair_path.is_empty() {
+            let default_resolved_path = resolve_path(&DEFAULT_SOLANA_KEYPAIR_PATH);
+            // No keypair paths provided: try default
+            match Keypair::read_from_file(&default_resolved_path) {
+                Ok(kp) => {
+                    airdrop_addresses.push(kp.pubkey());
+                    events.push(SimnetEvent::info(format!(
+                        "No airdrop addresses provided; Using default keypair at {}",
+                        DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
+                    )));
                 }
-                Err(e) => {
-                    errors.push(format!(
-                        "Unable to complete airdrop; Error reading keypair file: {}: {e}",
-                        path.display()
-                    ));
-                    continue;
+                Err(_) => {
+                    events.push(SimnetEvent::info(format!(
+                        "No keypair found at default location {}, if you want to airdrop to a specific keypair provide the -k flag; skipping airdrops",
+                        DEFAULT_SOLANA_KEYPAIR_PATH.as_str()
+                    )));
+                }
+            }
+        } else {
+            // User provided paths: load each, warn on failures
+            for keypair_path in airdrop_keypair_path.iter() {
+                let path = resolve_path(keypair_path);
+                match Keypair::read_from_file(&path) {
+                    Ok(pubkey) => {
+                        airdrop_addresses.push(pubkey.pubkey());
+                    }
+                    Err(_) => {
+                        events.push(SimnetEvent::warn(format!(
+                            "No keypair found at provided path {}; skipping airdrop for that keypair",
+                            path.display()
+                        )));
+                    }
                 }
             }
         }
-        (airdrop_addresses, errors)
+
+        (airdrop_addresses, events)
     }
 
     pub fn rpc_config(&self) -> RpcConfig {

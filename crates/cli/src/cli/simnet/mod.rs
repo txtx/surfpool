@@ -51,7 +51,7 @@ pub async fn handle_start_local_surfnet_command(
     let simnet_events_tx = surfnet_svm.simnet_events_tx.clone();
 
     // Check aidrop addresses
-    let (mut airdrop_addresses, airdrop_errors) = cmd.get_airdrop_addresses();
+    let (mut airdrop_addresses, airdrop_events) = cmd.get_airdrop_addresses();
 
     let breaker = if cmd.no_tui {
         None
@@ -144,8 +144,8 @@ pub async fn handle_start_local_surfnet_command(
         }
     }
 
-    for error in airdrop_errors {
-        let _ = simnet_events_tx.send(SimnetEvent::warn(error));
+    for event in airdrop_events {
+        let _ = simnet_events_tx.send(event);
     }
 
     let mut deploy_progress_rx = vec![];
