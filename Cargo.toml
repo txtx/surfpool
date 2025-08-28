@@ -27,6 +27,7 @@ resolver = "2"
 agave-feature-set = "2.3.7"
 agave-geyser-plugin-interface = "2.3.7"
 agave-precompiles = "2.3.7"
+agave-reserved-account-keys = "2.3.7"
 anchor-lang-idl = "0.1.2"
 axum = { version = "0.8.0", features = ["macros"] }
 blake3 = "1.8.2"

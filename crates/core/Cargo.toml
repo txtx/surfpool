@@ -16,6 +16,7 @@ path = "src/lib.rs"
 agave-feature-set = { workspace = true }
 agave-geyser-plugin-interface = { workspace = true }
 agave-precompiles = { workspace = true }
+agave-reserved-account-keys = { workspace = true }
 base64 = "0.22.1"
 bincode = { workspace = true }
 borsh = { workspace = true }
