@@ -1594,6 +1594,7 @@ mod tests {
     use borsh::BorshSerialize;
     // use test_log::test; // uncomment to get logs from litesvm
     use solana_account::Account;
+    #[allow(deprecated)]
     use solana_sdk::{
         bpf_loader_upgradeable::{self, get_program_data_address},
         program_pack::Pack,
