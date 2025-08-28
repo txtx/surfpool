@@ -12162,9 +12162,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.4.4"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05de0fe134886ba0855e4645a543494406d5f1497ad61b8f9455726261f709f5"
+checksum = "52b004edb1154a2eac4b0fbf7e5b1a4fe953300978b6bdfa17d3c826e53deb04"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -12197,9 +12197,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.2.7"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0c4bdfa3c7f0022bdac240e3bb37256afcfc36901d610b3d241ee911f04c79e"
+checksum = "d13f76d7d23c0a89aa623ce6974e168ea1eaf7ccfe8882879cfe697e81015662"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -12212,6 +12212,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "solana-client",
+ "solana-message",
  "solana-record-service-client",
  "solana-sdk",
  "solana_idl",
@@ -12225,9 +12226,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.2.5"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "800b2eafc9068dcc35a9cf07d3cff7b6fd9f930c046c52a7be55cc0cae839222"
+checksum = "49d89dfa5fe350c535305da114f0ea27435ee6440f6a0fedba742b9a5ac0ad9d"
 dependencies = [
  "anchor-lang-idl",
  "borsh 1.5.5",
@@ -12282,9 +12283,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.4.7"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82a6829d7b2fddec32d1fe7d37f810de8e8868a7bc9534fb44632894bfe563aa"
+checksum = "a7ce76a0583b416c0305fd1fc6d6249f7af9d796cd850c40e8f268bda53e8b8e"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
@@ -12311,9 +12312,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-gql"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dd30cac596bdb4406403e4219228c1910553cc43c7606a73e51cdf03b1b8adb"
+checksum = "36e5f6a433e5183ffeb2cd78fcbef52b5e316f1cb4c55c2712a4bb5282bc52a4"
 dependencies = [
  "async-stream",
  "futures 0.3.31",
@@ -12326,9 +12327,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-supervisor-ui"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9609122b906ad5cff2618591d7d245ba819e95b15cff6ca83308ae6fafb84dc"
+checksum = "2a4b125d7a3b553253f8e029e49583211a24263b5904be49186ee0c4d885c08d"
 dependencies = [
  "actix-cors",
  "actix-web",

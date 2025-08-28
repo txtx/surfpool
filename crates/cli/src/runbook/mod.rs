@@ -319,13 +319,27 @@ pub async fn configure_supervised_execution(
     #[cfg(feature = "supervisor_ui")]
     let runbook_description = runbook.description.clone();
     #[cfg(feature = "supervisor_ui")]
-    let registered_addons = runbook
-        .runtime_context
-        .addons_context
-        .registered_addons
-        .keys()
-        .map(|k| k.clone())
-        .collect::<Vec<_>>();
+    let supervisor_addon_data = {
+        let flow = runbook.flow_contexts.first().unwrap();
+        let mut addons = vec![];
+        for addon in flow.execution_context.addon_instances.values() {
+            if let Some(addon_defaults) = flow
+                .workspace_context
+                .addons_defaults
+                .get(&(addon.package_id.did(), addon.addon_id.clone()))
+            {
+                use txtx_gql::kit::types::frontend::SupervisorAddonData;
+
+                if !addons
+                    .iter()
+                    .any(|a: &SupervisorAddonData| a.addon_name.eq(&addon.addon_id))
+                {
+                    addons.push(SupervisorAddonData::new(&addon.addon_id, addon_defaults));
+                }
+            }
+        }
+        addons
+    };
 
     let (block_tx, block_rx) = channel::unbounded::<BlockEvent>();
     let (block_broadcaster, _) = tokio::sync::broadcast::channel(5);
@@ -371,7 +385,7 @@ pub async fn configure_supervised_execution(
         let web_ui_handle = start_supervisor_ui(
             runbook_name,
             runbook_description,
-            registered_addons,
+            supervisor_addon_data,
             block_store.clone(),
             block_broadcaster.clone(),
             action_item_events_tx,
