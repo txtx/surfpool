@@ -1,4 +1,5 @@
 use std::{
+    env,
     error::Error,
     io,
     time::{Duration, Instant},
@@ -39,6 +40,36 @@ const SURFPOOL_LINK: &str = "Need help? https://docs.surfpool.run/tui";
 
 const ITEM_HEIGHT: usize = 1;
 
+/// Detects if we're running on a terminal with limited color support
+/// that might not handle modern color palettes correctly (like macOS Terminal)
+fn is_limited_terminal() -> bool {
+    let term_program = env::var("TERM_PROGRAM").unwrap_or_default();
+    let term = env::var("TERM").unwrap_or_default();
+    let colorterm = env::var("COLORTERM").unwrap_or_default();
+
+    // macOS Terminal.app (not iTerm2, Hyper, etc.)
+    if term_program == "Apple_Terminal" {
+        return true;
+    }
+
+    // Basic terminal types with limited color support
+    if term.starts_with("xterm") && !term.contains("256") && colorterm.is_empty() {
+        return true;
+    }
+
+    // VT100, ANSI terminals
+    if term == "vt100" || term == "ansi" || term.starts_with("screen") {
+        return true;
+    }
+
+    // No COLORTERM set usually indicates limited color support
+    if colorterm.is_empty() && !term.contains("256") && !term.contains("24bit") {
+        return true;
+    }
+
+    false
+}
+
 struct ColorTheme {
     background: Color,
     accent: Color,
@@ -55,6 +86,14 @@ struct ColorTheme {
 
 impl ColorTheme {
     fn new(color: &tailwind::Palette) -> Self {
+        if is_limited_terminal() {
+            Self::new_safe_colors(color)
+        } else {
+            Self::new_full_colors(color)
+        }
+    }
+
+    fn new_full_colors(color: &tailwind::Palette) -> Self {
         Self {
             background: tailwind::ZINC.c900,
             accent: color.c400,
@@ -67,6 +106,22 @@ impl ColorTheme {
             warning: tailwind::YELLOW.c500,
             info: tailwind::BLUE.c500,
             success: tailwind::GREEN.c500,
+        }
+    }
+
+    fn new_safe_colors(_color: &tailwind::Palette) -> Self {
+        Self {
+            background: Color::Reset,
+            accent: Color::Green,
+            primary: Color::Green,
+            secondary: Color::White,
+            white: Color::White,
+            dark_gray: Color::DarkGray,
+            light_gray: Color::Gray,
+            error: Color::Red,
+            warning: Color::Yellow,
+            info: Color::Blue,
+            success: Color::Green,
         }
     }
 }
