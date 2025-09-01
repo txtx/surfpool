@@ -1,10 +1,5 @@
 #![allow(unused_imports, unused_variables)]
 
-use std::{
-    collections::HashMap, error::Error as StdError, sync::RwLock, thread::JoinHandle,
-    time::Duration,
-};
-
 use actix_cors::Cors;
 use actix_web::{
     App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
@@ -17,8 +12,13 @@ use convert_case::{Case, Casing};
 use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
+use log::{debug, error, info, trace, warn};
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
+use std::{
+    collections::HashMap, error::Error as StdError, sync::RwLock, thread::JoinHandle,
+    time::Duration,
+};
 use surfpool_gql::{
     DynamicSchema,
     db::schema::collections,
@@ -216,7 +216,6 @@ fn start_subgraph_runloop(
     config: SanitizedConfig,
     ctx: &Context,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
-    let ctx = ctx.clone();
     let handle = hiro_system_kit::thread_named("Subgraph")
         .spawn(move || {
             let mut observers = vec![];
@@ -252,7 +251,7 @@ fn start_subgraph_runloop(
                                     )
                                 })?;
                                 if let Err(e) = gql_context.pool.register_collection(&metadata) {
-                                    error!(ctx.expect_logger(), "{}", e);
+                                    error!("{}", e);
                                 }
                                 collections_map.add_collection(metadata);
                                 gql_schema.replace(new_dynamic_schema(collections_map.clone()));

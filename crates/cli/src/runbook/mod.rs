@@ -1,4 +1,6 @@
-use std::{collections::BTreeMap, io::Write, sync::Arc};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use log::{debug, error, info, trace, warn};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use crossbeam::channel;
 use dialoguer::{Confirm, console::Style, theme::ColorfulTheme};
@@ -27,14 +29,24 @@ use txtx_gql::kit::{
     indexmap::IndexMap,
     types::{
         cloud_interface::CloudServiceContext,
-        frontend::ProgressBarStatusColor,
+        frontend::{LogDetails, LogEvent, LogLevel, TransientLogEventStatus},
         types::{AddonJsonConverter, Value},
     },
+    uuid::Uuid,
 };
 #[cfg(feature = "supervisor_ui")]
 use txtx_supervisor_ui::cloud_relayer::RelayerChannelEvent;
 
-use crate::cli::{DEFAULT_ID_SVC_URL, ExecuteRunbook};
+use crate::cli::{DEFAULT_ID_SVC_URL, ExecuteRunbook, setup_logger};
+
+lazy_static::lazy_static! {
+    static ref CLI_SPINNER_STYLE: ProgressStyle = {
+        let style = ProgressStyle::with_template("{spinner} {msg}")
+            .unwrap()
+            .tick_strings(&["⠋", "⠙", "⠸", "⠴", "⠦", "⠇"]);
+        style
+    };
+}
 
 pub fn get_json_converters() -> Vec<AddonJsonConverter<'static>> {
     get_available_addons()
@@ -85,60 +97,26 @@ pub async fn handle_execute_runbook_command(cmd: ExecuteRunbook) -> Result<(), S
         }
     });
 
+    let log_filter: LogLevel = cmd.log_level.as_str().into();
+
     let _ = hiro_system_kit::thread_named("Runbook Progress Event Loop").spawn(move || {
+        let mut active_spinners: IndexMap<Uuid, ProgressBar> = IndexMap::new();
+        let mut multi_progress = MultiProgress::new();
         while let Ok(msg) = progress_rx.recv() {
             match msg {
-                BlockEvent::UpdateProgressBarStatus(update) => {
-                    match update.new_status.status_color {
-                        ProgressBarStatusColor::Yellow => {
-                            print!(
-                                "\r{} {} {:<150}{}",
-                                yellow!("→"),
-                                yellow!(format!("{}", update.new_status.status)),
-                                update.new_status.message,
-                                if update.new_status.status.starts_with("Pending") {
-                                    ""
-                                } else {
-                                    "\n"
-                                }
-                            );
-                        }
-                        ProgressBarStatusColor::Green => {
-                            print!(
-                                "\r{} {} {:<150}\n",
-                                green!("✓"),
-                                green!(format!("{}", update.new_status.status)),
-                                update.new_status.message,
-                            );
-                        }
-                        ProgressBarStatusColor::Red => {
-                            print!(
-                                "\r{} {} {:<150}\n",
-                                red!("x"),
-                                red!(format!("{}", update.new_status.status)),
-                                update.new_status.message,
-                            );
-                        }
-                        ProgressBarStatusColor::Purple => {
-                            print!(
-                                "\r{} {} {:<150}\n",
-                                purple!("→"),
-                                purple!(format!("{}", update.new_status.status)),
-                                update.new_status.message,
-                            );
-                        }
-                    };
-                    std::io::stdout().flush().unwrap();
-                }
-                BlockEvent::RunbookCompleted => {
-                    println!("{} Runbook execution complete", green!("✓"));
-                }
+                BlockEvent::LogEvent(log) => handle_log_event(
+                    &mut multi_progress,
+                    log,
+                    &log_filter,
+                    &mut active_spinners,
+                    true,
+                ),
                 _ => {}
             }
         }
     });
 
-    execute_runbook(progress_tx, simnet_events_tx, cmd).await?;
+    execute_runbook(progress_tx, simnet_events_tx, cmd, true).await?;
 
     Ok(())
 }
@@ -158,6 +136,7 @@ pub async fn execute_runbook(
     progress_tx: Sender<BlockEvent>,
     simnet_events_tx: crossbeam::channel::Sender<SimnetEvent>,
     cmd: ExecuteRunbook,
+    do_setup_logger: bool,
 ) -> Result<(), String> {
     let manifest = load_workspace_manifest_from_manifest_path(&cmd.manifest_path)?;
     let runbook_id = cmd.runbook.to_string();
@@ -176,6 +155,16 @@ pub async fn execute_runbook(
         };
 
     let top_level_inputs_map = manifest.get_runbook_inputs(&cmd.environment, &cmd.inputs, None)?;
+
+    if do_setup_logger {
+        setup_logger(
+            &cmd.log_dir,
+            Some(&top_level_inputs_map.current_top_level_input_name()),
+            &runbook_id,
+            &cmd.log_level,
+            false,
+        )?;
+    }
 
     let authorization_context = AuthorizationContext::new(manifest.location.clone().unwrap());
     let cloud_svc_context = CloudServiceContext::new(Some(Arc::new(
@@ -343,7 +332,9 @@ pub async fn configure_supervised_execution(
 
     let (block_tx, block_rx) = channel::unbounded::<BlockEvent>();
     let (block_broadcaster, _) = tokio::sync::broadcast::channel(5);
+    let (log_broadcaster, _) = tokio::sync::broadcast::channel(5);
     let block_store = Arc::new(RwLock::new(BTreeMap::new()));
+    let log_store = Arc::new(RwLock::new(vec![]));
     let (kill_loops_tx, kill_loops_rx) = channel::bounded(1);
     #[cfg(feature = "supervisor_ui")]
     let (action_item_events_tx, action_item_events_rx) = tokio::sync::broadcast::channel(32);
@@ -387,7 +378,9 @@ pub async fn configure_supervised_execution(
             runbook_description,
             supervisor_addon_data,
             block_store.clone(),
+            log_store.clone(),
             block_broadcaster.clone(),
+            log_broadcaster.clone(),
             action_item_events_tx,
             relayer_channel_tx.clone(),
             relayer_channel_rx,
@@ -422,7 +415,10 @@ pub async fn configure_supervised_execution(
         panic!("Supervisor UI is not enabled in this build");
     }
 
+    let log_filter = cmd.log_level.as_str().into();
     let block_store_handle = tokio::spawn(async move {
+        let mut active_spinners: IndexMap<Uuid, ProgressBar> = IndexMap::new();
+        let mut multi_progress = MultiProgress::new();
         loop {
             if let Ok(mut block_event) = block_rx.try_recv() {
                 let mut block_store = block_store.write().await;
@@ -454,26 +450,24 @@ pub async fn configure_supervised_execution(
                         let len = block_store.len();
                         block_store.insert(len, new_block.clone());
                     }
-                    BlockEvent::ProgressBar(new_block) => {
-                        let len = block_store.len();
-                        block_store.insert(len, new_block.clone());
-                    }
-                    BlockEvent::UpdateProgressBarStatus(update) => block_store
-                        .iter_mut()
-                        .filter(|(_, b)| b.uuid == update.progress_bar_uuid)
-                        .for_each(|(_, b)| {
-                            b.update_progress_bar_status(&update.construct_did, &update.new_status)
-                        }),
-                    BlockEvent::UpdateProgressBarVisibility(update) => block_store
-                        .iter_mut()
-                        .filter(|(_, b)| b.uuid == update.progress_bar_uuid)
-                        .for_each(|(_, b)| b.visible = update.visible),
                     BlockEvent::RunbookCompleted => {
                         let _ = simnet_events_tx.send(SimnetEvent::info("Runbook completed"));
                     }
                     BlockEvent::Error(new_block) => {
                         let len = block_store.len();
                         block_store.insert(len, new_block.clone());
+                    }
+                    BlockEvent::LogEvent(log_event) => {
+                        handle_log_event(
+                            &mut multi_progress,
+                            log_event.clone(),
+                            &log_filter,
+                            &mut active_spinners,
+                            true,
+                        );
+                        let mut log_store = log_store.write().await;
+                        log_store.push(log_event.clone());
+                        let _ = log_broadcaster.send(log_event);
                     }
                     BlockEvent::Exit => break,
                 }
@@ -736,5 +730,127 @@ fn process_runbook_execution_output(
             }
         }
         write_runbook_state(runbook, runbook_state_location, simnet_events_tx);
+    }
+}
+
+pub fn persist_log(
+    message: &str,
+    summary: &str,
+    namespace: &str,
+    log_level: &LogLevel,
+    log_filter: &LogLevel,
+    do_log_to_cli: bool,
+) {
+    let msg = format!("{} - {}", summary, message);
+    match log_level {
+        LogLevel::Trace => {
+            trace!(target: &namespace, "{}", msg);
+            if do_log_to_cli && log_filter.should_log(&log_level) {
+                println!("→ {}", msg);
+            }
+        }
+        LogLevel::Debug => {
+            debug!(target: &namespace, "{}", msg);
+            if do_log_to_cli && log_filter.should_log(&log_level) {
+                println!("→ {}", msg);
+            }
+        }
+
+        LogLevel::Info => {
+            info!(target: &namespace, "{}", msg);
+            if do_log_to_cli && log_filter.should_log(&log_level) {
+                println!("{} {} - {}", purple!("→"), purple!(summary), message);
+            }
+        }
+        LogLevel::Warn => {
+            warn!(target: &namespace, "{}", msg);
+            if do_log_to_cli && log_filter.should_log(&log_level) {
+                println!("{} {} - {}", yellow!("!"), yellow!(summary), message);
+            }
+        }
+        LogLevel::Error => {
+            error!(target: &namespace, "{}", msg);
+            if do_log_to_cli && log_filter.should_log(&log_level) {
+                println!("{} {} - {}", red!("x"), red!(summary), message);
+            }
+        }
+    }
+}
+
+pub fn handle_log_event(
+    multi_progress: &mut MultiProgress,
+    log: LogEvent,
+    log_filter: &LogLevel,
+    active_spinners: &mut IndexMap<Uuid, ProgressBar>,
+    do_log_to_cli: bool,
+) {
+    match log {
+        LogEvent::Static(static_log_event) => {
+            let LogDetails { message, summary } = static_log_event.details;
+            persist_log(
+                &message,
+                &summary,
+                &static_log_event.namespace,
+                &static_log_event.level,
+                &log_filter,
+                do_log_to_cli,
+            );
+        }
+        LogEvent::Transient(log) => match log.status {
+            TransientLogEventStatus::Pending(LogDetails { message, summary }) => {
+                if let Some(pb) = active_spinners.get(&log.uuid) {
+                    // update existing spinner
+                    pb.set_message(format!("{} {}", yellow!(&summary), &message));
+                } else {
+                    // create new spinner
+                    let pb = multi_progress.add(ProgressBar::new_spinner());
+                    pb.set_style(CLI_SPINNER_STYLE.clone());
+                    pb.enable_steady_tick(Duration::from_millis(80));
+                    pb.set_message(format!("{} {}", yellow!(&summary), message));
+                    active_spinners.insert(log.uuid, pb);
+                    persist_log(
+                        &message,
+                        &summary,
+                        &log.namespace,
+                        &log.level,
+                        &log_filter,
+                        false,
+                    );
+                }
+            }
+            TransientLogEventStatus::Success(LogDetails { summary, message }) => {
+                let msg = format!("{} {} {}", green!("✓"), green!(&summary), message);
+                if let Some(pb) = active_spinners.swap_remove(&log.uuid) {
+                    pb.finish_with_message(msg);
+                } else {
+                    println!("{}", msg);
+                }
+
+                persist_log(
+                    &message,
+                    &summary,
+                    &log.namespace,
+                    &log.level,
+                    &log_filter,
+                    false,
+                );
+            }
+            TransientLogEventStatus::Failure(LogDetails { summary, message }) => {
+                let msg = format!("{} {}: {}", red!("x"), red!(&summary), message);
+                if let Some(pb) = active_spinners.swap_remove(&log.uuid) {
+                    pb.finish_with_message(msg);
+                } else {
+                    println!("{}", msg);
+                }
+                persist_log(
+                    &message,
+                    &summary,
+                    &log.namespace,
+                    &log.level,
+                    &log_filter,
+                    false,
+                );
+            }
+        },
     }
 }

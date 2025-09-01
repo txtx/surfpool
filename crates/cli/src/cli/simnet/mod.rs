@@ -10,6 +10,8 @@ use std::{
 };
 
 use crossbeam::channel::{Select, Sender};
+use indicatif::{MultiProgress, ProgressBar};
+use log::{debug, error, info, warn};
 use notify::{
     Config, Event, EventKind, RecursiveMode, Result as NotifyResult, Watcher,
     event::{CreateKind, DataChange, ModifyKind},
@@ -23,12 +25,13 @@ use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
     types::frontend::BlockEvent,
 };
-use txtx_gql::kit::reqwest;
+use txtx_gql::kit::{indexmap::IndexMap, reqwest, types::frontend::LogLevel, uuid::Uuid};
 
 use super::{Context, DEFAULT_CLOUD_URL, ExecuteRunbook, StartSimnet};
 use crate::{
+    cli::setup_logger,
     http::start_subgraph_and_explorer_server,
-    runbook::execute_runbook,
+    runbook::{execute_runbook, handle_log_event},
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
     tui::{self, simnet::DisplayedUrl},
 };
@@ -49,6 +52,8 @@ pub async fn handle_start_local_surfnet_command(
     let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
     let simnet_events_tx = surfnet_svm.simnet_events_tx.clone();
+
+    setup_logger(&cmd.log_dir, None, "simnet", &cmd.log_level, cmd.no_tui)?;
 
     // Check aidrop addresses
     let (mut airdrop_addresses, airdrop_events) = cmd.get_airdrop_addresses();
@@ -112,7 +117,6 @@ pub async fn handle_start_local_surfnet_command(
         }
     };
 
-    let ctx_copy = ctx.clone();
     let simnet_commands_tx_copy = simnet_commands_tx.clone();
     let config_copy = config.clone();
 
@@ -127,7 +131,7 @@ pub async fn handle_start_local_surfnet_command(
                 geyser_events_rx,
             );
             if let Err(e) = hiro_system_kit::nestable_block_on(future) {
-                error!(ctx_copy.expect_logger(), "Simnet exited with error: {e}");
+                error!("Simnet exited with error: {e}");
                 sleep(Duration::from_millis(500));
                 std::process::exit(1);
             }
@@ -188,7 +192,6 @@ pub async fn handle_start_local_surfnet_command(
             subgraph_events_rx,
             cmd.debug,
             deploy_progress_rx,
-            ctx,
         )?;
     } else {
         tui::simnet::start_app(
@@ -212,7 +215,6 @@ fn log_events(
     subgraph_events_rx: Receiver<SubgraphEvent>,
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
-    ctx: &Context,
 ) -> Result<(), String> {
     let mut deployment_completed = false;
     let stop_loop = Arc::new(AtomicBool::new(false));
@@ -221,6 +223,14 @@ fn log_events(
         stop_loop.store(true, Ordering::Relaxed);
     })
     .expect("Error setting Ctrl-C handler");
+
+    let log_filter = if include_debug_logs {
+        LogLevel::Debug
+    } else {
+        LogLevel::Info
+    };
+    let mut active_spinners: IndexMap<Uuid, ProgressBar> = IndexMap::new();
+    let mut multi_progress = MultiProgress::new();
 
     loop {
         if do_stop_loop.load(Ordering::Relaxed) {
@@ -243,56 +253,50 @@ fn log_events(
             0 => match oper.recv(&simnet_events_rx) {
                 Ok(event) => match event {
                     SimnetEvent::AccountUpdate(_dt, _) => {
-                        info!(ctx.expect_logger(), "{}", event.account_update_msg());
+                        info!("{}", event.account_update_msg());
                     }
                     SimnetEvent::PluginLoaded(_) => {
-                        info!(ctx.expect_logger(), "{}", event.plugin_loaded_msg());
+                        info!("{}", event.plugin_loaded_msg());
                     }
                     SimnetEvent::EpochInfoUpdate(_) => {
-                        info!(ctx.expect_logger(), "{}", event.epoch_info_update_msg());
+                        info!("{}", event.epoch_info_update_msg());
                     }
                     SimnetEvent::SystemClockUpdated(_) => {
                         if include_debug_logs {
-                            info!(ctx.expect_logger(), "{}", event.clock_update_msg());
+                            info!("{}", event.clock_update_msg());
                         }
                     }
                     SimnetEvent::ClockUpdate(_) => {}
                     SimnetEvent::ErrorLog(_dt, log) => {
-                        error!(ctx.expect_logger(), "{}", log);
+                        error!("{}", log);
                     }
                     SimnetEvent::InfoLog(_dt, log) => {
-                        info!(ctx.expect_logger(), "{}", log);
+                        info!("{}", log);
                     }
                     SimnetEvent::DebugLog(_dt, log) => {
                         if include_debug_logs {
-                            info!(ctx.expect_logger(), "{}", log);
+                            debug!("{}", log);
                         }
                     }
                     SimnetEvent::WarnLog(_dt, log) => {
-                        warn!(ctx.expect_logger(), "{}", log);
+                        warn!("{}", log);
                     }
                     SimnetEvent::TransactionReceived(_dt, transaction) => {
                         if deployment_completed {
-                            info!(
-                                ctx.expect_logger(),
-                                "Transaction received {}", transaction.signatures[0]
-                            );
+                            info!("Transaction received {}", transaction.signatures[0]);
                         }
                     }
                     SimnetEvent::TransactionProcessed(_dt, meta, _err) => {
                         if deployment_completed {
-                            info!(
-                                ctx.expect_logger(),
-                                "Transaction processed {}", meta.signature
-                            );
+                            info!("Transaction processed {}", meta.signature);
                             for log in meta.logs {
-                                info!(ctx.expect_logger(), "{}", log);
+                                info!("{}", log);
                             }
                         }
                     }
                     SimnetEvent::BlockHashExpired => {}
                     SimnetEvent::Aborted(error) => {
-                        error!(ctx.expect_logger(), "{}", error);
+                        error!("{}", error);
                         return Err(error);
                     }
                     SimnetEvent::Ready => {}
@@ -306,25 +310,17 @@ fn log_events(
                         timestamp: _,
                     } => {
                         info!(
-                            ctx.expect_logger(),
                             "Profiled [{}]: {} CUs",
-                            tag,
-                            result.transaction_profile.compute_units_consumed
+                            tag, result.transaction_profile.compute_units_consumed
                         );
                     }
                     SimnetEvent::RunbookStarted(runbook_id) => {
                         deployment_completed = false;
-                        info!(
-                            ctx.expect_logger(),
-                            "Runbook '{}' execution started", runbook_id
-                        );
+                        info!("Runbook '{}' execution started", runbook_id);
                     }
                     SimnetEvent::RunbookCompleted(runbook_id) => {
                         deployment_completed = true;
-                        info!(
-                            ctx.expect_logger(),
-                            "Runbook '{}' execution completed", runbook_id
-                        );
+                        info!("Runbook '{}' execution completed", runbook_id);
                     }
                 },
                 Err(_e) => {
@@ -334,18 +330,18 @@ fn log_events(
             1 => match oper.recv(&subgraph_events_rx) {
                 Ok(event) => match event {
                     SubgraphEvent::ErrorLog(_dt, log) => {
-                        error!(ctx.expect_logger(), "{}", log);
+                        error!("{}", log);
                     }
                     SubgraphEvent::InfoLog(_dt, log) => {
-                        info!(ctx.expect_logger(), "{}", log);
+                        info!("{}", log);
                     }
                     SubgraphEvent::DebugLog(_dt, log) => {
                         if include_debug_logs {
-                            info!(ctx.expect_logger(), "{}", log);
+                            info!("{}", log);
                         }
                     }
                     SubgraphEvent::WarnLog(_dt, log) => {
-                        warn!(ctx.expect_logger(), "{}", log);
+                        warn!("{}", log);
                     }
                     SubgraphEvent::EndpointReady => {}
                     SubgraphEvent::Shutdown => {
@@ -358,19 +354,13 @@ fn log_events(
             },
             i => match oper.recv(&deploy_progress_rx[i - 2]) {
                 Ok(event) => match event {
-                    BlockEvent::UpdateProgressBarStatus(update) => {
-                        debug!(
-                            ctx.expect_logger(),
-                            "{}",
-                            format!(
-                                "{}: {}",
-                                update.new_status.status, update.new_status.message
-                            )
-                        );
-                    }
-                    BlockEvent::RunbookCompleted => {
-                        info!(ctx.expect_logger(), "{}", format!("Deployment executed",));
-                    }
+                    BlockEvent::LogEvent(log) => handle_log_event(
+                        &mut multi_progress,
+                        log,
+                        &log_filter,
+                        &mut active_spinners,
+                        false,
+                    ),
                     _ => {}
                 },
                 Err(_e) => {
@@ -413,6 +403,7 @@ async fn write_and_execute_iac(
                 simnet_events_tx_copy.clone(),
                 ExecuteRunbook::default_localnet(runbook_id)
                     .with_manifest_path(txtx_manifest_location.to_string()),
+                false,
             ));
         }
 
@@ -477,6 +468,7 @@ async fn write_and_execute_iac(
                                 simnet_events_tx.clone(),
                                 ExecuteRunbook::default_localnet(runbook_id)
                                     .with_manifest_path(txtx_manifest_location.to_string()),
+                                false,
                             ));
                         }
                         let _ = hiro_system_kit::nestable_block_on(join_all(futures));
