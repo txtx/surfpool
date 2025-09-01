@@ -125,71 +125,71 @@ enum Command {
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 pub struct StartSimnet {
-    /// Path to the manifest
+    /// Path to the manifest that contains the Simnet configuration (eg. surfpool start --manifest-file-path ./Surfpool.toml)
     #[arg(
         long = "manifest-file-path",
         short = 'm',
         default_value = "./Surfpool.toml"
     )]
     pub manifest_path: String,
-    /// Set the Simnet RPC port
+    /// Set the Simnet RPC port (eg. surfpool start --port 8080)
     #[arg(long = "port", short = 'p', default_value_t = DEFAULT_RPC_PORT)]
     pub simnet_port: u16,
     /// Set the Simnet WS port
     #[arg(long = "ws-port", short = 'w', default_value_t = DEFAULT_WS_PORT)]
     pub ws_port: u16,
-    /// Set the Simnet host address
+    /// Set the Simnet host address (eg. surfpool start --host 127.0.0.1)
     #[arg(long = "host", short = 'o', default_value = DEFAULT_NETWORK_HOST)]
     pub network_host: String,
-    /// Set the slot time
+    /// Set the slot time (eg. surfpool start --slot-time 400)
     #[arg(long = "slot-time", short = 't', default_value_t = DEFAULT_SLOT_TIME_MS)]
     pub slot_time: u64,
-    /// Set a datasource RPC URL (cannot be used with --network). Can also be set via SURFPOOL_DATASOURCE_RPC_URL.
+    /// Set a datasource RPC URL (cannot be used with --network). Can also be set via SURFPOOL_DATASOURCE_RPC_URL. (eg. surfpool start --rpc-url https://api.mainnet-beta.solana.com)
     #[arg(long = "rpc-url", short = 'u', conflicts_with = "network")]
     pub rpc_url: Option<String>,
-    /// Choose a predefined network (cannot be used with --rpc-url)
+    /// Choose a predefined network (cannot be used with --rpc-url) (eg. surfpool start --network mainnet)
     #[arg(long = "network", short = 'n', value_enum, conflicts_with = "rpc_url")]
     pub network: Option<NetworkType>,
-    /// Display streams of logs instead of terminal UI dashboard (default: false)
+    /// Display streams of logs instead of terminal UI dashboard (default: false) (eg. surfpool start --no-tui)
     #[clap(long = "no-tui")]
     pub no_tui: bool,
-    /// Include debug logs (default: false)
+    /// Include debug logs (default: false) (eg. surfpool start --debug)
     #[clap(long = "debug", action=ArgAction::SetTrue)]
     pub debug: bool,
-    /// Disable auto deployments (default: false)
+    /// Disable auto deployments (default: false) (eg. surfpool start --no-deploy)
     #[clap(long = "no-deploy")]
     pub no_deploy: bool,
-    /// List of runbooks-id to run  
+    /// List of runbooks-id to run (eg. surfpool start --runbook runbook-1 --runbook runbook-2)  
     #[arg(long = "runbook", short = 'r', default_value = DEFAULT_RUNBOOK)]
     pub runbooks: Vec<String>,
-    /// List of pubkeys to airdrop
+    /// List of pubkeys to airdrop (eg. surfpool start --airdrop 5cQvx... --airdrop 5cQvy...)
     #[arg(long = "airdrop", short = 'a')]
     pub airdrop_addresses: Vec<String>,
     /// Quantity of tokens to airdrop
     #[arg(long = "airdrop-amount", short = 'q', default_value = DEFAULT_AIRDROP_AMOUNT)]
     pub airdrop_token_amount: u64,
-    /// List of keypair paths to airdrop (default: ~/.config/solana/id.json)
+    /// List of keypair paths to airdrop (default: ~/.config/solana/id.json) (eg. surfpool start --airdrop-keypair-path ~/.config/solana/id.json --airdrop-keypair-path ~/.config/solana/id2.json)
     #[arg(long = "airdrop-keypair-path", short = 'k')]
     pub airdrop_keypair_path: Vec<String>,
-    /// Disable explorer (default: false)
+    /// Disable explorer (default: false) (eg. surfpool start --no-explorer)
     #[clap(long = "no-explorer")]
     pub no_explorer: bool,
-    /// Watch programs (default: false)
+    /// Watch programs (default: false) (eg. surfpool start --watch)
     #[clap(long = "watch", action=ArgAction::SetTrue)]
     pub watch: bool,
-    /// List of geyser plugins to load
+    /// List of geyser plugins to load (eg. surfpool start --geyser-plugin-config plugin1.json --geyser-plugin-config plugin2.json)
     #[arg(long = "geyser-plugin-config", short = 'g')]
     pub plugin_config_path: Vec<String>,
-    /// Path to subgraph's sqlite database (default: :memory:)
+    /// Path to subgraph's sqlite database (default: :memory:) (eg. surfpool start --subgraph-database-path subgraph.db)
     #[arg(long = "subgraph-database-path", short = 'd')]
     pub subgraph_database_path: Option<String>,
-    /// Disable Studio (default: true)
+    /// Disable Studio (default: true) (eg. surfpool start --no-studio)
     #[clap(long = "no-studio")]
     pub no_studio: bool,
-    /// Set the Studio port
+    /// Set the Studio port (eg. surfpool start --studio-port 8080)
     #[arg(long = "studio-port", short = 's', default_value_t = CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED)]
     pub studio_port: u16,
-    /// Start surfpool without a remote RPC client to simulate an offline environment (default: false)
+    /// Start surfpool without a remote RPC client to simulate an offline environment (default: false) (eg. surfpool start --offline)
     #[clap(long = "offline", action=ArgAction::SetTrue)]
     pub offline: bool,
 }
