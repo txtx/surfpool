@@ -40,34 +40,123 @@ const SURFPOOL_LINK: &str = "Need help? https://docs.surfpool.run/tui";
 
 const ITEM_HEIGHT: usize = 1;
 
-/// Detects if we're running on a terminal with limited color support
-/// that might not handle modern color palettes correctly (like macOS Terminal)
-fn is_limited_terminal() -> bool {
-    let term_program = env::var("TERM_PROGRAM").unwrap_or_default();
-    let term = env::var("TERM").unwrap_or_default();
-    let colorterm = env::var("COLORTERM").unwrap_or_default();
+// Terminal detection constants
+const MACOS_TERMINAL: &str = "Apple_Terminal";
+/// XTerm-based terminals 
+const XTERM_TERMINAL_PREFIX: &str = "xterm";
+/// Indicates terminal supports 256-color palette (8-bit color)
+const SUPPORTS_256_COLOR_INDICATOR: &str = "256";
+/// Indicates terminal supports 24-bit true color
+const SUPPORTS_TRUECOLOR_INDICATOR: &str = "24bit";
+/// Legacy VT100 terminal type - basic 16-color support only
+const LEGACY_VT100_TERMINAL: &str = "vt100";
+/// ANSI terminal type - basic 16-color support only  
+const LEGACY_ANSI_TERMINAL: &str = "ansi";
 
-    // macOS Terminal.app (not iTerm2, Hyper, etc.)
-    if term_program == "Apple_Terminal" {
-        return true;
+/// Terminal detection and color capability analysis
+pub struct TerminalChecks {
+    term_program: Option<String>,
+    term: Option<String>,
+    colorterm: Option<String>,
+}
+
+impl Default for TerminalChecks {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TerminalChecks {
+    pub fn new() -> Self {
+        Self {
+            term_program: env::var("TERM_PROGRAM").ok(),
+            term: env::var("TERM").ok(),
+            colorterm: env::var("COLORTERM").ok(),
+        }
     }
 
-    // Basic terminal types with limited color support
-    if term.starts_with("xterm") && !term.contains("256") && colorterm.is_empty() {
-        return true;
+    /// Detects macOS Terminal.app which has known color mapping issues
+    pub fn is_macos_terminal(&self) -> bool {
+        self.term_program.as_deref() == Some(MACOS_TERMINAL)
     }
 
-    // VT100, ANSI terminals
-    if term == "vt100" || term == "ansi" || term.starts_with("screen") {
-        return true;
+    /// Checks if terminal is XTerm-based
+    fn is_xterm_based(&self) -> bool {
+        self.term
+            .as_deref()
+            .map(|term| term.starts_with(XTERM_TERMINAL_PREFIX))
+            .unwrap_or(false)
     }
 
-    // No COLORTERM set usually indicates limited color support
-    if colorterm.is_empty() && !term.contains("256") && !term.contains("24bit") {
-        return true;
+    /// Checks if terminal advertises 256-color support (8-bit color)
+    fn supports_256_colors(&self) -> bool {
+        self.term
+            .as_deref()
+            .map(|term| term.contains(SUPPORTS_256_COLOR_INDICATOR))
+            .unwrap_or(false)
     }
 
-    false
+    /// Checks if COLORTERM environment variable is empty (indicates basic color support)
+    fn has_no_colorterm_declaration(&self) -> bool {
+        self.colorterm
+            .as_deref()
+            .map(|colorterm| colorterm.is_empty())
+            .unwrap_or(true)
+    }
+
+    /// Checks if terminal advertises 24-bit true color support
+    fn supports_truecolor(&self) -> bool {
+        self.term
+            .as_deref()
+            .map(|term| term.contains(SUPPORTS_TRUECOLOR_INDICATOR))
+            .unwrap_or(false)
+    }
+
+    /// Checks for legacy terminal types with basic 16-color support only
+    fn is_legacy_terminal(&self) -> bool {
+        matches!(
+            self.term.as_deref(),
+            Some(LEGACY_VT100_TERMINAL) | Some(LEGACY_ANSI_TERMINAL)
+        )
+    }
+
+    /// XTerm terminals without 256-color support and no COLORTERM declaration
+    fn is_limited_xterm_terminal(&self) -> bool {
+        self.is_xterm_based() && !self.supports_256_colors() && self.has_no_colorterm_declaration()
+    }
+
+    /// Basic terminals without modern color support capabilities
+    fn is_basic_color_terminal(&self) -> bool {
+        self.has_no_colorterm_declaration()
+            && !self.supports_256_colors()
+            && !self.supports_truecolor()
+    }
+
+    /// Comprehensive check for terminals that need color compatibility mode
+    /// Returns true if the terminal has limited color support or known color mapping issues
+    pub fn is_limited_terminal(&self) -> bool {
+        // macOS Terminal.app has known color mapping issues with modern palettes
+        if self.is_macos_terminal() {
+            return true;
+        }
+
+        // XTerm terminals without proper color support
+        if self.is_limited_xterm_terminal() {
+            return true;
+        }
+
+        // Legacy terminal types with basic 16-color support only
+        if self.is_legacy_terminal() {
+            return true;
+        }
+
+        // Terminals without modern color capability declarations
+        if self.is_basic_color_terminal() {
+            return true;
+        }
+
+        false
+    }
 }
 
 struct ColorTheme {
@@ -86,7 +175,8 @@ struct ColorTheme {
 
 impl ColorTheme {
     fn new(color: &tailwind::Palette) -> Self {
-        if is_limited_terminal() {
+        let terminal_checks = TerminalChecks::new();
+        if terminal_checks.is_limited_terminal() {
             Self::new_safe_colors(color)
         } else {
             Self::new_full_colors(color)

@@ -1,5 +1,4 @@
 use std::{
-    env,
     path::Path,
     sync::{
         Arc,
@@ -31,7 +30,10 @@ use crate::{
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
-    tui::{self, simnet::DisplayedUrl},
+    tui::{
+        self,
+        simnet::{DisplayedUrl, TerminalChecks},
+    },
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -41,36 +43,19 @@ struct CheckVersionResponse {
 }
 
 /// Check terminal compatibility and warn about potential display issues
-fn check_and_warn_terminal_compatibility(simnet_events_tx: &Sender<SimnetEvent>, ctx: &Context) {
-    let term_program = env::var("TERM_PROGRAM").unwrap_or_default();
-    let term = env::var("TERM").unwrap_or_default();
-    let colorterm = env::var("COLORTERM").unwrap_or_default();
+fn check_and_warn_terminal_compatibility(simnet_events_tx: &Sender<SimnetEvent>) {
+    let terminal_checks = TerminalChecks::new();
 
-    // Detect macOS Terminal specifically
-    if term_program == "Apple_Terminal" {
-        let _ = simnet_events_tx.send(SimnetEvent::info(
-            "macOS Terminal detected - using compatibility color mode. For best experience, consider using iTerm2 or similar modern terminal.".to_string()
-        ));
-        info!(
-            ctx.expect_logger(),
-            "Terminal compatibility: macOS Terminal detected, using compatible color palette"
-        );
-    } else if term.starts_with("xterm") && !term.contains("256") && colorterm.is_empty() {
-        let _ = simnet_events_tx.send(SimnetEvent::info(
-            "Limited color terminal detected - using compatibility mode. If colors appear incorrect, try setting COLORTERM=truecolor".to_string()
-        ));
-        info!(
-            ctx.expect_logger(),
-            "Terminal compatibility: Limited color support detected ({})", term
-        );
-    } else if colorterm.is_empty() && !term.contains("256") && !term.contains("24bit") {
-        let _ = simnet_events_tx.send(SimnetEvent::info(
-            "Basic terminal detected - using compatibility color mode.".to_string(),
-        ));
-        info!(
-            ctx.expect_logger(),
-            "Terminal compatibility: Basic terminal detected ({})", term
-        );
+    if terminal_checks.is_limited_terminal() {
+        if terminal_checks.is_macos_terminal() {
+            let _ = simnet_events_tx.send(SimnetEvent::info(
+                "macOS Terminal detected - using compatibility color mode. For best experience, consider using a different terminal.".to_string()
+            ));
+        } else {
+            let _ = simnet_events_tx.send(SimnetEvent::info(
+                "Limited color terminal detected - using compatibility mode. If colors appear incorrect, try setting COLORTERM=truecolor".to_string()
+            ));
+        }
     }
 }
 
@@ -226,7 +211,7 @@ pub async fn handle_start_local_surfnet_command(
             ctx,
         )?;
     } else {
-        check_and_warn_terminal_compatibility(&simnet_events_tx, ctx);
+        check_and_warn_terminal_compatibility(&simnet_events_tx);
 
         tui::simnet::start_app(
             simnet_events_rx,
