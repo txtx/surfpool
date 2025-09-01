@@ -42,7 +42,7 @@ const ITEM_HEIGHT: usize = 1;
 
 // Terminal detection constants
 const MACOS_TERMINAL: &str = "Apple_Terminal";
-/// XTerm-based terminals 
+/// XTerm-based terminals
 const XTERM_TERMINAL_PREFIX: &str = "xterm";
 /// Indicates terminal supports 256-color palette (8-bit color)
 const SUPPORTS_256_COLOR_INDICATOR: &str = "256";
