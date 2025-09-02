@@ -1,6 +1,6 @@
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 
-use agave_feature_set::FeatureSet;
+use agave_feature_set::{FeatureSet, enable_extend_program_checked};
 use chrono::Utc;
 use convert_case::Casing;
 use crossbeam_channel::{Receiver, Sender, unbounded};
@@ -140,7 +140,11 @@ impl SurfnetSvm {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
 
-        let feature_set = FeatureSet::all_enabled();
+        let mut feature_set = FeatureSet::all_enabled();
+
+        // todo: remove once txtx deployments upgrade solana dependencies.
+        // todo: consider making this configurable via config
+        feature_set.deactivate(&enable_extend_program_checked::id());
 
         let inner = LiteSVM::new()
             .with_feature_set(feature_set.clone())
