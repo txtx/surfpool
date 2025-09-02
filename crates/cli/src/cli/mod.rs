@@ -125,7 +125,7 @@ enum Command {
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 pub struct StartSimnet {
-    /// Path to the manifest that contains the Simnet configuration (eg. surfpool start --manifest-file-path ./Surfpool.toml)
+    /// Path to the runbook manifest, used to locate the root of the project (eg. surfpool start --manifest-file-path ./txtx.toml)
     #[arg(
         long = "manifest-file-path",
         short = 'm',
