@@ -204,7 +204,7 @@ pub struct StartSimnet {
     #[arg(long = "log-level", short = 'l', default_value = "info")]
     pub log_level: String,
     /// The directory to put simnet logs.
-    #[arg(long = "log-dir", default_value = DEFAULT_LOG_DIR.as_str())]
+    #[arg(long = "log-path", default_value = DEFAULT_LOG_DIR.as_str())]
     pub log_dir: String,
 }
 
@@ -413,7 +413,7 @@ pub struct ExecuteRunbook {
     #[arg(long = "log-level", short = 'l', default_value = "info")]
     pub log_level: String,
     /// The directory to put runbook execution logs.
-    #[arg(long = "log-dir", default_value = DEFAULT_LOG_DIR.as_str())]
+    #[arg(long = "log-path", default_value = DEFAULT_LOG_DIR.as_str())]
     pub log_dir: String,
 }
 

@@ -1,9 +1,9 @@
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use log::{debug, error, info, trace, warn};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use crossbeam::channel;
 use dialoguer::{Confirm, console::Style, theme::ColorfulTheme};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use log::{debug, error, info, trace, warn};
 use surfpool_types::SimnetEvent;
 use tokio::{sync::RwLock, task::JoinHandle};
 use txtx_addon_network_svm::SvmNetworkAddon;
