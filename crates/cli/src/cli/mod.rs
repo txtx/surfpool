@@ -182,7 +182,7 @@ pub struct StartSimnet {
     /// Disable explorer (default: false)
     #[clap(long = "no-explorer")]
     pub no_explorer: bool,
-    /// Watch programs (default: false)
+    /// Watch programs in your `target/deploy` folder, and automatically re-execute the deployment runbook when the `.so` files change. (default: false)
     #[clap(long = "watch", action=ArgAction::SetTrue)]
     pub watch: bool,
     /// List of geyser plugins to load
@@ -191,7 +191,7 @@ pub struct StartSimnet {
     /// Path to subgraph's sqlite database (default: :memory:)
     #[arg(long = "subgraph-database-path", short = 'd')]
     pub subgraph_database_path: Option<String>,
-    /// Disable Studio (default: true)
+    /// Disable Studio (default: false)
     #[clap(long = "no-studio")]
     pub no_studio: bool,
     /// Set the Studio port
