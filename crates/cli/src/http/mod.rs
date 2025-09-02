@@ -1,4 +1,8 @@
 #![allow(unused_imports, unused_variables)]
+use std::{
+    collections::HashMap, error::Error as StdError, sync::RwLock, thread::JoinHandle,
+    time::Duration,
+};
 
 use actix_cors::Cors;
 use actix_web::{
@@ -15,10 +19,6 @@ use juniper_graphql_ws::ConnectionConfig;
 use log::{debug, error, info, trace, warn};
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
-use std::{
-    collections::HashMap, error::Error as StdError, sync::RwLock, thread::JoinHandle,
-    time::Duration,
-};
 use surfpool_gql::{
     DynamicSchema,
     db::schema::collections,
