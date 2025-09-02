@@ -1,7 +1,9 @@
 use std::{env, fs::File, path::PathBuf, process, str::FromStr};
 
+use chrono::Local;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use clap_complete::{Generator, Shell};
+use fern::colors::{Color, ColoredLevelConfig};
 use hiro_system_kit::{self, Logger};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -14,7 +16,7 @@ use surfpool_types::{
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
-use txtx_gql::kit::helpers::fs::FileLocation;
+use txtx_gql::kit::{helpers::fs::FileLocation, types::frontend::LogLevel};
 
 use crate::{cloud::CloudStartCommand, runbook::handle_execute_runbook_command};
 
@@ -41,6 +43,12 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_SOLANA_KEYPAIR_PATH: String = {
         PathBuf::from("~").join(".config").join("solana")
             .join("id.json")
+            .display()
+            .to_string()
+    };
+
+    pub static ref DEFAULT_LOG_DIR: String = {
+        PathBuf::from(".surfpool").join("logs")
             .display()
             .to_string()
     };
@@ -192,6 +200,12 @@ pub struct StartSimnet {
     /// Start surfpool without a remote RPC client to simulate an offline environment (default: false)
     #[clap(long = "offline", action=ArgAction::SetTrue)]
     pub offline: bool,
+    /// The log level to use for simnet logs. Options are "trace", "debug", "info", "warn", "error".
+    #[arg(long = "log-level", short = 'l', default_value = "info")]
+    pub log_level: String,
+    /// The directory to put simnet logs.
+    #[arg(long = "log-path", default_value = DEFAULT_LOG_DIR.as_str())]
+    pub log_dir: String,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -395,6 +409,12 @@ pub struct ExecuteRunbook {
     /// Execute the Runbook even if the cached state suggests this Runbook has already been executed
     #[arg(long = "force", short = 'f')]
     pub force_execution: bool,
+    /// The log level to use for the runbook execution. Options are "trace", "debug", "info", "warn", "error".
+    #[arg(long = "log-level", short = 'l', default_value = "info")]
+    pub log_level: String,
+    /// The directory to put runbook execution logs.
+    #[arg(long = "log-path", default_value = DEFAULT_LOG_DIR.as_str())]
+    pub log_dir: String,
 }
 
 impl ExecuteRunbook {
@@ -415,6 +435,8 @@ impl ExecuteRunbook {
             environment: Some("localnet".to_string()),
             inputs: vec![],
             force_execution: false,
+            log_level: "info".to_string(),
+            log_dir: DEFAULT_LOG_DIR.as_str().to_string(),
         }
     }
 
@@ -524,4 +546,92 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
             .await
         }
     }
+}
+
+pub fn setup_logger(
+    log_dir: &str,
+    environment_selector: Option<&str>,
+    filename: &str,
+    log_filter: &str,
+    log_to_stdout: bool,
+) -> Result<(), String> {
+    let log_location = {
+        let mut log_location = FileLocation::from_path_string(log_dir)?;
+        if let Some(env) = environment_selector {
+            log_location.append_path(env)?;
+        }
+        let timestamp = chrono::Local::now()
+            .format("%Y-%m-%d--%H-%M-%S")
+            .to_string();
+        let filename = format!("{}_{}.log", filename, timestamp);
+        log_location.append_path(&filename)?;
+
+        if !log_location.exists() {
+            log_location.create_dir_and_file().map_err(|e| {
+                format!(
+                    "Failed to create log file {}: {}",
+                    log_location.to_string(),
+                    e
+                )
+            })?;
+        }
+        log_location
+    };
+
+    let log_filter = match log_filter.into() {
+        LogLevel::Info => log::LevelFilter::Info,
+        LogLevel::Warn => log::LevelFilter::Warn,
+        LogLevel::Error => log::LevelFilter::Error,
+        LogLevel::Debug => log::LevelFilter::Debug,
+        LogLevel::Trace => log::LevelFilter::Trace,
+    };
+
+    let colors = ColoredLevelConfig::new()
+        .info(Color::Green)
+        .warn(Color::Yellow)
+        .error(Color::Red)
+        .debug(Color::Blue)
+        .trace(Color::White);
+
+    // File branch: full format, no filtering
+    let file_config = fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                Local::now().format("%Y-%m-%d--%H-%M-%S"),
+                record.level(),
+                record.target(),
+                message
+            ))
+        })
+        .chain(
+            fern::log_file(log_location.to_string())
+                .map_err(|e| format!("Failed to create log file: {}", e))?,
+        );
+
+    // Stdout branch: filtered to only txtx/surfopol target, minimal + colored format
+    let stdout_config = fern::Dispatch::new()
+        .filter(|metadata| {
+            metadata.target().starts_with("txtx") || metadata.target().starts_with("surfpool")
+        })
+        .format(move |out, message, record| {
+            out.finish(format_args!(
+                "{} {} {}",
+                Local::now().format("%b %d %H:%M:%S%.3f"),
+                colors.color(record.level()),
+                message
+            ))
+        })
+        .chain(std::io::stdout());
+
+    let mut builder = fern::Dispatch::new().level(log_filter).chain(file_config);
+
+    if log_to_stdout {
+        builder = builder.chain(stdout_config)
+    }
+
+    builder
+        .apply()
+        .map_err(|e| format!("Failed to initialize logger: {}", e))?;
+    Ok(())
 }
