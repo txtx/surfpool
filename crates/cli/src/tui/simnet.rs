@@ -30,10 +30,10 @@ use surfpool_core::{solana_rpc_client::rpc_client::RpcClient, surfnet::SLOTS_PER
 use surfpool_types::{
     BlockProductionMode, ClockCommand, SanitizedConfig, SimnetCommand, SimnetEvent,
 };
-use txtx_core::kit::{
-    channel::Receiver,
-    types::frontend::{BlockEvent, ProgressBarStatusColor},
-};
+use txtx_core::kit::{channel::Receiver, types::frontend::BlockEvent};
+use txtx_gql::kit::types::frontend::{LogEvent, LogLevel, TransientLogEventStatus};
+
+use crate::runbook::persist_log;
 
 const HELP_TEXT: &str = "(Esc) quit | (↑) move up | (↓) move down";
 const SURFPOOL_LINK: &str = "Need help? https://docs.surfpool.run/tui";
@@ -560,40 +560,89 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     },
                     i => match oper.recv(&app.deploy_progress_rx[i - 1]) {
                         Ok(event) => match event {
-                            BlockEvent::UpdateProgressBarStatus(update) => {
-                                deployment_completed = false;
-                                match update.new_status.status_color {
-                                    ProgressBarStatusColor::Yellow => {
-                                        app.status_bar_message = Some(format!(
-                                            "{}: {}",
-                                            update.new_status.status, update.new_status.message
-                                        ));
+                            BlockEvent::LogEvent(event) => {
+                                let summary = event.summary();
+                                let message = event.message();
+                                let level = event.level();
+                                let ns = event.namespace();
+                                let msg = format!("{} {}", summary, message);
+
+                                match &event {
+                                    LogEvent::Static(event) => {
+                                        persist_log(
+                                            &message,
+                                            &summary,
+                                            &ns,
+                                            &level,
+                                            &LogLevel::Info,
+                                            false,
+                                        );
+                                        match event.level {
+                                            LogLevel::Trace => {}
+                                            LogLevel::Debug => {
+                                                new_events.push((
+                                                    EventType::Debug,
+                                                    Local::now(),
+                                                    msg,
+                                                ));
+                                            }
+                                            LogLevel::Info => {
+                                                new_events.push((
+                                                    EventType::Info,
+                                                    Local::now(),
+                                                    msg,
+                                                ));
+                                            }
+                                            LogLevel::Warn => {
+                                                new_events.push((
+                                                    EventType::Warning,
+                                                    Local::now(),
+                                                    msg,
+                                                ));
+                                            }
+                                            LogLevel::Error => {
+                                                new_events.push((
+                                                    EventType::Failure,
+                                                    Local::now(),
+                                                    msg,
+                                                ));
+                                            }
+                                        }
                                     }
-                                    ProgressBarStatusColor::Green => {
-                                        app.status_bar_message = None;
-                                        new_events.push((
-                                            EventType::Info,
-                                            Local::now(),
-                                            update.new_status.message,
-                                        ));
-                                    }
-                                    ProgressBarStatusColor::Red => {
-                                        app.status_bar_message = None;
-                                        new_events.push((
-                                            EventType::Failure,
-                                            Local::now(),
-                                            update.new_status.message,
-                                        ));
-                                    }
-                                    ProgressBarStatusColor::Purple => {
-                                        app.status_bar_message = None;
-                                        new_events.push((
-                                            EventType::Info,
-                                            Local::now(),
-                                            update.new_status.message,
-                                        ));
-                                    }
-                                };
+                                    LogEvent::Transient(event) => match event.status {
+                                        TransientLogEventStatus::Pending(_) => {
+                                            app.status_bar_message = Some(msg);
+                                        }
+                                        TransientLogEventStatus::Success(_) => {
+                                            app.status_bar_message = None;
+                                            new_events.push((EventType::Info, Local::now(), msg));
+                                            persist_log(
+                                                &message,
+                                                &summary,
+                                                &ns,
+                                                &level,
+                                                &LogLevel::Info,
+                                                false,
+                                            );
+                                        }
+                                        TransientLogEventStatus::Failure(_) => {
+                                            app.status_bar_message = None;
+                                            new_events.push((
+                                                EventType::Failure,
+                                                Local::now(),
+                                                msg,
+                                            ));
+                                            persist_log(
+                                                &message,
+                                                &summary,
+                                                &ns,
+                                                &level,
+                                                &LogLevel::Info,
+                                                false,
+                                            );
+                                        }
+                                    },
+                                }
                             }
                             _ => {}
                         },

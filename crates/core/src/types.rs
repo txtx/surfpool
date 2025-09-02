@@ -1,5 +1,6 @@
 use std::{collections::HashSet, vec};
 
+use agave_reserved_account_keys::ReservedAccountKeys;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use litesvm::types::TransactionMetadata;
@@ -14,7 +15,6 @@ use solana_pubkey::Pubkey;
 use solana_sdk::{
     program_option::COption,
     program_pack::Pack,
-    reserved_account_keys::ReservedAccountKeys,
     transaction::{SanitizedTransaction, TransactionVersion, VersionedTransaction},
 };
 use solana_transaction_status::{
@@ -169,6 +169,7 @@ impl TransactionWithStatusMeta {
                 loaded_addresses,
                 return_data: Some(transaction_meta.return_data),
                 compute_units_consumed: Some(transaction_meta.compute_units_consumed),
+                cost_units: None,
             },
         }
     }
@@ -385,6 +386,7 @@ impl TransactionWithStatusMeta {
                 loaded_addresses,
                 return_data: Some(failure.meta.return_data.clone()),
                 compute_units_consumed: Some(failure.meta.compute_units_consumed),
+                cost_units: None,
             },
         }
     }
@@ -425,6 +427,7 @@ fn parse_ui_transaction_status_meta_with_account_keys(
             meta.return_data.map(|return_data| return_data.into()),
         ),
         compute_units_consumed: OptionSerializer::or_skip(meta.compute_units_consumed),
+        cost_units: OptionSerializer::or_skip(meta.cost_units),
     }
 }
 
@@ -454,6 +457,7 @@ fn parse_ui_transaction_status_meta(meta: TransactionStatusMeta) -> UiTransactio
             meta.return_data.map(|return_data| return_data.into()),
         ),
         compute_units_consumed: OptionSerializer::or_skip(meta.compute_units_consumed),
+        cost_units: OptionSerializer::or_skip(meta.cost_units),
     }
 }
 
@@ -485,6 +489,7 @@ fn build_simple_ui_transaction_status_meta(
         loaded_addresses: OptionSerializer::Skip,
         return_data: OptionSerializer::Skip,
         compute_units_consumed: OptionSerializer::Skip,
+        cost_units: OptionSerializer::Skip,
     }
 }
 
