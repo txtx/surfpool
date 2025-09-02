@@ -7,7 +7,8 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{program_option::COption, system_program, transaction::VersionedTransaction};
+use solana_sdk::{program_option::COption, transaction::VersionedTransaction};
+use solana_system_interface::program as system_program;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
     ClockCommand, Idl, RpcProfileResultConfig, SimnetCommand, SimnetEvent, UiKeyedProfileResult,
@@ -1468,7 +1469,7 @@ mod tests {
                     "Profile should succeed, found error: {}",
                     ix_profile.error_message.as_ref().unwrap()
                 );
-                assert_eq!(ix_profile.compute_units_consumed, 1404);
+                assert_eq!(ix_profile.compute_units_consumed, 1031);
                 let account_states = &ix_profile.account_states;
 
                 assert!(account_states.get(&payer.pubkey()).is_none());

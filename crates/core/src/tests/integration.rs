@@ -11,6 +11,7 @@ use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_dat
 use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
 use solana_client::rpc_response::RpcLogsResponse;
 use solana_clock::{Clock, Slot};
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
@@ -21,11 +22,9 @@ use solana_message::{
 use solana_native_token::LAMPORTS_PER_SOL;
 use solana_pubkey::{Pubkey, pubkey};
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{
-    compute_budget, system_instruction::transfer, system_program, transaction::Transaction,
-};
+use solana_sdk::{system_instruction::transfer, transaction::Transaction};
 use solana_signer::Signer;
-use solana_system_interface::instruction as system_instruction;
+use solana_system_interface::{instruction as system_instruction, program as system_program};
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
     DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
@@ -2170,7 +2169,7 @@ async fn test_profile_transaction_token_transfer() {
                 "Profile should succeed, found error: {}",
                 ix_profile.error_message.as_ref().unwrap()
             );
-            assert_eq!(ix_profile.compute_units_consumed, 1404);
+            assert_eq!(ix_profile.compute_units_consumed, 1031);
             assert!(ix_profile.error_message.is_none());
             let account_states = &ix_profile.account_states;
 
@@ -3699,6 +3698,51 @@ async fn test_ix_profiling_with_alt_tx() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn it_should_delete_accounts_with_no_lamports() {
+    let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400));
+
+    let p1 = Keypair::new();
+    let p2 = Keypair::new();
+
+    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    let message = Message::new_with_blockhash(
+        &[system_instruction::transfer(
+            &p1.pubkey(),
+            &p2.pubkey(),
+            LAMPORTS_PER_SOL - 5000,
+        )],
+        Some(&p1.pubkey()),
+        &recent_blockhash,
+    );
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&p1]).unwrap();
+
+    let (status_tx, rx) = unbounded();
+    let _ = svm_locker
+        .process_transaction(&None, tx, status_tx, true, false)
+        .await
+        .unwrap();
+
+    loop {
+        match rx.recv() {
+            Ok(status) => {
+                println!("Transaction status: {:?}", status);
+                break;
+            }
+            Err(_) => panic!("status channel closed unexpectedly"),
+        }
+    }
+
+    assert!(
+        svm_locker.get_account_local(&p1.pubkey()).inner.is_none(),
+        "Account should be deleted"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_compute_budget_profiling() {
     let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400));
@@ -3712,8 +3756,8 @@ async fn test_compute_budget_profiling() {
 
     let message = Message::new_with_blockhash(
         &[
-            compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(1_000_000),
-            compute_budget::ComputeBudgetInstruction::set_compute_unit_price(1),
+            ComputeBudgetInstruction::set_compute_unit_limit(1_000_000),
+            ComputeBudgetInstruction::set_compute_unit_price(1),
             system_instruction::transfer(&p1.pubkey(), &p2.pubkey(), LAMPORTS_PER_SOL),
         ],
         Some(&p1.pubkey()),
