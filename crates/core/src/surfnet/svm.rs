@@ -373,8 +373,10 @@ impl SurfnetSvm {
     /// A new `BlockIdentifier` for the updated blockhash.
     #[allow(deprecated)]
     fn new_blockhash(&mut self) -> BlockIdentifier {
-        use solana_sdk::sysvar::recent_blockhashes::{IterItem, MAX_ENTRIES, RecentBlockhashes};
-        use solana_sdk::sysvar::slot_hashes::SlotHashes;
+        use solana_sdk::sysvar::{
+            recent_blockhashes::{IterItem, MAX_ENTRIES, RecentBlockhashes},
+            slot_hashes::SlotHashes,
+        };
         self.updated_at = Utc::now().timestamp_millis() as u64;
         // cache the current blockhashes
         let blockhashes = self.inner.get_sysvar::<RecentBlockhashes>();
