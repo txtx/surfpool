@@ -30,33 +30,13 @@ use crate::{
     http::start_subgraph_and_explorer_server,
     runbook::execute_runbook,
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
-    tui::{
-        self,
-        simnet::{DisplayedUrl, TerminalChecks},
-    },
+    tui::{self, simnet::DisplayedUrl},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CheckVersionResponse {
     pub latest: String,
     pub deprecation_notice: Option<String>,
-}
-
-/// Check terminal compatibility and warn about potential display issues
-fn check_and_warn_terminal_compatibility(simnet_events_tx: &Sender<SimnetEvent>) {
-    let terminal_checks = TerminalChecks::new();
-
-    if terminal_checks.is_limited_terminal() {
-        if terminal_checks.is_macos_terminal() {
-            let _ = simnet_events_tx.send(SimnetEvent::info(
-                "macOS Terminal detected - using compatibility color mode. For best experience, consider using a different terminal.".to_string()
-            ));
-        } else {
-            let _ = simnet_events_tx.send(SimnetEvent::info(
-                "Limited color terminal detected - using compatibility mode. If colors appear incorrect, try setting COLORTERM=truecolor".to_string()
-            ));
-        }
-    }
 }
 
 pub async fn handle_start_local_surfnet_command(
@@ -211,8 +191,6 @@ pub async fn handle_start_local_surfnet_command(
             ctx,
         )?;
     } else {
-        check_and_warn_terminal_compatibility(&simnet_events_tx);
-
         tui::simnet::start_app(
             simnet_events_rx,
             simnet_commands_tx,
