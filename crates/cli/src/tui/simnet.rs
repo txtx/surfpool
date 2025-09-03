@@ -539,7 +539,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         Char(' ') => {
                             let _ = app
                                 .simnet_commands_tx
-                                .send(SimnetCommand::CommandClock(ClockCommand::Toggle));
+                                .send(SimnetCommand::CommandClock(None, ClockCommand::Toggle));
                         }
                         Tab => {
                             let _ = app

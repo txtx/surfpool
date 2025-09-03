@@ -193,7 +193,7 @@ impl SurfnetSvmLocker {
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
     ) -> SurfpoolResult<EpochInfo> {
-        let epoch_info = if let Some(remote_client) = remote_ctx {
+        let mut epoch_info = if let Some(remote_client) = remote_ctx {
             remote_client.get_epoch_info().await?
         } else {
             EpochInfo {
@@ -205,6 +205,7 @@ impl SurfnetSvmLocker {
                 transaction_count: None,
             }
         };
+        epoch_info.transaction_count = None;
 
         self.with_svm_writer(|svm_writer| {
             svm_writer.initialize(epoch_info.clone(), slot_time, remote_ctx);
@@ -2745,6 +2746,7 @@ impl SurfnetSvmLocker {
 
     pub fn time_travel(
         &self,
+        key: Option<(blake3::Hash, String)>,
         simnet_command_tx: Sender<SimnetCommand>,
         config: TimeTravelConfig,
     ) -> SurfpoolResult<EpochInfo> {
@@ -2768,7 +2770,7 @@ impl SurfnetSvmLocker {
         epoch_info.epoch = clock_update.epoch;
         epoch_info.absolute_slot =
             clock_update.slot + clock_update.epoch * epoch_info.slots_in_epoch;
-        let _ = simnet_command_tx.send(SimnetCommand::UpdateInternalClock(clock_update));
+        let _ = simnet_command_tx.send(SimnetCommand::UpdateInternalClock(key, clock_update));
         let _ = self.simnet_events_tx().send(SimnetEvent::info(format!(
             "Time travel to {} successful (epoch {} / slot {})",
             formated_time, epoch_info.epoch, epoch_info.absolute_slot

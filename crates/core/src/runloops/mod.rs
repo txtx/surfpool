@@ -183,7 +183,7 @@ pub async fn start_block_production_runloop(
                     SimnetCommand::SlotBackward(_key) => {
 
                     }
-                    SimnetCommand::CommandClock(update) => {
+                    SimnetCommand::CommandClock(_, update) => {
                         if let ClockCommand::UpdateSlotInterval(updated_slot_time) = update {
                             svm_locker.with_svm_writer(|svm_writer| {
                                 svm_writer.slot_time = updated_slot_time;
@@ -192,7 +192,7 @@ pub async fn start_block_production_runloop(
                         let _ = clock_command_tx.send(update);
                         continue
                     }
-                    SimnetCommand::UpdateInternalClock(clock) => {
+                    SimnetCommand::UpdateInternalClock(_, clock) => {
                         svm_locker.with_svm_writer(|svm_writer| {
                             svm_writer.inner.set_sysvar(&clock);
                             svm_writer.updated_at = clock.unix_timestamp as u64;
@@ -363,7 +363,6 @@ fn start_geyser_runloop(
                                 }
                                 #[cfg(feature = "subgraph")]
                                 PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
-                                    
                                     let _ = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(uuid, config.data.clone(), notifier));
                                     let mut plugin = SurfpoolSubgraphPlugin::default();
 
