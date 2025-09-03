@@ -66,24 +66,24 @@ solana-commitment-config = "2.2.1"
 solana-compute-budget-interface = "2.2.1"
 solana-epoch-info = { version = "2.2.1", features = ["serde"] }
 solana-epoch-schedule = "2.2.1"
-solana-geyser-plugin-manager = "3.0.0"
+# solana-geyser-plugin-manager = "=2.3.7"
 solana-hash = "2.3.0"
-solana-keypair = "2.2.3"
-solana-message = { version = "2.4.0", features = ["serde"]}
-solana-native-token = "3.0.0"
+solana-keypair = "2.2.1"
+solana-message = { version = "2.3.0", features = ["serde"]}
+solana-native-token = "2.2.2"
 solana-packet = "2.2.1"
 solana-program-runtime = "2.3.7"
-solana-pubkey = { version = "2.4.0", features = ["serde"]}
+solana-pubkey = { version = "2.3.0", features = ["serde"]}
 solana-rpc-client = "2.3.7"
 solana-rpc-client-api = "2.3.7"
 solana-runtime = "2.3.7"
-solana-sdk = "2.2.1"
+solana-sdk = "2.3.0"
 solana-sdk-ids = "2.2.1"
 solana-signature = { version = "2.3.0", features = ["serde"]}
 solana-signer = "2.2.1"
 solana-system-interface = { version = "1.0.0", features = ["bincode"] }
-solana-transaction = { version = "2.2.3", features = ["serde", "bincode"]}
-solana-transaction-context = { version = "2.2.7", features = ["serde"]}
+solana-transaction = { version = "2.2.2", features = ["serde", "bincode"]}
+solana-transaction-context = { version = "2.3.7", features = ["serde"]}
 solana-transaction-error = { version = "2.2.1", features = ["serde"]}
 solana-transaction-status = { version = "2.3.7" }
 solana-version = "2.3.7"
@@ -92,8 +92,8 @@ spl-token = "8.0.0"
 spl-token-2022 = "8.0.0"
 txtx-addon-kit = { version = "0.4.6", features = ["wasm"] }
 txtx-core = { version = "0.4.9" }
-txtx-addon-network-svm = { version = "0.3.3" }
-txtx-addon-network-svm-types = { version = "0.3.2" }
+txtx-addon-network-svm = { version = "0.3.4" }
+txtx-addon-network-svm-types = { version = "0.3.3" }
 txtx-gql = { version = "0.3.3" }
 txtx-supervisor-ui = { version = "0.2.6", default-features = false, features = ["crates_build"]}
 txtx-cloud = "0.1.10"

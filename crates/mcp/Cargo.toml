@@ -13,7 +13,7 @@ categories = { workspace = true }
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", branch = "main", features = [
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "ff71a526156e6c9409c450f71eccd6aced9bc339", features = [
     "transport-io",
     "transport-sse-server",
     "server",

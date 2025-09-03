@@ -31,6 +31,7 @@ use solana_geyser_plugin_manager::geyser_plugin_manager::{
 use solana_message::SimpleAddressLoader;
 use solana_sdk::transaction::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
+#[cfg(feature = "subgraph")]
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
     BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_RPC_URL, DataIndexingCommand,
@@ -300,7 +301,7 @@ fn start_geyser_runloop(
         #[cfg(not(feature = "geyser-plugin"))]
         let mut plugin_manager = ();
 
-        let mut surfpool_plugin_manager = vec![];
+        let mut surfpool_plugin_manager: Vec<Box<dyn GeyserPlugin>> = vec![];
 
         #[cfg(feature = "geyser-plugin")]
         for plugin_config_path in plugin_config_paths.into_iter() {
@@ -356,7 +357,13 @@ fn start_geyser_runloop(
                     match msg {
                         Ok(event) => {
                             match event {
+                                #[cfg(not(feature = "subgraph"))]
+                                PluginManagerCommand::LoadConfig(_, _, _) => {
+                                    continue;
+                                }
+                                #[cfg(feature = "subgraph")]
                                 PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
+                                    
                                     let _ = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(uuid, config.data.clone(), notifier));
                                     let mut plugin = SurfpoolSubgraphPlugin::default();
 
