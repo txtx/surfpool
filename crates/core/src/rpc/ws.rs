@@ -773,32 +773,40 @@ impl Rpc for SurfpoolWsRpc {
                 svm_locker.subscribe_for_signature_updates(&signature, subscription_type.clone());
 
             loop {
-                if let Ok((slot, some_err)) = rx.try_recv() {
-                    if let Ok(mut guard) = active.write() {
-                        if let Some(sink) = guard.remove(&sub_id) {
-                            match subscription_type {
-                                SignatureSubscriptionType::Received => {
-                                    let _ = sink.notify(Ok(RpcResponse {
-                                        context: RpcResponseContext::new(slot),
-                                        value: RpcSignatureResult::ReceivedSignature(
-                                            ReceivedSignatureResult::ReceivedSignature,
-                                        ),
-                                    }));
-                                }
-                                SignatureSubscriptionType::Commitment(_) => {
-                                    let _ = sink.notify(Ok(RpcResponse {
-                                        context: RpcResponseContext::new(slot),
-                                        value: RpcSignatureResult::ProcessedSignature(
-                                            ProcessedSignatureResult { err: some_err },
-                                        ),
-                                    }));
-                                }
-                            }
-                        }
-                    }
-                    return;
+                let Ok((slot, some_err)) = rx.try_recv() else {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    continue;
+                };
+
+                let Ok(guard) = active.read() else {
+                    log::error!("Failed to acquire read lock on signature_subscription_map");
+                    break;
+                };
+
+                let Some(sink) = guard.get(&sub_id) else {
+                    log::error!("Failed to get sink for subscription ID");
+                    break;
+                };
+
+                let res = match subscription_type {
+                    SignatureSubscriptionType::Received => sink.notify(Ok(RpcResponse {
+                        context: RpcResponseContext::new(slot),
+                        value: RpcSignatureResult::ReceivedSignature(
+                            ReceivedSignatureResult::ReceivedSignature,
+                        ),
+                    })),
+                    SignatureSubscriptionType::Commitment(_) => sink.notify(Ok(RpcResponse {
+                        context: RpcResponseContext::new(slot),
+                        value: RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
+                            err: some_err,
+                        }),
+                    })),
+                };
+
+                if let Err(e) = res {
+                    log::error!("Failed to notify client about account update: {e}");
+                    break;
                 }
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
             }
         });
     }
@@ -932,15 +940,27 @@ impl Rpc for SurfpoolWsRpc {
                     break;
                 }
 
-                if let Ok(ui_account) = rx.try_recv() {
-                    if let Ok(guard) = account_active.read() {
-                        if let Some(sink) = guard.get(&sub_id) {
-                            let _ = sink.notify(Ok(RpcResponse {
-                                context: RpcResponseContext::new(slot),
-                                value: ui_account,
-                            }));
-                        }
-                    }
+                let Ok(ui_account) = rx.try_recv() else {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    continue;
+                };
+
+                let Ok(guard) = account_active.read() else {
+                    log::error!("Failed to acquire read lock on account_subscription_map");
+                    break;
+                };
+
+                let Some(sink) = guard.get(&sub_id) else {
+                    log::error!("Failed to get sink for subscription ID");
+                    break;
+                };
+
+                if let Err(e) = sink.notify(Ok(RpcResponse {
+                    context: RpcResponseContext::new(slot),
+                    value: ui_account,
+                })) {
+                    log::error!("Failed to notify client about account update: {e}");
+                    break;
                 }
             }
         });
@@ -1029,12 +1049,24 @@ impl Rpc for SurfpoolWsRpc {
                     break;
                 }
 
-                if let Ok(slot_info) = rx.try_recv() {
-                    if let Ok(guard) = slot_active.read() {
-                        if let Some(sink) = guard.get(&sub_id) {
-                            let _ = sink.notify(Ok(slot_info));
-                        }
-                    }
+                let Ok(slot_info) = rx.try_recv() else {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    continue;
+                };
+
+                let Ok(guard) = slot_active.read() else {
+                    log::error!("Failed to acquire read lock on slots_subscription_map");
+                    break;
+                };
+
+                let Some(sink) = guard.get(&sub_id) else {
+                    log::error!("Failed to get sink for subscription ID");
+                    break;
+                };
+
+                if let Err(e) = sink.notify(Ok(slot_info)) {
+                    log::error!("Failed to notify client about slots update: {e}");
+                    break;
                 }
             }
         });
@@ -1115,15 +1147,27 @@ impl Rpc for SurfpoolWsRpc {
                     break;
                 }
 
-                if let Ok((slot, value)) = rx.try_recv() {
-                    if let Ok(guard) = logs_active.read() {
-                        if let Some(sink) = guard.get(&sub_id) {
-                            let _ = sink.notify(Ok(RpcResponse {
-                                context: RpcResponseContext::new(slot),
-                                value,
-                            }));
-                        }
-                    }
+                let Ok((slot, value)) = rx.try_recv() else {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    continue;
+                };
+
+                let Ok(guard) = logs_active.read() else {
+                    log::error!("Failed to acquire read lock on logs_subscription_map");
+                    break;
+                };
+
+                let Some(sink) = guard.get(&sub_id) else {
+                    log::error!("Failed to get sink for subscription ID");
+                    break;
+                };
+
+                if let Err(e) = sink.notify(Ok(RpcResponse {
+                    context: RpcResponseContext::new(slot),
+                    value,
+                })) {
+                    log::error!("Failed to notify client about logs update: {e}");
+                    break;
                 }
             }
         });
