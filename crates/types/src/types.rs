@@ -507,7 +507,7 @@ pub struct SimnetConfig {
     pub airdrop_addresses: Vec<Pubkey>,
     pub airdrop_token_amount: u64,
     pub expiry: Option<u64>,
-    pub do_profile_instructions: bool,
+    pub instruction_profiling_enabled: bool,
 }
 
 impl Default for SimnetConfig {
@@ -520,7 +520,7 @@ impl Default for SimnetConfig {
             airdrop_addresses: vec![],
             airdrop_token_amount: 0,
             expiry: None,
-            do_profile_instructions: true,
+            instruction_profiling_enabled: true,
         }
     }
 }

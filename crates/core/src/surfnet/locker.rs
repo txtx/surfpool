@@ -736,8 +736,8 @@ impl SurfnetSvmLocker {
         })
     }
 
-    pub fn do_profile_instructions(&self) -> bool {
-        self.with_svm_reader(|svm_reader| svm_reader.do_profile_instructions)
+    pub fn is_instruction_profiling_enabled(&self) -> bool {
+        self.with_svm_reader(|svm_reader| svm_reader.instruction_profiling_enabled)
     }
 
     pub async fn process_transaction(
@@ -943,7 +943,7 @@ impl SurfnetSvmLocker {
 
         let loaded_addresses = tx_loaded_addresses.as_ref().map(|l| l.loaded_addresses());
 
-        let ix_profiles = if self.do_profile_instructions() {
+        let ix_profiles = if self.is_instruction_profiling_enabled() {
             match self
                 .generate_instruction_profiles(
                     &transaction,

@@ -321,7 +321,7 @@ impl StartSimnet {
             airdrop_token_amount: self.airdrop_token_amount,
             expiry: None,
             offline_mode: self.offline,
-            do_profile_instructions: !self.disable_instruction_profiling,
+            instruction_profiling_enabled: !self.disable_instruction_profiling,
         }
     }
 

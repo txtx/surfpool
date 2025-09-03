@@ -79,7 +79,7 @@ pub async fn start_local_surfnet_runloop(
         .initialize(
             simnet.slot_time,
             &remote_rpc_client,
-            config.simnets[0].do_profile_instructions,
+            simnet.instruction_profiling_enabled,
         )
         .await?;
 
