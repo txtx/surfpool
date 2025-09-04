@@ -299,34 +299,36 @@ impl SurfnetSvm {
                 .unwrap_or(1);
             self.transactions.insert(
                 tx.get_signature().clone(),
-                SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta {
-                    slot,
-                    transaction: tx.clone(),
-                    meta: TransactionStatusMeta {
-                        status: Ok(()),
-                        fee: 5000,
-                        pre_balances: vec![
-                            account.lamports,
-                            account.lamports.saturating_sub(lamports),
-                            system_lamports,
-                        ],
-                        post_balances: vec![
-                            account.lamports.saturating_sub(lamports + 5000),
-                            account.lamports,
-                            system_lamports,
-                        ],
-                        inner_instructions: Some(vec![]),
-                        log_messages: Some(tx_result.logs.clone()),
-                        pre_token_balances: Some(vec![]),
-                        post_token_balances: Some(vec![]),
-                        rewards: Some(vec![]),
-                        loaded_addresses: LoadedAddresses::default(),
-                        return_data: Some(tx_result.return_data.clone()),
-                        compute_units_consumed: Some(tx_result.compute_units_consumed),
-                        cost_units: None,
+                SurfnetTransactionStatus::Processed(Box::new((
+                    TransactionWithStatusMeta {
+                        slot,
+                        transaction: tx.clone(),
+                        meta: TransactionStatusMeta {
+                            status: Ok(()),
+                            fee: 5000,
+                            pre_balances: vec![
+                                account.lamports,
+                                account.lamports.saturating_sub(lamports),
+                                system_lamports,
+                            ],
+                            post_balances: vec![
+                                account.lamports.saturating_sub(lamports + 5000),
+                                account.lamports,
+                                system_lamports,
+                            ],
+                            inner_instructions: Some(vec![]),
+                            log_messages: Some(tx_result.logs.clone()),
+                            pre_token_balances: Some(vec![]),
+                            post_token_balances: Some(vec![]),
+                            rewards: Some(vec![]),
+                            loaded_addresses: LoadedAddresses::default(),
+                            return_data: Some(tx_result.return_data.clone()),
+                            compute_units_consumed: Some(tx_result.compute_units_consumed),
+                            cost_units: None,
+                        },
                     },
                     HashSet::from([*pubkey]),
-                ),
+                ))),
             );
             self.transactions_queued_for_confirmation
                 .push_back((tx, status_tx.clone()));
