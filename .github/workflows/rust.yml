@@ -30,7 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev clang llvm-dev libclang-dev pkg-config
+          echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
       - uses: actions/checkout@v4
       - name: Build
         run: cargo build --verbose --features geyser-plugin
