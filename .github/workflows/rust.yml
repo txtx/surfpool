@@ -30,9 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev clang libclang-dev
       - uses: actions/checkout@v4
       - name: Build
-        run: cargo build --verbose --features geyser-plugin
+        run: cargo build --features geyser-plugin
       - name: Run tests
         run: cargo test --all --verbose --features "ignore_tests_ci geyser-plugin"
