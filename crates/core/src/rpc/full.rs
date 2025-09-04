@@ -21,15 +21,14 @@ use solana_client::{
 };
 use solana_clock::{MAX_RECENT_BLOCKHASHES, Slot, UnixTimestamp};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{
-    compute_budget::{self, ComputeBudgetInstruction},
-    instruction::CompiledInstruction,
-    system_program,
-};
+use solana_sdk::instruction::CompiledInstruction;
+use solana_sdk_ids::compute_budget;
 use solana_signature::Signature;
+use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
@@ -1637,8 +1636,10 @@ impl Full for SurfpoolFullRpc {
             let loaded_addresses = svm_locker
                 .get_loaded_addresses(&remote_ctx, &unsanitized_tx.message)
                 .await?;
-            let pubkeys =
-                svm_locker.get_pubkeys_from_message(&unsanitized_tx.message, loaded_addresses);
+            let transaction_pubkeys = svm_locker.get_pubkeys_from_message(
+                &unsanitized_tx.message,
+                loaded_addresses.as_ref().map(|l| l.all_loaded_addresses()),
+            );
 
             let SvmAccessContext {
                 slot,
@@ -1646,10 +1647,18 @@ impl Full for SurfpoolFullRpc {
                 latest_blockhash,
                 latest_epoch_info,
             } = svm_locker
-                .get_multiple_accounts(&remote_ctx, &pubkeys, None)
+                .get_multiple_accounts(&remote_ctx, &transaction_pubkeys, None)
                 .await?;
 
             svm_locker.write_multiple_account_updates(&account_updates);
+
+            if let Some(alt_pubkeys) = loaded_addresses.map(|l| l.alt_addresses()) {
+                let alt_updates = svm_locker
+                    .get_multiple_accounts(&remote_ctx, &alt_pubkeys, None)
+                    .await?
+                    .inner;
+                svm_locker.write_multiple_account_updates(&alt_updates);
+            }
 
             let replacement_blockhash = if config.replace_recent_blockhash {
                 match &mut unsanitized_tx.message {
@@ -2271,8 +2280,10 @@ impl Full for SurfpoolFullRpc {
                         let loaded_addresses = svm_locker
                             .get_loaded_addresses(&remote_ctx, &tx.message)
                             .await?;
-                        let account_keys =
-                            svm_locker.get_pubkeys_from_message(&tx.message, loaded_addresses);
+                        let account_keys = svm_locker.get_pubkeys_from_message(
+                            &tx.message,
+                            loaded_addresses.as_ref().map(|l| l.all_loaded_addresses()),
+                        );
 
                         let instructions = match &tx.message {
                             VersionedMessage::V0(msg) => &msg.instructions,
@@ -2335,6 +2346,7 @@ fn get_simulate_transaction_result(
             Some(metadata.return_data.clone().into())
         },
         units_consumed: Some(metadata.compute_units_consumed),
+        loaded_accounts_data_size: None,
     }
 }
 
@@ -2355,9 +2367,9 @@ mod tests {
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
-    use solana_sdk::{instruction::Instruction, system_instruction};
+    use solana_sdk::instruction::Instruction;
     use solana_signer::Signer;
-    use solana_system_interface::program as system_program;
+    use solana_system_interface::{instruction as system_instruction, program as system_program};
     use solana_transaction::{
         Transaction,
         versioned::{Legacy, TransactionVersion},
@@ -3036,12 +3048,12 @@ mod tests {
             VersionedMessage::Legacy(message) => message
                 .instructions
                 .iter()
-                .map(|ix| UiCompiledInstruction::from(ix, None))
+                .map(|ix| UiCompiledInstruction::from(ix, Some(1)))
                 .collect(),
             VersionedMessage::V0(message) => message
                 .instructions
                 .iter()
-                .map(|ix| UiCompiledInstruction::from(ix, None))
+                .map(|ix| UiCompiledInstruction::from(ix, Some(1)))
                 .collect(),
         };
 
@@ -3207,7 +3219,7 @@ mod tests {
                         &receiver_pubkey,
                         LAMPORTS_PER_SOL,
                     ),
-                    compute_budget::ComputeBudgetInstruction::set_compute_unit_price(1000),
+                    ComputeBudgetInstruction::set_compute_unit_price(1000),
                 ],
                 &recent_blockhash,
             );
@@ -3220,7 +3232,7 @@ mod tests {
                         &receiver_pubkey,
                         LAMPORTS_PER_SOL,
                     ),
-                    compute_budget::ComputeBudgetInstruction::set_compute_unit_price(1002),
+                    ComputeBudgetInstruction::set_compute_unit_price(1002),
                 ],
                 &recent_blockhash,
             );

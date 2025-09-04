@@ -1,5 +1,6 @@
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
+use agave_feature_set::{FeatureSet, enable_extend_program_checked};
 use chrono::Utc;
 use convert_case::Casing;
 use crossbeam_channel::{Receiver, Sender, unbounded};
@@ -9,7 +10,7 @@ use litesvm::{
         FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
     },
 };
-use solana_account::{Account, ReadableAccount};
+use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_account_decoder::{
     UiAccount, UiAccountData, UiAccountEncoding, UiDataSliceConfig, encode_ui_account,
     parse_account_data::{AccountAdditionalDataV3, ParsedAccount, SplTokenAdditionalDataV2},
@@ -19,22 +20,22 @@ use solana_client::{
     rpc_config::{RpcAccountInfoConfig, RpcBlockConfig, RpcTransactionLogsFilter},
     rpc_response::{RpcKeyedAccount, RpcLogsResponse, RpcPerfSample},
 };
-use solana_clock::{Clock, MAX_RECENT_BLOCKHASHES, Slot};
+use solana_clock::{Clock, Slot};
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
-use solana_feature_set::{FeatureSet, disable_new_loader_v3_deployments};
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk::{
-    genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
-    system_instruction, transaction::VersionedTransaction,
+    feature::Feature, genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
+    transaction::VersionedTransaction,
 };
 use solana_sdk_ids::system_program;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use solana_system_interface::instruction as system_instruction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{TransactionDetails, TransactionStatusMeta, UiConfirmedBlock};
 use spl_token_2022::extension::{
@@ -109,7 +110,6 @@ pub struct SurfnetSvm {
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
-    pub accounts_registry: HashMap<Pubkey, Account>,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: HashMap<Pubkey, TokenAccount>,
@@ -128,7 +128,13 @@ pub struct SurfnetSvm {
     /// the update with higher write_version should supersede the one with lower write_version.
     pub write_version: u64,
     pub registered_idls: HashMap<Pubkey, BinaryHeap<VersionedIdl>>,
+    pub feature_set: FeatureSet,
+    pub instruction_profiling_enabled: bool,
 }
+
+pub const FEATURE: Feature = Feature {
+    activated_at: Some(0),
+};
 
 impl SurfnetSvm {
     /// Creates a new instance of `SurfnetSvm`.
@@ -139,18 +145,13 @@ impl SurfnetSvm {
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
 
         let mut feature_set = FeatureSet::all_enabled();
-        // v2.2 of the solana_sdk deprecates the v3 loader, and enables the v4 loader by default.
-        // In order to keep the v3 deployments enabled, we need to remove the
-        // `disable_new_loader_v3_deployments` feature from the active set, and add it to the inactive set.
-        let _ = feature_set
-            .active
-            .remove(&disable_new_loader_v3_deployments::id());
-        feature_set
-            .inactive
-            .insert(disable_new_loader_v3_deployments::id());
+
+        // todo: remove once txtx deployments upgrade solana dependencies.
+        // todo: consider making this configurable via config
+        feature_set.deactivate(&enable_extend_program_checked::id());
 
         let inner = LiteSVM::new()
-            .with_feature_set(feature_set)
+            .with_feature_set(feature_set.clone())
             .with_blockhash_check(false)
             .with_sigverify(false);
 
@@ -184,7 +185,6 @@ impl SurfnetSvm {
                 logs_subscriptions: Vec::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 slot_time: DEFAULT_SLOT_TIME_MS,
-                accounts_registry: HashMap::new(),
                 accounts_by_owner: HashMap::new(),
                 account_associated_data: HashMap::new(),
                 token_accounts: HashMap::new(),
@@ -200,6 +200,8 @@ impl SurfnetSvm {
                 inflation: Inflation::default(),
                 write_version: 0,
                 registered_idls: HashMap::new(),
+                feature_set,
+                instruction_profiling_enabled: true,
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -224,10 +226,12 @@ impl SurfnetSvm {
         epoch_info: EpochInfo,
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
+        do_profile_instructions: bool,
     ) {
         self.latest_epoch_info = epoch_info.clone();
         self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_time = slot_time;
+        self.instruction_profiling_enabled = do_profile_instructions;
 
         if let Some(remote_client) = remote_ctx {
             let _ = self
@@ -249,6 +253,10 @@ impl SurfnetSvm {
         self.inner.set_sysvar(&clock);
     }
 
+    pub fn set_profile_instructions(&mut self, do_profile_instructions: bool) {
+        self.instruction_profiling_enabled = do_profile_instructions;
+    }
+
     /// Airdrops a specified amount of lamports to a single public key.
     ///
     /// # Arguments
@@ -265,7 +273,7 @@ impl SurfnetSvm {
         if let Ok(ref tx_result) = res {
             let airdrop_keypair = Keypair::new();
             let slot = self.latest_epoch_info.absolute_slot;
-            let account = self.inner.get_account(pubkey).unwrap();
+            let account = self.get_account(pubkey).unwrap();
 
             let mut tx = VersionedTransaction::try_new(
                 VersionedMessage::Legacy(Message::new(
@@ -286,45 +294,43 @@ impl SurfnetSvm {
             tx.signatures[0] = tx_result.signature.clone();
 
             let system_lamports = self
-                .inner
                 .get_account(&system_program::id())
                 .map(|a| a.lamports())
                 .unwrap_or(1);
             self.transactions.insert(
                 tx.get_signature().clone(),
-                SurfnetTransactionStatus::processed(
-                    TransactionWithStatusMeta {
-                        slot,
-                        transaction: tx.clone(),
-                        meta: TransactionStatusMeta {
-                            status: Ok(()),
-                            fee: 5000,
-                            pre_balances: vec![
-                                account.lamports,
-                                account.lamports.saturating_sub(lamports),
-                                system_lamports,
-                            ],
-                            post_balances: vec![
-                                account.lamports.saturating_sub(lamports + 5000),
-                                account.lamports,
-                                system_lamports,
-                            ],
-                            inner_instructions: Some(vec![]),
-                            log_messages: Some(tx_result.logs.clone()),
-                            pre_token_balances: Some(vec![]),
-                            post_token_balances: Some(vec![]),
-                            rewards: Some(vec![]),
-                            loaded_addresses: LoadedAddresses::default(),
-                            return_data: Some(tx_result.return_data.clone()),
-                            compute_units_consumed: Some(tx_result.compute_units_consumed),
-                        },
+                SurfnetTransactionStatus::Processed(Box::new(TransactionWithStatusMeta {
+                    slot,
+                    transaction: tx.clone(),
+                    meta: TransactionStatusMeta {
+                        status: Ok(()),
+                        fee: 5000,
+                        pre_balances: vec![
+                            account.lamports,
+                            account.lamports.saturating_sub(lamports),
+                            system_lamports,
+                        ],
+                        post_balances: vec![
+                            account.lamports.saturating_sub(lamports + 5000),
+                            account.lamports,
+                            system_lamports,
+                        ],
+                        inner_instructions: Some(vec![]),
+                        log_messages: Some(tx_result.logs.clone()),
+                        pre_token_balances: Some(vec![]),
+                        post_token_balances: Some(vec![]),
+                        rewards: Some(vec![]),
+                        loaded_addresses: LoadedAddresses::default(),
+                        return_data: Some(tx_result.return_data.clone()),
+                        compute_units_consumed: Some(tx_result.compute_units_consumed),
+                        cost_units: None,
                     },
                     HashSet::from([*pubkey]),
                 ),
             );
             self.transactions_queued_for_confirmation
                 .push_back((tx, status_tx.clone()));
-            let account = self.inner.get_account(pubkey).unwrap();
+            let account = self.get_account(pubkey).unwrap();
             let _ = self.set_account(pubkey, account);
         }
         res
@@ -361,58 +367,67 @@ impl SurfnetSvm {
         self.latest_epoch_info.clone()
     }
 
+    pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
+        self.feature_set.active().get(pubkey).map(|_| {
+            let feature_bytes = bincode::serialize(&FEATURE).unwrap();
+            let lamports = self
+                .inner
+                .minimum_balance_for_rent_exemption(feature_bytes.len());
+            Account {
+                lamports,
+                data: feature_bytes,
+                owner: solana_sdk_ids::feature::id(),
+                executable: false,
+                rent_epoch: 0,
+            }
+        })
+    }
+
     /// Generates and sets a new blockhash, updating the RecentBlockhashes sysvar.
     ///
     /// # Returns
     /// A new `BlockIdentifier` for the updated blockhash.
     #[allow(deprecated)]
     fn new_blockhash(&mut self) -> BlockIdentifier {
+        use solana_sdk::sysvar::{
+            recent_blockhashes::{IterItem, MAX_ENTRIES, RecentBlockhashes},
+            slot_hashes::SlotHashes,
+        };
         self.updated_at = Utc::now().timestamp_millis() as u64;
         // cache the current blockhashes
-        let blockhashes = self
-            .inner
-            .get_sysvar::<solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes>();
-        let max_entries_len = blockhashes.len().min(MAX_RECENT_BLOCKHASHES);
+        let blockhashes = self.inner.get_sysvar::<RecentBlockhashes>();
+        let max_entries_len = blockhashes.len().min(MAX_ENTRIES);
         let mut entries = Vec::with_capacity(max_entries_len);
         // note: expire blockhash has a bug with liteSVM.
         // they only keep one blockhash in their RecentBlockhashes sysvar, so this function
         // clears out the other valid hashes.
         // so we manually rehydrate the sysvar with new latest blockhash + cached blockhashes.
         self.inner.expire_blockhash();
-        let latest_entries = self
-            .inner
-            .get_sysvar::<solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes>();
+        let latest_entries = self.inner.get_sysvar::<RecentBlockhashes>();
         let latest_entry = latest_entries.first().unwrap();
-        entries.push(solana_sdk::sysvar::recent_blockhashes::IterItem(
+        entries.push(IterItem(
             0,
             &latest_entry.blockhash,
             latest_entry.fee_calculator.lamports_per_signature,
         ));
         for (i, entry) in blockhashes.iter().enumerate() {
-            if i == MAX_RECENT_BLOCKHASHES - 1 {
+            if i == MAX_ENTRIES - 1 {
                 break;
             }
 
-            entries.push(solana_sdk::sysvar::recent_blockhashes::IterItem(
+            entries.push(IterItem(
                 i as u64 + 1,
                 &entry.blockhash,
                 entry.fee_calculator.lamports_per_signature,
             ));
         }
 
-        self.inner.set_sysvar(
-            &solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes::from_iter(entries),
-        );
-
-        let mut slot_hashes = self
-            .inner
-            .get_sysvar::<solana_sdk::sysvar::slot_hashes::SlotHashes>();
+        self.inner
+            .set_sysvar(&RecentBlockhashes::from_iter(entries));
+        let mut slot_hashes = self.inner.get_sysvar::<SlotHashes>();
         slot_hashes.add(self.get_latest_absolute_slot() + 1, latest_entry.blockhash);
 
-        self.inner
-            .set_sysvar(&solana_sdk::sysvar::slot_hashes::SlotHashes::new(
-                &slot_hashes,
-            ));
+        self.inner.set_sysvar(&SlotHashes::new(&slot_hashes));
 
         BlockIdentifier::new(
             self.chain_tip.index + 1,
@@ -443,13 +458,8 @@ impl SurfnetSvm {
     ///
     /// # Returns
     /// `Ok(())` on success, or an error if the operation fails.
-    pub fn set_account(&mut self, pubkey: &Pubkey, mut account: Account) -> SurfpoolResult<()> {
+    pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
         self.updated_at = Utc::now().timestamp_millis() as u64;
-
-        if account.lamports == 0 {
-            account.data = vec![];
-            account.owner = Pubkey::default();
-        }
 
         self.inner
             .set_account(*pubkey, account.clone())
@@ -472,23 +482,10 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         account: &Account,
     ) -> SurfpoolResult<()> {
-        // if the account has zero lamports, it needs to have it's data cleared out to emulate "garbage collection"
-        // our `set_account` method above will clear out the data if the lamports are zero, but there are cases where
-        // that code path isn't directly called, such as when a tx is processed the clears the lamports. so here, we'll
-        // check if the lamports are 0 _and_ the data is not empty - if so this call to update account registries _did not_
-        // come from the above `set_account` method, so we'll call it to clear the data out
-        if account.lamports == 0 && !account.data.is_empty() {
-            return self.set_account(pubkey, account.to_owned());
-        }
-
-        // only if successful, update our indexes
-        if let Some(old_account) = self.accounts_registry.get(pubkey).cloned() {
+        // only update our indexes if the account exists in the svm accounts db
+        if let Some(old_account) = self.get_account(pubkey) {
             self.remove_from_indexes(pubkey, &old_account);
         }
-
-        // update the main registry
-        self.accounts_registry.insert(*pubkey, account.clone());
-
         // add to owner index (check for duplicates)
         let owner_accounts = self.accounts_by_owner.entry(account.owner).or_default();
         if !owner_accounts.contains(pubkey) {
@@ -1171,8 +1168,7 @@ impl SurfnetSvm {
             account_pubkeys
                 .iter()
                 .filter_map(|pubkey| {
-                    self.accounts_registry
-                        .get(pubkey)
+                    self.get_account(pubkey)
                         .map(|account| (*pubkey, account.clone()))
                 })
                 .collect()
@@ -1265,11 +1261,7 @@ impl SurfnetSvm {
             .map(|account_pubkeys| {
                 account_pubkeys
                     .iter()
-                    .filter_map(|pk| {
-                        self.accounts_registry
-                            .get(pk)
-                            .map(|account| (*pk, account.clone()))
-                    })
+                    .filter_map(|pk| self.get_account(pk).map(|account| (*pk, account.clone())))
                     .collect()
             })
             .unwrap_or_default()
@@ -1619,6 +1611,14 @@ impl SurfnetSvm {
             data_slice_config,
         )
     }
+
+    pub fn get_account(&self, pubkey: &Pubkey) -> Option<Account> {
+        self.inner.get_account(pubkey)
+    }
+
+    pub fn iter_accounts(&self) -> std::collections::hash_map::Iter<'_, Pubkey, AccountSharedData> {
+        self.inner.accounts_db().inner.iter()
+    }
 }
 
 #[cfg(test)]
@@ -1627,6 +1627,7 @@ mod tests {
     use borsh::BorshSerialize;
     // use test_log::test; // uncomment to get logs from litesvm
     use solana_account::Account;
+    #[allow(deprecated)]
     use solana_sdk::{
         bpf_loader_upgradeable::{self, get_program_data_address},
         program_pack::Pack,
@@ -1669,7 +1670,6 @@ mod tests {
         svm.set_account(&token_account_pubkey, account).unwrap();
 
         // test all indexes were created correctly
-        assert_eq!(svm.accounts_registry.len(), 1);
         assert_eq!(svm.token_accounts.len(), 1);
 
         // test owner index
@@ -1774,7 +1774,6 @@ mod tests {
         svm.set_account(&system_account_pubkey, account).unwrap();
 
         // should be in general registry but not token indexes
-        assert_eq!(svm.accounts_registry.len(), 1);
         assert_eq!(svm.token_accounts.len(), 0);
         assert_eq!(svm.token_accounts_by_owner.len(), 0);
         assert_eq!(svm.token_accounts_by_delegate.len(), 0);
@@ -1791,7 +1790,7 @@ mod tests {
             Ok(event) => match event {
                 SimnetEvent::AccountUpdate(_, account_pubkey) => {
                     assert_eq!(pubkey, &account_pubkey);
-                    assert_eq!(svm.accounts_registry.get(&pubkey), Some(expected_account));
+                    assert_eq!(svm.get_account(&pubkey).as_ref(), Some(expected_account));
                     true
                 }
                 event => {
@@ -1873,26 +1872,29 @@ mod tests {
 
         // GetAccountResult::None should be a noop when writing account updates
         {
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let empty_update = GetAccountResult::None(pubkey);
             svm.write_account_update(empty_update);
-            assert_eq!(svm.accounts_registry, index_before);
+            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to false should be a noop
         {
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), false);
             svm.write_account_update(found_update);
-            assert_eq!(svm.accounts_registry, index_before);
+            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to true should update the account
         {
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), true);
             svm.write_account_update(found_update);
-            assert_eq!(svm.accounts_registry.len(), index_before.len() + 1);
+            assert_eq!(
+                svm.inner.accounts_db().clone().inner.len(),
+                index_before.len() + 1
+            );
             if !expect_account_update_event(&events_rx, &svm, &pubkey, &account) {
                 panic!(
                     "Expected account update event not received after GetAccountResult::FoundAccount update"
@@ -1905,7 +1907,7 @@ mod tests {
             let (program_address, program_account, program_data_address, _) =
                 create_program_accounts();
 
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
@@ -1923,7 +1925,7 @@ mod tests {
                     "Expected error event not received after inserting program account with no program data account"
                 );
             }
-            assert_eq!(svm.accounts_registry, index_before);
+            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
         }
 
         // GetAccountResult::FoundProgramAccount with program account + program data account inserts two accounts
@@ -1931,13 +1933,16 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, Some(program_data_account.clone())),
             );
             svm.write_account_update(found_program_account_update);
-            assert_eq!(svm.accounts_registry.len(), index_before.len() + 2);
+            assert_eq!(
+                svm.inner.accounts_db().clone().inner.len(),
+                index_before.len() + 2
+            );
             if !expect_account_update_event(
                 &events_rx,
                 &svm,
@@ -1962,14 +1967,17 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let found_update = GetAccountResult::FoundAccount(
                 program_data_address,
                 program_data_account.clone(),
                 true,
             );
             svm.write_account_update(found_update);
-            assert_eq!(svm.accounts_registry.len(), index_before.len() + 1);
+            assert_eq!(
+                svm.inner.accounts_db().clone().inner.len(),
+                index_before.len() + 1
+            );
             if !expect_account_update_event(
                 &events_rx,
                 &svm,
@@ -1981,13 +1989,16 @@ mod tests {
                 );
             }
 
-            let index_before = svm.accounts_registry.clone();
+            let index_before = svm.inner.accounts_db().clone().inner;
             let program_account_found_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
             );
             svm.write_account_update(program_account_found_update);
-            assert_eq!(svm.accounts_registry.len(), index_before.len() + 1);
+            assert_eq!(
+                svm.inner.accounts_db().clone().inner.len(),
+                index_before.len() + 1
+            );
             if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
                 panic!(
                     "Expected account update event not received after GetAccountResult::FoundAccount update"

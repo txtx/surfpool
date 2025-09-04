@@ -29,10 +29,10 @@ use surfpool_core::{solana_rpc_client::rpc_client::RpcClient, surfnet::SLOTS_PER
 use surfpool_types::{
     BlockProductionMode, ClockCommand, SanitizedConfig, SimnetCommand, SimnetEvent,
 };
-use txtx_core::kit::{
-    channel::Receiver,
-    types::frontend::{BlockEvent, ProgressBarStatusColor},
-};
+use txtx_core::kit::{channel::Receiver, types::frontend::BlockEvent};
+use txtx_gql::kit::types::frontend::{LogEvent, LogLevel, TransientLogEventStatus};
+
+use crate::runbook::persist_log;
 
 const HELP_TEXT: &str = "(Esc) quit | (↑) move up | (↓) move down";
 const SURFPOOL_LINK: &str = "Need help? https://docs.surfpool.run/tui";
@@ -415,40 +415,89 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     },
                     i => match oper.recv(&app.deploy_progress_rx[i - 1]) {
                         Ok(event) => match event {
-                            BlockEvent::UpdateProgressBarStatus(update) => {
-                                deployment_completed = false;
-                                match update.new_status.status_color {
-                                    ProgressBarStatusColor::Yellow => {
-                                        app.status_bar_message = Some(format!(
-                                            "{}: {}",
-                                            update.new_status.status, update.new_status.message
-                                        ));
+                            BlockEvent::LogEvent(event) => {
+                                let summary = event.summary();
+                                let message = event.message();
+                                let level = event.level();
+                                let ns = event.namespace();
+                                let msg = format!("{} {}", summary, message);
+
+                                match &event {
+                                    LogEvent::Static(event) => {
+                                        persist_log(
+                                            &message,
+                                            &summary,
+                                            &ns,
+                                            &level,
+                                            &LogLevel::Info,
+                                            false,
+                                        );
+                                        match event.level {
+                                            LogLevel::Trace => {}
+                                            LogLevel::Debug => {
+                                                new_events.push((
+                                                    EventType::Debug,
+                                                    Local::now(),
+                                                    msg,
+                                                ));
+                                            }
+                                            LogLevel::Info => {
+                                                new_events.push((
+                                                    EventType::Info,
+                                                    Local::now(),
+                                                    msg,
+                                                ));
+                                            }
+                                            LogLevel::Warn => {
+                                                new_events.push((
+                                                    EventType::Warning,
+                                                    Local::now(),
+                                                    msg,
+                                                ));
+                                            }
+                                            LogLevel::Error => {
+                                                new_events.push((
+                                                    EventType::Failure,
+                                                    Local::now(),
+                                                    msg,
+                                                ));
+                                            }
+                                        }
                                     }
-                                    ProgressBarStatusColor::Green => {
-                                        app.status_bar_message = None;
-                                        new_events.push((
-                                            EventType::Info,
-                                            Local::now(),
-                                            update.new_status.message,
-                                        ));
-                                    }
-                                    ProgressBarStatusColor::Red => {
-                                        app.status_bar_message = None;
-                                        new_events.push((
-                                            EventType::Failure,
-                                            Local::now(),
-                                            update.new_status.message,
-                                        ));
-                                    }
-                                    ProgressBarStatusColor::Purple => {
-                                        app.status_bar_message = None;
-                                        new_events.push((
-                                            EventType::Info,
-                                            Local::now(),
-                                            update.new_status.message,
-                                        ));
-                                    }
-                                };
+                                    LogEvent::Transient(event) => match event.status {
+                                        TransientLogEventStatus::Pending(_) => {
+                                            app.status_bar_message = Some(msg);
+                                        }
+                                        TransientLogEventStatus::Success(_) => {
+                                            app.status_bar_message = None;
+                                            new_events.push((EventType::Info, Local::now(), msg));
+                                            persist_log(
+                                                &message,
+                                                &summary,
+                                                &ns,
+                                                &level,
+                                                &LogLevel::Info,
+                                                false,
+                                            );
+                                        }
+                                        TransientLogEventStatus::Failure(_) => {
+                                            app.status_bar_message = None;
+                                            new_events.push((
+                                                EventType::Failure,
+                                                Local::now(),
+                                                msg,
+                                            ));
+                                            persist_log(
+                                                &message,
+                                                &summary,
+                                                &ns,
+                                                &level,
+                                                &LogLevel::Info,
+                                                false,
+                                            );
+                                        }
+                                    },
+                                }
                             }
                             _ => {}
                         },
@@ -602,7 +651,7 @@ fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
-    let infos = match app.displayed_url {
+    match app.displayed_url {
         DisplayedUrl::Datasource(ref config) => {
             let mut lines = vec![Line::from(vec![
                 Span::styled("۬", app.colors.white),
@@ -625,29 +674,54 @@ fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
                 ),
                 Span::styled("transactions processed", app.colors.white),
             ]));
-            lines
+            let title = Paragraph::new(lines);
+            f.render_widget(title.style(app.colors.white), area);
         }
         DisplayedUrl::Studio(ref config) => {
-            vec![
-                Line::from(vec![
-                    Span::styled("۬", app.colors.white),
-                    Span::styled("Explorer  ", app.colors.light_gray),
-                    Span::styled(&config.studio_url, app.colors.white),
-                ]),
-                Line::from(vec![Span::styled("۬-", app.colors.light_gray)]),
-                Line::from(vec![
-                    Span::styled("۬", app.colors.white),
-                    Span::styled(
-                        format!("{} ", app.successful_transactions),
-                        app.colors.accent,
-                    ),
-                    Span::styled("transactions processed", app.colors.white),
-                ]),
-            ]
+            let rects = Layout::vertical([
+                Constraint::Length(3), // Bordered URL area
+                Constraint::Length(1), // Transactions
+            ])
+            .split(area);
+
+            // Bordered URL area split horizontally
+            let url_rects = Layout::horizontal([
+                Constraint::Length(1), // Studio label width
+                Constraint::Length(8), // Studio label width
+                Constraint::Min(1),    // URL takes remaining space
+            ])
+            .split(rects[0].inner(Margin::new(1, 1)));
+
+            // Left side: Studio label with purple background
+            let studio_label =
+                Paragraph::new(" Studio ").style(Style::new().white().on_light_magenta());
+            f.render_widget(studio_label, url_rects[1]);
+
+            // Right side: URL
+            let url_paragraph = Paragraph::new(format!("  {}", config.studio_url.clone()))
+                .style(Style::default().fg(app.colors.white));
+            f.render_widget(url_paragraph, url_rects[2]);
+
+            // Border around the entire area
+            let bordered_area = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Rgb(154, 92, 255)))
+                .border_type(BorderType::Plain);
+            f.render_widget(bordered_area, rects[0]);
+
+            // Transactions
+            let transactions = Line::from(vec![
+                Span::styled("۬", app.colors.white),
+                Span::styled(
+                    format!("{} ", app.successful_transactions),
+                    app.colors.accent,
+                ),
+                Span::styled("transactions processed", app.colors.white),
+            ]);
+            let title = Paragraph::new(transactions);
+            f.render_widget(title.style(app.colors.white), rects[1]);
         }
-    };
-    let title = Paragraph::new(infos);
-    f.render_widget(title.style(app.colors.white), area);
+    }
 }
 
 fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {

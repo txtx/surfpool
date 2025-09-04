@@ -1,5 +1,4 @@
 #![allow(unused_imports, unused_variables)]
-
 use std::{
     collections::HashMap, error::Error as StdError, sync::RwLock, thread::JoinHandle,
     time::Duration,
@@ -17,6 +16,7 @@ use convert_case::{Case, Casing};
 use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
+use log::{debug, error, info, trace, warn};
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
 use surfpool_gql::{
@@ -253,7 +253,7 @@ fn start_subgraph_runloop(
                                     )
                                 })?;
                                 if let Err(e) = gql_context.pool.register_collection(&metadata, &request, &worker_id) {
-                                    error!(ctx.expect_logger(), "{}", e);
+                                    error!("{}", e);
                                 }
                                 collections_metadata_lookup.add_collection(metadata);
                                 gql_schema.replace(new_dynamic_schema(collections_metadata_lookup.clone()));

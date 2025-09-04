@@ -7,7 +7,8 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{program_option::COption, system_program, transaction::VersionedTransaction};
+use solana_sdk::{program_option::COption, transaction::VersionedTransaction};
+use solana_system_interface::program as system_program;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
     ClockCommand, Idl, RpcProfileResultConfig, SimnetCommand, SimnetEvent, UiKeyedProfileResult,
@@ -1134,47 +1135,58 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             Err(e) => return e.into(),
         };
 
-        let signatures = svm_locker.with_svm_reader(|svm_reader| {
-            let limit = limit.unwrap_or_else(|| 50);
-            let mut signatures = Vec::new();
+        let limit = limit.unwrap_or_else(|| 50);
+        let latest = svm_locker.get_latest_absolute_slot();
+        if limit == 0 {
+            return Box::pin(async move {
+                Ok(RpcResponse {
+                    context: RpcResponseContext::new(latest),
+                    value: Vec::new(),
+                })
+            });
+        }
 
-            // Get all block slots and sort them in descending order (most recent first)
-            let mut block_slots: Vec<Slot> = svm_reader.blocks.keys().cloned().collect();
-            block_slots.sort_by(|a, b| b.cmp(a)); // Sort in descending order
-
-            // Iterate through block slots in descending order until we reach the signature limit
-            for slot in block_slots {
-                if signatures.len() >= limit as usize {
-                    break;
-                }
-
-                if let Some(block_header) = svm_reader.blocks.get(&slot) {
-                    // Add signatures from this block until we reach the limit
-                    for signature in &block_header.signatures {
-                        if signatures.len() >= limit as usize {
-                            break;
-                        }
-
-                        let err = svm_reader.transactions.get(signature).and_then(|status| {
-                            let (tx_with_status_meta, _) = status.expect_processed();
-                            tx_with_status_meta.meta.status.as_ref().err().cloned()
-                        });
-
-                        signatures.push(RpcLogsResponse {
-                            signature: signature.to_string(),
-                            err,
-                            logs: vec![],
-                        });
-                    }
-                }
-            }
-            signatures
+        let mut items: Vec<(
+            String,
+            Slot,
+            Option<solana_transaction_error::TransactionError>,
+            Vec<String>,
+        )> = svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .transactions
+                .iter()
+                .map(|(sig, status)| {
+                    let transaction_with_status_meta = status.expect_processed();
+                    (
+                        sig.to_string(),
+                        transaction_with_status_meta.slot,
+                        transaction_with_status_meta.meta.status.clone().err(),
+                        transaction_with_status_meta
+                            .meta
+                            .log_messages
+                            .clone()
+                            .unwrap_or_default(),
+                    )
+                })
+                .collect()
         });
+
+        items.sort_by(|a, b| b.1.cmp(&a.1));
+        items.truncate(limit as usize);
+
+        let value: Vec<RpcLogsResponse> = items
+            .into_iter()
+            .map(|(signature, _slot, err, logs)| RpcLogsResponse {
+                signature,
+                err,
+                logs,
+            })
+            .collect();
 
         Box::pin(async move {
             Ok(RpcResponse {
-                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
-                value: signatures,
+                context: RpcResponseContext::new(latest),
+                value,
             })
         })
     }
@@ -1457,7 +1469,7 @@ mod tests {
                     "Profile should succeed, found error: {}",
                     ix_profile.error_message.as_ref().unwrap()
                 );
-                assert_eq!(ix_profile.compute_units_consumed, 1404);
+                assert_eq!(ix_profile.compute_units_consumed, 1031);
                 let account_states = &ix_profile.account_states;
 
                 assert!(account_states.get(&payer.pubkey()).is_none());
