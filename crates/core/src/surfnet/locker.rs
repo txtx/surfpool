@@ -192,6 +192,7 @@ impl SurfnetSvmLocker {
         &self,
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
+        do_profile_instructions: bool,
     ) -> SurfpoolResult<EpochInfo> {
         let epoch_info = if let Some(remote_client) = remote_ctx {
             remote_client.get_epoch_info().await?
@@ -207,7 +208,12 @@ impl SurfnetSvmLocker {
         };
 
         self.with_svm_writer(|svm_writer| {
-            svm_writer.initialize(epoch_info.clone(), slot_time, remote_ctx);
+            svm_writer.initialize(
+                epoch_info.clone(),
+                slot_time,
+                remote_ctx,
+                do_profile_instructions,
+            );
         });
         Ok(epoch_info)
     }
@@ -219,17 +225,11 @@ impl SurfnetSvmLocker {
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
             match svm_reader.inner.get_account(pubkey) {
-                Some(account) => {
-                    if account.eq(&Account::default()) {
-                        // If the account is default, it means it was deleted but still exists in our litesvm store
-                        return GetAccountResult::None(*pubkey);
-                    }
-                    GetAccountResult::FoundAccount(
-                        *pubkey, account,
-                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                        false,
-                    )
-                }
+                Some(account) => GetAccountResult::FoundAccount(
+                    *pubkey, account,
+                    // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                    false,
+                ),
                 None => match svm_reader.get_account_from_feature_set(pubkey) {
                     Some(account) => GetAccountResult::FoundAccount(
                         *pubkey, account,
@@ -292,18 +292,11 @@ impl SurfnetSvmLocker {
 
             for pubkey in pubkeys {
                 let res = match svm_reader.inner.get_account(pubkey) {
-                    Some(account) => {
-                        if account.eq(&Account::default()) {
-                            // If the account is default, it means it was deleted but still exists in our litesvm store
-                            GetAccountResult::None(*pubkey)
-                        } else {
-                            GetAccountResult::FoundAccount(
-                                *pubkey, account,
-                                // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                                false,
-                            )
-                        }
-                    }
+                    Some(account) => GetAccountResult::FoundAccount(
+                        *pubkey, account,
+                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                        false,
+                    ),
                     None => match svm_reader.get_account_from_feature_set(pubkey) {
                         Some(account) => GetAccountResult::FoundAccount(
                             *pubkey, account,
@@ -406,9 +399,8 @@ impl SurfnetSvmLocker {
                 .collect();
 
             let ordered_accounts = svm_reader
-                .accounts_registry
-                .iter()
-                .sorted_by(|a, b| b.1.lamports.cmp(&a.1.lamports))
+                .iter_accounts()
+                .sorted_by(|a, b| b.1.lamports().cmp(&a.1.lamports()))
                 .collect::<Vec<_>>();
             let ordered_filtered_accounts = match config.filter {
                 Some(RpcLargestAccountsFilter::NonCirculating) => ordered_accounts
@@ -427,7 +419,7 @@ impl SurfnetSvmLocker {
                 .take(20)
                 .map(|(pubkey, account)| RpcAccountBalance {
                     address: pubkey.to_string(),
-                    lamports: account.lamports,
+                    lamports: account.lamports(),
                 })
                 .collect()
         })
@@ -744,8 +736,8 @@ impl SurfnetSvmLocker {
         })
     }
 
-    pub fn do_profile_instructions(&self) -> bool {
-        true // todo
+    pub fn is_instruction_profiling_enabled(&self) -> bool {
+        self.with_svm_reader(|svm_reader| svm_reader.instruction_profiling_enabled)
     }
 
     pub async fn process_transaction(
@@ -940,8 +932,7 @@ impl SurfnetSvmLocker {
                     .iter()
                     .map(|(i, _)| {
                         svm_reader
-                            .accounts_registry
-                            .get(&transaction_accounts[*i])
+                            .get_account(&transaction_accounts[*i])
                             .unwrap()
                             .owner
                     })
@@ -952,7 +943,7 @@ impl SurfnetSvmLocker {
 
         let loaded_addresses = tx_loaded_addresses.as_ref().map(|l| l.loaded_addresses());
 
-        let ix_profiles = if self.do_profile_instructions() {
+        let ix_profiles = if self.is_instruction_profiling_enabled() {
             match self
                 .generate_instruction_profiles(
                     &transaction,
@@ -1627,14 +1618,14 @@ impl SurfnetSvmLocker {
                 .get_parsed_token_accounts_by_owner(&owner)
                 .iter()
                 .filter_map(|(pubkey, token_account)| {
-                    let account = svm_reader.accounts_registry.get(pubkey)?;
+                    let account = svm_reader.get_account(pubkey)?;
                     if match filter {
                         TokenAccountsFilter::Mint(mint) => token_account.mint().eq(mint),
                         TokenAccountsFilter::ProgramId(program_id) => account.owner.eq(program_id),
                     } {
                         Some(svm_reader.account_to_rpc_keyed_account(
                             pubkey,
-                            account,
+                            &account,
                             config,
                             Some(token_account.mint()),
                         ))
@@ -1726,7 +1717,7 @@ impl SurfnetSvmLocker {
                 .get_token_accounts_by_delegate(&delegate)
                 .iter()
                 .filter_map(|(pubkey, token_account)| {
-                    let account = svm_reader.accounts_registry.get(pubkey)?;
+                    let account = svm_reader.get_account(pubkey)?;
                     let include = match filter {
                         TokenAccountsFilter::Mint(mint) => token_account.mint() == *mint,
                         TokenAccountsFilter::ProgramId(program_id) => {
@@ -1737,7 +1728,7 @@ impl SurfnetSvmLocker {
                     if include {
                         Some(svm_reader.account_to_rpc_keyed_account(
                             pubkey,
-                            account,
+                            &account,
                             config,
                             Some(token_account.mint()),
                         ))
@@ -2089,6 +2080,21 @@ impl SurfnetSvmLocker {
             for &account_idx in &ix.accounts {
                 all_required_accounts.insert(message_accounts[account_idx as usize]);
             }
+            // If we still don't have any accounts, it means our instruction doesn't have any accounts.
+            // Some instructions don't need to read/write any accounts, so the account list is empty.
+            // However, we're still using an account to sign, so we add that here.
+            {
+                if all_required_accounts.len() == 0 {
+                    let mut mutable_signers =
+                        mutable_signers.iter().cloned().collect::<IndexSet<_>>();
+                    all_required_accounts.append(&mut mutable_signers);
+                }
+                if all_required_accounts.len() == 0 {
+                    let mut readonly_signers =
+                        readonly_signers.iter().cloned().collect::<IndexSet<_>>();
+                    all_required_accounts.append(&mut readonly_signers);
+                }
+            }
             // Add program ID
             all_required_accounts.insert(message_accounts[ix.program_id_index as usize]);
         }
@@ -2100,6 +2106,17 @@ impl SurfnetSvmLocker {
         let last = ixs_for_tx.last().unwrap();
         for &account_idx in &last.accounts {
             all_required_accounts_for_last_ix.insert(message_accounts[account_idx as usize]);
+        }
+        {
+            if all_required_accounts_for_last_ix.len() == 0 {
+                let mut mutable_signers = mutable_signers.iter().cloned().collect::<IndexSet<_>>();
+                all_required_accounts_for_last_ix.append(&mut mutable_signers);
+            }
+            if all_required_accounts_for_last_ix.len() == 0 {
+                let mut readonly_signers =
+                    readonly_signers.iter().cloned().collect::<IndexSet<_>>();
+                all_required_accounts_for_last_ix.append(&mut readonly_signers);
+            }
         }
         all_required_accounts_for_last_ix.insert(message_accounts[last.program_id_index as usize]);
 

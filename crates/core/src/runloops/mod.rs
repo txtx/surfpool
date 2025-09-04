@@ -76,7 +76,11 @@ pub async fn start_local_surfnet_runloop(
     };
 
     svm_locker
-        .initialize(simnet.slot_time, &remote_rpc_client)
+        .initialize(
+            simnet.slot_time,
+            &remote_rpc_client,
+            simnet.instruction_profiling_enabled,
+        )
         .await?;
 
     svm_locker.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
