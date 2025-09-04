@@ -283,7 +283,10 @@ impl StartSimnet {
 
     pub fn rpc_config(&self) -> RpcConfig {
         RpcConfig {
-            bind_host: self.network_host.clone(),
+            bind_host: match env::var("SURFPOOL_NETWORK_HOST") {
+                Ok(value) => value,
+                _ => self.network_host.clone(),
+            },
             bind_port: self.simnet_port,
             ws_port: self.ws_port,
         }
@@ -291,7 +294,10 @@ impl StartSimnet {
 
     pub fn studio_config(&self) -> StudioConfig {
         StudioConfig {
-            bind_host: self.network_host.clone(),
+            bind_host: match env::var("SURFPOOL_NETWORK_HOST") {
+                Ok(value) => value,
+                _ => self.network_host.clone(),
+            },
             bind_port: self.studio_port,
         }
     }
