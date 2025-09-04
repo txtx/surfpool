@@ -1,2 +1,3 @@
 [alias]
-surfpool-install = "install --path crates/cli --locked --force --features supervisor_ui"
+surfpool-install = "install --path crates/cli --locked --force --features supervisor_ui --features version_check"
+surfpool-install-dev = "install --path crates/cli --locked --force --features supervisor_ui"

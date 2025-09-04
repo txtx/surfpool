@@ -25,9 +25,9 @@ use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
     types::frontend::BlockEvent,
 };
-use txtx_gql::kit::{indexmap::IndexMap, reqwest, types::frontend::LogLevel, uuid::Uuid};
+use txtx_gql::kit::{indexmap::IndexMap, types::frontend::LogLevel, uuid::Uuid};
 
-use super::{Context, DEFAULT_CLOUD_URL, ExecuteRunbook, StartSimnet};
+use super::{Context, ExecuteRunbook, StartSimnet};
 use crate::{
     cli::setup_logger,
     http::start_subgraph_and_explorer_server,
@@ -165,16 +165,21 @@ pub async fn handle_start_local_surfnet_command(
     };
 
     // Non blocking check for new versions
-    let local_version = env!("CARGO_PKG_VERSION");
-    let response = reqwest::get(format!(
-        "{}/api/versions?v=/{}",
-        DEFAULT_CLOUD_URL, local_version
-    ))
-    .await;
-    if let Ok(response) = response {
-        if let Ok(body) = response.json::<CheckVersionResponse>().await {
-            if let Some(deprecation_notice) = body.deprecation_notice {
-                let _ = simnet_events_tx.send(SimnetEvent::warn(deprecation_notice.to_string()));
+    #[cfg(feature = "version_check")]
+    {
+        let local_version = env!("CARGO_PKG_VERSION");
+        let response = txtx_gql::kit::reqwest::get(format!(
+            "{}/api/versions?v=/{}",
+            super::DEFAULT_CLOUD_URL,
+            local_version
+        ))
+        .await;
+        if let Ok(response) = response {
+            if let Ok(body) = response.json::<CheckVersionResponse>().await {
+                if let Some(deprecation_notice) = body.deprecation_notice {
+                    let _ =
+                        simnet_events_tx.send(SimnetEvent::warn(deprecation_notice.to_string()));
+                }
             }
         }
     }
