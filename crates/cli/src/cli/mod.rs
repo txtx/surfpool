@@ -161,7 +161,6 @@ pub struct StartSimnet {
         short = 'n',
         value_enum,
         conflicts_with = "rpc_url",
-        default_value = "mainnet"
     )]
     pub network: Option<NetworkType>,
     /// Display streams of logs instead of terminal UI dashboard(eg. surfpool start --no-tui)
