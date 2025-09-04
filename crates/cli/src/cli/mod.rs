@@ -156,12 +156,7 @@ pub struct StartSimnet {
     #[arg(long = "rpc-url", short = 'u', conflicts_with = "network", default_value = DEFAULT_RPC_URL)]
     pub rpc_url: Option<String>,
     /// Choose a predefined network (cannot be used with --rpc-url) (eg. surfpool start --network mainnet)
-    #[arg(
-        long = "network",
-        short = 'n',
-        value_enum,
-        conflicts_with = "rpc_url",
-    )]
+    #[arg(long = "network", short = 'n', value_enum, conflicts_with = "rpc_url")]
     pub network: Option<NetworkType>,
     /// Display streams of logs instead of terminal UI dashboard(eg. surfpool start --no-tui)
     #[clap(long = "no-tui", default_value = "false")]
