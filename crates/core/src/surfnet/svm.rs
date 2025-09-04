@@ -103,6 +103,12 @@ pub struct SurfnetSvm {
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
     pub profile_tag_map: HashMap<String, Vec<UuidOrSignature>>,
     pub simulated_transaction_profiles: HashMap<Uuid, KeyedProfileResult>,
+    /// Have a maximum number of executed profiles configurable via CLI.
+    /// max >= executed profiles
+    /// Some options for how to approach:
+    /// 1. Investigate if you can initialize HashMap with a max cap
+    /// 2. Investigate if there's another data type that is better suited for this
+    /// 3. Have a helper function for adding to executed profiles and manually implement the FIFO
     pub executed_transaction_profiles: HashMap<Signature, KeyedProfileResult>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
