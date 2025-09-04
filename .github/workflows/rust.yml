@@ -33,6 +33,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libudev-dev clang libclang-dev
       - uses: actions/checkout@v4
       - name: Build
-        run: cargo build --features geyser-plugin
+        run: cargo build
       - name: Run tests
-        run: cargo test --all --verbose --features "ignore_tests_ci geyser-plugin"
+        run: cargo test --all --verbose --features "ignore_tests_ci"
