@@ -104,12 +104,7 @@ pub async fn handle_start_local_surfnet_command(
         Ok((explorer_handle, _)) => Some(explorer_handle),
         Err(e) => {
             let _ = simnet_events_tx.send(SimnetEvent::warn(format!(
-                "Failed to start subgraph {}server: {}",
-                if !cmd.no_explorer {
-                    "and explorer "
-                } else {
-                    ""
-                },
+                "Failed to start subgraph and explorer server: {}",
                 e
             )));
             let _ = simnet_events_tx.send(SimnetEvent::info("Continuing with simnet startup..."));
