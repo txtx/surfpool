@@ -200,6 +200,9 @@ pub struct StartSimnet {
     /// Start surfpool without a remote RPC client to simulate an offline environment (default: false)
     #[clap(long = "offline", action=ArgAction::SetTrue)]
     pub offline: bool,
+    /// Disable instruction profiling (default: false)
+    #[clap(long = "disable-instruction-profiling", action=ArgAction::SetTrue)]
+    pub disable_instruction_profiling: bool,
     /// The log level to use for simnet logs. Options are "trace", "debug", "info", "warn", "error".
     #[arg(long = "log-level", short = 'l', default_value = "info")]
     pub log_level: String,
@@ -318,6 +321,7 @@ impl StartSimnet {
             airdrop_token_amount: self.airdrop_token_amount,
             expiry: None,
             offline_mode: self.offline,
+            instruction_profiling_enabled: !self.disable_instruction_profiling,
         }
     }
 
