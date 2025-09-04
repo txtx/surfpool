@@ -2074,6 +2074,21 @@ impl SurfnetSvmLocker {
             for &account_idx in &ix.accounts {
                 all_required_accounts.insert(message_accounts[account_idx as usize]);
             }
+            // If we still don't have any accounts, it means our instruction doesn't have any accounts.
+            // Some instructions don't need to read/write any accounts, so the account list is empty.
+            // However, we're still using an account to sign, so we add that here.
+            {
+                if all_required_accounts.len() == 0 {
+                    let mut mutable_signers =
+                        mutable_signers.iter().cloned().collect::<IndexSet<_>>();
+                    all_required_accounts.append(&mut mutable_signers);
+                }
+                if all_required_accounts.len() == 0 {
+                    let mut readonly_signers =
+                        readonly_signers.iter().cloned().collect::<IndexSet<_>>();
+                    all_required_accounts.append(&mut readonly_signers);
+                }
+            }
             // Add program ID
             all_required_accounts.insert(message_accounts[ix.program_id_index as usize]);
         }
@@ -2085,6 +2100,17 @@ impl SurfnetSvmLocker {
         let last = ixs_for_tx.last().unwrap();
         for &account_idx in &last.accounts {
             all_required_accounts_for_last_ix.insert(message_accounts[account_idx as usize]);
+        }
+        {
+            if all_required_accounts_for_last_ix.len() == 0 {
+                let mut mutable_signers = mutable_signers.iter().cloned().collect::<IndexSet<_>>();
+                all_required_accounts_for_last_ix.append(&mut mutable_signers);
+            }
+            if all_required_accounts_for_last_ix.len() == 0 {
+                let mut readonly_signers =
+                    readonly_signers.iter().cloned().collect::<IndexSet<_>>();
+                all_required_accounts_for_last_ix.append(&mut readonly_signers);
+            }
         }
         all_required_accounts_for_last_ix.insert(message_accounts[last.program_id_index as usize]);
 
