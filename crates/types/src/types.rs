@@ -463,6 +463,7 @@ pub enum SimnetCommand {
         bool,
     ),
     Terminate(Option<(Hash, String)>),
+    SetInstructionProfiling(bool),
 }
 
 #[derive(Debug)]
