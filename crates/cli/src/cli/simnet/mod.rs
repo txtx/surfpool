@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use surfpool_core::{start_local_surfnet, surfnet::svm::SurfnetSvm};
-use surfpool_types::{SanitizedConfig, SimnetEvent, SubgraphEvent};
+use surfpool_types::{SanitizedConfig, SimnetCommand, SimnetEvent, SubgraphEvent};
 use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
     types::frontend::BlockEvent,
@@ -382,7 +382,7 @@ async fn write_and_execute_iac(
         .map_err(|e| format!("Failed to detect project framework: {}", e))?;
 
     let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-
+    let (simnet_commands_tx, _simnet_commands_rx) = crossbeam::channel::unbounded();
     if let Some((framework, programs)) = deployment {
         // Is infrastructure-as-code (IaC) already setup?
         let base_location =
@@ -468,8 +468,9 @@ async fn write_and_execute_iac(
                                 simnet_events_tx.clone(),
                                 ExecuteRunbook::default_localnet(runbook_id)
                                     .with_manifest_path(txtx_manifest_location.to_string()),
-                                false,
+                                false, 
                             ));
+                            let _ = simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(false)); 
                         }
                         let _ = hiro_system_kit::nestable_block_on(join_all(futures));
                     }
