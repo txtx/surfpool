@@ -94,8 +94,8 @@ surfpool-types = { path = "crates/types", default-features = false }
 tokio = "1.43.0"
 tracing = "0.1"
 txtx-addon-kit = { version = "0.4.6", features = ["wasm"] }
-txtx-addon-network-svm = { version = "0.3.5" }
-txtx-addon-network-svm-types = { version = "0.3.4" }
+txtx-addon-network-svm = { version = "0.3.6" }
+txtx-addon-network-svm-types = { version = "0.3.5" }
 txtx-cloud = "0.1.10"
 txtx-core = { version = "0.4.9" }
 txtx-gql = { version = "0.3.4" }
