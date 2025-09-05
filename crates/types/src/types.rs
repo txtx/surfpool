@@ -453,8 +453,8 @@ pub enum TransactionStatusEvent {
 pub enum SimnetCommand {
     SlotForward(Option<Hash>),
     SlotBackward(Option<Hash>),
-    CommandClock(ClockCommand),
-    UpdateInternalClock(Clock),
+    CommandClock(Option<(Hash, String)>, ClockCommand),
+    UpdateInternalClock(Option<(Hash, String)>, Clock),
     UpdateBlockProductionMode(BlockProductionMode),
     TransactionReceived(
         Option<(Hash, String)>,

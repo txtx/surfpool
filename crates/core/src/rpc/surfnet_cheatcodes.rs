@@ -1192,17 +1192,19 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
     }
 
     fn pause_clock(&self, meta: Self::Metadata) -> Result<EpochInfo> {
+        let key = meta.as_ref().map(|ctx| ctx.id.clone()).unwrap_or_default();
         let surfnet_command_tx: crossbeam_channel::Sender<SimnetCommand> =
             meta.get_surfnet_command_tx()?;
-        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(ClockCommand::Pause));
+        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(key, ClockCommand::Pause));
         meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
             .map_err(Into::into)
     }
 
     fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo> {
+        let key = meta.as_ref().map(|ctx| ctx.id.clone()).unwrap_or_default();
         let surfnet_command_tx: crossbeam_channel::Sender<SimnetCommand> =
             meta.get_surfnet_command_tx()?;
-        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(ClockCommand::Resume));
+        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(key, ClockCommand::Resume));
         meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
             .map_err(Into::into)
     }
@@ -1212,11 +1214,12 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         meta: Self::Metadata,
         config: Option<TimeTravelConfig>,
     ) -> Result<EpochInfo> {
+        let key = meta.as_ref().map(|ctx| ctx.id.clone()).unwrap_or_default();
         let time_travel_config = config.unwrap_or_default();
         let simnet_command_tx = meta.get_surfnet_command_tx()?;
         let svm_locker = meta.get_svm_locker()?;
 
-        let epoch_info = svm_locker.time_travel(simnet_command_tx, time_travel_config)?;
+        let epoch_info = svm_locker.time_travel(key, simnet_command_tx, time_travel_config)?;
 
         Ok(epoch_info)
     }
