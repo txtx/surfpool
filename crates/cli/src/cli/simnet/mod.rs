@@ -318,12 +318,14 @@ fn log_events(
                     SimnetEvent::RunbookStarted(runbook_id) => {
                         deployment_completed = false;
                         info!("Runbook '{}' execution started", runbook_id);
-                        let _ = simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(false));
+                        let _ =
+                            simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(false));
                     }
                     SimnetEvent::RunbookCompleted(runbook_id) => {
                         deployment_completed = true;
                         info!("Runbook '{}' execution completed", runbook_id);
-                        let _ = simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(true));
+                        let _ =
+                            simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(true));
                     }
                 },
                 Err(_e) => {
@@ -472,7 +474,7 @@ async fn write_and_execute_iac(
                                 ExecuteRunbook::default_localnet(runbook_id)
                                     .with_manifest_path(txtx_manifest_location.to_string()),
                                 false,
-                            )); 
+                            ));
                         }
                         let _ = hiro_system_kit::nestable_block_on(join_all(futures));
                     }
