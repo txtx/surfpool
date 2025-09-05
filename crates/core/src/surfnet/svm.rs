@@ -944,6 +944,8 @@ impl SurfnetSvm {
             self.latest_epoch_info.slot_index = 0;
             self.latest_epoch_info.epoch += 1;
         }
+        let total_transactions = self.latest_epoch_info.transaction_count.unwrap_or(0);
+        self.latest_epoch_info.transaction_count = Some(total_transactions + num_transactions);
 
         let parent_slot = self.latest_epoch_info.absolute_slot.saturating_sub(1);
         let new_slot = self.latest_epoch_info.absolute_slot;

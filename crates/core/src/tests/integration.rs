@@ -3201,7 +3201,7 @@ fn test_time_travel_absolute_timestamp() {
     };
 
     simnet_cmd_tx
-        .send(SimnetCommand::UpdateInternalClock(clock))
+        .send(SimnetCommand::UpdateInternalClock(None, clock))
         .unwrap();
     let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
         simnet_events_rx.recv_timeout(Duration::from_millis(5000))
@@ -3285,7 +3285,7 @@ fn test_time_travel_absolute_slot() {
     };
 
     simnet_cmd_tx
-        .send(SimnetCommand::UpdateInternalClock(clock))
+        .send(SimnetCommand::UpdateInternalClock(None, clock))
         .unwrap();
     let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
         simnet_events_rx.recv_timeout(Duration::from_millis(5000))
@@ -3363,7 +3363,7 @@ fn test_time_travel_absolute_epoch() {
     };
 
     simnet_cmd_tx
-        .send(SimnetCommand::UpdateInternalClock(clock))
+        .send(SimnetCommand::UpdateInternalClock(None, clock))
         .unwrap();
     let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
         simnet_events_rx.recv_timeout(Duration::from_millis(5000))
