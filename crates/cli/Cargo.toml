@@ -66,7 +66,7 @@ txtx-supervisor-ui = { workspace = true, optional = true }
 url = "2.5.4"
 
 [features]
-default = ["cli", "sqlite", "supervisor_ui"]
+default = ["cli", "sqlite", "subgraph"]
 cli = ["clap", "toml", "ctrlc", "hiro-system-kit/log"]
 supervisor_ui = ["txtx-supervisor-ui"]
 explorer = []
@@ -74,3 +74,4 @@ geyser-plugin = ["surfpool-core/geyser-plugin"]
 sqlite = ["surfpool-gql/sqlite"]
 postgres = ["surfpool-gql/postgres"]
 version_check = []
+subgraph = ["surfpool-core/subgraph"]

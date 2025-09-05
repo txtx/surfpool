@@ -180,12 +180,12 @@ jobs:
       - name: Build - Cargo (Windows)
         if: matrix.os == 'windows-latest'
         run: 
-          cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check
+          cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
 
       - name: Build - Cargo (Unix)
         if: matrix.os != 'windows-latest'
         run: 
-          cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check
+          cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
 
       # Don't compress for Windows because winget can't yet unzip files
       - name: Compress cargo artifact (not windows)
