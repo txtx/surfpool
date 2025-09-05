@@ -23,14 +23,15 @@ use surfpool_gql::{
     DynamicSchema,
     db::schema::collections,
     new_dynamic_schema,
-    query::{CollectionMetadataMap, Dataloader, DataloaderContext, SqlStore},
-    types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata},
+    query::{CollectionsMetadataLookup, Dataloader, DataloaderContext, SqlStore},
+    types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata, sql},
 };
 use surfpool_studio_ui::serve_studio_static_files;
 use surfpool_types::{
     DataIndexingCommand, SanitizedConfig, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
 };
 use txtx_core::kit::types::types::Value;
+use txtx_gql::kit::uuid::Uuid;
 
 use crate::cli::Context;
 
@@ -47,11 +48,16 @@ pub async fn start_subgraph_and_explorer_server(
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     ctx: &Context,
 ) -> Result<(ServerHandle, JoinHandle<Result<(), String>>), Box<dyn StdError>> {
+    let sql_store = SqlStore::new(subgraph_database_path);
+    sql_store.init_subgraph_tables()?;
+
     let context = DataloaderContext {
-        pool: SqlStore::new(subgraph_database_path).pool,
+        pool: sql_store.pool,
     };
-    let schema_datasource = CollectionMetadataMap::new();
-    let schema = RwLock::new(Some(new_dynamic_schema(schema_datasource.clone())));
+    let collections_metadata_lookup = CollectionsMetadataLookup::new();
+    let schema = RwLock::new(Some(new_dynamic_schema(
+        collections_metadata_lookup.clone(),
+    )));
     let schema_wrapped = Data::new(schema);
     let context_wrapped = Data::new(RwLock::new(context));
     let config_wrapped = Data::new(RwLock::new(config.clone()));
@@ -61,7 +67,7 @@ pub async fn start_subgraph_and_explorer_server(
         subgraph_commands_rx,
         context_wrapped.clone(),
         schema_wrapped.clone(),
-        schema_datasource,
+        collections_metadata_lookup,
         config,
         ctx,
     )?;
@@ -84,11 +90,10 @@ pub async fn start_subgraph_and_explorer_server(
             .wrap(middleware::Logger::default())
             .service(get_config)
             .service(
-                web::scope("/gql")
+                web::scope("/workspace")
                     .route("/v1/graphql?<request..>", web::get().to(get_graphql))
                     .route("/v1/graphql", web::post().to(post_graphql))
-                    .route("/v1/subscriptions", web::get().to(subscriptions))
-                    .route("/console", web::get().to(graphiql)),
+                    .route("/v1/subscriptions", web::get().to(subscriptions)),
             )
             .service(serve_studio_static_files)
     })
@@ -203,19 +208,17 @@ async fn subscriptions(
     // subscriptions::ws_handler(req, stream, schema.into_inner(), config).await
 }
 
-async fn graphiql() -> Result<HttpResponse, Error> {
-    graphiql_handler("/gql/v1/graphql", None).await
-}
-
 fn start_subgraph_runloop(
     subgraph_events_tx: Sender<SubgraphEvent>,
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     gql_context: Data<RwLock<DataloaderContext>>,
     gql_schema: Data<RwLock<Option<DynamicSchema>>>,
-    mut collections_map: CollectionMetadataMap,
+    mut collections_metadata_lookup: CollectionsMetadataLookup,
     config: SanitizedConfig,
     ctx: &Context,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
+    let ctx = ctx.clone();
+    let worker_id = Uuid::default();
     let handle = hiro_system_kit::thread_named("Subgraph")
         .spawn(move || {
             let mut observers = vec![];
@@ -241,8 +244,7 @@ fn start_subgraph_runloop(
                                     format!("{err_ctx}: Failed to acquire write lock on gql schema")
                                 })?;
 
-                                let metadata = CollectionMetadata::from_request(&uuid, &request);
-
+                                let metadata = CollectionMetadata::from_request(&uuid, &request, "surfpool");
                                 cached_metadata.insert(uuid.clone(), metadata.clone());
 
                                 let gql_context = gql_context.write().map_err(|_| {
@@ -250,11 +252,11 @@ fn start_subgraph_runloop(
                                         "{err_ctx}: Failed to acquire write lock on gql context"
                                     )
                                 })?;
-                                if let Err(e) = gql_context.pool.register_collection(&metadata) {
+                                if let Err(e) = gql_context.pool.register_collection(&metadata, &request, &worker_id) {
                                     error!("{}", e);
                                 }
-                                collections_map.add_collection(metadata);
-                                gql_schema.replace(new_dynamic_schema(collections_map.clone()));
+                                collections_metadata_lookup.add_collection(metadata);
+                                gql_schema.replace(new_dynamic_schema(collections_metadata_lookup.clone()));
 
                                 let console_url = format!("{}/subgraphs", config.studio_url.clone());
                                 let _ = sender.send(console_url);

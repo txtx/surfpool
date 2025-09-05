@@ -1156,7 +1156,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 .transactions
                 .iter()
                 .map(|(sig, status)| {
-                    let transaction_with_status_meta = status.expect_processed();
+                    let (transaction_with_status_meta, _) = status.expect_processed();
                     (
                         sig.to_string(),
                         transaction_with_status_meta.slot,

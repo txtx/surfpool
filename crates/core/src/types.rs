@@ -38,15 +38,19 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum SurfnetTransactionStatus {
     Received,
-    Processed(Box<TransactionWithStatusMeta>),
+    Processed(Box<(TransactionWithStatusMeta, HashSet<Pubkey>)>),
 }
 
 impl SurfnetTransactionStatus {
-    pub fn expect_processed(&self) -> &TransactionWithStatusMeta {
+    pub fn expect_processed(&self) -> &(TransactionWithStatusMeta, HashSet<Pubkey>) {
         match &self {
             SurfnetTransactionStatus::Received => unreachable!(),
-            SurfnetTransactionStatus::Processed(status) => status,
+            SurfnetTransactionStatus::Processed(data) => data,
         }
+    }
+
+    pub fn processed(status: TransactionWithStatusMeta, updated_accounts: HashSet<Pubkey>) -> Self {
+        Self::Processed(Box::new((status, updated_accounts)))
     }
 }
 
@@ -79,7 +83,8 @@ impl TransactionWithStatusMeta {
         pre_token_accounts_with_indexes: &[(usize, TokenAccount)],
         post_token_accounts_with_indexes: &[(usize, TokenAccount)],
         token_mints: Vec<MintAccount>,
-        token_program_ids: &[Pubkey],
+        pre_token_program_ids: &[Pubkey],
+        post_token_program_ids: &[Pubkey],
         loaded_addresses: LoadedAddresses,
     ) -> Self {
         let signatures_len = transaction.signatures.len();
@@ -125,7 +130,7 @@ impl TransactionWithStatusMeta {
                     pre_token_accounts_with_indexes
                         .iter()
                         .zip(token_mints.clone())
-                        .zip(token_program_ids)
+                        .zip(pre_token_program_ids)
                         .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
                             account_index: *i as u8,
                             mint: a.mint().to_string(),
@@ -147,7 +152,7 @@ impl TransactionWithStatusMeta {
                     post_token_accounts_with_indexes
                         .iter()
                         .zip(token_mints)
-                        .zip(token_program_ids)
+                        .zip(post_token_program_ids)
                         .map(|(((i, a), mint), token_program)| TransactionTokenBalance {
                             account_index: *i as u8,
                             mint: a.mint().to_string(),
@@ -731,11 +736,11 @@ pub struct GeyserAccountUpdate {
     pub pubkey: Pubkey,
     pub account: Account,
     pub slot: u64,
-    pub sanitized_transaction: SanitizedTransaction,
+    pub sanitized_transaction: Option<SanitizedTransaction>,
     pub write_version: u64,
 }
 impl GeyserAccountUpdate {
-    pub fn new(
+    pub fn transaction_update(
         pubkey: Pubkey,
         account: Account,
         slot: u64,
@@ -746,7 +751,17 @@ impl GeyserAccountUpdate {
             pubkey,
             account,
             slot,
-            sanitized_transaction,
+            sanitized_transaction: Some(sanitized_transaction),
+            write_version,
+        }
+    }
+
+    pub fn block_update(pubkey: Pubkey, account: Account, slot: u64, write_version: u64) -> Self {
+        Self {
+            pubkey,
+            account,
+            slot,
+            sanitized_transaction: None,
             write_version,
         }
     }

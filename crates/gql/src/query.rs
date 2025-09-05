@@ -9,7 +9,10 @@ use juniper::{
 use surfpool_db::diesel::{
     self, Connection, MultiConnection,
     r2d2::{ConnectionManager, Pool, PooledConnection},
+    sql_query,
 };
+use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
+use uuid::Uuid;
 
 use crate::types::{
     CollectionEntry, CollectionEntryData, collections::CollectionMetadata,
@@ -20,11 +23,14 @@ use crate::types::{
 pub struct DynamicQuery;
 
 impl GraphQLType<DefaultScalarValue> for DynamicQuery {
-    fn name(_spec: &CollectionMetadataMap) -> Option<&str> {
+    fn name(_spec: &CollectionsMetadataLookup) -> Option<&str> {
         Some("Query")
     }
 
-    fn meta<'r>(spec: &CollectionMetadataMap, registry: &mut Registry<'r>) -> MetaType<'r>
+    fn meta<'r>(
+        collections_metadata_lookup: &CollectionsMetadataLookup,
+        registry: &mut Registry<'r>,
+    ) -> MetaType<'r>
     where
         DefaultScalarValue: 'r,
     {
@@ -36,7 +42,7 @@ impl GraphQLType<DefaultScalarValue> for DynamicQuery {
         let mut fields = vec![];
         fields.push(registry.field::<&String>("apiVersion", &()));
 
-        for (name, metadata) in spec.collections.iter() {
+        for (name, metadata) in collections_metadata_lookup.entries.iter() {
             let filter = registry.arg::<Option<SubgraphFilterSpec>>("where", &metadata.filters);
             let field = registry
                 .field::<&[CollectionMetadata]>(name, metadata)
@@ -44,7 +50,7 @@ impl GraphQLType<DefaultScalarValue> for DynamicQuery {
             fields.push(field);
         }
         registry
-            .build_object_type::<DynamicQuery>(spec, &fields)
+            .build_object_type::<DynamicQuery>(collections_metadata_lookup, &fields)
             .into_meta()
     }
 }
@@ -55,7 +61,12 @@ pub trait Dataloader {
         executor: Option<&Executor<DataloaderContext>>,
         metadata: &CollectionMetadata,
     ) -> Result<Vec<CollectionEntry>, FieldError>;
-    fn register_collection(&self, metadata: &CollectionMetadata) -> Result<(), String>;
+    fn register_collection(
+        &self,
+        metadata: &CollectionMetadata,
+        request: &SubgraphRequest,
+        worker_id: &Uuid,
+    ) -> Result<(), String>;
     fn insert_entries_into_collection(
         &self,
         entries: Vec<CollectionEntryData>,
@@ -71,7 +82,7 @@ impl juniper::Context for DataloaderContext {}
 
 impl GraphQLValue<DefaultScalarValue> for DynamicQuery {
     type Context = DataloaderContext;
-    type TypeInfo = CollectionMetadataMap;
+    type TypeInfo = CollectionsMetadataLookup;
 
     fn type_name<'i>(&self, info: &'i Self::TypeInfo) -> Option<&'i str> {
         <DynamicQuery as GraphQLType<DefaultScalarValue>>::name(info)
@@ -81,7 +92,7 @@ impl GraphQLValue<DefaultScalarValue> for DynamicQuery {
 impl GraphQLValueAsync<DefaultScalarValue> for DynamicQuery {
     fn resolve_field_async(
         &self,
-        collection_metadata_map: &CollectionMetadataMap,
+        collections_metadata_lookup: &CollectionsMetadataLookup,
         field_name: &str,
         _arguments: &Arguments,
         executor: &Executor<DataloaderContext>,
@@ -92,7 +103,7 @@ impl GraphQLValueAsync<DefaultScalarValue> for DynamicQuery {
             "apiVersion" => executor.resolve_with_ctx(&(), "1.0"),
             name => {
                 let ctx = executor.context();
-                if let Some(schema) = collection_metadata_map.collections.get(name) {
+                if let Some(schema) = collections_metadata_lookup.entries.get(name) {
                     match ctx.pool.fetch_data_from_collection(Some(executor), schema) {
                         Ok(entries) => executor.resolve_with_ctx(schema, &entries[..]),
                         Err(e) => Err(e),
@@ -110,26 +121,48 @@ impl GraphQLValueAsync<DefaultScalarValue> for DynamicQuery {
 }
 
 #[derive(Clone, Debug)]
-pub struct CollectionMetadataMap {
-    pub collections: HashMap<String, CollectionMetadata>,
+pub struct WorkspacesCache {
+    pub entries: HashMap<String, CollectionsMetadataLookup>,
 }
 
-impl Default for CollectionMetadataMap {
+impl Default for WorkspacesCache {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CollectionMetadataMap {
+impl WorkspacesCache {
     pub fn new() -> Self {
         Self {
-            collections: HashMap::new(),
+            entries: HashMap::new(),
+        }
+    }
+
+    pub fn add_workspace(&mut self, workspace_slug: &str, entry: CollectionsMetadataLookup) {
+        self.entries.insert(workspace_slug.to_string(), entry);
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CollectionsMetadataLookup {
+    pub entries: HashMap<String, CollectionMetadata>,
+}
+
+impl Default for CollectionsMetadataLookup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CollectionsMetadataLookup {
+    pub fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
         }
     }
 
     pub fn add_collection(&mut self, entry: CollectionMetadata) {
-        self.collections
-            .insert(entry.name.to_case(Case::Camel), entry);
+        self.entries.insert(entry.name.to_case(Case::Camel), entry);
     }
 }
 
@@ -162,6 +195,39 @@ impl SqlStore {
 
     pub fn get_conn(&self) -> PooledConnection<ConnectionManager<DatabaseConnection>> {
         self.pool.get().unwrap()
+    }
+
+    pub fn init_subgraph_tables(&self) -> Result<(), String> {
+        let mut db_conn = self.get_conn();
+
+        sql_query(
+            "CREATE TABLE IF NOT EXISTS workers (
+                    id TEXT PRIMARY KEY,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    cursor TEXT,
+                    token TEXT NOT NULL,
+                    last_slot_processed INTEGER NOT NULL
+                )",
+        )
+        .execute(&mut *db_conn)
+        .map_err(|e| format!("Failed to create workers table: {e}"))?;
+
+        sql_query(
+            "CREATE TABLE IF NOT EXISTS collections (
+                    id TEXT PRIMARY KEY,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    table_name TEXT NOT NULL,
+                    workspace_slug TEXT NOT NULL,
+                    schema TEXT NOT NULL,
+                    last_slot_processed INTEGER NOT NULL,
+                    worker_id TEXT NOT NULL
+                )",
+        )
+        .execute(&mut *db_conn)
+        .map_err(|e| format!("Failed to create collections table: {e}"))?;
+        Ok(())
     }
 }
 

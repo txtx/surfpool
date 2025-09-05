@@ -73,7 +73,7 @@ pub async fn handle_start_local_surfnet_command(
     let rpc_url = format!("http://{}", config.rpc.get_rpc_base_url());
     let ws_url = format!("ws://{}", config.rpc.get_ws_base_url());
     let studio_url = format!("http://{}", studio_binding_address);
-    let graphql_query_route_url = format!("{}/gql/v1/graphql", studio_url);
+    let graphql_query_route_url = format!("{}/workspace/v1/graphql", studio_url);
     let rpc_datasource_url = config.simnets[0].get_sanitized_datasource_url();
 
     let sanitized_config = SanitizedConfig {
@@ -87,7 +87,7 @@ pub async fn handle_start_local_surfnet_command(
     };
 
     let subgraph_database_path = cmd
-        .subgraph_database_path
+        .subgraph_db
         .as_ref()
         .map(|p| p.as_str())
         .unwrap_or(":memory:");
