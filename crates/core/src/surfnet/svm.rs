@@ -299,7 +299,7 @@ impl SurfnetSvm {
                 .unwrap_or(1);
             self.transactions.insert(
                 tx.get_signature().clone(),
-                SurfnetTransactionStatus::Processed(Box::new((
+                SurfnetTransactionStatus::processed(
                     TransactionWithStatusMeta {
                         slot,
                         transaction: tx.clone(),
@@ -328,7 +328,7 @@ impl SurfnetSvm {
                         },
                     },
                     HashSet::from([*pubkey]),
-                ))),
+                ),
             );
             self.transactions_queued_for_confirmation
                 .push_back((tx, status_tx.clone()));

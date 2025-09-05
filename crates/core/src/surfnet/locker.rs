@@ -1289,7 +1289,10 @@ impl SurfnetSvmLocker {
                 );
                 svm_writer.transactions.insert(
                     signature,
-                    SurfnetTransactionStatus::Processed(Box::new(transaction_with_status_meta)),
+                    SurfnetTransactionStatus::processed(
+                        transaction_with_status_meta,
+                        HashSet::new(),
+                    ),
                 );
             });
 
