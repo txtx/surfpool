@@ -216,6 +216,7 @@ fn log_events(
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
 ) -> Result<(), String> {
+    let (simnet_commands_tx, _simnet_commands_rx) = crossbeam::channel::unbounded();
     let mut deployment_completed = false;
     let stop_loop = Arc::new(AtomicBool::new(false));
     let do_stop_loop = stop_loop.clone();
@@ -317,10 +318,12 @@ fn log_events(
                     SimnetEvent::RunbookStarted(runbook_id) => {
                         deployment_completed = false;
                         info!("Runbook '{}' execution started", runbook_id);
+                        let _ = simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(false));
                     }
                     SimnetEvent::RunbookCompleted(runbook_id) => {
                         deployment_completed = true;
                         info!("Runbook '{}' execution completed", runbook_id);
+                        let _ = simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(true));
                     }
                 },
                 Err(_e) => {
@@ -365,6 +368,7 @@ fn log_events(
                 },
                 Err(_e) => {
                     deployment_completed = true;
+                    let _ = simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(true));
                 }
             },
         }
@@ -382,7 +386,6 @@ async fn write_and_execute_iac(
         .map_err(|e| format!("Failed to detect project framework: {}", e))?;
 
     let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-    let (simnet_commands_tx, _simnet_commands_rx) = crossbeam::channel::unbounded();
     if let Some((framework, programs)) = deployment {
         // Is infrastructure-as-code (IaC) already setup?
         let base_location =
@@ -469,9 +472,7 @@ async fn write_and_execute_iac(
                                 ExecuteRunbook::default_localnet(runbook_id)
                                     .with_manifest_path(txtx_manifest_location.to_string()),
                                 false,
-                            ));
-                            let _ = simnet_commands_tx
-                                .send(SimnetCommand::SetInstructionProfiling(false));
+                            )); 
                         }
                         let _ = hiro_system_kit::nestable_block_on(join_all(futures));
                     }
