@@ -468,9 +468,10 @@ async fn write_and_execute_iac(
                                 simnet_events_tx.clone(),
                                 ExecuteRunbook::default_localnet(runbook_id)
                                     .with_manifest_path(txtx_manifest_location.to_string()),
-                                false, 
+                                false,
                             ));
-                            let _ = simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(false)); 
+                            let _ = simnet_commands_tx
+                                .send(SimnetCommand::SetInstructionProfiling(false));
                         }
                         let _ = hiro_system_kit::nestable_block_on(join_all(futures));
                     }
