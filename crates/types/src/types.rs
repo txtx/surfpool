@@ -829,6 +829,67 @@ impl Ord for VersionedIdl {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ProfilingMap<K, V, const CAPACITY: usize> {
+    // IndexMap is a map that preserves the insertion order of the keys. (It will be used for the FIFO eviction)
+    map: IndexMap<K, V>,
+}
+
+impl<K: std::hash::Hash + Eq, V, const CAPACITY: usize> ProfilingMap<K, V, CAPACITY> {
+
+    pub fn new() -> Self {
+        Self {
+            map: IndexMap::with_capacity(CAPACITY),
+        }
+    }
+
+    pub fn capacity(&self) -> usize {
+        CAPACITY
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Insert a key/value. If `K` is new and we're full, evict the oldest (FIFO)
+    /// Returns the old value if this was an update.
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        if self.map.contains_key(&key) {
+            // Update doesn't change insertion order in IndexMap
+            return self.map.insert(key, value);
+        }
+        if self.map.len() == CAPACITY {
+            // Evict oldest (index 0). O(n) due shifting the rest of the map
+            //We could use a hashmap + vecdeque to get O(1) here, but then we'd have to handle removing from both maps, storing the index, and managing the eviction. 
+            //This is a good compromise between performance and simplicity. And thinking about memory usage, this is probably the best way to go.
+            let _ = self.map.shift_remove_index(0);
+        }
+        self.map.insert(key, value)
+    }
+
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.map.get(key)
+    }
+
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.map.get_mut(key)
+    }
+
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.map.contains_key(key)
+    }
+
+    // This is a wrapper around the IndexMap::iter() method, but it preserves the insertion order of the keys.
+    // It's used to iterate over the profiling map in the order of the keys being inserted.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&K, &V)> {
+        self.map.iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -961,4 +1022,123 @@ mod tests {
         };
         println!("{}", serde_json::to_string_pretty(&profile_result).unwrap());
     }
-}
+
+    #[test]
+    fn test_profiling_map_capacity() {
+        let profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        assert_eq!(profiling_map.capacity(), 10);
+    }
+
+    #[test]
+    fn test_profiling_map_len() {
+        let profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        assert!(profiling_map.len() == 0);
+    }
+
+    #[test]
+    fn test_profiling_map_is_empty() {
+        let profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        assert_eq!(profiling_map.is_empty(), true);
+    }
+
+    #[test]
+    fn test_profiling_map_insert() {
+        let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let key = Signature::default();
+        let value = KeyedProfileResult::new(1, UuidOrSignature::Signature(key), None, ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None), HashMap::new());
+        profiling_map.insert(key, value.clone());
+        assert_eq!(profiling_map.len(), 1);
+    }
+
+    #[test]
+    fn test_profiling_map_get() {
+        let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let key = Signature::default();
+        let value = KeyedProfileResult::new(1, UuidOrSignature::Signature(key), None, ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None), HashMap::new());
+        profiling_map.insert(key, value.clone());
+
+        assert_eq!(profiling_map.get(&key), Some(&value));
+ 
+    }
+
+    #[test]
+    fn test_profiling_map_get_mut() {
+        let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let key = Signature::default();
+        let mut value = KeyedProfileResult::new(1, UuidOrSignature::Signature(key), None, ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None), HashMap::new());
+        profiling_map.insert(key, value.clone());
+        assert_eq!(profiling_map.get_mut(&key), Some(&mut value));
+    }
+
+    #[test]
+    fn test_profiling_map_contains_key() {
+        let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let key = Signature::default();
+        let value = KeyedProfileResult::new(1, UuidOrSignature::Signature(key), None, ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None), HashMap::new());
+        profiling_map.insert(key, value.clone());
+
+        assert_eq!(profiling_map.contains_key(&key), true);
+    }
+
+    #[test]
+    fn test_profiling_map_iter() {
+        let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let key = Signature::default();
+        let value = KeyedProfileResult::new(1, UuidOrSignature::Signature(key), None, ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None), HashMap::new());
+        profiling_map.insert(key, value.clone());
+
+        assert_eq!(profiling_map.iter().count(), 1);
+    }
+
+    #[test]
+    fn test_profiling_map_evicts_oldest_on_overflow() {
+        let mut profiling_map = ProfilingMap::<String, u32, 10>::new();
+        profiling_map.insert("a".to_string(), 1);
+        profiling_map.insert("b".to_string(), 2);
+        profiling_map.insert("c".to_string(), 3);
+        profiling_map.insert("d".to_string(), 4);
+        profiling_map.insert("e".to_string(), 5);
+        profiling_map.insert("f".to_string(), 6);
+        profiling_map.insert("g".to_string(), 7);
+        profiling_map.insert("h".to_string(), 8);
+        profiling_map.insert("i".to_string(), 9);
+        profiling_map.insert("j".to_string(), 10);
+
+        println!("Profiling map: {:?}", profiling_map);
+        println!("Profile Map capacity: {:?}", profiling_map.capacity());
+        println!("Profile Map len: {:?}", profiling_map.len());
+
+        assert_eq!(profiling_map.len(), 10);
+
+        // Now insert one more, which should evict the oldest
+        profiling_map.insert("k".to_string(), 11);
+        assert_eq!(profiling_map.len(), 10);
+        assert_eq!(profiling_map.get(&"a".to_string()), None);
+        assert_eq!(profiling_map.get(&"k".to_string()), Some(&11));
+    }
+
+    #[test]
+    fn test_profiling_map_update_do_not_reorder() {
+        let mut profiling_map = ProfilingMap::<String, u32, 4>::new();
+        profiling_map.insert("a".to_string(), 1);
+        profiling_map.insert("b".to_string(),2);
+        profiling_map.insert("c".to_string(),3);
+        profiling_map.insert("d".to_string(), 4);
+
+        //update b, should not reorder (order remains a:1,b:2,c:3,d:4)
+        println!("Profiling map: {:?}", profiling_map);
+        println!("Profile Map key b holds: {:?}", profiling_map.get(&"b".to_string()));
+        profiling_map.insert("b".to_string(),4);
+        println!("Profile Map key b holds: {:?}", profiling_map.get(&"b".to_string()));
+        
+        //overflow with a new key, should evict the oldest (a)
+        profiling_map.insert("e".to_string(), 5);
+        assert_eq!(profiling_map.len(), 4);
+        assert_eq!(profiling_map.get(&"a".to_string()), None);
+        assert_eq!(profiling_map.get(&"b".to_string()), Some(&4));
+        assert_eq!(profiling_map.get(&"e".to_string()), Some(&5));
+    }
+
+ }
+
+
