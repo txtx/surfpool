@@ -205,14 +205,10 @@ pub struct StartSimnet {
     pub log_level: String,
     /// The directory to put simnet logs. (eg. surfpool start --log-path ./logs)
     #[arg(long = "log-path", default_value = DEFAULT_LOG_DIR.as_str())]
-    pub log_dir: String, 
+    pub log_dir: String,
     /// The maximum number of transaction profiles to hold in memory.
     /// Changing this will affect the memory usage of surfpool. (eg. surfpool start --max-profiles 2000)
-    #[arg(
-        long = "max-profiles",
-        short = 'c',
-        default_value = "200"
-    )]
+    #[arg(long = "max-profiles", short = 'c', default_value = "200")]
     pub max_profiles: usize,
 }
 

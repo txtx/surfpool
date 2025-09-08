@@ -523,7 +523,7 @@ impl Default for SimnetConfig {
             airdrop_token_amount: 0,
             expiry: None,
             instruction_profiling_enabled: true,
-            max_profiles: DEFAULT_PROFILING_MAP_CAPACITY, 
+            max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
         }
     }
 }
