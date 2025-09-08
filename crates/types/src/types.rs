@@ -836,7 +836,6 @@ pub struct ProfilingMap<K, V, const CAPACITY: usize> {
 }
 
 impl<K: std::hash::Hash + Eq, V, const CAPACITY: usize> ProfilingMap<K, V, CAPACITY> {
-
     pub fn new() -> Self {
         Self {
             map: IndexMap::with_capacity(CAPACITY),
@@ -864,7 +863,7 @@ impl<K: std::hash::Hash + Eq, V, const CAPACITY: usize> ProfilingMap<K, V, CAPAC
         }
         if self.map.len() == CAPACITY {
             // Evict oldest (index 0). O(n) due shifting the rest of the map
-            //We could use a hashmap + vecdeque to get O(1) here, but then we'd have to handle removing from both maps, storing the index, and managing the eviction. 
+            //We could use a hashmap + vecdeque to get O(1) here, but then we'd have to handle removing from both maps, storing the index, and managing the eviction.
             //This is a good compromise between performance and simplicity. And thinking about memory usage, this is probably the best way to go.
             let _ = self.map.shift_remove_index(0);
         }
@@ -1045,7 +1044,13 @@ mod tests {
     fn test_profiling_map_insert() {
         let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
         let key = Signature::default();
-        let value = KeyedProfileResult::new(1, UuidOrSignature::Signature(key), None, ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None), HashMap::new());
+        let value = KeyedProfileResult::new(
+            1,
+            UuidOrSignature::Signature(key),
+            None,
+            ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None),
+            HashMap::new(),
+        );
         profiling_map.insert(key, value.clone());
         assert_eq!(profiling_map.len(), 1);
     }
@@ -1054,18 +1059,29 @@ mod tests {
     fn test_profiling_map_get() {
         let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
         let key = Signature::default();
-        let value = KeyedProfileResult::new(1, UuidOrSignature::Signature(key), None, ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None), HashMap::new());
+        let value = KeyedProfileResult::new(
+            1,
+            UuidOrSignature::Signature(key),
+            None,
+            ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None),
+            HashMap::new(),
+        );
         profiling_map.insert(key, value.clone());
 
         assert_eq!(profiling_map.get(&key), Some(&value));
- 
     }
 
     #[test]
     fn test_profiling_map_get_mut() {
         let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
         let key = Signature::default();
-        let mut value = KeyedProfileResult::new(1, UuidOrSignature::Signature(key), None, ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None), HashMap::new());
+        let mut value = KeyedProfileResult::new(
+            1,
+            UuidOrSignature::Signature(key),
+            None,
+            ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None),
+            HashMap::new(),
+        );
         profiling_map.insert(key, value.clone());
         assert_eq!(profiling_map.get_mut(&key), Some(&mut value));
     }
@@ -1074,7 +1090,13 @@ mod tests {
     fn test_profiling_map_contains_key() {
         let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
         let key = Signature::default();
-        let value = KeyedProfileResult::new(1, UuidOrSignature::Signature(key), None, ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None), HashMap::new());
+        let value = KeyedProfileResult::new(
+            1,
+            UuidOrSignature::Signature(key),
+            None,
+            ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None),
+            HashMap::new(),
+        );
         profiling_map.insert(key, value.clone());
 
         assert_eq!(profiling_map.contains_key(&key), true);
@@ -1084,7 +1106,13 @@ mod tests {
     fn test_profiling_map_iter() {
         let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
         let key = Signature::default();
-        let value = KeyedProfileResult::new(1, UuidOrSignature::Signature(key), None, ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None), HashMap::new());
+        let value = KeyedProfileResult::new(
+            1,
+            UuidOrSignature::Signature(key),
+            None,
+            ProfileResult::new(BTreeMap::new(), BTreeMap::new(), 0, None, None),
+            HashMap::new(),
+        );
         profiling_map.insert(key, value.clone());
 
         assert_eq!(profiling_map.iter().count(), 1);
@@ -1121,16 +1149,22 @@ mod tests {
     fn test_profiling_map_update_do_not_reorder() {
         let mut profiling_map = ProfilingMap::<String, u32, 4>::new();
         profiling_map.insert("a".to_string(), 1);
-        profiling_map.insert("b".to_string(),2);
-        profiling_map.insert("c".to_string(),3);
+        profiling_map.insert("b".to_string(), 2);
+        profiling_map.insert("c".to_string(), 3);
         profiling_map.insert("d".to_string(), 4);
 
         //update b, should not reorder (order remains a:1,b:2,c:3,d:4)
         println!("Profiling map: {:?}", profiling_map);
-        println!("Profile Map key b holds: {:?}", profiling_map.get(&"b".to_string()));
-        profiling_map.insert("b".to_string(),4);
-        println!("Profile Map key b holds: {:?}", profiling_map.get(&"b".to_string()));
-        
+        println!(
+            "Profile Map key b holds: {:?}",
+            profiling_map.get(&"b".to_string())
+        );
+        profiling_map.insert("b".to_string(), 4);
+        println!(
+            "Profile Map key b holds: {:?}",
+            profiling_map.get(&"b".to_string())
+        );
+
         //overflow with a new key, should evict the oldest (a)
         profiling_map.insert("e".to_string(), 5);
         assert_eq!(profiling_map.len(), 4);
@@ -1138,7 +1172,4 @@ mod tests {
         assert_eq!(profiling_map.get(&"b".to_string()), Some(&4));
         assert_eq!(profiling_map.get(&"e".to_string()), Some(&5));
     }
-
- }
-
-
+}
