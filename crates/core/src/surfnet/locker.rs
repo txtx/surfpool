@@ -193,6 +193,7 @@ impl SurfnetSvmLocker {
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
+        instruction_profiling_map_capacity: usize,
     ) -> SurfpoolResult<EpochInfo> {
         let mut epoch_info = if let Some(remote_client) = remote_ctx {
             remote_client.get_epoch_info().await?
@@ -214,6 +215,7 @@ impl SurfnetSvmLocker {
                 slot_time,
                 remote_ctx,
                 do_profile_instructions,
+                instruction_profiling_map_capacity,
             );
         });
         Ok(epoch_info)
@@ -742,6 +744,10 @@ impl SurfnetSvmLocker {
 
     pub fn is_instruction_profiling_enabled(&self) -> bool {
         self.with_svm_reader(|svm_reader| svm_reader.instruction_profiling_enabled)
+    }
+
+    pub fn get_profiling_map_capacity(&self) -> usize {
+        self.with_svm_reader(|svm_reader| svm_reader.instruction_profiling_map_capacity)
     }
 
     pub async fn process_transaction(
