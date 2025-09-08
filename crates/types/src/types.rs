@@ -863,8 +863,8 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
         }
         if self.map.len() == self.map.capacity() {
             // Evict oldest (index 0). O(n) due shifting the rest of the map
-            //We could use a hashmap + vecdeque to get O(1) here, but then we'd have to handle removing from both maps, storing the index, and managing the eviction.
-            //This is a good compromise between performance and simplicity. And thinking about memory usage, this is probably the best way to go.
+            // We could use a hashmap + vecdeque to get O(1) here, but then we'd have to handle removing from both maps, storing the index, and managing the eviction.
+            // This is a good compromise between performance and simplicity. And thinking about memory usage, this is probably the best way to go.
             let _ = self.map.shift_remove_index(0);
         }
         self.map.insert(key, value)
