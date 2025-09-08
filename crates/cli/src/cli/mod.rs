@@ -205,15 +205,15 @@ pub struct StartSimnet {
     pub log_level: String,
     /// The directory to put simnet logs. (eg. surfpool start --log-path ./logs)
     #[arg(long = "log-path", default_value = DEFAULT_LOG_DIR.as_str())]
-    pub log_dir: String,
-    /// Set the maximum capacity of the map that holds the instruction profiling results
-    /// Changing this will affect the memory usage of surfpool. (eg. surfpool start --instruction-profiling-map-capacity 2000)
+    pub log_dir: String, 
+    /// The maximum number of transaction profiles to hold in memory.
+    /// Changing this will affect the memory usage of surfpool. (eg. surfpool start --max-profiles 2000)
     #[arg(
-        long = "instruction-profiling-map-capacity",
+        long = "max-profiles",
         short = 'c',
         default_value = "200"
     )]
-    pub instruction_profiling_map_capacity: usize,
+    pub max_profiles: usize,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -333,7 +333,7 @@ impl StartSimnet {
             expiry: None,
             offline_mode: self.offline,
             instruction_profiling_enabled: !self.disable_instruction_profiling,
-            instruction_profiling_map_capacity: self.instruction_profiling_map_capacity,
+            max_profiles: self.max_profiles,
         }
     }
 

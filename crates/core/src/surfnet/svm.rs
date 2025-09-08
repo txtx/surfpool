@@ -109,7 +109,7 @@ pub struct SurfnetSvm {
     pub account_subscriptions: AccountSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
     pub profile_tag_map: HashMap<String, Vec<UuidOrSignature>>,
-    pub simulated_transaction_profiles: FifoMap<Uuid, KeyedProfileResult>,
+    pub simulated_transaction_profiles: HashMap<Uuid, KeyedProfileResult>,
     pub executed_transaction_profiles: FifoMap<Signature, KeyedProfileResult>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
@@ -134,7 +134,7 @@ pub struct SurfnetSvm {
     pub registered_idls: HashMap<Pubkey, BinaryHeap<VersionedIdl>>,
     pub feature_set: FeatureSet,
     pub instruction_profiling_enabled: bool,
-    pub instruction_profiling_map_capacity: usize,
+    pub max_profiles: usize,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -185,7 +185,7 @@ impl SurfnetSvm {
                 account_subscriptions: HashMap::new(),
                 slot_subscriptions: Vec::new(),
                 profile_tag_map: HashMap::new(),
-                simulated_transaction_profiles: FifoMap::default(), // With DEFAULT_PROFILING_MAP_CAPACITY capacity
+                simulated_transaction_profiles: HashMap::new(),
                 executed_transaction_profiles: FifoMap::default(), // With DEFAULT_PROFILING_MAP_CAPACITY capacity
                 logs_subscriptions: Vec::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
@@ -207,7 +207,7 @@ impl SurfnetSvm {
                 registered_idls: HashMap::new(),
                 feature_set,
                 instruction_profiling_enabled: true,
-                instruction_profiling_map_capacity: DEFAULT_PROFILING_MAP_CAPACITY,
+                max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -233,13 +233,13 @@ impl SurfnetSvm {
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
-        instruction_profiling_map_capacity: usize,
+        max_profiles: usize,
     ) {
         self.latest_epoch_info = epoch_info.clone();
         self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_time = slot_time;
         self.instruction_profiling_enabled = do_profile_instructions;
-        self.set_profiling_map_capacity(instruction_profiling_map_capacity);
+        self.set_profiling_map_capacity(max_profiles);
 
         if let Some(remote_client) = remote_ctx {
             let _ = self
@@ -267,8 +267,7 @@ impl SurfnetSvm {
 
     pub fn set_profiling_map_capacity(&mut self, capacity: usize) {
         let clamped_capacity = max(1, capacity);
-        self.instruction_profiling_map_capacity = clamped_capacity;
-        self.simulated_transaction_profiles = FifoMap::new(clamped_capacity);
+        self.max_profiles = clamped_capacity;
         self.executed_transaction_profiles = FifoMap::new(clamped_capacity);
     }
 

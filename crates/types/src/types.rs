@@ -509,7 +509,7 @@ pub struct SimnetConfig {
     pub airdrop_token_amount: u64,
     pub expiry: Option<u64>,
     pub instruction_profiling_enabled: bool,
-    pub instruction_profiling_map_capacity: usize,
+    pub max_profiles: usize,
 }
 
 impl Default for SimnetConfig {
@@ -523,7 +523,7 @@ impl Default for SimnetConfig {
             airdrop_token_amount: 0,
             expiry: None,
             instruction_profiling_enabled: true,
-            instruction_profiling_map_capacity: DEFAULT_PROFILING_MAP_CAPACITY, //default size
+            max_profiles: DEFAULT_PROFILING_MAP_CAPACITY, 
         }
     }
 }
