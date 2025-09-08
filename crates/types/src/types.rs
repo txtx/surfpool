@@ -1147,29 +1147,27 @@ mod tests {
 
     #[test]
     fn test_profiling_map_update_do_not_reorder() {
-        let mut profiling_map = ProfilingMap::<String, u32, 4>::new();
-        profiling_map.insert("a".to_string(), 1);
-        profiling_map.insert("b".to_string(), 2);
-        profiling_map.insert("c".to_string(), 3);
-        profiling_map.insert("d".to_string(), 4);
+        let mut profiling_map = ProfilingMap::<&str, u32, 4>::new();
+        profiling_map.insert("a", 1);
+        profiling_map.insert("b", 2);
+        profiling_map.insert("c", 3);
+        profiling_map.insert("d", 4);
 
         //update b, should not reorder (order remains a:1,b:2,c:3,d:4)
         println!("Profiling map: {:?}", profiling_map);
-        println!(
-            "Profile Map key b holds: {:?}",
-            profiling_map.get(&"b".to_string())
-        );
-        profiling_map.insert("b".to_string(), 4);
-        println!(
-            "Profile Map key b holds: {:?}",
-            profiling_map.get(&"b".to_string())
-        );
+        println!("Profile Map key b holds: {:?}", profiling_map.get(&"b"));
+        profiling_map.insert("b", 4);
+        println!("Profile Map key b holds: {:?}", profiling_map.get(&"b"));
 
         //overflow with a new key, should evict the oldest (a)
-        profiling_map.insert("e".to_string(), 5);
+        profiling_map.insert("e", 5);
         assert_eq!(profiling_map.len(), 4);
-        assert_eq!(profiling_map.get(&"a".to_string()), None);
-        assert_eq!(profiling_map.get(&"b".to_string()), Some(&4));
-        assert_eq!(profiling_map.get(&"e".to_string()), Some(&5));
+        assert_eq!(profiling_map.get(&"a"), None);
+        assert_eq!(profiling_map.get(&"b"), Some(&4));
+        assert_eq!(profiling_map.get(&"e"), Some(&5));
+
+        let get: Vec<_> = profiling_map.iter().map(|(k, v)| (*k, *v)).collect();
+        println!("Profiling map: {:?}", get);
+        assert_eq!(get, vec![("b", 4), ("c", 3), ("d", 4), ("e", 5)]);
     }
 }
