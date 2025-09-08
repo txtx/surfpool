@@ -34,6 +34,7 @@ pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 pub const DEFAULT_SLOT_TIME_MS: u64 = 400;
 pub type Idl = anchor_lang_idl::types::Idl;
+pub const DEFAULT_PROFILING_MAP_CAPACITY: usize = 200;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionMetadata {
@@ -522,7 +523,7 @@ impl Default for SimnetConfig {
             airdrop_token_amount: 0,
             expiry: None,
             instruction_profiling_enabled: true,
-            instruction_profiling_map_capacity: 200, //default size
+            instruction_profiling_map_capacity: DEFAULT_PROFILING_MAP_CAPACITY, //default size
         }
     }
 }
@@ -842,6 +843,10 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
         Self {
             map: IndexMap::with_capacity(capacity),
         }
+    }
+
+    pub fn default() -> Self {
+        Self::new(DEFAULT_PROFILING_MAP_CAPACITY)
     }
 
     pub fn capacity(&self) -> usize {

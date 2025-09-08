@@ -1,4 +1,7 @@
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::{
+    cmp::max,
+    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
+};
 
 use agave_feature_set::{FeatureSet, enable_extend_program_checked};
 use chrono::Utc;
@@ -43,9 +46,10 @@ use spl_token_2022::extension::{
     scaled_ui_amount::ScaledUiAmountConfig,
 };
 use surfpool_types::{
-    AccountChange, AccountProfileState, DEFAULT_SLOT_TIME_MS, Idl, ProfileResult, RpcProfileDepth,
-    RpcProfileResultConfig, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
-    UiAccountChange, UiAccountProfileState, UiProfileResult, VersionedIdl,
+    AccountChange, AccountProfileState, DEFAULT_PROFILING_MAP_CAPACITY, DEFAULT_SLOT_TIME_MS,
+    FifoMap, Idl, ProfileResult, RpcProfileDepth, RpcProfileResultConfig, SimnetEvent,
+    TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
+    UiProfileResult, VersionedIdl,
     types::{
         ComputeUnitsEstimationResult, KeyedProfileResult, UiKeyedProfileResult, UuidOrSignature,
     },
@@ -105,8 +109,8 @@ pub struct SurfnetSvm {
     pub account_subscriptions: AccountSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
     pub profile_tag_map: HashMap<String, Vec<UuidOrSignature>>,
-    pub simulated_transaction_profiles: HashMap<Uuid, KeyedProfileResult>,
-    pub executed_transaction_profiles: HashMap<Signature, KeyedProfileResult>,
+    pub simulated_transaction_profiles: FifoMap<Uuid, KeyedProfileResult>,
+    pub executed_transaction_profiles: FifoMap<Signature, KeyedProfileResult>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
@@ -181,8 +185,8 @@ impl SurfnetSvm {
                 account_subscriptions: HashMap::new(),
                 slot_subscriptions: Vec::new(),
                 profile_tag_map: HashMap::new(),
-                simulated_transaction_profiles: HashMap::new(),
-                executed_transaction_profiles: HashMap::new(),
+                simulated_transaction_profiles: FifoMap::default(), // With DEFAULT_PROFILING_MAP_CAPACITY capacity
+                executed_transaction_profiles: FifoMap::default(),  // With DEFAULT_PROFILING_MAP_CAPACITY capacity
                 logs_subscriptions: Vec::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 slot_time: DEFAULT_SLOT_TIME_MS,
@@ -203,7 +207,7 @@ impl SurfnetSvm {
                 registered_idls: HashMap::new(),
                 feature_set,
                 instruction_profiling_enabled: true,
-                instruction_profiling_map_capacity: 200, //default size
+                instruction_profiling_map_capacity: DEFAULT_PROFILING_MAP_CAPACITY, 
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -235,7 +239,7 @@ impl SurfnetSvm {
         self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_time = slot_time;
         self.instruction_profiling_enabled = do_profile_instructions;
-        self.instruction_profiling_map_capacity = instruction_profiling_map_capacity;
+        self.set_profiling_map_capacity(instruction_profiling_map_capacity);
 
         if let Some(remote_client) = remote_ctx {
             let _ = self
@@ -262,7 +266,10 @@ impl SurfnetSvm {
     }
 
     pub fn set_profiling_map_capacity(&mut self, capacity: usize) {
-        self.instruction_profiling_map_capacity = capacity;
+        let clamped_capacity = max(1, capacity);
+        self.instruction_profiling_map_capacity = clamped_capacity;
+        self.simulated_transaction_profiles = FifoMap::new(clamped_capacity);
+        self.executed_transaction_profiles = FifoMap::new(clamped_capacity);
     }
 
     /// Airdrops a specified amount of lamports to a single public key.
