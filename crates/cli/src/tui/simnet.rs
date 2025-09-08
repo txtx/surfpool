@@ -429,8 +429,11 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     handles.push(selector.recv(rx));
                 }
             }
-            let oper = selector.try_select();
-            if let Ok(oper) = oper {
+
+            loop {
+                let Ok(oper) = selector.try_select() else {
+                    break;
+                };
                 match oper.index() {
                     0 => match oper.recv(&app.simnet_events_rx) {
                         Ok(event) => match &event {
@@ -644,14 +647,15 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     },
                                 }
                             }
-                            _ => {}
+                            _ => break,
                         },
                         Err(_) => {
                             deployment_completed = true;
+                            break;
                         }
                     },
                 }
-            };
+            }
         }
 
         for event in new_events {
@@ -659,7 +663,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
             app.tail();
         }
 
-        if event::poll(Duration::from_millis(25))? {
+        if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key_event) = event::read()? {
                 if key_event.kind == KeyEventKind::Press {
                     use KeyCode::*;
