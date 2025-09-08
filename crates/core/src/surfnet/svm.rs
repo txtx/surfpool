@@ -186,7 +186,7 @@ impl SurfnetSvm {
                 slot_subscriptions: Vec::new(),
                 profile_tag_map: HashMap::new(),
                 simulated_transaction_profiles: FifoMap::default(), // With DEFAULT_PROFILING_MAP_CAPACITY capacity
-                executed_transaction_profiles: FifoMap::default(),  // With DEFAULT_PROFILING_MAP_CAPACITY capacity
+                executed_transaction_profiles: FifoMap::default(), // With DEFAULT_PROFILING_MAP_CAPACITY capacity
                 logs_subscriptions: Vec::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 slot_time: DEFAULT_SLOT_TIME_MS,
@@ -207,7 +207,7 @@ impl SurfnetSvm {
                 registered_idls: HashMap::new(),
                 feature_set,
                 instruction_profiling_enabled: true,
-                instruction_profiling_map_capacity: DEFAULT_PROFILING_MAP_CAPACITY, 
+                instruction_profiling_map_capacity: DEFAULT_PROFILING_MAP_CAPACITY,
             },
             simnet_events_rx,
             geyser_events_rx,
@@ -2252,5 +2252,26 @@ mod tests {
             };
             assert_eq!(ui_account, expected_account);
         }
+    }
+
+    #[test]
+    fn test_profiling_map_capacity_default() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        assert_eq!(
+            svm.simulated_transaction_profiles.capacity(),
+            DEFAULT_PROFILING_MAP_CAPACITY
+        );
+        assert_eq!(
+            svm.executed_transaction_profiles.capacity(),
+            DEFAULT_PROFILING_MAP_CAPACITY
+        );
+    }
+
+    #[test]
+    fn test_profiling_map_capacity_set() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        svm.set_profiling_map_capacity(10);
+        assert_eq!(svm.simulated_transaction_profiles.capacity(), 10);
+        assert_eq!(svm.executed_transaction_profiles.capacity(), 10);
     }
 }
