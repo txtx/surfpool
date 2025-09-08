@@ -830,20 +830,20 @@ impl Ord for VersionedIdl {
 }
 
 #[derive(Debug, Clone)]
-pub struct ProfilingMap<K, V, const CAPACITY: usize> {
+pub struct FifoMap<K, V> {
     // IndexMap is a map that preserves the insertion order of the keys. (It will be used for the FIFO eviction)
     map: IndexMap<K, V>,
 }
 
-impl<K: std::hash::Hash + Eq, V, const CAPACITY: usize> ProfilingMap<K, V, CAPACITY> {
-    pub fn new() -> Self {
+impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
+    pub fn new(capacity: usize) -> Self {
         Self {
-            map: IndexMap::with_capacity(CAPACITY),
+            map: IndexMap::with_capacity(capacity),
         }
     }
 
     pub fn capacity(&self) -> usize {
-        CAPACITY
+        self.map.capacity()
     }
 
     pub fn len(&self) -> usize {
@@ -861,7 +861,7 @@ impl<K: std::hash::Hash + Eq, V, const CAPACITY: usize> ProfilingMap<K, V, CAPAC
             // Update doesn't change insertion order in IndexMap
             return self.map.insert(key, value);
         }
-        if self.map.len() == CAPACITY {
+        if self.map.len() == self.map.capacity() {
             // Evict oldest (index 0). O(n) due shifting the rest of the map
             //We could use a hashmap + vecdeque to get O(1) here, but then we'd have to handle removing from both maps, storing the index, and managing the eviction.
             //This is a good compromise between performance and simplicity. And thinking about memory usage, this is probably the best way to go.
@@ -1024,25 +1024,25 @@ mod tests {
 
     #[test]
     fn test_profiling_map_capacity() {
-        let profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let profiling_map = FifoMap::<Signature, KeyedProfileResult>::new(10);
         assert_eq!(profiling_map.capacity(), 10);
     }
 
     #[test]
     fn test_profiling_map_len() {
-        let profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let profiling_map = FifoMap::<Signature, KeyedProfileResult>::new(10);
         assert!(profiling_map.len() == 0);
     }
 
     #[test]
     fn test_profiling_map_is_empty() {
-        let profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let profiling_map = FifoMap::<Signature, KeyedProfileResult>::new(10);
         assert_eq!(profiling_map.is_empty(), true);
     }
 
     #[test]
     fn test_profiling_map_insert() {
-        let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let mut profiling_map = FifoMap::<Signature, KeyedProfileResult>::new(10);
         let key = Signature::default();
         let value = KeyedProfileResult::new(
             1,
@@ -1057,7 +1057,7 @@ mod tests {
 
     #[test]
     fn test_profiling_map_get() {
-        let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let mut profiling_map = FifoMap::<Signature, KeyedProfileResult>::new(10);
         let key = Signature::default();
         let value = KeyedProfileResult::new(
             1,
@@ -1073,7 +1073,7 @@ mod tests {
 
     #[test]
     fn test_profiling_map_get_mut() {
-        let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let mut profiling_map = FifoMap::<Signature, KeyedProfileResult>::new(10);
         let key = Signature::default();
         let mut value = KeyedProfileResult::new(
             1,
@@ -1088,7 +1088,7 @@ mod tests {
 
     #[test]
     fn test_profiling_map_contains_key() {
-        let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let mut profiling_map = FifoMap::<Signature, KeyedProfileResult>::new(10);
         let key = Signature::default();
         let value = KeyedProfileResult::new(
             1,
@@ -1104,7 +1104,7 @@ mod tests {
 
     #[test]
     fn test_profiling_map_iter() {
-        let mut profiling_map = ProfilingMap::<Signature, KeyedProfileResult, 10>::new();
+        let mut profiling_map = FifoMap::<Signature, KeyedProfileResult>::new(10);
         let key = Signature::default();
         let value = KeyedProfileResult::new(
             1,
@@ -1120,7 +1120,7 @@ mod tests {
 
     #[test]
     fn test_profiling_map_evicts_oldest_on_overflow() {
-        let mut profiling_map = ProfilingMap::<String, u32, 10>::new();
+        let mut profiling_map = FifoMap::<String, u32>::new(10);
         profiling_map.insert("a".to_string(), 1);
         profiling_map.insert("b".to_string(), 2);
         profiling_map.insert("c".to_string(), 3);
@@ -1147,7 +1147,7 @@ mod tests {
 
     #[test]
     fn test_profiling_map_update_do_not_reorder() {
-        let mut profiling_map = ProfilingMap::<&str, u32, 4>::new();
+        let mut profiling_map = FifoMap::<&str, u32>::new(4);
         profiling_map.insert("a", 1);
         profiling_map.insert("b", 2);
         profiling_map.insert("c", 3);
