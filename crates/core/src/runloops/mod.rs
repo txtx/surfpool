@@ -68,7 +68,7 @@ pub async fn start_local_surfnet_runloop(
 
     let remote_rpc_client = match simnet.offline_mode {
         true => None,
-        false => Some(SurfnetRemoteClient::new(
+        false => Some(SurfnetRemoteClient::new_unsafe(
             &simnet
                 .remote_rpc_url
                 .as_ref()
@@ -547,6 +547,7 @@ async fn start_http_rpc_server_runloop(
         .spawn(move || {
             let server = match ServerBuilder::new(io)
                 .cors(DomainsValidation::Disabled)
+                .threads(6)
                 .start_http(&server_bind)
             {
                 Ok(server) => server,

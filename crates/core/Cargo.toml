@@ -37,6 +37,7 @@ jsonrpc-pubsub = "18.0.0"
 jsonrpc-ws-server = "18.0.0"
 litesvm = { workspace = true }
 log = "0.4.22"
+reqwest = "0.12"
 serde = { workspace = true }
 serde_bytes = { workspace = true }
 serde_derive = { workspace = true }                               # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251

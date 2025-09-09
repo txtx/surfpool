@@ -15036,6 +15036,7 @@ dependencies = [
  "libloading",
  "litesvm",
  "log 0.4.28",
+ "reqwest 0.12.23",
  "serde",
  "serde_bytes",
  "serde_derive",

@@ -718,7 +718,6 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
         app.update_blink_state();
         terminal.draw(|f| ui(f, &mut app))?;
     }
-    Ok(())
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
