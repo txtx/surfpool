@@ -192,6 +192,7 @@ pub async fn handle_start_local_surfnet_command(
             subgraph_events_rx,
             cmd.debug,
             deploy_progress_rx,
+            simnet_commands_tx
         )?;
     } else {
         tui::simnet::start_app(
@@ -215,8 +216,8 @@ fn log_events(
     subgraph_events_rx: Receiver<SubgraphEvent>,
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
+    simnet_commands_tx: Sender<SimnetCommand>,
 ) -> Result<(), String> {
-    let (simnet_commands_tx, _simnet_commands_rx) = crossbeam::channel::unbounded();
     let mut deployment_completed = false;
     let stop_loop = Arc::new(AtomicBool::new(false));
     let do_stop_loop = stop_loop.clone();
