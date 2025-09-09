@@ -47,7 +47,7 @@ pub async fn handle_start_local_surfnet_command(
     ctx: &Context,
 ) -> Result<(), String> {
     // We start the simnet as soon as possible, as it needs to be ready for deployments
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new(cmd.max_profiles);
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();

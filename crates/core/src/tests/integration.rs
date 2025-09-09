@@ -27,8 +27,9 @@ use solana_signer::Signer;
 use solana_system_interface::{instruction as system_instruction, program as system_program};
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
-    DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
-    SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
+    DEFAULT_PROFILING_MAP_CAPACITY, DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth,
+    RpcProfileResultConfig, SimnetCommand, SimnetEvent, SurfpoolConfig, UiAccountChange,
+    UiAccountProfileState, UiKeyedProfileResult,
     types::{
         BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
     },
@@ -81,7 +82,8 @@ async fn test_simnet_ready() {
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
@@ -124,7 +126,8 @@ async fn test_simnet_ticks() {
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let (test_tx, test_rx) = unbounded();
@@ -188,7 +191,8 @@ async fn test_simnet_some_sol_transfers() {
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
@@ -340,7 +344,8 @@ async fn test_add_alt_entries_fetching() {
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
@@ -504,7 +509,8 @@ async fn test_simulate_add_alt_entries_fetching() {
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
@@ -573,7 +579,8 @@ async fn test_simulate_add_alt_entries_fetching() {
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_surfnet_estimate_compute_units() {
-    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
 
     let payer = Keypair::new();
@@ -823,7 +830,8 @@ async fn test_surfnet_estimate_compute_units() {
 
     // Test send_transaction with cu_analysis_enabled = true
     // Create a new SVM instance
-    let (mut svm_for_send, simnet_rx_for_send, _geyser_rx_for_send) = SurfnetSvm::new();
+    let (mut svm_for_send, simnet_rx_for_send, _geyser_rx_for_send) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     svm_for_send
         .airdrop(&payer.pubkey(), lamports_to_send * 2)
         .unwrap();
@@ -859,7 +867,8 @@ async fn test_surfnet_estimate_compute_units() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_transaction_profile() {
     let rpc_server = SurfnetCheatcodesRpc;
-    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
 
     // Set up test accounts
     let payer = Keypair::new();
@@ -1075,7 +1084,8 @@ async fn test_get_transaction_profile() {
 fn test_register_and_get_idl_without_slot() {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
@@ -1126,7 +1136,8 @@ fn test_register_and_get_idl_without_slot() {
 fn test_register_and_get_idl_with_slot() {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
@@ -1189,7 +1200,8 @@ async fn test_register_and_get_same_idl_with_different_slots() {
     let idl_v2: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v2.json")).unwrap();
     let idl_v3: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v3.json")).unwrap();
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
 
@@ -1335,7 +1347,8 @@ async fn test_register_and_get_same_idl_with_different_slots() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_basic() {
     // Set up test environment
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -1417,7 +1430,8 @@ async fn test_profile_transaction_basic() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_multi_instruction_basic() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
@@ -1810,7 +1824,8 @@ async fn test_profile_transaction_multi_instruction_basic() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_with_tag() {
     // Set up test environment
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -1965,7 +1980,8 @@ async fn test_profile_transaction_with_tag() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_token_transfer() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2400,7 +2416,8 @@ async fn test_profile_transaction_token_transfer() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_insufficient_funds() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts with insufficient funds
@@ -2465,7 +2482,8 @@ async fn test_profile_transaction_insufficient_funds() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_multi_instruction_failure() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2544,7 +2562,8 @@ async fn test_profile_transaction_multi_instruction_failure() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_with_encoding() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2611,7 +2630,8 @@ async fn test_profile_transaction_with_encoding() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_with_tag_and_retrieval() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2710,7 +2730,8 @@ async fn test_profile_transaction_with_tag_and_retrieval() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_empty_instruction() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2765,7 +2786,8 @@ async fn test_profile_transaction_empty_instruction() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_versioned_message() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2826,7 +2848,8 @@ async fn test_profile_transaction_versioned_message() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_local_signatures_without_limit() {
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
 
@@ -2916,7 +2939,8 @@ async fn test_get_local_signatures_without_limit() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_local_signatures_with_limit() {
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
 
@@ -3074,7 +3098,8 @@ fn boot_simnet(
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) =
+        SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
