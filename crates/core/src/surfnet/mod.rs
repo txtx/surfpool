@@ -46,7 +46,10 @@ pub struct BlockIdentifier {
 
 impl BlockIdentifier {
     pub fn zero() -> Self {
-        Self::new(0, "")
+        Self::new(
+            0,
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
     }
 
     pub fn new(index: u64, hash: &str) -> Self {

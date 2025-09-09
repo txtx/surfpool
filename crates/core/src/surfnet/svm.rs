@@ -1,4 +1,7 @@
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::{
+    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
+    str::FromStr,
+};
 
 use agave_feature_set::{FeatureSet, enable_extend_program_checked};
 use chrono::Utc;
@@ -228,6 +231,7 @@ impl SurfnetSvm {
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
     ) {
+        self.chain_tip = self.new_blockhash();
         self.latest_epoch_info = epoch_info.clone();
         self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_time = slot_time;
@@ -361,7 +365,7 @@ impl SurfnetSvm {
 
     /// Returns the latest blockhash known by the SVM.
     pub fn latest_blockhash(&self) -> solana_hash::Hash {
-        self.inner.latest_blockhash()
+        Hash::from_str(&self.chain_tip.hash).expect("Invalid blockhash")
     }
 
     /// Returns the latest epoch info known by the `SurfnetSvm`.
@@ -396,44 +400,68 @@ impl SurfnetSvm {
             slot_hashes::SlotHashes,
         };
         self.updated_at = Utc::now().timestamp_millis() as u64;
-        // cache the current blockhashes
-        let blockhashes = self.inner.get_sysvar::<RecentBlockhashes>();
-        let max_entries_len = blockhashes.len().min(MAX_ENTRIES);
-        let mut entries = Vec::with_capacity(max_entries_len);
-        // note: expire blockhash has a bug with liteSVM.
-        // they only keep one blockhash in their RecentBlockhashes sysvar, so this function
-        // clears out the other valid hashes.
-        // so we manually rehydrate the sysvar with new latest blockhash + cached blockhashes.
+        // Backup the current block hashes
+        let recent_blockhashes_backup = self.inner.get_sysvar::<RecentBlockhashes>();
+        let num_blockhashes_expected = recent_blockhashes_backup.len().min(MAX_ENTRIES);
+        // Invalidate the current block hash.
+        // LiteSVM bug / feature: calling this method empties `sysvar::<RecentBlockhashes>()`
         self.inner.expire_blockhash();
-        let latest_entries = self.inner.get_sysvar::<RecentBlockhashes>();
-        let latest_entry = latest_entries.first().unwrap();
-        entries.push(IterItem(
+        // Rebuild recent blockhashes
+        let mut recent_blockhashes = Vec::with_capacity(num_blockhashes_expected);
+        let recent_blockhashes_overriden = self.inner.get_sysvar::<RecentBlockhashes>();
+        let latest_entry = recent_blockhashes_overriden
+            .first()
+            .expect("Latest blockhash not found");
+        // Create a new synthetic blockhash - SURFNETxSAFEHASHxxxxxxxxxxxxxxxxxxxxxxxxx28
+        // Create a string and decode it from base58 to get the raw bytes
+        let index_hex = format!("{:08x}", self.chain_tip.index)
+            .replace('0', "x") // Replace 0 with x
+            .replace('O', "x"); // Replace O with x
+
+        // Calculate how many 'x' characters we need to pad to reach a consistent length
+        let base_string = "SURFNETxSAFEHASHx";
+        let target_length = 43; // 43 base58 sequence leads us to 32 bytes
+        let padding_needed = target_length - base_string.len() - index_hex.len();
+        let padding = "x".repeat(padding_needed.max(0));
+
+        let target_string = format!("{}{}{}", base_string, padding, index_hex);
+
+        let decoded_bytes = bs58::decode(&target_string).into_vec().unwrap_or_else(|_| {
+            // Fallback if decode fails
+            vec![0u8; 32]
+        });
+
+        let mut blockhash_bytes = [0u8; 32];
+        blockhash_bytes[..decoded_bytes.len().min(32)]
+            .copy_from_slice(&decoded_bytes[..decoded_bytes.len().min(32)]);
+        let new_synthetic_blockhash = Hash::new_from_array(blockhash_bytes);
+        recent_blockhashes.push(IterItem(
             0,
-            &latest_entry.blockhash,
+            &new_synthetic_blockhash,
             latest_entry.fee_calculator.lamports_per_signature,
         ));
-        for (i, entry) in blockhashes.iter().enumerate() {
-            if i == MAX_ENTRIES - 1 {
+        // Append the previous blockhashes, ignoring the first one
+        for (index, entry) in recent_blockhashes_backup.iter().enumerate() {
+            if recent_blockhashes.len() >= MAX_ENTRIES {
                 break;
             }
-
-            entries.push(IterItem(
-                i as u64 + 1,
+            recent_blockhashes.push(IterItem(
+                (index + 1) as u64,
                 &entry.blockhash,
                 entry.fee_calculator.lamports_per_signature,
             ));
         }
 
         self.inner
-            .set_sysvar(&RecentBlockhashes::from_iter(entries));
-        let mut slot_hashes = self.inner.get_sysvar::<SlotHashes>();
-        slot_hashes.add(self.get_latest_absolute_slot() + 1, latest_entry.blockhash);
+            .set_sysvar(&RecentBlockhashes::from_iter(recent_blockhashes));
 
+        let mut slot_hashes = self.inner.get_sysvar::<SlotHashes>();
+        slot_hashes.add(self.get_latest_absolute_slot() + 1, new_synthetic_blockhash);
         self.inner.set_sysvar(&SlotHashes::new(&slot_hashes));
 
         BlockIdentifier::new(
             self.chain_tip.index + 1,
-            latest_entry.blockhash.to_string().as_str(),
+            new_synthetic_blockhash.to_string().as_str(),
         )
     }
 
