@@ -799,14 +799,18 @@ pub fn handle_log_event(
         LogEvent::Transient(log) => match log.status {
             TransientLogEventStatus::Pending(LogDetails { message, summary }) => {
                 if let Some(pb) = active_spinners.get(&log.uuid) {
-                    // update existing spinner
-                    pb.set_message(format!("{} {}", yellow!(&summary), &message));
+                    if do_log_to_cli {
+                        // update existing spinner
+                        pb.set_message(format!("{} {}", yellow!(&summary), &message));
+                    }
                 } else {
                     // create new spinner
                     let pb = multi_progress.add(ProgressBar::new_spinner());
-                    pb.set_style(CLI_SPINNER_STYLE.clone());
-                    pb.enable_steady_tick(Duration::from_millis(80));
-                    pb.set_message(format!("{} {}", yellow!(&summary), message));
+                    if do_log_to_cli {
+                        pb.set_style(CLI_SPINNER_STYLE.clone());
+                        pb.enable_steady_tick(Duration::from_millis(80));
+                        pb.set_message(format!("{} {}", yellow!(&summary), message));
+                    }
                     active_spinners.insert(log.uuid, pb);
                     persist_log(
                         &message,
@@ -821,8 +825,10 @@ pub fn handle_log_event(
             TransientLogEventStatus::Success(LogDetails { summary, message }) => {
                 let msg = format!("{} {} {}", green!("✓"), green!(&summary), message);
                 if let Some(pb) = active_spinners.swap_remove(&log.uuid) {
-                    pb.finish_with_message(msg);
-                } else {
+                    if do_log_to_cli {
+                        pb.finish_with_message(msg);
+                    }
+                } else if do_log_to_cli {
                     println!("{}", msg);
                 }
 
@@ -838,8 +844,10 @@ pub fn handle_log_event(
             TransientLogEventStatus::Failure(LogDetails { summary, message }) => {
                 let msg = format!("{} {}: {}", red!("x"), red!(&summary), message);
                 if let Some(pb) = active_spinners.swap_remove(&log.uuid) {
-                    pb.finish_with_message(msg);
-                } else {
+                    if do_log_to_cli {
+                        pb.finish_with_message(msg);
+                    }
+                } else if do_log_to_cli {
                     println!("{}", msg);
                 }
                 persist_log(
