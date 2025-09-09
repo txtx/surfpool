@@ -192,7 +192,7 @@ pub async fn handle_start_local_surfnet_command(
             subgraph_events_rx,
             cmd.debug,
             deploy_progress_rx,
-            simnet_commands_tx
+            simnet_commands_tx,
         )?;
     } else {
         tui::simnet::start_app(
