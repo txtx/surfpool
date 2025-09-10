@@ -450,7 +450,7 @@ pub async fn configure_supervised_execution(
                         let len = block_store.len();
                         block_store.insert(len, new_block.clone());
                     }
-                    BlockEvent::RunbookCompleted => {
+                    BlockEvent::RunbookCompleted(_) => {
                         let _ = simnet_events_tx.send(SimnetEvent::info("Runbook completed"));
                     }
                     BlockEvent::Error(new_block) => {

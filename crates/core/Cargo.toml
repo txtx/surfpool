@@ -90,7 +90,7 @@ txtx-addon-network-svm-types = { workspace = true }
 uuid = "1.7.0"
 blake3 = "1.8.2"
 anyhow = "1.0.98"
-solana-geyser-plugin-manager = { version = "3.0.0", optional = true }
+solana-geyser-plugin-manager = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-case = "^3.3.1"
