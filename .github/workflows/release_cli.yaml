@@ -208,7 +208,7 @@ jobs:
       - name: Build - Cargo (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: 
-          cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
+          cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph --features geyser_plugin
 
       # Don't compress for Windows because winget can't yet unzip files
       - name: Compress cargo artifact (not windows)
