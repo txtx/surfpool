@@ -37,6 +37,7 @@ jsonrpc-pubsub = "18.0.0"
 jsonrpc-ws-server = "18.0.0"
 litesvm = { workspace = true }
 log = "0.4.22"
+reqwest = "0.12"
 serde = { workspace = true }
 serde_bytes = { workspace = true }
 serde_derive = { workspace = true }                               # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
@@ -89,7 +90,7 @@ txtx-addon-network-svm-types = { workspace = true }
 uuid = "1.7.0"
 blake3 = "1.8.2"
 anyhow = "1.0.98"
-# solana-geyser-plugin-manager = { version = "2.3.7", optional = true }
+solana-geyser-plugin-manager = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-case = "^3.3.1"
@@ -97,10 +98,9 @@ test-log = "0.2.18"
 
 [features]
 ignore_tests_ci = []
-geyser-plugin = [] # ["solana-geyser-plugin-manager"]
+geyser-plugin = ["solana-geyser-plugin-manager"]
 subgraph = ["surfpool-subgraph"]
 
 # [patch.crates-io]
 # Force solana-sha256-hasher to version 2.3.0 to resolve dependency conflicts
 # solana-sha256-hasher = { git = "https://github.com/anza-xyz/solana-sdk.git", tag = "sha256-hasher@v2.3.0" }
-
