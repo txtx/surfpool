@@ -358,7 +358,7 @@ fn start_geyser_runloop(
             indexing_enabled = true;
 
             let mut plugin = LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.to_string()));
-            if let Err(e) = plugin.on_load(&config_file, false) {
+            if let Err(e) = plugin.on_load(&plugin_manifest_location.to_string(), false) {
                 let error = format!("Unable to load plugin:: {}", e.to_string());
                 let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
                 return Err(error)
