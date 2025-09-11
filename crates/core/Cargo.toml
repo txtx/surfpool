@@ -98,7 +98,7 @@ test-log = "0.2.18"
 
 [features]
 ignore_tests_ci = []
-geyser-plugin = ["solana-geyser-plugin-manager"]
+geyser_plugin = ["solana-geyser-plugin-manager"]
 subgraph = ["surfpool-subgraph"]
 
 # [patch.crates-io]

@@ -24,7 +24,7 @@ use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
 use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
 use libloading::{Library, Symbol};
-#[cfg(feature = "geyser-plugin")]
+#[cfg(feature = "geyser_plugin")]
 use solana_geyser_plugin_manager::geyser_plugin_manager::{
     GeyserPluginManager, LoadedGeyserPlugin,
 };
@@ -300,14 +300,14 @@ fn start_geyser_runloop(
     let handle: JoinHandle<Result<(), String>> = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
         let mut indexing_enabled = false;
 
-        #[cfg(feature = "geyser-plugin")]
+        #[cfg(feature = "geyser_plugin")]
         let mut plugin_manager = GeyserPluginManager::new();
-        #[cfg(not(feature = "geyser-plugin"))]
+        #[cfg(not(feature = "geyser_plugin"))]
         let mut plugin_manager = ();
 
         let mut surfpool_plugin_manager: Vec<Box<dyn GeyserPlugin>> = vec![];
 
-        #[cfg(feature = "geyser-plugin")]
+        #[cfg(feature = "geyser_plugin")]
         for plugin_config_path in plugin_config_paths.into_iter() {
             let plugin_manifest_location = FileLocation::from_path(plugin_config_path);
             let config_file = plugin_manifest_location.read_content_as_utf8()?;
@@ -447,7 +447,7 @@ fn start_geyser_runloop(
                             };
                         }
 
-                        #[cfg(feature = "geyser-plugin")]
+                        #[cfg(feature = "geyser_plugin")]
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), transaction_with_status_meta.slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
@@ -480,7 +480,7 @@ fn start_geyser_runloop(
                             }
                         }
 
-                        #[cfg(feature = "geyser-plugin")]
+                        #[cfg(feature = "geyser_plugin")]
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update account in Geyser plugin: {:?}", e)));
