@@ -320,15 +320,6 @@ fn start_geyser_runloop(
                 }
             };
 
-            let plugin_name = match result.get("name").map(|p| p.as_str()) {
-                Some(Some(name)) => name,
-                _ => {
-                    let error = format!("Plugin config file should include a 'name' field: {}", plugin_manifest_location);
-                    let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
-                    return Err(error)
-                }
-            };
-
             let plugin_dylib_path = match result.get("libpath").map(|p| p.as_str()) {
                 Some(Some(name)) => name,
                 _ => {
@@ -345,7 +336,7 @@ fn start_geyser_runloop(
                 let lib = match Library::new(&plugin_dylib_location.to_string()) {
                     Ok(lib) => lib,
                     Err(e) => {
-                        let _ = simnet_events_tx.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
+                        let _ = simnet_events_tx.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_dylib_location.to_string(), e.to_string())));
                         continue;
                     }
                 };
@@ -357,7 +348,7 @@ fn start_geyser_runloop(
             };
             indexing_enabled = true;
 
-            let mut plugin = LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.to_string()));
+            let mut plugin = LoadedGeyserPlugin::new(lib, plugin, None);
             if let Err(e) = plugin.on_load(&plugin_manifest_location.to_string(), false) {
                 let error = format!("Unable to load plugin:: {}", e.to_string());
                 let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
