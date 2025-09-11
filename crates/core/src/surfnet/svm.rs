@@ -1673,24 +1673,24 @@ mod tests {
     #[test]
     fn test_synthetic_blockhash_generation() {
         let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
-        
+
         // Test with different chain tip indices
         let test_cases = vec![0, 1, 42, 255, 1000, 0x12345678];
-        
+
         for index in test_cases {
             svm.chain_tip = BlockIdentifier::new(index, "test_hash");
-            
+
             // Generate the synthetic blockhash
             let new_blockhash = svm.new_blockhash();
-            
+
             // Verify the blockhash string contains our expected pattern
             let blockhash_str = new_blockhash.hash.clone();
             println!("Index {} -> Blockhash: {}", index, blockhash_str);
-            
+
             // The blockhash should be a valid base58 string
             assert!(!blockhash_str.is_empty());
             assert!(blockhash_str.len() > 20); // Base58 encoded 32 bytes should be around 44 chars
-            
+
             // Verify it's deterministic - same index should produce same blockhash
             svm.chain_tip = BlockIdentifier::new(index, "test_hash");
             let new_blockhash2 = svm.new_blockhash();
@@ -1705,26 +1705,26 @@ mod tests {
         let index_hex = format!("{:08x}", test_index)
             .replace('0', "x")
             .replace('O', "x");
-        
+
         let target_length = 43;
         let padding_needed = target_length - SURFNET_SAFEHASH_PREFIX.len() - index_hex.len();
         let padding = "x".repeat(padding_needed.max(0));
         let target_string = format!("{}{}{}", SURFNET_SAFEHASH_PREFIX, padding, index_hex);
-        
+
         println!("Target string: {}", target_string);
-        
+
         // Verify the string is valid base58
         let decoded_bytes = bs58::decode(&target_string).into_vec();
         assert!(decoded_bytes.is_ok(), "String should be valid base58");
-        
+
         let bytes = decoded_bytes.unwrap();
         assert!(bytes.len() <= 32, "Decoded bytes should fit in 32 bytes");
-        
+
         // Test that we can create a hash from these bytes
         let mut blockhash_bytes = [0u8; 32];
         blockhash_bytes[..bytes.len().min(32)].copy_from_slice(&bytes[..bytes.len().min(32)]);
         let hash = Hash::new_from_array(blockhash_bytes);
-        
+
         // Verify the hash can be converted back to string
         let hash_str = hash.to_string();
         assert!(!hash_str.is_empty());
@@ -1734,16 +1734,19 @@ mod tests {
     #[test]
     fn test_blockhash_consistency_across_calls() {
         let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
-        
+
         // Set a specific chain tip
         svm.chain_tip = BlockIdentifier::new(123, "initial_hash");
-        
+
         // Generate multiple blockhashes and verify they're consistent
         let mut previous_hash: Option<BlockIdentifier> = None;
         for i in 0..5 {
             let new_blockhash = svm.new_blockhash();
-            println!("Call {}: index={}, hash={}", i, new_blockhash.index, new_blockhash.hash);
-            
+            println!(
+                "Call {}: index={}, hash={}",
+                i, new_blockhash.index, new_blockhash.hash
+            );
+
             if let Some(prev) = previous_hash {
                 // Each call should increment the index
                 assert_eq!(new_blockhash.index, prev.index + 1);
@@ -1753,7 +1756,7 @@ mod tests {
                 // First call should increment from the initial chain tip
                 assert_eq!(new_blockhash.index, svm.chain_tip.index + 1);
             }
-            
+
             previous_hash = Some(new_blockhash.clone());
             // Update the chain tip for the next iteration
             svm.chain_tip = new_blockhash;
