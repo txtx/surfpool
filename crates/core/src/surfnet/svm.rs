@@ -245,7 +245,7 @@ impl SurfnetSvm {
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
-            unix_timestamp: Utc::now().timestamp(),
+            unix_timestamp: self.updated_at as i64,
             epoch_start_timestamp: 0, // todo
             leader_schedule_epoch: 0, // todo
         };
