@@ -1,4 +1,7 @@
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::{
+    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
+    str::FromStr,
+};
 
 use agave_feature_set::{FeatureSet, enable_extend_program_checked};
 use chrono::Utc;
@@ -59,6 +62,9 @@ use super::{
     GetAccountResult, GeyserEvent, SLOTS_PER_EPOCH, SignatureSubscriptionData,
     SignatureSubscriptionType, remote::SurfnetRemoteClient,
 };
+
+/// Base string used for generating synthetic blockhashes
+const SURFNET_SAFEHASH_PREFIX: &str = "SURFNETxSAFEHASHx";
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
@@ -228,6 +234,7 @@ impl SurfnetSvm {
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
     ) {
+        self.chain_tip = self.new_blockhash();
         self.latest_epoch_info = epoch_info.clone();
         self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_time = slot_time;
@@ -361,7 +368,7 @@ impl SurfnetSvm {
 
     /// Returns the latest blockhash known by the SVM.
     pub fn latest_blockhash(&self) -> solana_hash::Hash {
-        self.inner.latest_blockhash()
+        Hash::from_str(&self.chain_tip.hash).expect("Invalid blockhash")
     }
 
     /// Returns the latest epoch info known by the `SurfnetSvm`.
@@ -396,44 +403,67 @@ impl SurfnetSvm {
             slot_hashes::SlotHashes,
         };
         self.updated_at = Utc::now().timestamp_millis() as u64;
-        // cache the current blockhashes
-        let blockhashes = self.inner.get_sysvar::<RecentBlockhashes>();
-        let max_entries_len = blockhashes.len().min(MAX_ENTRIES);
-        let mut entries = Vec::with_capacity(max_entries_len);
-        // note: expire blockhash has a bug with liteSVM.
-        // they only keep one blockhash in their RecentBlockhashes sysvar, so this function
-        // clears out the other valid hashes.
-        // so we manually rehydrate the sysvar with new latest blockhash + cached blockhashes.
+        // Backup the current block hashes
+        let recent_blockhashes_backup = self.inner.get_sysvar::<RecentBlockhashes>();
+        let num_blockhashes_expected = recent_blockhashes_backup.len().min(MAX_ENTRIES);
+        // Invalidate the current block hash.
+        // LiteSVM bug / feature: calling this method empties `sysvar::<RecentBlockhashes>()`
         self.inner.expire_blockhash();
-        let latest_entries = self.inner.get_sysvar::<RecentBlockhashes>();
-        let latest_entry = latest_entries.first().unwrap();
-        entries.push(IterItem(
+        // Rebuild recent blockhashes
+        let mut recent_blockhashes = Vec::with_capacity(num_blockhashes_expected);
+        let recent_blockhashes_overriden = self.inner.get_sysvar::<RecentBlockhashes>();
+        let latest_entry = recent_blockhashes_overriden
+            .first()
+            .expect("Latest blockhash not found");
+        // Create a new synthetic blockhash - SURFNETxSAFEHASHxxxxxxxxxxxxxxxxxxxxxxxxx28
+        // Create a string and decode it from base58 to get the raw bytes
+        let index_hex = format!("{:08x}", self.chain_tip.index)
+            .replace('0', "x") // Replace 0 with x
+            .replace('O', "x"); // Replace O with x
+
+        // Calculate how many 'x' characters we need to pad to reach a consistent length
+        let target_length = 43; // 43 base58 sequence leads us to 32 bytes
+        let padding_needed = target_length - SURFNET_SAFEHASH_PREFIX.len() - index_hex.len();
+        let padding = "x".repeat(padding_needed.max(0));
+
+        let target_string = format!("{}{}{}", SURFNET_SAFEHASH_PREFIX, padding, index_hex);
+
+        let decoded_bytes = bs58::decode(&target_string).into_vec().unwrap_or_else(|_| {
+            // Fallback if decode fails
+            vec![0u8; 32]
+        });
+
+        let mut blockhash_bytes = [0u8; 32];
+        blockhash_bytes[..decoded_bytes.len().min(32)]
+            .copy_from_slice(&decoded_bytes[..decoded_bytes.len().min(32)]);
+        let new_synthetic_blockhash = Hash::new_from_array(blockhash_bytes);
+        recent_blockhashes.push(IterItem(
             0,
-            &latest_entry.blockhash,
+            &new_synthetic_blockhash,
             latest_entry.fee_calculator.lamports_per_signature,
         ));
-        for (i, entry) in blockhashes.iter().enumerate() {
-            if i == MAX_ENTRIES - 1 {
+        // Append the previous blockhashes, ignoring the first one
+        for (index, entry) in recent_blockhashes_backup.iter().enumerate() {
+            if recent_blockhashes.len() >= MAX_ENTRIES {
                 break;
             }
-
-            entries.push(IterItem(
-                i as u64 + 1,
+            recent_blockhashes.push(IterItem(
+                (index + 1) as u64,
                 &entry.blockhash,
                 entry.fee_calculator.lamports_per_signature,
             ));
         }
 
         self.inner
-            .set_sysvar(&RecentBlockhashes::from_iter(entries));
-        let mut slot_hashes = self.inner.get_sysvar::<SlotHashes>();
-        slot_hashes.add(self.get_latest_absolute_slot() + 1, latest_entry.blockhash);
+            .set_sysvar(&RecentBlockhashes::from_iter(recent_blockhashes));
 
+        let mut slot_hashes = self.inner.get_sysvar::<SlotHashes>();
+        slot_hashes.add(self.get_latest_absolute_slot() + 1, new_synthetic_blockhash);
         self.inner.set_sysvar(&SlotHashes::new(&slot_hashes));
 
         BlockIdentifier::new(
             self.chain_tip.index + 1,
-            latest_entry.blockhash.to_string().as_str(),
+            new_synthetic_blockhash.to_string().as_str(),
         )
     }
 
@@ -1639,6 +1669,96 @@ mod tests {
     use spl_token::state::{Account as TokenAccount, AccountState};
 
     use super::*;
+
+    #[test]
+    fn test_synthetic_blockhash_generation() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        
+        // Test with different chain tip indices
+        let test_cases = vec![0, 1, 42, 255, 1000, 0x12345678];
+        
+        for index in test_cases {
+            svm.chain_tip = BlockIdentifier::new(index, "test_hash");
+            
+            // Generate the synthetic blockhash
+            let new_blockhash = svm.new_blockhash();
+            
+            // Verify the blockhash string contains our expected pattern
+            let blockhash_str = new_blockhash.hash.clone();
+            println!("Index {} -> Blockhash: {}", index, blockhash_str);
+            
+            // The blockhash should be a valid base58 string
+            assert!(!blockhash_str.is_empty());
+            assert!(blockhash_str.len() > 20); // Base58 encoded 32 bytes should be around 44 chars
+            
+            // Verify it's deterministic - same index should produce same blockhash
+            svm.chain_tip = BlockIdentifier::new(index, "test_hash");
+            let new_blockhash2 = svm.new_blockhash();
+            assert_eq!(new_blockhash.hash, new_blockhash2.hash);
+        }
+    }
+
+    #[test]
+    fn test_synthetic_blockhash_base58_encoding() {
+        // Test the base58 encoding logic directly
+        let test_index = 42u64;
+        let index_hex = format!("{:08x}", test_index)
+            .replace('0', "x")
+            .replace('O', "x");
+        
+        let target_length = 43;
+        let padding_needed = target_length - SURFNET_SAFEHASH_PREFIX.len() - index_hex.len();
+        let padding = "x".repeat(padding_needed.max(0));
+        let target_string = format!("{}{}{}", SURFNET_SAFEHASH_PREFIX, padding, index_hex);
+        
+        println!("Target string: {}", target_string);
+        
+        // Verify the string is valid base58
+        let decoded_bytes = bs58::decode(&target_string).into_vec();
+        assert!(decoded_bytes.is_ok(), "String should be valid base58");
+        
+        let bytes = decoded_bytes.unwrap();
+        assert!(bytes.len() <= 32, "Decoded bytes should fit in 32 bytes");
+        
+        // Test that we can create a hash from these bytes
+        let mut blockhash_bytes = [0u8; 32];
+        blockhash_bytes[..bytes.len().min(32)].copy_from_slice(&bytes[..bytes.len().min(32)]);
+        let hash = Hash::new_from_array(blockhash_bytes);
+        
+        // Verify the hash can be converted back to string
+        let hash_str = hash.to_string();
+        assert!(!hash_str.is_empty());
+        println!("Generated hash: {}", hash_str);
+    }
+
+    #[test]
+    fn test_blockhash_consistency_across_calls() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        
+        // Set a specific chain tip
+        svm.chain_tip = BlockIdentifier::new(123, "initial_hash");
+        
+        // Generate multiple blockhashes and verify they're consistent
+        let mut previous_hash: Option<BlockIdentifier> = None;
+        for i in 0..5 {
+            let new_blockhash = svm.new_blockhash();
+            println!("Call {}: index={}, hash={}", i, new_blockhash.index, new_blockhash.hash);
+            
+            if let Some(prev) = previous_hash {
+                // Each call should increment the index
+                assert_eq!(new_blockhash.index, prev.index + 1);
+                // But the hash should be different (since index changed)
+                assert_ne!(new_blockhash.hash, prev.hash);
+            } else {
+                // First call should increment from the initial chain tip
+                assert_eq!(new_blockhash.index, svm.chain_tip.index + 1);
+            }
+            
+            previous_hash = Some(new_blockhash.clone());
+            // Update the chain tip for the next iteration
+            svm.chain_tip = new_blockhash;
+        }
+    }
 
     #[test]
     fn test_token_account_indexing() {
