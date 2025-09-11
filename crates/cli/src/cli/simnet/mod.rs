@@ -46,9 +46,11 @@ pub async fn handle_start_local_surfnet_command(
     cmd: &StartSimnet,
     ctx: &Context,
 ) -> Result<(), String> {
-
     if !cmd.plugin_config_path.is_empty() && !cfg!(feature = "geyser-plugin") {
-        return Err("Recompile surfpool and enable the feature 'geyser-plugin' to load geyser plugins".to_string());
+        return Err(
+            "Recompile surfpool and enable the feature 'geyser-plugin' to load geyser plugins"
+                .to_string(),
+        );
     }
 
     // We start the simnet as soon as possible, as it needs to be ready for deployments
