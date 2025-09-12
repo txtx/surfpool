@@ -199,7 +199,7 @@ pub async fn start_block_production_runloop(
                     SimnetCommand::UpdateInternalClock(_, clock) => {
                         svm_locker.with_svm_writer(|svm_writer| {
                             svm_writer.inner.set_sysvar(&clock);
-                            svm_writer.updated_at = clock.unix_timestamp as u64;
+                            svm_writer.updated_at = clock.unix_timestamp as u64 * 1_000;
                             svm_writer.latest_epoch_info.absolute_slot = clock.slot;
                             svm_writer.latest_epoch_info.epoch = clock.epoch;
                             svm_writer.latest_epoch_info.slot_index = clock.slot;
