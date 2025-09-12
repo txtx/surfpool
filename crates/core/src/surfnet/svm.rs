@@ -596,7 +596,7 @@ impl SurfnetSvm {
         Ok(())
     }
 
-    fn remove_from_indexes(&mut self, pubkey: &Pubkey, old_account: &Account) {
+    pub fn remove_from_indexes(&mut self, pubkey: &Pubkey, old_account: &Account) {
         if let Some(accounts) = self.accounts_by_owner.get_mut(&old_account.owner) {
             accounts.retain(|pk| pk != pubkey);
             if accounts.is_empty() {

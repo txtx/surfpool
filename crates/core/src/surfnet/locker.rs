@@ -1605,6 +1605,97 @@ impl SurfnetSvmLocker {
             }
         });
     }
+
+    // Removes an account from the SVM state
+    pub fn reset_account(&self, pubkey: Pubkey) -> SurfpoolResult<()> {
+        self.reset_account_with_options(pubkey, false)
+    }
+
+    /// Resets an account with option to cascade to owned accounts
+    pub fn reset_account_with_options(
+        &self,
+        pubkey: Pubkey,
+        cascade_to_owned: bool,
+    ) -> SurfpoolResult<()> {
+        self.with_svm_writer(move |svm_writer| {
+            if let Some(account) = svm_writer.get_account(&pubkey) {
+                // Check if this is an executable account (program)
+                if account.executable {
+                    self.reset_program_account(svm_writer, &pubkey, &account, cascade_to_owned)?;
+                } else {
+                    // Regular account reset
+                    self.reset_regular_account(svm_writer, &pubkey, &account)?;
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn reset_program_account(
+        &self,
+        svm_writer: &mut SurfnetSvm,
+        pubkey: &Pubkey,
+        account: &Account,
+        cascade_to_owned: bool,
+    ) -> SurfpoolResult<()> {
+        // First remove from indexes
+        svm_writer.remove_from_indexes(pubkey, account);
+
+        // Check if this is an upgradeable program (BPF Upgradeable Loader)
+        if account.owner == solana_sdk_ids::bpf_loader_upgradeable::id() {
+            // Handle upgradeable program - also reset the program data account
+            let program_data_address =
+                solana_sdk::bpf_loader_upgradeable::get_program_data_address(pubkey);
+
+            if let Some(program_data_account) = svm_writer.get_account(&program_data_address) {
+                self.reset_regular_account(
+                    svm_writer,
+                    &program_data_address,
+                    &program_data_account,
+                )?;
+            }
+        }
+
+        // Optionally reset all accounts owned by this program
+        if cascade_to_owned {
+            let owned_accounts = svm_writer.get_account_owned_by(*pubkey);
+            for (owned_pubkey, owned_account) in owned_accounts {
+                // Avoid infinite recursion by not cascading further
+                self.reset_regular_account(svm_writer, &owned_pubkey, &owned_account)?;
+            }
+        }
+
+        // Reset the program account itself
+        self.reset_regular_account(svm_writer, pubkey, account)?;
+
+        Ok(())
+    }
+
+    fn reset_regular_account(
+        &self,
+        svm_writer: &mut SurfnetSvm,
+        pubkey: &Pubkey,
+        account: &Account,
+    ) -> SurfpoolResult<()> {
+        // Remove from indexes
+        svm_writer.remove_from_indexes(pubkey, account);
+
+        // Create empty account
+        let empty_account = Account {
+            lamports: 0,
+            data: vec![],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        // Set the empty account
+        svm_writer
+            .set_account(pubkey, empty_account)
+            .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+
+        Ok(())
+    }
 }
 
 /// Token account related functions
