@@ -711,6 +711,9 @@ pub trait SurfnetCheatcodes {
     /// ```
     #[rpc(meta, name = "surfnet_resumeClock")]
     fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo>;
+
+    #[rpc(meta, name = "surfnet_resetAccount")]
+    fn reset_account(&self, meta: Self::Metadata, pubkey_str: String) -> Result<RpcResponse<()>>;
 }
 
 #[derive(Clone)]
@@ -782,6 +785,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 value: (),
             })
         })
+
     }
 
     fn set_token_account(
@@ -1222,6 +1226,16 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         let epoch_info = svm_locker.time_travel(key, simnet_command_tx, time_travel_config)?;
 
         Ok(epoch_info)
+    }
+
+    fn reset_account(&self,meta:Self::Metadata, pubkey:String) -> Result<RpcResponse<()> > {
+        let svm_locker = meta.get_svm_locker()?;
+        let pubkey = verify_pubkey(&pubkey)?;
+        svm_locker.reset_account(pubkey)?;
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: (),
+        })
     }
 }
 
