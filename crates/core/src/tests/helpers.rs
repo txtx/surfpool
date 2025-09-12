@@ -6,7 +6,7 @@ use litesvm::LiteSVM;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_sdk::transaction::VersionedTransaction;
-use surfpool_types::{SimnetCommand};
+use surfpool_types::SimnetCommand;
 
 use crate::{
     rpc::RunloopContext,

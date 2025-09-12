@@ -27,9 +27,8 @@ use solana_signer::Signer;
 use solana_system_interface::{instruction as system_instruction, program as system_program};
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
-    DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth,
-    RpcProfileResultConfig, SimnetCommand, SimnetEvent, SurfpoolConfig, UiAccountChange,
-    UiAccountProfileState, UiKeyedProfileResult,
+    DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
+    SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
     types::{
         BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
     },
