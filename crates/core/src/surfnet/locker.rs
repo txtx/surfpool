@@ -193,7 +193,6 @@ impl SurfnetSvmLocker {
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
-        max_profiles: usize,
     ) -> SurfpoolResult<EpochInfo> {
         let mut epoch_info = if let Some(remote_client) = remote_ctx {
             remote_client.get_epoch_info().await?
@@ -215,7 +214,6 @@ impl SurfnetSvmLocker {
                 slot_time,
                 remote_ctx,
                 do_profile_instructions,
-                max_profiles,
             );
         });
         Ok(epoch_info)

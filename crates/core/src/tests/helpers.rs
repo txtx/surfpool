@@ -6,7 +6,7 @@ use litesvm::LiteSVM;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_sdk::transaction::VersionedTransaction;
-use surfpool_types::{DEFAULT_PROFILING_MAP_CAPACITY, SimnetCommand};
+use surfpool_types::{SimnetCommand};
 
 use crate::{
     rpc::RunloopContext,
@@ -41,7 +41,7 @@ where
         let (simnet_commands_tx, _rx) = crossbeam_channel::unbounded();
         let (plugin_manager_commands_tx, _rx) = crossbeam_channel::unbounded();
 
-        let (mut surfnet_svm, _, _) = SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
+        let (mut surfnet_svm, _, _) = SurfnetSvm::new();
         let clock = Clock {
             slot: 123,
             epoch_start_timestamp: 123,

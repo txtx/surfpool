@@ -145,7 +145,7 @@ impl SurfnetSvm {
     /// Creates a new instance of `SurfnetSvm`.
     ///
     /// Returns a tuple containing the SVM instance, a receiver for simulation events, and a receiver for Geyser plugin events.
-    pub fn new(max_profiles: usize) -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
+    pub fn new() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
 
@@ -186,7 +186,7 @@ impl SurfnetSvm {
                 slot_subscriptions: Vec::new(),
                 profile_tag_map: HashMap::new(),
                 simulated_transaction_profiles: HashMap::new(),
-                executed_transaction_profiles: FifoMap::new(max_profiles),
+                executed_transaction_profiles: FifoMap::default(),
                 logs_subscriptions: Vec::new(),
                 updated_at: Utc::now().timestamp_millis() as u64,
                 slot_time: DEFAULT_SLOT_TIME_MS,
@@ -233,13 +233,12 @@ impl SurfnetSvm {
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
-        max_profiles: usize,
     ) {
         self.latest_epoch_info = epoch_info.clone();
         self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_time = slot_time;
         self.instruction_profiling_enabled = do_profile_instructions;
-        self.set_profiling_map_capacity(max_profiles);
+        self.set_profiling_map_capacity(self.max_profiles);
 
         if let Some(remote_client) = remote_ctx {
             let _ = self
@@ -1656,7 +1655,7 @@ mod tests {
 
     #[test]
     fn test_token_account_indexing() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
 
         let owner = Pubkey::new_unique();
         let delegate = Pubkey::new_unique();
@@ -1708,7 +1707,7 @@ mod tests {
 
     #[test]
     fn test_account_update_removes_old_indexes() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
 
         let owner = Pubkey::new_unique();
         let old_delegate = Pubkey::new_unique();
@@ -1778,7 +1777,7 @@ mod tests {
 
     #[test]
     fn test_non_token_accounts_not_indexed() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
 
         let system_account_pubkey = Pubkey::new_unique();
         let account = Account {
@@ -1877,7 +1876,7 @@ mod tests {
 
     #[test]
     fn test_inserting_account_updates() {
-        let (mut svm, events_rx, _geyser_rx) = SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
+        let (mut svm, events_rx, _geyser_rx) = SurfnetSvm::new();
 
         let pubkey = Pubkey::new_unique();
         let account = Account {
@@ -2027,7 +2026,7 @@ mod tests {
 
     #[test]
     fn test_encode_ui_account() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
 
         let idl_v1: Idl =
             serde_json::from_slice(&include_bytes!("../tests/assets/idl_v1.json").to_vec())
@@ -2255,7 +2254,7 @@ mod tests {
 
     #[test]
     fn test_profiling_map_capacity_default() {
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new(DEFAULT_PROFILING_MAP_CAPACITY);
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
         assert_eq!(
             svm.executed_transaction_profiles.capacity(),
             DEFAULT_PROFILING_MAP_CAPACITY
@@ -2264,7 +2263,7 @@ mod tests {
 
     #[test]
     fn test_profiling_map_capacity_set() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new(10);
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
         svm.set_profiling_map_capacity(10);
         assert_eq!(svm.executed_transaction_profiles.capacity(), 10);
     }
