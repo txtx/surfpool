@@ -1,8 +1,6 @@
 use std::{
     cmp::max,
-    {
     collections::{BinaryHeap, HashMap, HashSet, VecDeque},
-},
     str::FromStr,
 };
 
