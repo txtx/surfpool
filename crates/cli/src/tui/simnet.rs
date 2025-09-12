@@ -659,7 +659,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             deployment_completed = true;
                             let _ = app
                                 .simnet_commands_tx
-                                .send(SimnetCommand::SetInstructionProfiling(true))
+                                .send(SimnetCommand::SetInstructionProfiling(true));
                             break;
                         }
                     },
