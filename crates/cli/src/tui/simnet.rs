@@ -548,6 +548,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     Local::now(),
                                     format!("Runbook '{}' execution started", runbook_id),
                                 ));
+                                let _ = app
+                                    .simnet_commands_tx
+                                    .send(SimnetCommand::SetInstructionProfiling(false));
                             }
                             SimnetEvent::RunbookCompleted(runbook_id) => {
                                 deployment_completed = true;
@@ -556,6 +559,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                     Local::now(),
                                     format!("Runbook '{}' execution completed", runbook_id),
                                 ));
+                                let _ = app
+                                    .simnet_commands_tx
+                                    .send(SimnetCommand::SetInstructionProfiling(true));
                                 app.status_bar_message = None;
                             }
                         },
@@ -651,6 +657,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         },
                         Err(_) => {
                             deployment_completed = true;
+                            let _ = app
+                                .simnet_commands_tx
+                                .send(SimnetCommand::SetInstructionProfiling(true));
                             break;
                         }
                     },

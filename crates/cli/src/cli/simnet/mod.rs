@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use surfpool_core::{start_local_surfnet, surfnet::svm::SurfnetSvm};
-use surfpool_types::{SanitizedConfig, SimnetEvent, SubgraphEvent};
+use surfpool_types::{SanitizedConfig, SimnetCommand, SimnetEvent, SubgraphEvent};
 use txtx_core::kit::{
     channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
     types::frontend::BlockEvent,
@@ -199,6 +199,7 @@ pub async fn handle_start_local_surfnet_command(
             subgraph_events_rx,
             cmd.debug,
             deploy_progress_rx,
+            simnet_commands_tx,
         )?;
     } else {
         tui::simnet::start_app(
@@ -222,6 +223,7 @@ fn log_events(
     subgraph_events_rx: Receiver<SubgraphEvent>,
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
+    simnet_commands_tx: Sender<SimnetCommand>,
 ) -> Result<(), String> {
     let mut deployment_completed = false;
     let stop_loop = Arc::new(AtomicBool::new(false));
@@ -324,10 +326,14 @@ fn log_events(
                     SimnetEvent::RunbookStarted(runbook_id) => {
                         deployment_completed = false;
                         info!("Runbook '{}' execution started", runbook_id);
+                        let _ =
+                            simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(false));
                     }
                     SimnetEvent::RunbookCompleted(runbook_id) => {
                         deployment_completed = true;
                         info!("Runbook '{}' execution completed", runbook_id);
+                        let _ =
+                            simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(true));
                     }
                 },
                 Err(_e) => {
@@ -372,6 +378,7 @@ fn log_events(
                 },
                 Err(_e) => {
                     deployment_completed = true;
+                    let _ = simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(true));
                 }
             },
         }
@@ -389,7 +396,6 @@ async fn write_and_execute_iac(
         .map_err(|e| format!("Failed to detect project framework: {}", e))?;
 
     let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-
     if let Some((framework, programs)) = deployment {
         // Is infrastructure-as-code (IaC) already setup?
         let base_location =
