@@ -253,7 +253,7 @@ impl SurfnetSvm {
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
-            unix_timestamp: self.updated_at as i64,
+            unix_timestamp: self.updated_at as i64 / 1_000,
             epoch_start_timestamp: 0, // todo
             leader_schedule_epoch: 0, // todo
         };
@@ -274,8 +274,6 @@ impl SurfnetSvm {
     /// # Returns
     /// A `TransactionResult` indicating success or failure.
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
-
         let res = self.inner.airdrop(pubkey, lamports);
         let (status_tx, _rx) = unbounded();
         if let Ok(ref tx_result) = res {
@@ -352,7 +350,6 @@ impl SurfnetSvm {
     /// * `lamports` - The amount of lamports to airdrop.
     /// * `addresses` - Slice of recipient public keys.
     pub fn airdrop_pubkeys(&mut self, lamports: u64, addresses: &[Pubkey]) {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         for recipient in addresses {
             let _ = self.airdrop(recipient, lamports);
             let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
@@ -403,7 +400,7 @@ impl SurfnetSvm {
             recent_blockhashes::{IterItem, MAX_ENTRIES, RecentBlockhashes},
             slot_hashes::SlotHashes,
         };
-        self.updated_at = Utc::now().timestamp_millis() as u64;
+
         // Backup the current block hashes
         let recent_blockhashes_backup = self.inner.get_sysvar::<RecentBlockhashes>();
         let num_blockhashes_expected = recent_blockhashes_backup.len().min(MAX_ENTRIES);
@@ -492,8 +489,6 @@ impl SurfnetSvm {
     /// # Returns
     /// `Ok(())` on success, or an error if the operation fails.
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
-
         self.inner
             .set_account(*pubkey, account.clone())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
@@ -674,7 +669,6 @@ impl SurfnetSvm {
                 estimation_result.error_message
             )));
         }
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         self.transactions_processed += 1;
 
         if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
@@ -783,7 +777,6 @@ impl SurfnetSvm {
     /// # Returns
     /// `Ok(Vec<Signature>)` with confirmed signatures, or `Err(SurfpoolError)` on error.
     fn confirm_transactions(&mut self) -> Result<(Vec<Signature>, HashSet<Pubkey>), SurfpoolError> {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         let mut confirmed_transactions = vec![];
         let slot = self.latest_epoch_info.slot_index;
 
@@ -833,7 +826,6 @@ impl SurfnetSvm {
     /// # Returns
     /// `Ok(())` on success, or `Err(SurfpoolError)` on error.
     fn finalize_transactions(&mut self) -> Result<(), SurfpoolError> {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         let current_slot = self.latest_epoch_info.absolute_slot;
         let mut requeue = VecDeque::new();
         while let Some((finalized_at, tx, status_tx)) =
@@ -878,7 +870,6 @@ impl SurfnetSvm {
     /// # Arguments
     /// * `account_update` - The account update result to process.
     pub fn write_account_update(&mut self, account_update: GetAccountResult) {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         match account_update {
             GetAccountResult::FoundAccount(pubkey, account, do_update_account) => {
                 if do_update_account {
@@ -922,7 +913,6 @@ impl SurfnetSvm {
     }
 
     pub fn confirm_current_block(&mut self) -> Result<(), SurfpoolError> {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         let slot = self.get_latest_absolute_slot();
         // Confirm processed transactions
         let (confirmed_signatures, all_mutated_account_keys) = self.confirm_transactions()?;
@@ -986,7 +976,7 @@ impl SurfnetSvm {
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
-            unix_timestamp: Utc::now().timestamp(),
+            unix_timestamp: self.updated_at as i64 / 1_000,
             epoch_start_timestamp: 0, // todo
             leader_schedule_epoch: 0, // todo
         };
@@ -1014,7 +1004,6 @@ impl SurfnetSvm {
         signature: &Signature,
         subscription_type: SignatureSubscriptionType,
     ) -> Receiver<(Slot, Option<TransactionError>)> {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         let (tx, rx) = unbounded();
         self.signature_subscriptions
             .entry(*signature)
@@ -1028,7 +1017,6 @@ impl SurfnetSvm {
         account_pubkey: &Pubkey,
         encoding: Option<UiAccountEncoding>,
     ) -> Receiver<UiAccount> {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         let (tx, rx) = unbounded();
         self.account_subscriptions
             .entry(*account_pubkey)
@@ -1051,7 +1039,6 @@ impl SurfnetSvm {
         slot: Slot,
         err: Option<TransactionError>,
     ) {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         let mut remaining = vec![];
         if let Some(subscriptions) = self.signature_subscriptions.remove(signature) {
             for (subscription_type, tx) in subscriptions {
@@ -1323,14 +1310,12 @@ impl SurfnetSvm {
     }
 
     pub fn subscribe_for_slot_updates(&mut self) -> Receiver<SlotInfo> {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         let (tx, rx) = unbounded();
         self.slot_subscriptions.push(tx);
         rx
     }
 
     pub fn notify_slot_subscribers(&mut self, slot: Slot, parent: Slot, root: Slot) {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         self.slot_subscriptions
             .retain(|tx| tx.send(SlotInfo { slot, parent, root }).is_ok());
     }
@@ -1369,7 +1354,6 @@ impl SurfnetSvm {
         commitment_level: &CommitmentLevel,
         filter: &RpcTransactionLogsFilter,
     ) -> Receiver<(Slot, RpcLogsResponse)> {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         let (tx, rx) = unbounded();
         self.logs_subscriptions
             .push((commitment_level.clone(), filter.clone(), tx));
@@ -1383,7 +1367,6 @@ impl SurfnetSvm {
         logs: Vec<String>,
         commitment_level: CommitmentLevel,
     ) {
-        self.updated_at = Utc::now().timestamp_millis() as u64;
         for (expected_level, _filter, tx) in self.logs_subscriptions.iter() {
             if expected_level.eq(&commitment_level) {
                 let message = RpcLogsResponse {
