@@ -11714,7 +11714,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "surfpool-cli"
-version = "0.10.7"
+version = "0.10.8"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -11770,7 +11770,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-core"
-version = "0.10.7"
+version = "0.10.8"
 dependencies = [
  "agave-feature-set",
  "agave-geyser-plugin-interface",
@@ -11854,7 +11854,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-db"
-version = "0.10.7"
+version = "0.10.8"
 dependencies = [
  "diesel",
  "diesel-dynamic-schema",
@@ -11865,7 +11865,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-gql"
-version = "0.10.7"
+version = "0.10.8"
 dependencies = [
  "blake3",
  "chrono",
@@ -11887,7 +11887,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-mcp"
-version = "0.10.7"
+version = "0.10.8"
 dependencies = [
  "axum 0.8.4",
  "bs58",
@@ -11931,7 +11931,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-subgraph"
-version = "0.10.7"
+version = "0.10.8"
 dependencies = [
  "agave-geyser-plugin-interface",
  "ipc-channel",
@@ -11947,7 +11947,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-types"
-version = "0.10.7"
+version = "0.10.8"
 dependencies = [
  "anchor-lang-idl",
  "blake3",
@@ -12779,9 +12779,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.4.7"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8441e41091d714fc5f0cf4c22138d22ba2187e4386cd250b7cdf4783fad8151e"
+checksum = "f2dbcd6ee39dbdf406c35c6f7d34f4df2dc675e662b3e9abf00f5ed1be9b7633"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -12814,9 +12814,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.3.7"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5ae7503e3b984ba2033a89d0b5f2b9f2064be107673a5f1fe3f955a23e171e7"
+checksum = "2cbb5639f99cfa03cc7527810b2b6c8edefb24ee4e3561788c83feb1a2479a0c"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -12843,9 +12843,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5c46936867bcc9fe0eccf8c4d956a20b17a2598240c4e6e330ad97392662df8"
+checksum = "55b7595481e1711e4160b7dae8f97bd651c7e357038f2d97585642761e909274"
 dependencies = [
  "anchor-lang-idl",
  "borsh 1.5.7",
@@ -12900,9 +12900,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.4.10"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ee8f9230fb46561fb856e8249062a3df1f9b12e7e79b2c6d6fb5e96e5b9f3bd"
+checksum = "92836a64ef1228a215a4a09806b9400599e614c2fba3bf2a54e3743bd3c3cb0b"
 dependencies = [
  "base64 0.22.1",
  "better-debug",
