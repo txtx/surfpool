@@ -24,7 +24,7 @@ use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
 use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
 use libloading::{Library, Symbol};
-#[cfg(feature = "geyser-plugin")]
+#[cfg(feature = "geyser_plugin")]
 use solana_geyser_plugin_manager::geyser_plugin_manager::{
     GeyserPluginManager, LoadedGeyserPlugin,
 };
@@ -68,7 +68,7 @@ pub async fn start_local_surfnet_runloop(
 
     let remote_rpc_client = match simnet.offline_mode {
         true => None,
-        false => Some(SurfnetRemoteClient::new(
+        false => Some(SurfnetRemoteClient::new_unsafe(
             &simnet
                 .remote_rpc_url
                 .as_ref()
@@ -199,7 +199,7 @@ pub async fn start_block_production_runloop(
                     SimnetCommand::UpdateInternalClock(_, clock) => {
                         svm_locker.with_svm_writer(|svm_writer| {
                             svm_writer.inner.set_sysvar(&clock);
-                            svm_writer.updated_at = clock.unix_timestamp as u64;
+                            svm_writer.updated_at = clock.unix_timestamp as u64 * 1_000;
                             svm_writer.latest_epoch_info.absolute_slot = clock.slot;
                             svm_writer.latest_epoch_info.epoch = clock.epoch;
                             svm_writer.latest_epoch_info.slot_index = clock.slot;
@@ -300,18 +300,18 @@ fn start_geyser_runloop(
     let handle: JoinHandle<Result<(), String>> = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
         let mut indexing_enabled = false;
 
-        #[cfg(feature = "geyser-plugin")]
+        #[cfg(feature = "geyser_plugin")]
         let mut plugin_manager = GeyserPluginManager::new();
-        #[cfg(not(feature = "geyser-plugin"))]
+        #[cfg(not(feature = "geyser_plugin"))]
         let mut plugin_manager = ();
 
         let mut surfpool_plugin_manager: Vec<Box<dyn GeyserPlugin>> = vec![];
 
-        #[cfg(feature = "geyser-plugin")]
+        #[cfg(feature = "geyser_plugin")]
         for plugin_config_path in plugin_config_paths.into_iter() {
             let plugin_manifest_location = FileLocation::from_path(plugin_config_path);
-            let contents = plugin_manifest_location.read_content_as_utf8()?;
-            let result: serde_json::Value = match json5::from_str(&contents) {
+            let config_file = plugin_manifest_location.read_content_as_utf8()?;
+            let result: serde_json::Value = match json5::from_str(&config_file) {
                 Ok(res) => res,
                 Err(e) => {
                     let error = format!("Unable to read manifest: {}", e);
@@ -319,10 +319,11 @@ fn start_geyser_runloop(
                     return Err(error)
                 }
             };
-            let (plugin_name, plugin_dylib_path) = match (result.get("name").map(|p| p.as_str()), result.get("libpath").map(|p| p.as_str())) {
-                (Some(Some(name)), Some(Some(libpath))) => (name, libpath),
+
+            let plugin_dylib_path = match result.get("libpath").map(|p| p.as_str()) {
+                Some(Some(name)) => name,
                 _ => {
-                    let error = format!("Unable to retrieve dylib: {}", plugin_manifest_location);
+                    let error = format!("Plugin config file should include a 'libpath' field: {}", plugin_manifest_location);
                     let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
                     return Err(error)
                 }
@@ -335,7 +336,7 @@ fn start_geyser_runloop(
                 let lib = match Library::new(&plugin_dylib_location.to_string()) {
                     Ok(lib) => lib,
                     Err(e) => {
-                        let _ = simnet_events_tx.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_name, e.to_string())));
+                        let _ = simnet_events_tx.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_dylib_location.to_string(), e.to_string())));
                         continue;
                     }
                 };
@@ -346,7 +347,15 @@ fn start_geyser_runloop(
                 (Box::from_raw(plugin_raw), lib)
             };
             indexing_enabled = true;
-            plugin_manager.plugins.push(LoadedGeyserPlugin::new(lib, plugin, Some(plugin_name.to_string())));
+
+            let mut plugin = LoadedGeyserPlugin::new(lib, plugin, None);
+            if let Err(e) = plugin.on_load(&plugin_manifest_location.to_string(), false) {
+                let error = format!("Unable to load plugin:: {}", e.to_string());
+                let _ = simnet_events_tx.send(SimnetEvent::error(error.clone()));
+                return Err(error)
+            }
+
+            plugin_manager.plugins.push(plugin);
         }
 
         let ipc_router = RouterProxy::new();
@@ -438,7 +447,7 @@ fn start_geyser_runloop(
                             };
                         }
 
-                        #[cfg(feature = "geyser-plugin")]
+                        #[cfg(feature = "geyser_plugin")]
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), transaction_with_status_meta.slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
@@ -471,7 +480,7 @@ fn start_geyser_runloop(
                             }
                         }
 
-                        #[cfg(feature = "geyser-plugin")]
+                        #[cfg(feature = "geyser_plugin")]
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update account in Geyser plugin: {:?}", e)));
@@ -547,6 +556,7 @@ async fn start_http_rpc_server_runloop(
         .spawn(move || {
             let server = match ServerBuilder::new(io)
                 .cors(DomainsValidation::Disabled)
+                .threads(6)
                 .start_http(&server_bind)
             {
                 Ok(server) => server,

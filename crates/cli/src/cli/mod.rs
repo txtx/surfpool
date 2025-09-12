@@ -269,7 +269,7 @@ impl StartSimnet {
                         airdrop_addresses.push(pubkey.pubkey());
                     }
                     Err(_) => {
-                        events.push(SimnetEvent::warn(format!(
+                        events.push(SimnetEvent::info(format!(
                             "No keypair found at provided path {}; skipping airdrop for that keypair",
                             path.display()
                         )));
