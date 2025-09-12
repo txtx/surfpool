@@ -197,15 +197,19 @@ pub struct StartSimnet {
     /// Start surfpool without a remote RPC client to simulate an offline environment (eg. surfpool start --offline)
     #[clap(long = "offline", action=ArgAction::SetTrue, default_value = "false")]
     pub offline: bool,
-    /// Disable instruction profiling (default: false)
+    /// Disable instruction profiling (eg. surfpool start --disable-instruction-profiling)
     #[clap(long = "disable-instruction-profiling", action=ArgAction::SetTrue)]
     pub disable_instruction_profiling: bool,
-    /// The log level to use for simnet logs. Options are "trace", "debug", "info", "warn", "error".
+    /// The log level to use for simnet logs. Options are "trace", "debug", "info", "warn", "error". (eg. surfpool start --log-level debug)
     #[arg(long = "log-level", short = 'l', default_value = "info")]
     pub log_level: String,
-    /// The directory to put simnet logs.
+    /// The directory to put simnet logs. (eg. surfpool start --log-path ./logs)
     #[arg(long = "log-path", default_value = DEFAULT_LOG_DIR.as_str())]
     pub log_dir: String,
+    /// The maximum number of transaction profiles to hold in memory.
+    /// Changing this will affect the memory usage of surfpool. (eg. surfpool start --max-profiles 2000)
+    #[arg(long = "max-profiles", short = 'c', default_value = "200")]
+    pub max_profiles: usize,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -325,6 +329,7 @@ impl StartSimnet {
             expiry: None,
             offline_mode: self.offline,
             instruction_profiling_enabled: !self.disable_instruction_profiling,
+            max_profiles: self.max_profiles,
         }
     }
 

@@ -744,6 +744,10 @@ impl SurfnetSvmLocker {
         self.with_svm_reader(|svm_reader| svm_reader.instruction_profiling_enabled)
     }
 
+    pub fn get_profiling_map_capacity(&self) -> usize {
+        self.with_svm_reader(|svm_reader| svm_reader.max_profiles)
+    }
+
     pub async fn process_transaction(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
@@ -2327,22 +2331,10 @@ impl SurfnetSvmLocker {
         config: &RpcProfileResultConfig,
     ) -> SurfpoolResult<Option<UiKeyedProfileResult>> {
         let result = match &signature_or_uuid {
-            UuidOrSignature::Signature(signature) => {
-                let profile = self.with_svm_reader(|svm| {
-                    svm.executed_transaction_profiles.get(signature).cloned()
-                });
-                let transaction_exists =
-                    self.with_svm_reader(|svm| svm.transactions.contains_key(signature));
-                if profile.is_none() && transaction_exists {
-                    return Err(SurfpoolError::transaction_not_found_in_svm(signature));
-                } else {
-                    profile
-                }
-            }
+            UuidOrSignature::Signature(signature) => self
+                .with_svm_reader(|svm| svm.executed_transaction_profiles.get(signature).cloned()),
             UuidOrSignature::Uuid(uuid) => {
-                let profile = self
-                    .with_svm_reader(|svm| svm.simulated_transaction_profiles.get(uuid).cloned());
-                profile
+                self.with_svm_reader(|svm| svm.simulated_transaction_profiles.get(uuid).cloned())
             }
         };
         Ok(result.map(|profile| self.encode_ui_keyed_profile_result(profile, config)))
