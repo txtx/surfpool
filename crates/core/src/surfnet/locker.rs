@@ -2807,7 +2807,7 @@ impl SurfnetSvmLocker {
             calculate_time_travel_clock(&config, updated_at, slot_time, &epoch_info)
                 .map_err(|e| SurfpoolError::internal(e.to_string()))?;
 
-        let formated_time = chrono::DateTime::from_timestamp(clock_update.unix_timestamp / 1000, 0)
+        let formated_time = chrono::DateTime::from_timestamp(clock_update.unix_timestamp, 0)
             .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap())
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();

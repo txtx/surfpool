@@ -603,6 +603,12 @@ pub struct SvmSimnetInitializationRequest {
     pub domain: String,
     pub block_production_mode: BlockProductionMode,
     pub datasource_rpc_url: String,
+    pub settings: Option<CloudSurfnetSettings>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CloudSurfnetSettings {
+    pub profiling_disabled: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

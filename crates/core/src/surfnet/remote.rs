@@ -4,7 +4,7 @@ use serde_json::json;
 use solana_account::Account;
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
-    rpc_client::GetConfirmedSignaturesForAddress2Config,
+    rpc_client::{GetConfirmedSignaturesForAddress2Config, RpcClientConfig},
     rpc_config::{
         RpcAccountInfoConfig, RpcBlockConfig, RpcLargestAccountsConfig, RpcProgramAccountsConfig,
         RpcSignaturesForAddressConfig, RpcTokenAccountsFilter, RpcTransactionConfig,
@@ -39,9 +39,7 @@ pub struct SurfnetRemoteClient {
 impl Clone for SurfnetRemoteClient {
     fn clone(&self) -> Self {
         let remote_rpc_url = self.client.url();
-        SurfnetRemoteClient {
-            client: RpcClient::new(remote_rpc_url),
-        }
+        SurfnetRemoteClient::new_unsafe(remote_rpc_url)
     }
 }
 
@@ -57,10 +55,23 @@ impl SomeRemoteCtx for Option<SurfnetRemoteClient> {
 }
 
 impl SurfnetRemoteClient {
-    pub fn new(remote_rpc_url: &str) -> Self {
-        SurfnetRemoteClient {
-            client: RpcClient::new(remote_rpc_url.to_string()),
-        }
+    pub fn new<U: ToString>(remote_rpc_url: U) -> Self {
+        let client = RpcClient::new(remote_rpc_url.to_string());
+        SurfnetRemoteClient { client }
+    }
+
+    pub fn new_unsafe<U: ToString>(remote_rpc_url: U) -> Self {
+        use reqwest;
+        use solana_rpc_client::http_sender::HttpSender;
+        let client = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .tls_built_in_root_certs(false)
+            .tls_built_in_webpki_certs(false)
+            .build()
+            .expect("unable to clone http client");
+        let http_sender = HttpSender::new_with_client(remote_rpc_url, client);
+        let client = RpcClient::new_sender(http_sender, RpcClientConfig::default());
+        SurfnetRemoteClient { client }
     }
 
     pub async fn get_epoch_info(&self) -> SurfpoolResult<EpochInfo> {

@@ -25,7 +25,7 @@ resolver = "2"
 
 [workspace.dependencies]
 agave-feature-set = "2.3.7"
-agave-geyser-plugin-interface = "2.3.7"
+agave-geyser-plugin-interface = "2.3.8"
 agave-precompiles = "2.3.7"
 agave-reserved-account-keys = "2.3.7"
 anchor-lang-idl = "0.1.2"
@@ -41,8 +41,9 @@ hex = "0.4.3"
 hiro-system-kit = { version = "0.3.4" }
 ipc-channel = "0.19.0"
 itertools = "0.14.0"
-# litesvm = { path = "../litesvm/crates/litesvm", features = ["nodejs-internal"] }
-litesvm = { version = "0.7.0", features = ["nodejs-internal"] }
+# litesvm = { path = "../txtx-litesvm/crates/litesvm", features = ["nodejs-internal"] }
+# litesvm = { version = "0.7.0", features = ["nodejs-internal"] }
+litesvm = { git = "https://github.com/txtx/litesvm.git", branch = "fix/relax-deps", features = ["nodejs-internal"] }
 reqwest = { version = "0.12.18", features = ["blocking", "json"] }
 serde = "1.0.217"
 serde_bytes = "0.11.17"
@@ -60,18 +61,18 @@ solana-commitment-config = "2.2.1"
 solana-compute-budget-interface = "2.2.1"
 solana-epoch-info = { version = "2.2.1", features = ["serde"] }
 solana-epoch-schedule = "2.2.1"
-# solana-geyser-plugin-manager = "=2.3.7"
+solana-geyser-plugin-manager = { version = "2.3.8" }
 solana-hash = "2.3.0"
-solana-keypair = "2.2.1"
+solana-keypair = "^2.2"
 solana-message = { version = "2.3.0", features = ["serde"] }
 solana-native-token = "2.2.2"
 solana-packet = "2.2.1"
-solana-program-runtime = "2.3.7"
+solana-program-runtime = "2.3.8"
 solana-pubkey = { version = "2.3.0", features = ["serde"] }
-solana-rpc-client = "2.3.7"
-solana-rpc-client-api = "2.3.7"
-solana-runtime = "2.3.7"
-solana-sdk = "2.3.0"
+solana-rpc-client = "2.3.8"
+solana-rpc-client-api = "2.3.8"
+solana-runtime = "2.3.8"
+solana-sdk = "2.3.1"
 solana-sdk-ids = "2.2.1"
 solana-signature = { version = "2.3.0", features = ["serde"] }
 solana-signer = "2.2.1"
