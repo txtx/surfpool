@@ -785,7 +785,6 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 value: (),
             })
         })
-
     }
 
     fn set_token_account(
@@ -1228,7 +1227,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         Ok(epoch_info)
     }
 
-    fn reset_account(&self,meta:Self::Metadata, pubkey:String) -> Result<RpcResponse<()> > {
+    fn reset_account(&self, meta: Self::Metadata, pubkey: String) -> Result<RpcResponse<()>> {
         let svm_locker = meta.get_svm_locker()?;
         let pubkey = verify_pubkey(&pubkey)?;
         svm_locker.reset_account(pubkey)?;
