@@ -3826,7 +3826,7 @@ fn test_reset_account() {
         .reset_account(
             p1.pubkey(),
             ResetAccountConfig {
-                cascade_to_owned: Some(false),
+                recursive: Some(false),
             },
         )
         .unwrap();
@@ -3887,7 +3887,7 @@ fn test_reset_account_cascade() {
         .reset_account(
             owner,
             ResetAccountConfig {
-                cascade_to_owned: Some(true),
+                recursive: Some(true),
             },
         )
         .unwrap();
@@ -3901,7 +3901,7 @@ fn test_reset_account_cascade() {
         .reset_account(
             owned,
             ResetAccountConfig {
-                cascade_to_owned: Some(false),
+                recursive: Some(false),
             },
         )
         .unwrap();

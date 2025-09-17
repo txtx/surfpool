@@ -905,13 +905,13 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ResetAccountConfig {
-    pub cascade_to_owned: Option<bool>,
+    pub recursive: Option<bool>,
 }
 
 impl Default for ResetAccountConfig {
     fn default() -> Self {
         Self {
-            cascade_to_owned: Some(false),
+            recursive: Some(false),
         }
     }
 }
