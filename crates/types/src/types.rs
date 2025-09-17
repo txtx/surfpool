@@ -626,6 +626,7 @@ pub struct CreateNetworkRequest {
     pub description: Option<String>,
     pub datasource_rpc_url: String,
     pub block_production_mode: BlockProductionMode,
+    pub profiling_enabled: Option<bool>,
 }
 
 impl CreateNetworkRequest {
@@ -635,6 +636,7 @@ impl CreateNetworkRequest {
         description: Option<String>,
         datasource_rpc_url: String,
         block_production_mode: BlockProductionMode,
+        profiling_enabled: bool,
     ) -> Self {
         Self {
             workspace_id,
@@ -642,6 +644,7 @@ impl CreateNetworkRequest {
             description,
             datasource_rpc_url,
             block_production_mode,
+            profiling_enabled: Some(profiling_enabled),
         }
     }
 }

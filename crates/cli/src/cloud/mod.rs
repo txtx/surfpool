@@ -31,6 +31,10 @@ pub struct CloudStartCommand {
     /// The block production mode for the surfnet. Options are `clock`, `transaction`, and `manual`.
     #[arg(long = "block-production", short = 'b')]
     pub block_production_mode: Option<CliBlockProductionMode>,
+
+    /// Enable cloud transaction profiling.
+    #[arg(long = "profile-transactions", default_value = "false")]
+    pub transaction_profiling_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -221,6 +225,7 @@ impl CloudStartCommand {
             description,
             datasource_rpc_url,
             block_production_mode,
+            self.transaction_profiling_enabled,
         );
         let client = reqwest::Client::new();
         let res = client
