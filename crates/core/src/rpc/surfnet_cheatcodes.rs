@@ -713,6 +713,40 @@ pub trait SurfnetCheatcodes {
     #[rpc(meta, name = "surfnet_resumeClock")]
     fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo>;
 
+    /// A cheat code to reset an account on the local network.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `pubkey_str`: The base-58 encoded public key of the account to reset.
+    /// - `config`: A `ResetAccountConfig` specifying how to reset the account. If omitted, the account will be reset without cascading to owned accounts.
+    ///
+    /// ## Returns
+    /// An `RpcResponse<()>` indicating whether the account reset was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_resetAccount",
+    ///   "params": [ "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa", { "cascadeToOwned": true } ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 123456789,
+    ///       "apiVersion": "2.3.8"
+    ///     },
+    ///     "value": null
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
     #[rpc(meta, name = "surfnet_resetAccount")]
     fn reset_account(
         &self,
