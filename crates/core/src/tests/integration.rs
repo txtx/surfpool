@@ -3892,9 +3892,9 @@ fn test_reset_account_cascade() {
         )
         .unwrap();
 
-    // Owner is deleted, owned account remains (correct behavior for non-executable accounts)
+    // Owner is deleted, owned account is deleted
     assert!(svm_locker.get_account_local(&owner).inner.is_none());
-    assert!(!svm_locker.get_account_local(&owned).inner.is_none());
+    assert!(svm_locker.get_account_local(&owned).inner.is_none());
 
     // Clean up
     svm_locker

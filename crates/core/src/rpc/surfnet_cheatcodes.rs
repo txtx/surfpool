@@ -718,7 +718,7 @@ pub trait SurfnetCheatcodes {
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        config: ResetAccountConfig,
+        config: Option<ResetAccountConfig>,
     ) -> Result<RpcResponse<()>>;
 }
 
@@ -1237,11 +1237,11 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         &self,
         meta: Self::Metadata,
         pubkey: String,
-        config: ResetAccountConfig,
+        config: Option<ResetAccountConfig>,
     ) -> Result<RpcResponse<()>> {
         let svm_locker = meta.get_svm_locker()?;
         let pubkey = verify_pubkey(&pubkey)?;
-        svm_locker.reset_account(pubkey, config)?;
+        svm_locker.reset_account(pubkey, config.unwrap_or_default())?;
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: (),

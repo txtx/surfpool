@@ -648,18 +648,9 @@ impl SurfnetSvm {
             self.remove_from_indexes(pubkey, &account);
         }
 
-        // Create empty account
-        let empty_account = Account {
-            lamports: 0,
-            data: vec![],
-            owner: solana_sdk_ids::system_program::id(),
-            executable: false,
-            rent_epoch: 0,
-        };
-
         // Set the empty account
         self.inner
-            .set_account(*pubkey, empty_account)
+            .set_account(*pubkey, Account::default())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
 
         Ok(())

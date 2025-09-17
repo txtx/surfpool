@@ -908,6 +908,14 @@ pub struct ResetAccountConfig {
     pub cascade_to_owned: Option<bool>,
 }
 
+impl Default for ResetAccountConfig {
+    fn default() -> Self {
+        Self {
+            cascade_to_owned: Some(false),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

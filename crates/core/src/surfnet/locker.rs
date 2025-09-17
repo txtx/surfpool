@@ -1627,8 +1627,7 @@ impl SurfnetSvmLocker {
     /// It handles program accounts (including their program data accounts) and can optionally
     /// cascade the reset to all accounts owned by a program.
     pub fn reset_account(&self, pubkey: Pubkey, config: ResetAccountConfig) -> SurfpoolResult<()> {
-        let cascade_to_owned = config.cascade_to_owned.unwrap_or_else(|| false);
-
+        let cascade_to_owned = config.cascade_to_owned.unwrap_or_default();
         self.with_svm_writer(move |svm_writer| {
             if let Some(account) = svm_writer.get_account(&pubkey) {
                 // Check if this is an executable account (program)
@@ -1641,16 +1640,15 @@ impl SurfnetSvmLocker {
                         // Reset the program data account first
                         svm_writer.reset_account(&program_data_address)?;
                     }
-
-                    if cascade_to_owned {
-                        let owned_accounts = svm_writer.get_account_owned_by(pubkey);
-                        for (owned_pubkey, _) in owned_accounts {
-                            // Avoid infinite recursion by not cascading further
-                            svm_writer.reset_account(&owned_pubkey)?;
-                        }
+                }
+                if cascade_to_owned {
+                    let owned_accounts = svm_writer.get_account_owned_by(pubkey);
+                    for (owned_pubkey, _) in owned_accounts {
+                        // Avoid infinite recursion by not cascading further
+                        svm_writer.reset_account(&owned_pubkey)?;
                     }
                 }
-                // Reset the account itself (this handles both regular and program accounts)
+                // Reset the account itself
                 svm_writer.reset_account(&pubkey)?;
             }
             Ok(())
