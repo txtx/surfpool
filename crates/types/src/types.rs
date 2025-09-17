@@ -903,6 +903,11 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ResetAccountConfig {
+    pub cascade_to_owned: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

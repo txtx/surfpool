@@ -11,7 +11,8 @@ use solana_sdk::{program_option::COption, transaction::VersionedTransaction};
 use solana_system_interface::program as system_program;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    ClockCommand, Idl, RpcProfileResultConfig, SimnetCommand, SimnetEvent, UiKeyedProfileResult,
+    ClockCommand, Idl, ResetAccountConfig, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
+    UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -713,7 +714,12 @@ pub trait SurfnetCheatcodes {
     fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo>;
 
     #[rpc(meta, name = "surfnet_resetAccount")]
-    fn reset_account(&self, meta: Self::Metadata, pubkey_str: String) -> Result<RpcResponse<()>>;
+    fn reset_account(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        config: ResetAccountConfig,
+    ) -> Result<RpcResponse<()>>;
 }
 
 #[derive(Clone)]
@@ -1227,10 +1233,15 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         Ok(epoch_info)
     }
 
-    fn reset_account(&self, meta: Self::Metadata, pubkey: String) -> Result<RpcResponse<()>> {
+    fn reset_account(
+        &self,
+        meta: Self::Metadata,
+        pubkey: String,
+        config: ResetAccountConfig,
+    ) -> Result<RpcResponse<()>> {
         let svm_locker = meta.get_svm_locker()?;
         let pubkey = verify_pubkey(&pubkey)?;
-        svm_locker.reset_account(pubkey)?;
+        svm_locker.reset_account(pubkey, config)?;
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: (),

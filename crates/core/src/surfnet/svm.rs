@@ -596,7 +596,7 @@ impl SurfnetSvm {
         Ok(())
     }
 
-    pub fn remove_from_indexes(&mut self, pubkey: &Pubkey, old_account: &Account) {
+    fn remove_from_indexes(&mut self, pubkey: &Pubkey, old_account: &Account) {
         if let Some(accounts) = self.accounts_by_owner.get_mut(&old_account.owner) {
             accounts.retain(|pk| pk != pubkey);
             if accounts.is_empty() {
@@ -639,6 +639,30 @@ impl SurfnetSvm {
                 }
             }
         }
+    }
+
+    pub fn reset_account(&mut self, pubkey: &Pubkey) -> SurfpoolResult<()> {
+        // Get the existing account if it exists
+        if let Some(account) = self.get_account(pubkey) {
+            // Remove from indexes
+            self.remove_from_indexes(pubkey, &account);
+        }
+
+        // Create empty account
+        let empty_account = Account {
+            lamports: 0,
+            data: vec![],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        // Set the empty account
+        self.inner
+            .set_account(*pubkey, empty_account)
+            .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+
+        Ok(())
     }
 
     /// Sends a transaction to the system for execution.

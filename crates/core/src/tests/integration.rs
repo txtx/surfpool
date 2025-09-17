@@ -28,8 +28,9 @@ use solana_signer::Signer;
 use solana_system_interface::{instruction as system_instruction, program as system_program};
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
-    DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
-    SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
+    DEFAULT_SLOT_TIME_MS, Idl, ResetAccountConfig, RpcProfileDepth, RpcProfileResultConfig,
+    SimnetCommand, SimnetEvent, SurfpoolConfig, UiAccountChange, UiAccountProfileState,
+    UiKeyedProfileResult,
     types::{
         BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
     },
@@ -3821,7 +3822,14 @@ fn test_reset_account() {
         svm_locker.get_account_local(&p1.pubkey()).inner
     );
 
-    svm_locker.reset_account(p1.pubkey()).unwrap();
+    svm_locker
+        .reset_account(
+            p1.pubkey(),
+            ResetAccountConfig {
+                cascade_to_owned: Some(false),
+            },
+        )
+        .unwrap();
 
     println!("Reset account");
 
@@ -3875,12 +3883,26 @@ fn test_reset_account_cascade() {
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
     // Reset with cascade=true (for regular accounts, doesn't cascade but tests the code path)
-    svm_locker.reset_account_with_options(owner, true).unwrap();
+    svm_locker
+        .reset_account(
+            owner,
+            ResetAccountConfig {
+                cascade_to_owned: Some(true),
+            },
+        )
+        .unwrap();
 
     // Owner is deleted, owned account remains (correct behavior for non-executable accounts)
     assert!(svm_locker.get_account_local(&owner).inner.is_none());
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
     // Clean up
-    svm_locker.reset_account(owned).unwrap();
+    svm_locker
+        .reset_account(
+            owned,
+            ResetAccountConfig {
+                cascade_to_owned: Some(false),
+            },
+        )
+        .unwrap();
 }
