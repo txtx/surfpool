@@ -11,7 +11,8 @@ use solana_sdk::{program_option::COption, transaction::VersionedTransaction};
 use solana_system_interface::program as system_program;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    ClockCommand, Idl, RpcProfileResultConfig, SimnetCommand, SimnetEvent, UiKeyedProfileResult,
+    ClockCommand, Idl, ResetAccountConfig, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
+    UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -711,6 +712,48 @@ pub trait SurfnetCheatcodes {
     /// ```
     #[rpc(meta, name = "surfnet_resumeClock")]
     fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo>;
+
+    /// A cheat code to reset an account on the local network.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `pubkey_str`: The base-58 encoded public key of the account to reset.
+    /// - `config`: A `ResetAccountConfig` specifying how to reset the account. If omitted, the account will be reset without cascading to owned accounts.
+    ///
+    /// ## Returns
+    /// An `RpcResponse<()>` indicating whether the account reset was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_resetAccount",
+    ///   "params": [ "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa", { "recursive": true } ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 123456789,
+    ///       "apiVersion": "2.3.8"
+    ///     },
+    ///     "value": null
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_resetAccount")]
+    fn reset_account(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        config: Option<ResetAccountConfig>,
+    ) -> Result<RpcResponse<()>>;
 }
 
 #[derive(Clone)]
@@ -1222,6 +1265,21 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         let epoch_info = svm_locker.time_travel(key, simnet_command_tx, time_travel_config)?;
 
         Ok(epoch_info)
+    }
+
+    fn reset_account(
+        &self,
+        meta: Self::Metadata,
+        pubkey: String,
+        config: Option<ResetAccountConfig>,
+    ) -> Result<RpcResponse<()>> {
+        let svm_locker = meta.get_svm_locker()?;
+        let pubkey = verify_pubkey(&pubkey)?;
+        svm_locker.reset_account(pubkey, config.unwrap_or_default())?;
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: (),
+        })
     }
 }
 

@@ -906,6 +906,19 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ResetAccountConfig {
+    pub recursive: Option<bool>,
+}
+
+impl Default for ResetAccountConfig {
+    fn default() -> Self {
+        Self {
+            recursive: Some(false),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

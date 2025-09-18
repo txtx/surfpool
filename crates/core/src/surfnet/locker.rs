@@ -53,8 +53,9 @@ use solana_transaction_status::{
 };
 use surfpool_types::{
     ComputeUnitsEstimationResult, ExecutionCapture, Idl, KeyedProfileResult, ProfileResult,
-    RpcProfileResultConfig, SimnetCommand, SimnetEvent, TransactionConfirmationStatus,
-    TransactionStatusEvent, UiKeyedProfileResult, UuidOrSignature, VersionedIdl,
+    ResetAccountConfig, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
+    TransactionConfirmationStatus, TransactionStatusEvent, UiKeyedProfileResult, UuidOrSignature,
+    VersionedIdl,
 };
 use tokio::sync::RwLock;
 use txtx_addon_kit::indexmap::IndexSet;
@@ -226,11 +227,18 @@ impl SurfnetSvmLocker {
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
             match svm_reader.inner.get_account(pubkey) {
-                Some(account) => GetAccountResult::FoundAccount(
-                    *pubkey, account,
-                    // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                    false,
-                ),
+                Some(account) => {
+                    //TODO: when LiteSVM updates `set_account` to remove accounts if 0 lamports, we can remove this check because the account will be removed from the store
+                    if account.eq(&Account::default()) {
+                        // If the account is default, it means it was deleted but still exists in our litesvm store
+                        return GetAccountResult::None(*pubkey);
+                    }
+                    GetAccountResult::FoundAccount(
+                        *pubkey, account,
+                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                        false,
+                    )
+                }
                 None => match svm_reader.get_account_from_feature_set(pubkey) {
                     Some(account) => GetAccountResult::FoundAccount(
                         *pubkey, account,
@@ -282,7 +290,6 @@ impl SurfnetSvmLocker {
             _ => Ok(result),
         }
     }
-
     /// Retrieves multiple accounts from local cache, returning a contextualized result.
     pub fn get_multiple_accounts_local(
         &self,
@@ -293,11 +300,19 @@ impl SurfnetSvmLocker {
 
             for pubkey in pubkeys {
                 let res = match svm_reader.inner.get_account(pubkey) {
-                    Some(account) => GetAccountResult::FoundAccount(
-                        *pubkey, account,
-                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                        false,
-                    ),
+                    Some(account) => {
+                        //TODO: when LiteSVM updates `set_account` to remove accounts if 0 lamports, we can remove this check because the account will be removed from the store
+                        if account.eq(&Account::default()) {
+                            // If the account is default, it means it was deleted but still exists in our litesvm store
+                            GetAccountResult::None(*pubkey)
+                        } else {
+                            GetAccountResult::FoundAccount(
+                                *pubkey, account,
+                                // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                                false,
+                            )
+                        }
+                    }
                     None => match svm_reader.get_account_from_feature_set(pubkey) {
                         Some(account) => GetAccountResult::FoundAccount(
                             *pubkey, account,
@@ -1604,6 +1619,40 @@ impl SurfnetSvmLocker {
                 svm_writer.write_account_update(update.clone());
             }
         });
+    }
+
+    /// Resets an account in the SVM state
+    ///
+    /// This function coordinates the reset of accounts by calling the SVM's reset_account method.
+    /// It handles program accounts (including their program data accounts) and can optionally
+    /// cascade the reset to all accounts owned by a program.
+    pub fn reset_account(&self, pubkey: Pubkey, config: ResetAccountConfig) -> SurfpoolResult<()> {
+        let cascade_to_owned = config.recursive.unwrap_or_default();
+        self.with_svm_writer(move |svm_writer| {
+            if let Some(account) = svm_writer.get_account(&pubkey) {
+                // Check if this is an executable account (program)
+                if account.executable {
+                    // Handle upgradeable program - also reset the program data account
+                    if account.owner == solana_sdk_ids::bpf_loader_upgradeable::id() {
+                        let program_data_address =
+                            solana_sdk::bpf_loader_upgradeable::get_program_data_address(&pubkey);
+
+                        // Reset the program data account first
+                        svm_writer.reset_account(&program_data_address)?;
+                    }
+                }
+                if cascade_to_owned {
+                    let owned_accounts = svm_writer.get_account_owned_by(pubkey);
+                    for (owned_pubkey, _) in owned_accounts {
+                        // Avoid infinite recursion by not cascading further
+                        svm_writer.reset_account(&owned_pubkey)?;
+                    }
+                }
+                // Reset the account itself
+                svm_writer.reset_account(&pubkey)?;
+            }
+            Ok(())
+        })
     }
 }
 

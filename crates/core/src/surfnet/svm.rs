@@ -641,6 +641,21 @@ impl SurfnetSvm {
         }
     }
 
+    pub fn reset_account(&mut self, pubkey: &Pubkey) -> SurfpoolResult<()> {
+        // Get the existing account if it exists
+        if let Some(account) = self.get_account(pubkey) {
+            // Remove from indexes
+            self.remove_from_indexes(pubkey, &account);
+        }
+
+        // Set the empty account
+        self.inner
+            .set_account(*pubkey, Account::default())
+            .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+
+        Ok(())
+    }
+
     /// Sends a transaction to the system for execution.
     ///
     /// This function attempts to send a transaction to the blockchain. It first increments the `transactions_processed` counter.
