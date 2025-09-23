@@ -40,6 +40,7 @@ impl Clone for SurfnetRemoteClient {
     fn clone(&self) -> Self {
         let remote_rpc_url = self.client.url();
         SurfnetRemoteClient::new_unsafe(remote_rpc_url)
+            .expect("unable to clone SurfnetRemoteClient")
     }
 }
 
@@ -60,18 +61,29 @@ impl SurfnetRemoteClient {
         SurfnetRemoteClient { client }
     }
 
-    pub fn new_unsafe<U: ToString>(remote_rpc_url: U) -> Self {
+    pub fn new_unsafe<U: ToString>(remote_rpc_url: U) -> Option<Self> {
         use reqwest;
         use solana_rpc_client::http_sender::HttpSender;
-        let client = reqwest::Client::builder()
+
+        // Retry HTTP client initialization to handle potential fork-related issues
+        let client = match reqwest::Client::builder()
             .danger_accept_invalid_certs(true)
             .tls_built_in_root_certs(false)
             .tls_built_in_webpki_certs(false)
             .build()
-            .expect("unable to clone http client");
+        {
+            Ok(client) => client,
+            Err(e) => {
+                error!(
+                    "unable to initialize datasource client after retries: {}",
+                    e
+                );
+                return None;
+            }
+        };
         let http_sender = HttpSender::new_with_client(remote_rpc_url, client);
         let client = RpcClient::new_sender(http_sender, RpcClientConfig::default());
-        SurfnetRemoteClient { client }
+        Some(SurfnetRemoteClient { client })
     }
 
     pub async fn get_epoch_info(&self) -> SurfpoolResult<EpochInfo> {

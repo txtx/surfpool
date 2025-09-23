@@ -4,7 +4,9 @@ use chrono::Local;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use clap_complete::{Generator, Shell};
 use fern::colors::{Color, ColoredLevelConfig};
+use fork::{Fork, daemon};
 use hiro_system_kit::{self, Logger};
+use log::{error, info};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
@@ -210,6 +212,12 @@ pub struct StartSimnet {
     /// Changing this will affect the memory usage of surfpool. (eg. surfpool start --max-profiles 2000)
     #[arg(long = "max-profiles", short = 'c', default_value = "200")]
     pub max_profiles: usize,
+    /// Start Surfpool as a background process (eg. surfpool start --daemon)
+    #[clap(long = "daemon", action=ArgAction::SetTrue, default_value = "false")]
+    pub daemon: bool,
+    /// Start surfpool with some CI adequate settings  (eg. surfpool start --ci)
+    #[clap(long = "ci", action=ArgAction::SetTrue, default_value = "false")]
+    pub ci: bool,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -478,8 +486,8 @@ pub fn main() {
         }
     };
 
-    if let Err(e) = hiro_system_kit::nestable_block_on(handle_command(opts, &ctx)) {
-        error!(ctx.expect_logger(), "{e}");
+    if let Err(e) = handle_command(opts, &ctx) {
+        error!("{e}");
         std::thread::sleep(std::time::Duration::from_millis(500));
         process::exit(1);
     }
@@ -493,18 +501,61 @@ pub async fn handle_mcp_command(_ctx: &Context) -> Result<(), String> {
     Ok(())
 }
 
-async fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
+fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     match opts.command {
-        Command::Simnet(cmd) => simnet::handle_start_local_surfnet_command(&cmd, ctx).await,
-        Command::Completions(cmd) => generate_completion_helpers(&cmd),
-        Command::Run(cmd) => handle_execute_runbook_command(cmd).await,
-        Command::List(cmd) => handle_list_command(cmd, ctx).await,
-        Command::Cloud(cmd) => handle_cloud_commands(cmd).await,
-        Command::Mcp => handle_mcp_command(ctx).await,
+        Command::Simnet(mut cmd) => {
+            if cmd.ci {
+                cmd.disable_instruction_profiling = true;
+                cmd.no_studio = true;
+                cmd.no_tui = true;
+            }
+
+            if cmd.daemon {
+                // The only way to support daemon mode on macos is to either:
+                // - enforce --offline
+                // - set OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES, which disables fork safety for Objective-C runtime
+                // Known issue: https://github.com/firebase/firebase-tools/issues/6628
+                // Both of these options are confusing for users, so we just emit a warning and disable daemon mode
+                if !cfg!(target_os = "linux") {
+                    println!("Daemon mode is only supported on Linux");
+                    cmd.daemon = false;
+                } else {
+                    cmd.no_tui = true;
+                }
+            }
+
+            setup_logger(&cmd.log_dir, None, "simnet", &cmd.log_level, cmd.no_tui)?;
+
+            if cmd.daemon {
+                match daemon(false, false) {
+                    Ok(Fork::Child) => {
+                        info!("Starting surfpool in daemon mode");
+                    }
+                    Ok(Fork::Parent(pid)) => {
+                        info!("Parent exiting {pid}");
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        info!("Failed to start surfpool in daemon mode: {}", e);
+                        return Ok(());
+                    }
+                };
+            }
+            hiro_system_kit::nestable_block_on(simnet::handle_start_local_surfnet_command(cmd, ctx))
+        }
+        Command::Completions(cmd) => {
+            hiro_system_kit::nestable_block_on(generate_completion_helpers(cmd))
+        }
+        Command::Run(cmd) => {
+            hiro_system_kit::nestable_block_on(handle_execute_runbook_command(cmd))
+        }
+        Command::List(cmd) => hiro_system_kit::nestable_block_on(handle_list_command(cmd, ctx)),
+        Command::Cloud(cmd) => hiro_system_kit::nestable_block_on(handle_cloud_commands(cmd)),
+        Command::Mcp => hiro_system_kit::nestable_block_on(handle_mcp_command(ctx)),
     }
 }
 
-fn generate_completion_helpers(cmd: &Completions) -> Result<(), String> {
+async fn generate_completion_helpers(cmd: Completions) -> Result<(), String> {
     let mut app = Opts::command();
     let file_name = cmd.shell.file_name("surfpool");
     let mut file = File::create(file_name.clone())
@@ -515,7 +566,7 @@ fn generate_completion_helpers(cmd: &Completions) -> Result<(), String> {
     Ok(())
 }
 
-pub async fn handle_list_command(cmd: ListRunbooks, _ctx: &Context) -> Result<(), String> {
+async fn handle_list_command(cmd: ListRunbooks, _ctx: &Context) -> Result<(), String> {
     let manifest_location = FileLocation::from_path_string(&cmd.manifest_path)?;
     let manifest = WorkspaceManifest::from_location(&manifest_location)?;
     if manifest.runbooks.is_empty() {

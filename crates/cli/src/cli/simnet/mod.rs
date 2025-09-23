@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+use actix_web::dev::ServerHandle;
 use crossbeam::channel::{Select, Sender};
 use indicatif::{MultiProgress, ProgressBar};
 use log::{debug, error, info, warn};
@@ -29,7 +30,6 @@ use txtx_gql::kit::{indexmap::IndexMap, types::frontend::LogLevel, uuid::Uuid};
 
 use super::{Context, ExecuteRunbook, StartSimnet};
 use crate::{
-    cli::setup_logger,
     http::start_subgraph_and_explorer_server,
     runbook::{execute_runbook, handle_log_event},
     scaffold::{detect_program_frameworks, scaffold_iac_layout},
@@ -43,7 +43,7 @@ struct CheckVersionResponse {
 }
 
 pub async fn handle_start_local_surfnet_command(
-    cmd: &StartSimnet,
+    cmd: StartSimnet,
     ctx: &Context,
 ) -> Result<(), String> {
     if !cmd.plugin_config_path.is_empty() && !cfg!(feature = "geyser_plugin") {
@@ -59,8 +59,6 @@ pub async fn handle_start_local_surfnet_command(
     let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
     let simnet_events_tx = surfnet_svm.simnet_events_tx.clone();
-
-    setup_logger(&cmd.log_dir, None, "simnet", &cmd.log_level, cmd.no_tui)?;
 
     // Check aidrop addresses
     let (mut airdrop_addresses, airdrop_events) = cmd.get_airdrop_addresses();
@@ -110,6 +108,7 @@ pub async fn handle_start_local_surfnet_command(
     {
         Ok((explorer_handle, _)) => Some(explorer_handle),
         Err(e) => {
+            error!("Failed to start subgraph and explorer server: {}", e);
             let _ = simnet_events_tx.send(SimnetEvent::warn(format!(
                 "Failed to start subgraph and explorer server: {}",
                 e
@@ -156,7 +155,7 @@ pub async fn handle_start_local_surfnet_command(
 
     let mut deploy_progress_rx = vec![];
     if !cmd.no_deploy {
-        match write_and_execute_iac(cmd, &simnet_events_tx).await {
+        match write_and_execute_iac(&cmd, &simnet_events_tx).await {
             Ok(rx) => deploy_progress_rx.push(rx),
             Err(e) => {
                 let _ = simnet_events_tx.send(SimnetEvent::warn(format!(
@@ -186,6 +185,40 @@ pub async fn handle_start_local_surfnet_command(
         }
     }
 
+    let cmd_cc = cmd.clone();
+    let ctx_cc = ctx.clone();
+
+    let runloop_terminator = Arc::new(AtomicBool::new(false));
+
+    let _ = start_service(
+        cmd_cc,
+        simnet_events_rx,
+        subgraph_events_rx,
+        deploy_progress_rx,
+        simnet_commands_tx,
+        breaker,
+        sanitized_config,
+        explorer_handle,
+        ctx_cc,
+        Some(runloop_terminator),
+    )
+    .await;
+
+    Ok(())
+}
+
+async fn start_service(
+    cmd: StartSimnet,
+    simnet_events_rx: Receiver<SimnetEvent>,
+    subgraph_events_rx: Receiver<SubgraphEvent>,
+    deploy_progress_rx: Vec<Receiver<BlockEvent>>,
+    simnet_commands_tx: Sender<SimnetCommand>,
+    breaker: Option<Keypair>,
+    sanitized_config: SanitizedConfig,
+    explorer_handle: Option<ServerHandle>,
+    _ctx: Context,
+    runloop_terminator: Option<Arc<AtomicBool>>,
+) -> Result<(), String> {
     let displayed_url = if cmd.no_studio {
         DisplayedUrl::Datasource(sanitized_config)
     } else {
@@ -193,13 +226,14 @@ pub async fn handle_start_local_surfnet_command(
     };
 
     // Start frontend - kept on main thread
-    if cmd.no_tui {
+    if cmd.daemon || cmd.no_tui {
         log_events(
             simnet_events_rx,
             subgraph_events_rx,
             cmd.debug,
             deploy_progress_rx,
             simnet_commands_tx,
+            runloop_terminator.unwrap(),
         )?;
     } else {
         tui::simnet::start_app(
@@ -224,12 +258,12 @@ fn log_events(
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     simnet_commands_tx: Sender<SimnetCommand>,
+    runloop_terminator: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let mut deployment_completed = false;
-    let stop_loop = Arc::new(AtomicBool::new(false));
-    let do_stop_loop = stop_loop.clone();
+    let do_stop_loop = runloop_terminator.clone();
     ctrlc::set_handler(move || {
-        stop_loop.store(true, Ordering::Relaxed);
+        do_stop_loop.store(true, Ordering::Relaxed);
     })
     .expect("Error setting Ctrl-C handler");
 
@@ -242,7 +276,7 @@ fn log_events(
     let mut multi_progress = MultiProgress::new();
 
     loop {
-        if do_stop_loop.load(Ordering::Relaxed) {
+        if runloop_terminator.load(Ordering::Relaxed) {
             break;
         }
         let mut selector = Select::new();
