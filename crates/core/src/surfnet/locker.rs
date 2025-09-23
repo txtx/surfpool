@@ -953,12 +953,18 @@ impl SurfnetSvmLocker {
 
                 let token_programs = token_accounts_before
                     .iter()
-                    .map(|(i, _)| {
-                        svm_reader
-                            .get_account(&transaction_accounts[*i])
-                            .unwrap()
-                            .owner
-                    })
+                    .filter_map(
+                        |(i, _)| match svm_reader.get_account(&transaction_accounts[*i]) {
+                            Some(account) => Some(account.owner),
+                            None => {
+                                warn!(
+                                    "unable to retrieve token account at index {} ({})",
+                                    i, transaction_accounts[*i]
+                                );
+                                None
+                            }
+                        },
+                    )
                     .collect::<Vec<_>>()
                     .clone();
                 (accounts_before, token_accounts_before, token_programs)
