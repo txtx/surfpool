@@ -9,7 +9,7 @@ use chrono::Utc;
 use convert_case::Casing;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use litesvm::{
-    LiteSVM,
+    LiteSVM, error,
     types::{
         FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
     },
@@ -48,9 +48,9 @@ use spl_token_2022::extension::{
 };
 use surfpool_types::{
     AccountChange, AccountProfileState, DEFAULT_PROFILING_MAP_CAPACITY, DEFAULT_SLOT_TIME_MS,
-    FifoMap, Idl, ProfileResult, RpcProfileDepth, RpcProfileResultConfig, SimnetEvent,
-    TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
-    UiProfileResult, VersionedIdl,
+    FifoMap, Idl, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
+    RunbookExecutionStatusReport, SimnetEvent, TransactionConfirmationStatus,
+    TransactionStatusEvent, UiAccountChange, UiAccountProfileState, UiProfileResult, VersionedIdl,
     types::{
         ComputeUnitsEstimationResult, KeyedProfileResult, UiKeyedProfileResult, UuidOrSignature,
     },
@@ -139,7 +139,7 @@ pub struct SurfnetSvm {
     pub feature_set: FeatureSet,
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
-    pub is_executing_runbook: bool,
+    pub runbook_executions: Vec<RunbookExecutionStatusReport>,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -212,7 +212,7 @@ impl SurfnetSvm {
             feature_set,
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
-            is_executing_runbook: false,
+            runbook_executions: Vec::new(),
         };
 
         // Generate the initial synthetic blockhash
@@ -1664,6 +1664,21 @@ impl SurfnetSvm {
 
     pub fn iter_accounts(&self) -> std::collections::hash_map::Iter<'_, Pubkey, AccountSharedData> {
         self.inner.accounts_db().inner.iter()
+    }
+
+    pub fn start_runbook_execution(&mut self, runbook_id: String) {
+        self.runbook_executions
+            .push(RunbookExecutionStatusReport::new(runbook_id));
+    }
+
+    pub fn complete_runbook_execution(&mut self, runbook_id: &str, error: Option<Vec<String>>) {
+        if let Some(execution) = self
+            .runbook_executions
+            .iter_mut()
+            .find(|e| e.runbook_id.eq(runbook_id) && e.completed_at.is_none())
+        {
+            execution.mark_completed(error);
+        }
     }
 }
 

@@ -11,8 +11,8 @@ use solana_sdk::{program_option::COption, transaction::VersionedTransaction};
 use solana_system_interface::program as system_program;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    ClockCommand, Idl, ResetAccountConfig, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
-    UiKeyedProfileResult,
+    ClockCommand, GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcProfileResultConfig,
+    SimnetCommand, SimnetEvent, UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -755,8 +755,9 @@ pub trait SurfnetCheatcodes {
         config: Option<ResetAccountConfig>,
     ) -> Result<RpcResponse<()>>;
 
-    #[rpc(meta, name = "surfnet_readyCheck")]
-    fn is_surfnet_ready(&self, meta: Self::Metadata) -> Result<RpcResponse<bool>>;
+    #[rpc(meta, name = "surfnet_getSurfnetInfo")]
+    fn get_surfnet_info(&self, meta: Self::Metadata)
+    -> Result<RpcResponse<GetSurfnetInfoResponse>>;
 }
 
 #[derive(Clone)]
@@ -1285,12 +1286,15 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         })
     }
 
-    fn is_surfnet_ready(&self, meta: Self::Metadata) -> Result<RpcResponse<bool>> {
+    fn get_surfnet_info(
+        &self,
+        meta: Self::Metadata,
+    ) -> Result<RpcResponse<GetSurfnetInfoResponse>> {
         let svm_locker = meta.get_svm_locker()?;
-        let is_ready = !svm_locker.is_executing_runbook();
+        let runbook_executions = svm_locker.runbook_executions();
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
-            value: is_ready,
+            value: GetSurfnetInfoResponse::new(runbook_executions),
         })
     }
 }

@@ -348,7 +348,7 @@ pub enum SimnetEvent {
         timestamp: DateTime<Local>,
     },
     RunbookStarted(String),
-    RunbookCompleted(String),
+    RunbookCompleted(String, Option<Vec<String>>),
 }
 
 impl SimnetEvent {
@@ -464,7 +464,8 @@ pub enum SimnetCommand {
         bool,
     ),
     Terminate(Option<(Hash, String)>),
-    SetIsExecutingRunbook(bool),
+    StartRunbookExecution(String),
+    CompleteRunbookExecution(String, Option<Vec<String>>),
 }
 
 #[derive(Debug)]
@@ -916,6 +917,40 @@ impl Default for ResetAccountConfig {
         Self {
             recursive: Some(false),
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetSurfnetInfoResponse {
+    runbook_executions: Vec<RunbookExecutionStatusReport>,
+}
+impl GetSurfnetInfoResponse {
+    pub fn new(runbook_executions: Vec<RunbookExecutionStatusReport>) -> Self {
+        Self { runbook_executions }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunbookExecutionStatusReport {
+    pub started_at: u32,
+    pub completed_at: Option<u32>,
+    pub runbook_id: String,
+    pub errors: Option<Vec<String>>,
+}
+impl RunbookExecutionStatusReport {
+    pub fn new(runbook_id: String) -> Self {
+        Self {
+            started_at: Local::now().timestamp() as u32,
+            completed_at: None,
+            runbook_id,
+            errors: None,
+        }
+    }
+    pub fn mark_completed(&mut self, error: Option<Vec<String>>) {
+        self.completed_at = Some(Local::now().timestamp() as u32);
+        self.errors = error;
     }
 }
 

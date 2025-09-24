@@ -53,9 +53,9 @@ use solana_transaction_status::{
 };
 use surfpool_types::{
     ComputeUnitsEstimationResult, ExecutionCapture, Idl, KeyedProfileResult, ProfileResult,
-    ResetAccountConfig, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
-    TransactionConfirmationStatus, TransactionStatusEvent, UiKeyedProfileResult, UuidOrSignature,
-    VersionedIdl,
+    ResetAccountConfig, RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetCommand,
+    SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent, UiKeyedProfileResult,
+    UuidOrSignature, VersionedIdl,
 };
 use tokio::sync::RwLock;
 use txtx_addon_kit::indexmap::IndexSet;
@@ -2941,8 +2941,28 @@ impl SurfnetSvmLocker {
         })
     }
 
-    pub fn is_executing_runbook(&self) -> bool {
-        self.with_svm_reader(|svm_reader| svm_reader.is_executing_runbook)
+    pub fn runbook_executions(&self) -> Vec<RunbookExecutionStatusReport> {
+        self.with_svm_reader(|svm_reader| svm_reader.runbook_executions.clone())
+    }
+
+    pub fn start_runbook_execution(&self, runbook_id: String) {
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.instruction_profiling_enabled = false;
+            svm_writer.start_runbook_execution(runbook_id);
+        });
+    }
+
+    pub fn complete_runbook_execution(&self, runbook_id: String, error: Option<Vec<String>>) {
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.complete_runbook_execution(&runbook_id, error);
+            let some_runbook_executing = svm_writer
+                .runbook_executions
+                .iter()
+                .any(|e| e.completed_at.is_none());
+            if !some_runbook_executing {
+                svm_writer.instruction_profiling_enabled = true;
+            }
+        });
     }
 }
 
