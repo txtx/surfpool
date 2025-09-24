@@ -90,34 +90,42 @@ pub fn scaffold_iac_layout(
     framework: &Framework,
     programs: Vec<ProgramMetadata>,
     base_location: &FileLocation,
+    auto_generate_runbooks: bool,
 ) -> Result<(), String> {
-    let theme = ColorfulTheme {
-        values_style: Style::new().green(),
-        hint_style: Style::new().cyan(),
-        ..ColorfulTheme::default()
-    };
-    let selection = MultiSelect::with_theme(&theme)
-        .with_prompt("Select the programs to deploy (all by default):")
-        .items_checked(
-            &programs
-                .iter()
-                .map(|p| (p.name.as_str(), true))
-                .collect::<Vec<_>>(),
-        )
-        .interact()
-        .map_err(|e| format!("unable to select programs to deploy: {e}"))?;
-
-    let selected_programs = selection
-        .iter()
-        .map(|i| programs[*i].clone())
-        .collect::<Vec<_>>();
-
     let mut target_location = base_location.clone();
     target_location.append_path("target")?;
 
     let mut txtx_manifest_location = base_location.clone();
     txtx_manifest_location.append_path("txtx.yml")?;
+
     let manifest_res = WorkspaceManifest::from_location(&txtx_manifest_location);
+
+    let theme = ColorfulTheme {
+        values_style: Style::new().green(),
+        hint_style: Style::new().cyan(),
+        ..ColorfulTheme::default()
+    };
+
+    let selected_programs = match auto_generate_runbooks {
+        true => programs.clone(),
+        false => {
+            let selection = MultiSelect::with_theme(&theme)
+                .with_prompt("Select the programs to deploy (all by default):")
+                .items_checked(
+                    &programs
+                        .iter()
+                        .map(|p| (p.name.as_str(), true))
+                        .collect::<Vec<_>>(),
+                )
+                .interact()
+                .map_err(|e| format!("unable to select programs to deploy: {e}"))?;
+
+            selection
+                .iter()
+                .map(|i| programs[*i].clone())
+                .collect::<Vec<_>>()
+        }
+    };
 
     // Pick a name for the workspace. By default, we suggest the name of the current directory
     let mut manifest = match manifest_res {
@@ -132,11 +140,14 @@ pub fn scaffold_iac_layout(
             };
 
             // Ask for the name of the workspace
-            let name: String = Input::with_theme(&theme)
-                .with_prompt("Enter the name of this workspace")
-                .default(default)
-                .interact_text()
-                .map_err(|e| format!("unable to get workspace name: {e}"))?;
+            let name: String = match auto_generate_runbooks {
+                true => default,
+                false => Input::with_theme(&theme)
+                    .with_prompt("Enter the name of this workspace")
+                    .default(default)
+                    .interact_text()
+                    .map_err(|e| format!("unable to get workspace name: {e}"))?,
+            };
             WorkspaceManifest::new(name)
         }
     };
@@ -403,13 +414,16 @@ pub fn scaffold_iac_layout(
 
     println!("\n{}\n", deployment_runbook_src);
 
-    let confirmation = Confirm::with_theme(&theme)
-        .with_prompt(
-            "Review your deployment in 'runbooks/deployment/main.tx' and confirm to continue",
-        )
-        .default(true)
-        .interact()
-        .map_err(|e| format!("Failed to confirm write to runbook: {e}"))?;
+    let confirmation = match auto_generate_runbooks {
+        true => true,
+        false => Confirm::with_theme(&theme)
+            .with_prompt(
+                "Review your deployment in 'runbooks/deployment/main.tx' and confirm to continue",
+            )
+            .default(true)
+            .interact()
+            .map_err(|e| format!("Failed to confirm write to runbook: {e}"))?,
+    };
 
     if !confirmation {
         println!("Deployment canceled");
