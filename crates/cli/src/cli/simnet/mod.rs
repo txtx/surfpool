@@ -438,7 +438,12 @@ async fn write_and_execute_iac(
         txtx_manifest_location.append_path("txtx.yml")?;
         if !txtx_manifest_location.exists() {
             // Scaffold IaC
-            scaffold_iac_layout(&framework, programs, &base_location)?;
+            scaffold_iac_layout(
+                &framework,
+                programs,
+                &base_location,
+                cmd.skip_runbook_generation_prompts,
+            )?;
         }
 
         let mut futures = vec![];

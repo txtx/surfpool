@@ -172,6 +172,9 @@ pub struct StartSimnet {
     /// List of runbooks-id to run (eg. surfpool start --runbook runbook-1 --runbook runbook-2)  
     #[arg(long = "runbook", short = 'r', default_value = DEFAULT_RUNBOOK)]
     pub runbooks: Vec<String>,
+    /// Skip prompts for generating runbooks, and assume "yes" for all (eg. surfpool start -y)
+    #[clap(long = "yes", short = 'y', action=ArgAction::SetTrue,  default_value = "false")]
+    pub skip_runbook_generation_prompts: bool,
     /// List of pubkeys to airdrop (eg. surfpool start --airdrop 5cQvx... --airdrop 5cQvy...)
     #[arg(long = "airdrop", short = 'a')]
     pub airdrop_addresses: Vec<String>,
