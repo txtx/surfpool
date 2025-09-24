@@ -68,12 +68,12 @@ pub async fn start_local_surfnet_runloop(
 
     let remote_rpc_client = match simnet.offline_mode {
         true => None,
-        false => Some(SurfnetRemoteClient::new_unsafe(
+        false => SurfnetRemoteClient::new_unsafe(
             &simnet
                 .remote_rpc_url
                 .as_ref()
                 .unwrap_or(&DEFAULT_RPC_URL.to_string()),
-        )),
+        ),
     };
 
     svm_locker

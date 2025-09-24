@@ -2747,6 +2747,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
+name = "fork"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05dc8b302e04a1c27f4fe694439ef0f29779ca4edc205b7b58f00db04e29656d"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "form_urlencoded"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11731,6 +11740,7 @@ dependencies = [
  "dialoguer 0.11.0",
  "dirs 6.0.0",
  "fern",
+ "fork",
  "hiro-system-kit",
  "indicatif 0.18.0",
  "juniper_actix 0.6.0",
