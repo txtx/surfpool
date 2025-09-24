@@ -464,7 +464,7 @@ pub enum SimnetCommand {
         bool,
     ),
     Terminate(Option<(Hash, String)>),
-    SetInstructionProfiling(bool),
+    SetIsExecutingRunbook(bool),
 }
 
 #[derive(Debug)]

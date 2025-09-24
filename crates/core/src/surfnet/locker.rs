@@ -2940,6 +2940,10 @@ impl SurfnetSvmLocker {
             svm_writer.subscribe_for_logs_updates(commitment_level, filter)
         })
     }
+
+    pub fn is_executing_runbook(&self) -> bool {
+        self.with_svm_reader(|svm_reader| svm_reader.is_executing_runbook)
+    }
 }
 
 // Helper function to apply filters

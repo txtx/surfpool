@@ -550,7 +550,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 ));
                                 let _ = app
                                     .simnet_commands_tx
-                                    .send(SimnetCommand::SetInstructionProfiling(false));
+                                    .send(SimnetCommand::SetIsExecutingRunbook(true));
                             }
                             SimnetEvent::RunbookCompleted(runbook_id) => {
                                 deployment_completed = true;
@@ -561,7 +561,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 ));
                                 let _ = app
                                     .simnet_commands_tx
-                                    .send(SimnetCommand::SetInstructionProfiling(true));
+                                    .send(SimnetCommand::SetIsExecutingRunbook(false));
                                 app.status_bar_message = None;
                             }
                         },
@@ -659,7 +659,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             deployment_completed = true;
                             let _ = app
                                 .simnet_commands_tx
-                                .send(SimnetCommand::SetInstructionProfiling(true));
+                                .send(SimnetCommand::SetIsExecutingRunbook(false));
                             break;
                         }
                     },

@@ -754,6 +754,9 @@ pub trait SurfnetCheatcodes {
         pubkey_str: String,
         config: Option<ResetAccountConfig>,
     ) -> Result<RpcResponse<()>>;
+
+    #[rpc(meta, name = "surfnet_readyCheck")]
+    fn is_surfnet_ready(&self, meta: Self::Metadata) -> Result<RpcResponse<bool>>;
 }
 
 #[derive(Clone)]
@@ -1279,6 +1282,15 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: (),
+        })
+    }
+
+    fn is_surfnet_ready(&self, meta: Self::Metadata) -> Result<RpcResponse<bool>> {
+        let svm_locker = meta.get_svm_locker()?;
+        let is_ready = !svm_locker.is_executing_runbook();
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: is_ready,
         })
     }
 }

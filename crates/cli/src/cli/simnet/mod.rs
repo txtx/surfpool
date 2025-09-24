@@ -360,14 +360,13 @@ fn log_events(
                     SimnetEvent::RunbookStarted(runbook_id) => {
                         deployment_completed = false;
                         info!("Runbook '{}' execution started", runbook_id);
-                        let _ =
-                            simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(false));
+                        let _ = simnet_commands_tx.send(SimnetCommand::SetIsExecutingRunbook(true));
                     }
                     SimnetEvent::RunbookCompleted(runbook_id) => {
                         deployment_completed = true;
                         info!("Runbook '{}' execution completed", runbook_id);
                         let _ =
-                            simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(true));
+                            simnet_commands_tx.send(SimnetCommand::SetIsExecutingRunbook(false));
                     }
                 },
                 Err(_e) => {
@@ -412,7 +411,7 @@ fn log_events(
                 },
                 Err(_e) => {
                     deployment_completed = true;
-                    let _ = simnet_commands_tx.send(SimnetCommand::SetInstructionProfiling(true));
+                    let _ = simnet_commands_tx.send(SimnetCommand::SetIsExecutingRunbook(false));
                 }
             },
         }

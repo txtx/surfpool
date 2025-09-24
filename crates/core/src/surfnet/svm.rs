@@ -139,6 +139,7 @@ pub struct SurfnetSvm {
     pub feature_set: FeatureSet,
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
+    pub is_executing_runbook: bool,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -211,6 +212,7 @@ impl SurfnetSvm {
             feature_set,
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
+            is_executing_runbook: false,
         };
 
         // Generate the initial synthetic blockhash
