@@ -741,8 +741,8 @@ mod tests {
         rpc_filter::{Memcmp, RpcFilterType},
         rpc_response::OptionalContext,
     };
+    use solana_program_pack::Pack;
     use solana_pubkey::Pubkey;
-    use solana_sdk::program_pack::Pack;
     use spl_token::state::Account as TokenAccount;
     use surfpool_types::SupplyUpdate;
 
@@ -1371,11 +1371,11 @@ mod tests {
                     mint: mint_pk,
                     owner: Pubkey::new_unique(),
                     amount: *amount,
-                    delegate: solana_sdk::program_option::COption::None,
+                    delegate: solana_program_option::COption::None,
                     state: spl_token::state::AccountState::Initialized,
-                    is_native: solana_sdk::program_option::COption::None,
+                    is_native: solana_program_option::COption::None,
                     delegated_amount: 0,
-                    close_authority: solana_sdk::program_option::COption::None,
+                    close_authority: solana_program_option::COption::None,
                 };
                 token_account.pack_into_slice(&mut token_account_data);
 
@@ -1468,11 +1468,11 @@ mod tests {
                     mint: mint_pk,
                     owner: Pubkey::new_unique(),
                     amount: *amount,
-                    delegate: solana_sdk::program_option::COption::None,
+                    delegate: solana_program_option::COption::None,
                     state: spl_token::state::AccountState::Initialized,
-                    is_native: solana_sdk::program_option::COption::None,
+                    is_native: solana_program_option::COption::None,
                     delegated_amount: 0,
-                    close_authority: solana_sdk::program_option::COption::None,
+                    close_authority: solana_program_option::COption::None,
                 };
                 token_account.pack_into_slice(&mut token_account_data);
 
@@ -1602,13 +1602,13 @@ mod tests {
             mint,
             owner,
             amount: 1000,
-            delegate: solana_sdk::program_option::COption::Some(delegate),
+            delegate: solana_program_option::COption::Some(delegate),
             state: spl_token::state::AccountState::Initialized,
-            is_native: solana_sdk::program_option::COption::None,
+            is_native: solana_program_option::COption::None,
             delegated_amount: 500,
-            close_authority: solana_sdk::program_option::COption::None,
+            close_authority: solana_program_option::COption::None,
         };
-        solana_sdk::program_pack::Pack::pack_into_slice(&token_account, &mut token_account_data);
+        solana_program_pack::Pack::pack_into_slice(&token_account, &mut token_account_data);
 
         let account = Account {
             lamports: 1000000,
@@ -1721,13 +1721,13 @@ mod tests {
             mint: mint1,
             owner: owner1,
             amount: 1000,
-            delegate: solana_sdk::program_option::COption::Some(delegate),
+            delegate: solana_program_option::COption::Some(delegate),
             state: spl_token::state::AccountState::Initialized,
-            is_native: solana_sdk::program_option::COption::None,
+            is_native: solana_program_option::COption::None,
             delegated_amount: 500,
-            close_authority: solana_sdk::program_option::COption::None,
+            close_authority: solana_program_option::COption::None,
         };
-        solana_sdk::program_pack::Pack::pack_into_slice(
+        solana_program_pack::Pack::pack_into_slice(
             &token_account_struct1,
             &mut token_account_data1,
         );
@@ -1738,13 +1738,13 @@ mod tests {
             mint: mint2,
             owner: owner2,
             amount: 2000,
-            delegate: solana_sdk::program_option::COption::Some(delegate),
+            delegate: solana_program_option::COption::Some(delegate),
             state: spl_token::state::AccountState::Initialized,
-            is_native: solana_sdk::program_option::COption::None,
+            is_native: solana_program_option::COption::None,
             delegated_amount: 1000,
-            close_authority: solana_sdk::program_option::COption::None,
+            close_authority: solana_program_option::COption::None,
         };
-        solana_sdk::program_pack::Pack::pack_into_slice(
+        solana_program_pack::Pack::pack_into_slice(
             &token_account_struct2,
             &mut token_account_data2,
         );

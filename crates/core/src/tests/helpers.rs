@@ -5,7 +5,7 @@ use crossbeam_channel::Sender;
 use litesvm::LiteSVM;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
-use solana_sdk::transaction::VersionedTransaction;
+use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::SimnetCommand;
 
 use crate::{

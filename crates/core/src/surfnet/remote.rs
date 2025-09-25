@@ -20,8 +20,8 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
+use solana_loader_v3_interface::get_program_data_address;
 use solana_pubkey::Pubkey;
-use solana_sdk::bpf_loader_upgradeable::get_program_data_address;
 use solana_signature::Signature;
 use solana_transaction_status::UiConfirmedBlock;
 

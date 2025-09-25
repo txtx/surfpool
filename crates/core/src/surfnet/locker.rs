@@ -33,18 +33,19 @@ use solana_clock::{Clock, Slot};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
+use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_message::{
     Message, MessageHeader, SimpleAddressLoader, VersionedMessage,
+    compiled_instruction::CompiledInstruction,
     v0::{LoadedAddresses, MessageAddressTableLookup},
 };
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
-use solana_sdk::{
-    bpf_loader_upgradeable::{UpgradeableLoaderState, get_program_data_address},
-    instruction::CompiledInstruction,
-    transaction::{SanitizedTransaction, TransactionVersion, VersionedTransaction},
-};
 use solana_signature::Signature;
+use solana_transaction::{
+    sanitized::SanitizedTransaction,
+    versioned::{TransactionVersion, VersionedTransaction},
+};
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta,
@@ -1635,7 +1636,7 @@ impl SurfnetSvmLocker {
                     // Handle upgradeable program - also reset the program data account
                     if account.owner == solana_sdk_ids::bpf_loader_upgradeable::id() {
                         let program_data_address =
-                            solana_sdk::bpf_loader_upgradeable::get_program_data_address(&pubkey);
+                            solana_loader_v3_interface::get_program_data_address(&pubkey);
 
                         // Reset the program data account first
                         svm_writer.reset_account(&program_data_address)?;
@@ -2029,7 +2030,7 @@ impl SurfnetSvmLocker {
             } = self.with_contextualized_svm_reader(|svm_reader| {
                 svm_reader
                     .inner
-                    .get_sysvar::<solana_sdk::sysvar::slot_hashes::SlotHashes>()
+                    .get_sysvar::<solana_slot_hashes::SlotHashes>()
             });
 
             //let current_slot = self.get_latest_absolute_slot(); // or should i use this?

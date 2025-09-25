@@ -63,7 +63,6 @@ solana-pubkey = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-runtime = { workspace = true }
-solana-sdk = { workspace = true }
 solana-sdk-ids = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
@@ -72,6 +71,15 @@ solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
 solana-transaction-status = { workspace = true }
 solana-version = { workspace = true }
+solana-inflation = { workspace = true }
+solana-instruction = { workspace = true }
+solana-sysvar = { workspace = true }
+solana-genesis-config = { workspace = true }
+solana-feature-gate-interface = { workspace = true }
+solana-program-pack = { workspace = true }
+solana-slot-hashes = { workspace = true }
+solana-program-option = { workspace = true }
+solana-loader-v3-interface = { workspace = true }
 spl-associated-token-account = { workspace = true }
 surfpool-subgraph = { workspace = true, optional = true }
 surfpool-types = { workspace = true }

@@ -1,7 +1,7 @@
 use std::{fmt, ops::Deref, str::FromStr};
 
 use juniper::{GraphQLScalar, InputValue, ScalarValue, Value};
-use solana_sdk::signature::Signature as SolSignature;
+use solana_signature::Signature as SolSignature;
 
 #[derive(Clone, Debug, Eq, GraphQLScalar, PartialEq)]
 #[graphql(

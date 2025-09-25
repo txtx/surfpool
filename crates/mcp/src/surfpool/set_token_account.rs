@@ -2,10 +2,9 @@ use reqwest::blocking::Client;
 use rmcp::schemars;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use solana_sdk::{
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
-};
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer as _;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use surfpool_types::{
     types::{AccountUpdate, TokenAccountUpdate},

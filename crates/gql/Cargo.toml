@@ -20,7 +20,6 @@ juniper_codegen = { version = "0.16.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 solana-pubkey = { workspace = true }
-solana-sdk = { workspace = true }
 solana-signature = { workspace = true }
 surfpool-db = { workspace = true }
 surfpool-types = { workspace = true }

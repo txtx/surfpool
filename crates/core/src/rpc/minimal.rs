@@ -813,8 +813,8 @@ mod tests {
     use solana_client::rpc_config::RpcContextConfig;
     use solana_commitment_config::CommitmentConfig;
     use solana_epoch_info::EpochInfo;
+    use solana_genesis_config::GenesisConfig;
     use solana_pubkey::Pubkey;
-    use solana_sdk::genesis_config::GenesisConfig;
 
     use super::*;
     use crate::tests::helpers::TestSetup;
