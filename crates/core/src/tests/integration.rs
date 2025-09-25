@@ -535,12 +535,12 @@ async fn test_simulate_add_alt_entries_fetching() {
             .await
             .expect("Failed to connect to Surfpool");
 
-    let random_address = pubkey!("7zdYkYf7yD83j3TLXmkhxn6LjQP9y9bQ4pjfpquP8Hqw");
+    let random_address = Pubkey::from_str_const("7zdYkYf7yD83j3TLXmkhxn6LjQP9y9bQ4pjfpquP8Hqw");
 
     let instruction = transfer(&pk, &random_address, 100);
     let recent_blockhash = svm_locker.with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
 
-    let alt_address = pubkey!("5KcPJehcpBLcPde2UhmY4dE9zCrv2r9AKFmW5CGtY1io"); // a mainnet lookup table
+    let alt_address = Pubkey::from_str_const("5KcPJehcpBLcPde2UhmY4dE9zCrv2r9AKFmW5CGtY1io"); // a mainnet lookup table
 
     let address_lookup_table_account = AddressLookupTableAccount {
         key: alt_address,
