@@ -22,8 +22,7 @@ use solana_client::{
 use solana_clock::{MAX_RECENT_BLOCKHASHES, Slot, UnixTimestamp};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_message::VersionedMessage;
-use solana_message::compiled_instruction::CompiledInstruction;
+use solana_message::{VersionedMessage, compiled_instruction::CompiledInstruction};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk_ids::compute_budget;

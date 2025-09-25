@@ -9,7 +9,7 @@ use chrono::Utc;
 use convert_case::Casing;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use litesvm::{
-    LiteSVM, error,
+    LiteSVM,
     types::{
         FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
     },
@@ -27,6 +27,7 @@ use solana_client::{
 use solana_clock::{Clock, Slot};
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
+use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
 use solana_inflation::Inflation;
@@ -35,7 +36,6 @@ use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
 use solana_program_option::COption;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
-use solana_feature_gate_interface::Feature;
 use solana_sdk_ids::system_program;
 use solana_signature::Signature;
 use solana_signer::Signer;

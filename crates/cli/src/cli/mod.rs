@@ -98,10 +98,6 @@ impl Context {
             closure(logger)
         }
     }
-
-    pub fn expect_logger(&self) -> &Logger {
-        self.logger.as_ref().unwrap()
-    }
 }
 
 #[derive(Parser, Debug)]

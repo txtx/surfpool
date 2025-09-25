@@ -21,13 +21,13 @@ use solana_message::{
     v0::{self},
 };
 use solana_native_token::LAMPORTS_PER_SOL;
-use solana_pubkey::{Pubkey, pubkey};
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signer::Signer;
-use solana_system_interface::instruction::transfer;
-use solana_system_interface::{instruction as system_instruction, program as system_program};
-use solana_transaction::Transaction;
-use solana_transaction::versioned::VersionedTransaction;
+use solana_system_interface::{
+    instruction as system_instruction, instruction::transfer, program as system_program,
+};
+use solana_transaction::{Transaction, versioned::VersionedTransaction};
 use surfpool_types::{
     DEFAULT_SLOT_TIME_MS, Idl, ResetAccountConfig, RpcProfileDepth, RpcProfileResultConfig,
     SimnetCommand, SimnetEvent, SurfpoolConfig, UiAccountChange, UiAccountProfileState,
@@ -379,11 +379,11 @@ async fn test_add_alt_entries_fetching() {
         })
         .expect("Failed to get blockhash");
 
-    let random_address = pubkey!("7zdYkYf7yD83j3TLXmkhxn6LjQP9y9bQ4pjfpquP8Hqw");
+    let random_address = Pubkey::from_str_const("7zdYkYf7yD83j3TLXmkhxn6LjQP9y9bQ4pjfpquP8Hqw");
 
     let instruction = transfer(&pk, &random_address, 100);
 
-    let alt_address = pubkey!("5KcPJehcpBLcPde2UhmY4dE9zCrv2r9AKFmW5CGtY1io"); // a mainnet lookup table
+    let alt_address = Pubkey::from_str_const("5KcPJehcpBLcPde2UhmY4dE9zCrv2r9AKFmW5CGtY1io"); // a mainnet lookup table
 
     let address_lookup_table_account = AddressLookupTableAccount {
         key: alt_address,

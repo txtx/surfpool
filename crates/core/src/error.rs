@@ -5,8 +5,8 @@ use jsonrpc_core::{Error, Result};
 use serde::Serialize;
 use serde_json::json;
 use solana_client::{client_error::ClientError, rpc_request::TokenAccountsFilter};
-use solana_pubkey::Pubkey;
 use solana_clock::Slot;
+use solana_pubkey::Pubkey;
 use solana_transaction_status::EncodeError;
 
 pub type SurfpoolResult<T> = std::result::Result<T, SurfpoolError>;
