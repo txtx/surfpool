@@ -954,11 +954,11 @@ impl SurfnetSvmLocker {
 
                 let token_programs = token_accounts_before
                     .iter()
-                    .map(|(i, _)| {
+                    .map(|(i, ta)| {
                         svm_reader
                             .get_account(&transaction_accounts[*i])
-                            .unwrap()
-                            .owner
+                            .map(|a| a.owner)
+                            .unwrap_or(ta.token_program_id())
                     })
                     .collect::<Vec<_>>()
                     .clone();
