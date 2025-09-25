@@ -4,6 +4,7 @@ use chrono::Local;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use clap_complete::{Generator, Shell};
 use fern::colors::{Color, ColoredLevelConfig};
+#[cfg(not(target_os = "windows"))]
 use fork::{Fork, daemon};
 use hiro_system_kit::{self, Logger};
 use log::{error, info};
@@ -526,6 +527,7 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             setup_logger(&cmd.log_dir, None, "simnet", &cmd.log_level, cmd.no_tui)?;
 
             if cmd.daemon {
+                #[cfg(not(target_os = "windows"))]
                 match daemon(false, false) {
                     Ok(Fork::Child) => {
                         info!("Starting surfpool in daemon mode");

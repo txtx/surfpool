@@ -10,13 +10,29 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-diesel = { version = "2.2.11", default-features = false, features = ["chrono", "time", "serde_json", "uuid", "r2d2"] }
-diesel_derives = { version = "2.2.6"}
+diesel = { version = "2.2.11", default-features = false, features = [
+    "chrono",
+    "time",
+    "serde_json",
+    "uuid",
+    "r2d2",
+] }
+diesel_derives = { version = "2.2.6" }
 diesel-dynamic-schema = { version = "0.2.3" }
-libsqlite3-sys = { version = "0.35", features = ["bundled"], optional = true }
+libsqlite3-sys = { version = "0.30.1", features = ["bundled"], optional = true }
 txtx-addon-kit = { workspace = true }
 
 [features]
 default = []
-sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "diesel_derives/sqlite", "diesel-dynamic-schema/sqlite", "libsqlite3-sys"]
-postgres = ["diesel/postgres", "diesel_derives/postgres", "diesel-dynamic-schema/postgres"]
+sqlite = [
+    "diesel/sqlite",
+    "diesel/returning_clauses_for_sqlite_3_35",
+    "diesel_derives/sqlite",
+    "diesel-dynamic-schema/sqlite",
+    "libsqlite3-sys",
+]
+postgres = [
+    "diesel/postgres",
+    "diesel_derives/postgres",
+    "diesel-dynamic-schema/postgres",
+]
