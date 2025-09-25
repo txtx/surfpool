@@ -755,6 +755,46 @@ pub trait SurfnetCheatcodes {
         config: Option<ResetAccountConfig>,
     ) -> Result<RpcResponse<()>>;
 
+    /// A cheat code to get Surfnet network information.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<GetSurfnetInfoResponse>` containing the Surfnet network information.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_getSurfnetInfo"
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 369027326,
+    ///       "apiVersion": "2.3.8"
+    ///     },
+    ///     "value": {
+    ///       "runbookExecutions": [
+    ///         {
+    ///           "startedAt": 1758747828,
+    ///           "completedAt": 1758747828,
+    ///           "runbookId": "deployment"
+    ///         }
+    ///       ]
+    ///     }
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
     #[rpc(meta, name = "surfnet_getSurfnetInfo")]
     fn get_surfnet_info(&self, meta: Self::Metadata)
     -> Result<RpcResponse<GetSurfnetInfoResponse>>;
