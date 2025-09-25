@@ -14,14 +14,14 @@ name = "surfpool"
 path = "src/main.rs"
 
 [dependencies]
-actix-cors = "0.7.0"
-actix-web = "4"
-ansi_term = "0.12.1"
-anyhow = "1.0.95"
-atty = "0.2.13"
-chrono = "0.4"
-clap = { version = "4.5.27", features = ["derive"], optional = true }
-clap_complete = "4.5.44"
+actix-cors = { workspace = true }
+actix-web = { workspace = true }
+ansi_term = { workspace = true }
+anyhow = { workspace = true }
+atty = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true, optional = true }
+clap_complete = { workspace = true, optional = true }
 convert_case = { workspace = true }
 crossbeam = "0.8.4"
 crossterm = "0.28.1"
@@ -51,23 +51,25 @@ solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-transaction = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true, optional = true }
+url = { workspace = true }
+
 surfpool-core = { workspace = true }
 surfpool-gql = { workspace = true }
-surfpool-types = { workspace = true }
 surfpool-mcp = { workspace = true }
 surfpool-studio-ui = { workspace = true }
-tokio = { workspace = true }
-toml = { version = "0.8.2", features = ["preserve_order"], optional = true }
+surfpool-types = { workspace = true }
+
 txtx-addon-network-svm = { workspace = true }
+txtx-cloud = { workspace = true }
 txtx-core = { workspace = true }
 txtx-gql = { workspace = true }
-txtx-cloud = { workspace = true }
 txtx-supervisor-ui = { workspace = true, optional = true }
-url = "2.5.4"
 
 [features]
 default = ["cli", "sqlite", "subgraph"]
-cli = ["clap", "toml", "ctrlc", "hiro-system-kit/log"]
+cli = ["clap/derive", "clap_complete", "toml", "ctrlc", "hiro-system-kit/log"]
 supervisor_ui = ["txtx-supervisor-ui"]
 explorer = []
 geyser_plugin = ["surfpool-core/geyser_plugin"]

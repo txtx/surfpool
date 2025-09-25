@@ -13,30 +13,28 @@ categories = { workspace = true }
 path = "src/lib.rs"
 
 [dependencies]
+anchor-lang-idl = { workspace = true }
+blake3 = { workspace = true }
+chrono = { workspace = true }
 crossbeam-channel = { workspace = true }
+once_cell = { workspace = true }
 serde = { workspace = true }
-serde_derive = { workspace = true } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
-chrono = "0.4"
+serde_json = { workspace = true }
+serde_with = { workspace = true }
 solana-account = { workspace = true }
 solana-account-decoder-client-types = { workspace = true }
-solana-pubkey = { workspace = true }
 solana-clock = { workspace = true }
-solana-blake3-hasher = { workspace = true }
 solana-epoch-info = { workspace = true }
 solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-context = { workspace = true }
 solana-transaction-error = { workspace = true }
-txtx-addon-network-svm-types = { workspace = true }
+uuid = { workspace = true }
+
 txtx-addon-kit = { workspace = true }
-uuid = { version = "1.7.0", features = ["js"] }
-blake3 = "1.8.2"
-once_cell = "1.19.0"
-serde_json = { workspace = true }
-serde_with = { workspace = true }
-solana-rpc-client-api = { workspace = true }
-anchor-lang-idl = { workspace = true }
+txtx-addon-network-svm-types = { workspace = true }
 
 [dev-dependencies]
-test-case = "^3.3.1"
+test-case = { workspace = true }

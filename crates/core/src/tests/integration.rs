@@ -3729,6 +3729,7 @@ async fn it_should_delete_accounts_with_no_lamports() {
         .await
         .unwrap();
 
+    #[allow(clippy::never_loop)]
     loop {
         match rx.recv() {
             Ok(status) => {

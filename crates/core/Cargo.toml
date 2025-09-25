@@ -15,50 +15,56 @@ path = "src/lib.rs"
 [dependencies]
 agave-feature-set = { workspace = true }
 agave-geyser-plugin-interface = { workspace = true }
-agave-precompiles = { workspace = true }
 agave-reserved-account-keys = { workspace = true }
-base64 = "0.22.1"
+base64 = { workspace = true }
 bincode = { workspace = true }
+blake3 = { workspace = true }
 borsh = { workspace = true }
-bs58 = "0.5.1"
-chrono = "0.4"
+bs58 = { workspace = true }
+chrono = { workspace = true }
 convert_case = { workspace = true }
-crossbeam = "0.8.4"
+crossbeam = { workspace = true }
 crossbeam-channel = { workspace = true }
 hex = { workspace = true }
-hiro-system-kit = { version = "0.3.4" }
+hiro-system-kit = { workspace = true }
 ipc-channel = { workspace = true }
-itertools = "0.14.0"
-jsonrpc-core = "18.0.0"
-jsonrpc-core-client = { version = "18.0.0", features = ["http"] }
-jsonrpc-derive = "18.0.0"
-jsonrpc-http-server = "18.0.0"
-jsonrpc-pubsub = "18.0.0"
-jsonrpc-ws-server = "18.0.0"
+itertools = { workspace = true }
+json5 = { workspace = true }
+jsonrpc-core = { workspace = true }
+jsonrpc-core-client = { workspace = true, features = ["http"] }
+jsonrpc-derive = { workspace = true }
+jsonrpc-http-server = { workspace = true }
+jsonrpc-pubsub = { workspace = true }
+jsonrpc-ws-server = { workspace = true }
+libloading = { workspace = true }
 litesvm = { workspace = true }
-log = "0.4.22"
-reqwest = "0.12"
+log = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
-serde_bytes = { workspace = true }
-serde_derive = { workspace = true }                               # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
+serde_derive = { workspace = true }                                  # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = { workspace = true }
-serde_with = { workspace = true }
 solana-account = { workspace = true }
 solana-account-decoder = { workspace = true }
 solana-address-lookup-table-interface = { workspace = true }
-solana-blake3-hasher = { workspace = true }
 solana-client = { workspace = true }
 solana-clock = { workspace = true }
 solana-commitment-config = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-epoch-info = { workspace = true }
 solana-epoch-schedule = { workspace = true }
+solana-feature-gate-interface = { workspace = true }
+solana-genesis-config = { workspace = true }
+solana-geyser-plugin-manager = { workspace = true, optional = true }
 solana-hash = { workspace = true }
+solana-inflation = { workspace = true }
+solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
+solana-loader-v3-interface = { workspace = true }
 solana-message = { workspace = true }
 solana-native-token = { workspace = true }
 solana-packet = { workspace = true }
-solana-program-runtime = { workspace = true }
+solana-program-option = { workspace = true }
+solana-program-pack = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
@@ -66,49 +72,29 @@ solana-runtime = { workspace = true }
 solana-sdk-ids = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
+solana-slot-hashes = { workspace = true }
 solana-system-interface = { workspace = true }
+solana-sysvar = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
 solana-transaction-status = { workspace = true }
 solana-version = { workspace = true }
-solana-inflation = { workspace = true }
-solana-instruction = { workspace = true }
-solana-sysvar = { workspace = true }
-solana-genesis-config = { workspace = true }
-solana-feature-gate-interface = { workspace = true }
-solana-program-pack = { workspace = true }
-solana-slot-hashes = { workspace = true }
-solana-program-option = { workspace = true }
-solana-loader-v3-interface = { workspace = true }
 spl-associated-token-account = { workspace = true }
+spl-token = { workspace = true }
+spl-token-2022 = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
 surfpool-subgraph = { workspace = true, optional = true }
 surfpool-types = { workspace = true }
-# surfpool-types = { version = "0.9.3", default-features = false }
-# surfpool-subgraph = { version = "0.9.3", default-features = false }
-symlink = "0.1.0"
-tokio = { version = "1.45.0", features = ["full"] }
-tokio-util = "0.7.13"
+
 txtx-addon-kit = { workspace = true }
-spl-token-2022 = { workspace = true }
-spl-token = { workspace = true }
-zstd = "0.13.2"
-libloading = "0.7.4"
-json5 = "0.4.1"
 txtx-addon-network-svm-types = { workspace = true }
-uuid = "1.7.0"
-blake3 = "1.8.2"
-anyhow = "1.0.98"
-solana-geyser-plugin-manager = { workspace = true, optional = true }
 
 [dev-dependencies]
-test-case = "^3.3.1"
-test-log = "0.2.18"
+test-case = { workspace = true }
 
 [features]
 ignore_tests_ci = []
 geyser_plugin = ["solana-geyser-plugin-manager"]
 subgraph = ["surfpool-subgraph"]
-
-# [patch.crates-io]
-# Force solana-sha256-hasher to version 2.3.0 to resolve dependency conflicts
-# solana-sha256-hasher = { git = "https://github.com/anza-xyz/solana-sdk.git", tag = "sha256-hasher@v2.3.0" }
