@@ -550,18 +550,21 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 ));
                                 let _ = app
                                     .simnet_commands_tx
-                                    .send(SimnetCommand::SetInstructionProfiling(false));
+                                    .send(SimnetCommand::StartRunbookExecution(runbook_id.clone()));
                             }
-                            SimnetEvent::RunbookCompleted(runbook_id) => {
+                            SimnetEvent::RunbookCompleted(runbook_id, errors) => {
                                 deployment_completed = true;
                                 new_events.push((
                                     EventType::Success,
                                     Local::now(),
                                     format!("Runbook '{}' execution completed", runbook_id),
                                 ));
-                                let _ = app
-                                    .simnet_commands_tx
-                                    .send(SimnetCommand::SetInstructionProfiling(true));
+                                let _ = app.simnet_commands_tx.send(
+                                    SimnetCommand::CompleteRunbookExecution(
+                                        runbook_id.clone(),
+                                        errors.clone(),
+                                    ),
+                                );
                                 app.status_bar_message = None;
                             }
                         },
@@ -657,9 +660,6 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         },
                         Err(_) => {
                             deployment_completed = true;
-                            let _ = app
-                                .simnet_commands_tx
-                                .send(SimnetCommand::SetInstructionProfiling(true));
                             break;
                         }
                     },

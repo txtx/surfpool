@@ -221,10 +221,11 @@ pub async fn start_block_production_runloop(
                         let _ = svm_locker.simnet_events_tx().send(SimnetEvent::Aborted("Terminated due to inactivity.".to_string()));
                         break;
                     }
-                    SimnetCommand::SetInstructionProfiling(enabled) => {
-                        svm_locker.with_svm_writer(|svm_writer| {
-                            svm_writer.instruction_profiling_enabled = enabled;
-                        });
+                    SimnetCommand::StartRunbookExecution(runbook_id) => {
+                        svm_locker.start_runbook_execution(runbook_id);
+                    }
+                    SimnetCommand::CompleteRunbookExecution(runbook_id, error) => {
+                        svm_locker.complete_runbook_execution(runbook_id, error);
                     }
                 }
             },
