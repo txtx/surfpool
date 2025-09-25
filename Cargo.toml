@@ -123,21 +123,21 @@ solana-signature = { version = "2.3.0", default-features = false }
 solana-signer = { version = "2.2.1", default-features = false }
 solana-slot-hashes = { version = "2.2.1", default-features = false }
 solana-system-interface = { version = "1.0.0", default-features = false }
-solana-sysvar = { version = "2.2.1", default-features = false }
+solana-sysvar = { version = "2.2.2", default-features = false }
 solana-transaction = { version = "2.2.2", default-features = false }
 solana-transaction-context = { version = "2.3.7", default-features = false }
 solana-transaction-error = { version = "2.2.1", default-features = false }
 solana-transaction-status = { version = "2.3.7", default-features = false }
 solana-version = { version = "2.3.7", default-features = false }
-spl-associated-token-account = "7.0.0"
-spl-token = "8.0.0"
-spl-token-2022 = { version = "8.0.0", default-features = false }
+spl-associated-token-account = { version = "7.0.0", default-features = false }
+spl-token = { version = "8.0.0", default-features = false }
+spl-token-2022 = { version = "8.0.1", default-features = false }
 test-case = "^3.3.1"
 tokio = { version = "1.43.0", default-features = false }
-tokio-tungstenite = { version = "0.23.1", default-features = false }
-toml = { version = "0.8.2", default-features = false }
-tracing = { version = "0.1", default-features = false }
-url = { version = "2.5.4", default-features = false }
+tokio-tungstenite = { version = "=0.20.1", default-features = false }
+toml = { version = "0.8.23", default-features = false }
+tracing = { version = "0.1.41", default-features = false }
+url = { version = "1.7.2", default-features = false }
 uuid = "1.15.1"
 zip = { version = "0.6", features = ["deflate"], default-features = false }
 
@@ -148,6 +148,7 @@ surfpool-mcp = { path = "crates/mcp", default-features = false }
 surfpool-studio-ui = { path = "crates/studio", default-features = false }
 surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
+
 txtx-addon-kit = "0.4.8"
 txtx-addon-network-svm = { version = "0.3.8" }
 txtx-addon-network-svm-types = { version = "0.3.7" }
@@ -158,10 +159,10 @@ txtx-supervisor-ui = { version = "0.2.6", default-features = false }
 
 [patch.crates-io]
 ## Local
-# txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
-# txtx-core = { path = "../txtx/crates/txtx-core" }
-# txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
-# txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
+txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
+txtx-core = { path = "../txtx/crates/txtx-core" }
+txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
+txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
 # txtx-gql = { path = "../txtx/crates/txtx-gql" }
 # txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
 # txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
