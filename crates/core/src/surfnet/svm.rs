@@ -27,19 +27,20 @@ use solana_client::{
 use solana_clock::{Clock, Slot};
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
+use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
+use solana_inflation::Inflation;
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
+use solana_program_option::COption;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
-use solana_sdk::{
-    feature::Feature, genesis_config::GenesisConfig, inflation::Inflation, program_option::COption,
-    transaction::VersionedTransaction,
-};
+use solana_feature_gate_interface::Feature;
 use solana_sdk_ids::system_program;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{TransactionDetails, TransactionStatusMeta, UiConfirmedBlock};
 use spl_token_2022::extension::{
@@ -409,11 +410,8 @@ impl SurfnetSvm {
     /// A new `BlockIdentifier` for the updated blockhash.
     #[allow(deprecated)]
     fn new_blockhash(&mut self) -> BlockIdentifier {
-        use solana_sdk::sysvar::{
-            recent_blockhashes::{IterItem, MAX_ENTRIES, RecentBlockhashes},
-            slot_hashes::SlotHashes,
-        };
-
+        use solana_slot_hashes::SlotHashes;
+        use solana_sysvar::recent_blockhashes::{IterItem, MAX_ENTRIES, RecentBlockhashes};
         // Backup the current block hashes
         let recent_blockhashes_backup = self.inner.get_sysvar::<RecentBlockhashes>();
         let num_blockhashes_expected = recent_blockhashes_backup.len().min(MAX_ENTRIES);
@@ -488,7 +486,7 @@ impl SurfnetSvm {
     pub fn check_blockhash_is_recent(&self, recent_blockhash: &Hash) -> bool {
         #[allow(deprecated)]
         self.inner
-            .get_sysvar::<solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes>()
+            .get_sysvar::<solana_sysvar::recent_blockhashes::RecentBlockhashes>()
             .iter()
             .any(|entry| entry.blockhash == *recent_blockhash)
     }
@@ -1688,11 +1686,8 @@ mod tests {
     use borsh::BorshSerialize;
     // use test_log::test; // uncomment to get logs from litesvm
     use solana_account::Account;
-    #[allow(deprecated)]
-    use solana_sdk::{
-        bpf_loader_upgradeable::{self, get_program_data_address},
-        program_pack::Pack,
-    };
+    use solana_loader_v3_interface::get_program_data_address;
+    use solana_program_pack::Pack;
     use spl_token::state::{Account as TokenAccount, AccountState};
 
     use super::*;
@@ -1978,18 +1973,20 @@ mod tests {
         let program_data_address = get_program_data_address(&program_pubkey);
         let program_account = Account {
             lamports: 1000000000000,
-            data: bincode::serialize(&bpf_loader_upgradeable::UpgradeableLoaderState::Program {
-                programdata_address: program_data_address,
-            })
+            data: bincode::serialize(
+                &solana_loader_v3_interface::state::UpgradeableLoaderState::Program {
+                    programdata_address: program_data_address,
+                },
+            )
             .unwrap(),
-            owner: bpf_loader_upgradeable::ID,
+            owner: solana_sdk_ids::bpf_loader_upgradeable::ID,
             executable: true,
             rent_epoch: 10000000000000,
         };
 
         let mut bin = include_bytes!("../tests/assets/metaplex_program.bin").to_vec();
         let mut data = bincode::serialize(
-            &bpf_loader_upgradeable::UpgradeableLoaderState::ProgramData {
+            &solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
                 slot: 0,
                 upgrade_authority_address: Some(Pubkey::new_unique()),
             },
@@ -1999,7 +1996,7 @@ mod tests {
         let program_data_account = Account {
             lamports: 10000000000000,
             data,
-            owner: bpf_loader_upgradeable::ID,
+            owner: solana_sdk_ids::bpf_loader_upgradeable::ID,
             executable: false,
             rent_epoch: 10000000000000,
         };

@@ -2,7 +2,7 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions, ReplicaEntryInfoVersions,
     ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
 };
-use solana_program::clock::Slot;
+use solana_clock::Slot;
 
 #[derive(Default, Debug)]
 pub struct HelloGeyserPlugin {}

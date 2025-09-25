@@ -12,11 +12,10 @@ use solana_message::{
     v0::{LoadedAddresses, LoadedMessage, MessageAddressTableLookup},
 };
 use solana_pubkey::Pubkey;
-use solana_sdk::{
-    program_option::COption,
-    program_pack::Pack,
-    transaction::{SanitizedTransaction, TransactionVersion, VersionedTransaction},
-};
+use solana_program_pack::Pack;
+use solana_program_option::COption;
+use solana_transaction::sanitized::SanitizedTransaction;
+use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
 use solana_transaction_status::{
     Encodable, EncodableWithMeta, EncodeError, EncodedTransaction,
     EncodedTransactionWithStatusMeta, InnerInstruction, InnerInstructions,

@@ -554,7 +554,7 @@ impl BankData for SurfpoolBankDataRpc {
 mod tests {
     use solana_client::rpc_config::RpcBlockProductionConfigRange;
     use solana_commitment_config::CommitmentLevel;
-    use solana_sdk::inflation::Inflation;
+    use solana_inflation::Inflation;
 
     use super::*;
     use crate::tests::helpers::TestSetup;

@@ -27,7 +27,9 @@ tokio = { workspace = true }
 surfpool-types = { workspace = true }
 surfpool-core = { workspace = true }
 reqwest = { workspace = true }
-solana-sdk = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+solana-keypair = { workspace = true }
 spl-associated-token-account = { workspace = true }
 bs58 = { workspace = true }
 spl-token = { workspace = true }

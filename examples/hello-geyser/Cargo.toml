@@ -8,4 +8,3 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 agave-geyser-plugin-interface = "2.3.8"
-solana-program = "2.3.1"

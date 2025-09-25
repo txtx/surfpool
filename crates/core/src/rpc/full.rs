@@ -23,9 +23,9 @@ use solana_clock::{MAX_RECENT_BLOCKHASHES, Slot, UnixTimestamp};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_message::VersionedMessage;
+use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::instruction::CompiledInstruction;
 use solana_sdk_ids::compute_budget;
 use solana_signature::Signature;
 use solana_system_interface::program as system_program;
@@ -2361,13 +2361,13 @@ mod tests {
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
     use solana_commitment_config::CommitmentConfig;
     use solana_hash::Hash;
+    use solana_instruction::Instruction;
     use solana_keypair::Keypair;
     use solana_message::{
         MessageHeader, legacy::Message as LegacyMessage, v0::Message as V0Message,
     };
     use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
-    use solana_sdk::instruction::Instruction;
     use solana_signer::Signer;
     use solana_system_interface::{instruction as system_instruction, program as system_program};
     use solana_transaction::{
@@ -3103,7 +3103,7 @@ mod tests {
 
             let latest_entries = svm_writer
                 .inner
-                .get_sysvar::<solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes>(
+                .get_sysvar::<solana_sysvar::recent_blockhashes::RecentBlockhashes>(
             );
             let latest_entry = latest_entries.first().unwrap();
 

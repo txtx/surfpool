@@ -29,7 +29,7 @@ use solana_geyser_plugin_manager::geyser_plugin_manager::{
     GeyserPluginManager, LoadedGeyserPlugin,
 };
 use solana_message::SimpleAddressLoader;
-use solana_sdk::transaction::MessageHash;
+use solana_transaction::sanitized::MessageHash;
 use solana_transaction::sanitized::SanitizedTransaction;
 #[cfg(feature = "subgraph")]
 use surfpool_subgraph::SurfpoolSubgraphPlugin;

@@ -23,9 +23,10 @@ use solana_message::{
 use solana_native_token::LAMPORTS_PER_SOL;
 use solana_pubkey::{Pubkey, pubkey};
 use solana_rpc_client_api::response::Response as RpcResponse;
-use solana_sdk::{system_instruction::transfer, transaction::Transaction};
 use solana_signer::Signer;
+use solana_system_interface::instruction::transfer;
 use solana_system_interface::{instruction as system_instruction, program as system_program};
+use solana_transaction::Transaction;
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_types::{
     DEFAULT_SLOT_TIME_MS, Idl, ResetAccountConfig, RpcProfileDepth, RpcProfileResultConfig,
@@ -1052,7 +1053,7 @@ async fn test_get_transaction_profile() {
 
     // Test 6: Test retrieval with non-existent signature
     println!("Testing retrieval with non-existent signature");
-    let non_existent_signature = solana_sdk::signature::Signature::new_unique();
+    let non_existent_signature = solana_signature::Signature::new_unique();
     let non_existent_sig_response: JsonRpcResult<RpcResponse<Option<UiKeyedProfileResult>>> =
         rpc_server.get_transaction_profile(
             Some(runloop_context.clone()),
@@ -2858,7 +2859,7 @@ async fn test_get_local_signatures_without_limit() {
         &recipient.pubkey(),
         lamports_to_send / 2,
         0,
-        &solana_sdk::system_program::id(),
+        &solana_sdk_ids::system_program::id(),
     );
 
     let create_account_tx = Transaction::new_signed_with_payer(
@@ -3533,7 +3534,7 @@ async fn test_ix_profiling_with_alt_tx() {
 
     svm_locker.with_svm_writer(|svm| {
         let alt_data = alt_account_data.serialize_for_tests().unwrap();
-        let alt_account = solana_sdk::account::Account {
+        let alt_account = solana_account::Account {
             lamports: 1000000,
             data: alt_data,
             owner: solana_address_lookup_table_interface::program::id(),

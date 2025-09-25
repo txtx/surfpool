@@ -678,11 +678,11 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 mod tests {
     use solana_account::Account;
     use solana_keypair::Keypair;
+    use solana_program_option::COption;
+    use solana_program_pack::Pack;
     use solana_pubkey::Pubkey;
-    use solana_sdk::{
-        program_option::COption, program_pack::Pack, system_instruction::create_account,
-    };
     use solana_signer::Signer;
+    use solana_system_interface::instruction::create_account;
     use solana_transaction::Transaction;
     use spl_associated_token_account::{
         get_associated_token_address_with_program_id, instruction::create_associated_token_account,

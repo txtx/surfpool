@@ -8,3 +8,7 @@ test-ledger
 **/.DS_Store
 
 .surfpool
+
+# local
+runbooks
+txtx.yml
