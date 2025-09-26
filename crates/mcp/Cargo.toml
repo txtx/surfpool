@@ -13,25 +13,19 @@ categories = { workspace = true }
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "ff71a526156e6c9409c450f71eccd6aced9bc339", features = [
-    "transport-io",
-    "transport-sse-server",
-    "server",
-    "schemars",
-], package = "rmcp" }
-tracing = { workspace = true }
-axum = { workspace = true }
+bs58 = { workspace = true }
+crossbeam-channel = { workspace = true }
+hiro-system-kit = { workspace = true }
+reqwest = { workspace = true }
+rmcp = { workspace = true, features = ["transport-io", "transport-sse-server", "server", "schemars"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
-surfpool-types = { workspace = true }
-surfpool-core = { workspace = true }
-reqwest = { workspace = true }
+solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
-solana-keypair = { workspace = true }
 spl-associated-token-account = { workspace = true }
-bs58 = { workspace = true }
 spl-token = { workspace = true }
-hiro-system-kit = { workspace = true }
-crossbeam-channel = { workspace = true }
+tracing = { workspace = true }
+
+surfpool-core = { workspace = true }
+surfpool-types = { workspace = true }

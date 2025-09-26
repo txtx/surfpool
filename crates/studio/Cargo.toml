@@ -8,27 +8,26 @@ repository = { workspace = true }
 keywords = { workspace = true }
 categories = { workspace = true }
 
-
 [dependencies]
-actix-cors = "0.7.0"
-actix-web = "4"
-base58 = "0.2.0"
-dotenvy = "0.15.7"
-hiro-system-kit = "0.3.1"
-include_dir = "0.7.4"
-juniper_actix = {version = "0.5.0", features = ["subscriptions"] }
-juniper_graphql_ws = { version = "0.4.0", features = ["graphql-transport-ws"] }
-mime_guess = "2.0.4"
-serde = "1"
-serde_json = "1"
-serde_derive = "1"
-tokio = "1.37.0"
-tokio-tungstenite = { version = "0.23.1", features = ["rustls"] }
+actix-cors = { workspace = true }
+actix-web = { workspace = true }
+base58 = { workspace = true }
+dotenvy = { workspace = true }
+hiro-system-kit = { workspace = true }
+include_dir = { workspace = true }
+juniper_actix = { workspace = true, features = ["subscriptions"] }
+juniper_graphql_ws = { workspace = true, features = ["graphql-transport-ws"] }
+mime_guess = { workspace = true }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
 
 [build-dependencies]
-npm_rs="1.0.0"
-reqwest = { version = "0.12", features = ["blocking"] }
-zip = "0.6"
+npm_rs = { workspace = true }
+reqwest = { workspace = true, features = ["blocking", "default-tls"] }
+zip = { workspace = true }
 
 [lib]
-crate-type = ["lib", "cdylib"] 
+crate-type = ["lib", "cdylib"]

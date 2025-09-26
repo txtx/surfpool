@@ -1,3 +1,5 @@
+#![allow(clippy::unit_cmp)]
+
 use jsonrpc_core::{BoxFuture, Error as JsonRpcCoreError, ErrorCode, Result};
 use jsonrpc_derive::rpc;
 use solana_client::{

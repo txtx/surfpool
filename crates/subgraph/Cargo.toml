@@ -14,13 +14,13 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 agave-geyser-plugin-interface = { workspace = true }
+ipc-channel = { workspace = true }
+serde_json = { workspace = true }
 solana-clock = { workspace = true }
-solana-signature = { workspace = true }
+uuid = { workspace = true }
+
+surfpool-types = { workspace = true }
+
 txtx-addon-kit = { workspace = true }
 txtx-addon-network-svm = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }
-ipc-channel = { workspace = true }
-# surfpool-types = { version = "0.9.3", default-features = false }
-surfpool-types = { workspace = true }
-serde_json = { workspace = true }
-uuid = { workspace = true }

@@ -8,24 +8,19 @@ repository = { workspace = true }
 keywords = { workspace = true }
 categories = { workspace = true }
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 blake3 = { workspace = true }
 chrono = { workspace = true }
 convert_case = { workspace = true }
-futures = { version = "0.3.22", features = ["alloc"], default-features = false }
-juniper = { version = "0.16.2", features = ["uuid"] }
-juniper_codegen = { version = "0.16.0" }
+futures = { workspace = true }
+juniper = { workspace = true, features = ["uuid"] }
+juniper_codegen = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 surfpool-db = { workspace = true }
-surfpool-types = { workspace = true }
-# surfpool-types = { version = "0.2.0", default-features = false }
 txtx-addon-kit = { workspace = true }
-# txtx-addon-kit = { version = "0.2.1" }
 txtx-addon-network-svm-types = { workspace = true }
 uuid = { workspace = true }
 
