@@ -5,8 +5,8 @@ diesel::table! {
         updated_at -> Date,
         table_name -> Text,
         workspace_slug -> Text,
-        schema -> Text,
-        last_slot_processed -> Int4,
+        source -> Text,
+        latest_slot_successfully_processed -> Int4,
         worker_id -> Text,
     }
 }

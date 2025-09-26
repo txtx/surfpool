@@ -220,8 +220,8 @@ impl SqlStore {
                     updated_at TIMESTAMP NOT NULL,
                     table_name TEXT NOT NULL,
                     workspace_slug TEXT NOT NULL,
-                    schema TEXT NOT NULL,
-                    last_slot_processed INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    latest_slot_successfully_processed INTEGER NOT NULL,
                     worker_id TEXT NOT NULL
                 )",
         )
