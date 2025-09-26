@@ -23,25 +23,25 @@ chrono = { workspace = true }
 clap = { workspace = true, optional = true }
 clap_complete = { workspace = true, optional = true }
 convert_case = { workspace = true }
-crossbeam = "0.8.4"
-crossterm = "0.28.1"
-ctrlc = { version = "3.4.5", optional = true }
-dialoguer = "0.11.0"
-dirs = "6.0.0"
-fern = { version = "0.7.1", features = ["colored"] }
-hiro-system-kit = "0.3.1"
-indicatif = "0.18.0"
-juniper_actix = { version = "0.6.0", features = ["subscriptions"] }
-juniper_graphql_ws = { version = "0.4.0", features = ["graphql-transport-ws"] }
-lazy_static = "1.5.0"
-log = "0.4.27"
-mime_guess = "2.0.4"
-mustache = "0.9.0"
-notify = { version = "8.0.0" }
-ratatui = "0.29.0"
-rust-embed = "8.2.0"
-serde = "1.0.217"
-serde_json = "1.0.138"
+crossbeam = { workspace = true }
+crossterm = { workspace = true }
+ctrlc = { workspace = true, optional = true }
+dialoguer = { workspace = true }
+dirs = { workspace = true }
+fern = { workspace = true, features = ["colored"] }
+hiro-system-kit = { workspace = true }
+indicatif = { workspace = true }
+juniper_actix = { workspace = true, features = ["subscriptions"] }
+juniper_graphql_ws = { workspace = true, features = ["graphql-transport-ws"] }
+lazy_static = { workspace = true }
+log = { workspace = true }
+mime_guess = { workspace = true }
+mustache = { workspace = true }
+notify = { workspace = true, features = ["fsevent-sys"]}
+ratatui = { workspace = true }
+rust-embed = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 solana-clock = { workspace = true }
 solana-commitment-config = { workspace = true }
 solana-epoch-info = { workspace = true }
