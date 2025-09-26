@@ -87,8 +87,8 @@ ratatui = { version = "0.29.0", features = ["crossterm"], default-features = fal
 reqwest = { version = "0.12.23", default-features = false }
 rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "ff71a526156e6c9409c450f71eccd6aced9bc339", package = "rmcp" }
 rust-embed = "8.2.0"
-serde = { version = "1.0.217", default-features = false }
-serde_derive = { version = "1.0.217", default-features = false }                                                                        # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
+serde = { version = "1.0.226", default-features = false }
+serde_derive = { version = "1.0.226", default-features = false }                                                                        # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = { version = "1.0.135", default-features = false }
 serde_with = { version = "3", default-features = false }
 solana-account = { version = "2.2.1", default-features = false }
@@ -110,7 +110,6 @@ solana-instruction = { version = "2.2.1", default-features = false }
 solana-keypair = { version = "^2.2", default-features = false }
 solana-loader-v3-interface = { version = "5.0.0", default-features = false }
 solana-message = { version = "2.3.0", default-features = false }
-solana-native-token = { version = "2.2.2", default-features = false }
 solana-packet = { version = "2.2.1", default-features = false }
 solana-program-option = { version = "2.2.1", default-features = false }
 solana-program-pack = { version = "2.2.1", default-features = false }
@@ -159,10 +158,10 @@ txtx-supervisor-ui = { version = "0.2.6", default-features = false }
 
 [patch.crates-io]
 ## Local
-txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
-txtx-core = { path = "../txtx/crates/txtx-core" }
-txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
-txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
+# txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
+# txtx-core = { path = "../txtx/crates/txtx-core" }
+# txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
+# txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
 # txtx-gql = { path = "../txtx/crates/txtx-gql" }
 # txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
 # txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
