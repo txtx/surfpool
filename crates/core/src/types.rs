@@ -564,6 +564,13 @@ pub enum TokenAccount {
 }
 
 impl TokenAccount {
+    pub fn token_program_id(&self) -> Pubkey {
+        match self {
+            Self::SplToken2022(_) => spl_token_2022::id(),
+            Self::SplToken(_) => spl_token::id(),
+        }
+    }
+
     pub fn unpack(bytes: &[u8]) -> SurfpoolResult<Self> {
         if let Ok(account) = spl_token_2022::state::Account::unpack(bytes) {
             Ok(Self::SplToken2022(account))
