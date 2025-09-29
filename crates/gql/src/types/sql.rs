@@ -317,7 +317,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         let now = chrono::Utc::now().naive_utc();
 
         let sql = format!(
-            "INSERT INTO collections (id, created_at, updated_at, table_name, workspace_slug, schema, last_slot_processed, worker_id) VALUES ('{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
+            "INSERT INTO collections (id, created_at, updated_at, table_name, workspace_slug, source, latest_slot_successfully_processed, worker_id) VALUES ('{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
             metadata.id,
             now,
             now,

@@ -481,8 +481,8 @@ pub fn main() {
     let opts: Opts = match Opts::try_parse() {
         Ok(opts) => opts,
         Err(e) => {
-            println!("{}", e);
-            process::exit(1);
+            let _ = e.print();
+            process::exit(e.exit_code());
         }
     };
 
