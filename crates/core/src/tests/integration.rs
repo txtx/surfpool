@@ -20,7 +20,6 @@ use solana_message::{
     AddressLookupTableAccount, Message, VersionedMessage,
     v0::{self},
 };
-use solana_native_token::LAMPORTS_PER_SOL;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_signer::Signer;
@@ -38,6 +37,7 @@ use surfpool_types::{
 };
 use tokio::{sync::RwLock, task};
 use uuid::Uuid;
+pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
 use crate::{
     PluginManagerCommand,
@@ -3729,6 +3729,7 @@ async fn it_should_delete_accounts_with_no_lamports() {
         .await
         .unwrap();
 
+    #[allow(clippy::never_loop)]
     loop {
         match rx.recv() {
             Ok(status) => {

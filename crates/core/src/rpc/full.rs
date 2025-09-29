@@ -2351,6 +2351,7 @@ fn get_simulate_transaction_result(
 
 #[cfg(test)]
 mod tests {
+    pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
     use std::thread::JoinHandle;
 
@@ -2365,7 +2366,6 @@ mod tests {
     use solana_message::{
         MessageHeader, legacy::Message as LegacyMessage, v0::Message as V0Message,
     };
-    use solana_native_token::LAMPORTS_PER_SOL;
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_system_interface::{instruction as system_instruction, program as system_program};

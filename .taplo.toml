@@ -1,0 +1,18 @@
+[formatting]
+column_width = 120
+array_auto_expand = true
+allowed_blank_lines = 1
+
+[[rule]]
+include = ["**/Cargo.toml"]
+keys = [
+  "dependencies",
+  "dev-dependencies",
+  "build-dependencies",
+  "patch.crates-io",
+  "toolchain",
+  "workspace.dependencies",
+]
+
+[rule.formatting]
+reorder_keys = true
