@@ -20,7 +20,7 @@ crossbeam-channel = { workspace = true }
 once_cell = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_with = { workspace = true }
+serde_with = { workspace = true, features = ["alloc"] }
 solana-account = { workspace = true }
 solana-account-decoder-client-types = { workspace = true }
 solana-clock = { workspace = true }
