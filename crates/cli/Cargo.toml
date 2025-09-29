@@ -70,7 +70,7 @@ txtx-supervisor-ui = { workspace = true, optional = true }
 [features]
 default = ["cli", "sqlite", "subgraph"]
 cli = ["clap/derive", "clap_complete", "toml", "ctrlc", "hiro-system-kit/log"]
-supervisor_ui = ["txtx-supervisor-ui"]
+supervisor_ui = ["txtx-supervisor-ui/crates_build"]
 explorer = []
 geyser_plugin = ["surfpool-core/geyser_plugin"]
 sqlite = ["surfpool-gql/sqlite"]

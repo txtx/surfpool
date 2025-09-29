@@ -148,13 +148,13 @@ surfpool-studio-ui = { path = "crates/studio", default-features = false }
 surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
 
-txtx-addon-kit = "0.4.8"
-txtx-addon-network-svm = { version = "0.3.8" }
-txtx-addon-network-svm-types = { version = "0.3.7" }
-txtx-cloud = { version = "0.1.10", features = ["clap", "toml"], default-features = false }
-txtx-core = { version = "0.4.11" }
-txtx-gql = { version = "0.3.4" }
-txtx-supervisor-ui = { version = "0.2.6", default-features = false }
+txtx-addon-kit = "0.4.9"
+txtx-addon-network-svm = { version = "0.3.9" }
+txtx-addon-network-svm-types = { version = "0.3.8" }
+txtx-cloud = { version = "0.1.12", features = ["clap", "toml"], default-features = false }
+txtx-core = { version = "0.4.12" }
+txtx-gql = { version = "0.3.6" }
+txtx-supervisor-ui = { version = "0.2.8", default-features = false }
 
 [patch.crates-io]
 ## Local
