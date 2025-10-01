@@ -157,14 +157,27 @@ impl SurfnetRemoteClient {
         let mut accounts_result = vec![];
         for (pubkey, remote_account) in pubkeys.iter().zip(remote_accounts) {
             if let Some(remote_account) = remote_account {
-                if !remote_account.executable {
-                    accounts_result.push(GetAccountResult::FoundAccount(
-                        *pubkey,
-                        remote_account,
-                        // Mark this account as needing to be updated in the SVM, since we fetched it
-                        true,
-                    ));
-                } else {
+                if is_supported_token_program(&remote_account.owner) {
+                    if let Some(token_account) = TokenAccount::unpack(&remote_account.data).ok() {
+                        let mint = self
+                            .client
+                            .get_account_with_commitment(&token_account.mint(), commitment_config)
+                            .await
+                            .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
+
+                        accounts_result.push(GetAccountResult::FoundTokenAccount(
+                            (*pubkey, remote_account.clone()),
+                            (token_account.mint(), mint.value),
+                        ));
+                    } else {
+                        accounts_result.push(GetAccountResult::FoundAccount(
+                            *pubkey,
+                            remote_account,
+                            // Mark this account as needing to be updated in the SVM, since we fetched it
+                            true,
+                        ));
+                    }
+                } else if remote_account.executable {
                     let program_data_address = get_program_data_address(pubkey);
 
                     let program_data = self
@@ -176,6 +189,13 @@ impl SurfnetRemoteClient {
                     accounts_result.push(GetAccountResult::FoundProgramAccount(
                         (*pubkey, remote_account),
                         (program_data_address, program_data.value),
+                    ));
+                } else {
+                    accounts_result.push(GetAccountResult::FoundAccount(
+                        *pubkey,
+                        remote_account,
+                        // Mark this account as needing to be updated in the SVM, since we fetched it
+                        true,
                     ));
                 }
             } else {
