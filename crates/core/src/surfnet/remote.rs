@@ -159,6 +159,7 @@ impl SurfnetRemoteClient {
             if let Some(remote_account) = remote_account {
                 if is_supported_token_program(&remote_account.owner) {
                     if let Some(token_account) = TokenAccount::unpack(&remote_account.data).ok() {
+                       // TODO: move the query out of the loop to prevent rate-limiting by `api.mainnet-beta.solana.com`
                         let mint = self
                             .client
                             .get_account_with_commitment(&token_account.mint(), commitment_config)
