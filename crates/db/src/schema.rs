@@ -24,17 +24,18 @@ diesel::table! {
 
 diesel::table! {
     svm_subgraph_revisions (id) {
-        id -> Text,
+        id -> Uuid,
         source -> Text,
         latest_slot_successfully_processed -> Int4,
         status -> Text,
-        workspace_id -> Text,
+        subgraph_id -> Uuid,
+        workspace_id -> Uuid,
     }
 }
 
 diesel::table! {
     svm_workspaces (id) {
-        id -> Text,
+        id -> Uuid,
         name -> Text,
         slug -> Text,
     }
