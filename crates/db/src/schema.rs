@@ -21,3 +21,13 @@ diesel::table! {
         last_slot_processed -> Int4,
     }
 }
+
+diesel::table! {
+    svm_subgraph_revisions (id) {
+        id -> Text,
+        workspace_slug -> Text,
+        source -> Text,
+        latest_slot_successfully_processed -> Int4,
+        worker_id -> Text,
+    }
+}
