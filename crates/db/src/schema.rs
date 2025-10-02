@@ -27,7 +27,7 @@ diesel::table! {
         id -> Text,
         source -> Text,
         latest_slot_successfully_processed -> Int4,
-        worker_id -> Text,
+        status -> Text,
         workspace_id -> Text,
     }
 }
