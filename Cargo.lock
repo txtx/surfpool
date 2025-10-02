@@ -5664,12 +5664,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "pq-sys"
-version = "0.7.2"
+name = "pq-src"
+version = "0.3.10+libpq-18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfd6cf44cca8f9624bc19df234fc4112873432f5fda1caff174527846d026fa9"
+checksum = "56ef39ce621f4993d6084fdcd4cbf1e01c84bdba53109cfad095d2cf441b85b9"
+dependencies = [
+ "cc",
+ "openssl-sys",
+]
+
+[[package]]
+name = "pq-sys"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "412a4cb9e93795c0594dab7c1c4ec1c8b42b514e1baf6e9f63d14aa376e5bd04"
 dependencies = [
  "libc",
+ "pkg-config",
+ "pq-src",
  "vcpkg",
 ]
 
@@ -11792,6 +11804,8 @@ dependencies = [
  "diesel-dynamic-schema",
  "diesel_derives",
  "libsqlite3-sys",
+ "openssl-sys",
+ "pq-sys",
  "txtx-addon-kit",
 ]
 
