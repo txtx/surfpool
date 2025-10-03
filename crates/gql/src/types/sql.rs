@@ -157,6 +157,7 @@ pub fn fetch_dynamic_entries_from_postres(
 }
 
 #[cfg(feature = "sqlite")]
+#[allow(clippy::type_complexity)]
 pub fn fetch_dynamic_entries_from_sqlite(
     sqlite_conn: &mut diesel::sqlite::SqliteConnection,
     metadata: &CollectionMetadata,
@@ -168,11 +169,11 @@ pub fn fetch_dynamic_entries_from_sqlite(
     let dynamic_table = table(metadata.table_name.as_str());
     let (filters_specs, fetched_fields) = extract_graphql_features(executor);
     for field_name in fetched_fields.iter() {
-        select.add_field(dynamic_table.column::<Untyped, _>(format!("{}", field_name)));
+        select.add_field(dynamic_table.column::<Untyped, _>(field_name.to_string()));
     }
 
     // Build the query and apply filters immediately to avoid borrow checker issues
-    let mut query = dynamic_table.clone().select(select).into_boxed();
+    let mut query = dynamic_table.select(select).into_boxed();
 
     for (field, predicate, value) in filters_specs {
         match value {
@@ -236,7 +237,7 @@ pub fn fetch_dynamic_entries_from_sqlite(
         .load::<DynamicRow<NamedField<DynamicValue>>>(&mut *sqlite_conn)
         .map_err(|err| {
             FieldError::new(
-                format!("Internal error: unable to fetch data"),
+                "Internal error: unable to fetch data".to_string(),
                 graphql_value!({"error": err.to_string()}),
             )
         })?;

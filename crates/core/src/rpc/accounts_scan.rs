@@ -1219,9 +1219,8 @@ mod tests {
                 result
                     .value
                     .iter()
-                    .find(|bal| bal.address == large_circulating_pubkey.to_string()
-                        && bal.lamports == large_circulating_amount)
-                    .is_some(),
+                    .any(|bal| bal.address == large_circulating_pubkey.to_string()
+                        && bal.lamports == large_circulating_amount),
                 "Circulating account should be in circulating accounts list"
             );
             assert_eq!(large_circulating_amount, result.value[0].lamports);
@@ -1250,14 +1249,9 @@ mod tests {
 
             assert_eq!(result.value.len(), 1);
             assert!(
-                result
-                    .value
-                    .iter()
-                    .find(
-                        |bal| bal.address == large_non_circulating_pubkey.to_string()
-                            && bal.lamports == large_non_circulating_amount
-                    )
-                    .is_some(),
+                result.value.iter().any(|bal| bal.address
+                    == large_non_circulating_pubkey.to_string()
+                    && bal.lamports == large_non_circulating_amount),
                 "Non-circulating account should be in non-circulating accounts list: {:?}",
                 result.value
             );

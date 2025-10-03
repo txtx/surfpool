@@ -48,7 +48,7 @@ impl CollectionMetadata {
         Self {
             id: *uuid,
             name: name.clone(),
-            table_name: format!("entries_{}", uuid.simple().to_string()),
+            table_name: format!("entries_{}", uuid.simple()),
             workspace_slug: workspace_slug.to_string(),
             filters: SubgraphFilterSpec {
                 name: format!("{}Filter", name),
@@ -77,34 +77,29 @@ impl GraphQLType<DefaultScalarValue> for CollectionMetadata {
         let mut fields: Vec<Field<'r, DefaultScalarValue>> = vec![];
         for field in metadata.fields.iter() {
             let registration = {
-                let description = field
-                    .data
-                    .description
-                    .as_ref()
-                    .map(|d| d.as_str())
-                    .unwrap_or("");
+                let description = field.data.description.as_deref().unwrap_or("");
                 match &field.data.expected_type {
                     Type::String => registry
                         .field::<&String>(&field.data.display_name, &())
-                        .description(&description),
+                        .description(description),
                     Type::Integer => registry
                         .field::<&BigInt>(&field.data.display_name, &())
-                        .description(&description),
+                        .description(description),
                     Type::Bool => registry
                         .field::<&String>(&field.data.display_name, &())
-                        .description(&description),
+                        .description(description),
                     Type::Float => registry
                         .field::<&String>(&field.data.display_name, &())
-                        .description(&description),
+                        .description(description),
                     Type::Null => registry
                         .field::<&String>(&field.data.display_name, &())
-                        .description(&description),
+                        .description(description),
                     Type::Array(_array) => registry
                         .field::<&String>(&field.data.display_name, &())
-                        .description(&description),
+                        .description(description),
                     Type::Buffer => registry
                         .field::<&String>(&field.data.display_name, &())
-                        .description(&description),
+                        .description(description),
                     Type::Addon(addon_id) => match addon_id.as_str() {
                         SVM_PUBKEY => registry
                             .field::<&PublicKey>(&field.data.display_name, &())
@@ -130,10 +125,10 @@ impl GraphQLType<DefaultScalarValue> for CollectionMetadata {
                     },
                     Type::Object(_object) => registry
                         .field::<&String>(&field.data.display_name, &())
-                        .description(&description),
+                        .description(description),
                     Type::Map(_map) => registry
                         .field::<&String>(&field.data.display_name, &())
-                        .description(&description),
+                        .description(description),
                 }
             };
             fields.push(registration);

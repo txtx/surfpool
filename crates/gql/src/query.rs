@@ -246,15 +246,14 @@ pub fn extract_graphql_features<'a>(
                             match value.item {
                                 juniper::LookAheadValue::Object(obj) => {
                                     for (predicate, predicate_value) in obj.iter() {
-                                        match predicate_value.item {
-                                            juniper::LookAheadValue::Scalar(value) => {
-                                                filters_specs.push((
-                                                    attribute.item,
-                                                    predicate.item,
-                                                    value,
-                                                ));
-                                            }
-                                            _ => {}
+                                        if let juniper::LookAheadValue::Scalar(value) =
+                                            predicate_value.item
+                                        {
+                                            filters_specs.push((
+                                                attribute.item,
+                                                predicate.item,
+                                                value,
+                                            ));
                                         }
                                     }
                                 }

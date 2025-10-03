@@ -72,7 +72,7 @@ impl GraphQLValue<DefaultScalarValue> for CollectionEntry {
             "id" => executor.resolve_with_ctx(&(), &entry.id.to_string()),
             field_name => {
                 if let Some(schema) = entry.values.get(field_name) {
-                    return Ok(schema.clone());
+                    Ok(schema.clone())
                 } else {
                     Err(FieldError::new(
                         format!("field {} not found", field_name),
@@ -188,7 +188,7 @@ fn convert_txtx_values_to_juniper_values(
                 SVM_I32 => {
                     let num =
                         SvmValue::to_number::<i32>(&old).expect("could not convert value to i32");
-                    Value::scalar(num as i32)
+                    Value::scalar(num)
                 }
                 SVM_I64 => {
                     let num =
@@ -198,7 +198,7 @@ fn convert_txtx_values_to_juniper_values(
                 SVM_I128 => {
                     let num =
                         SvmValue::to_number::<i128>(&old).expect("could not convert value to i128");
-                    BigInt(num as i128).to_output()
+                    BigInt(num).to_output()
                 }
                 SVM_I256 => {
                     let num =

@@ -163,7 +163,7 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                     &self.account_update_purgatory,
                     &self.pda_mappings,
                     subgraph_request,
-                    &data,
+                    data,
                     slot,
                     &mut entries,
                 )
@@ -218,6 +218,7 @@ pub unsafe extern "C" fn _create_plugin() -> *mut dyn GeyserPlugin {
     Box::into_raw(plugin)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn probe_account(
     purgatory: &Mutex<AccountPurgatory>,
     pda_mappings: &Mutex<PdaMapping>,
@@ -229,7 +230,7 @@ pub fn probe_account(
     lamports: u64,
     entries: &mut Vec<HashMap<String, Value>>,
 ) -> Result<(), String> {
-    if let Some(pda_source) = PdaMapping::get(&pda_mappings, &pubkey).unwrap() {
+    if let Some(pda_source) = PdaMapping::get(pda_mappings, &pubkey).unwrap() {
         pda_source.evaluate_account_update(
             &data,
             subgraph_request,
@@ -240,7 +241,7 @@ pub fn probe_account(
             entries,
         )
     } else {
-        AccountPurgatory::banish(&purgatory, &pubkey, slot, data, owner, lamports)
+        AccountPurgatory::banish(purgatory, &pubkey, slot, data, owner, lamports)
     }
     .map_err(|e| {
         format!(
@@ -285,7 +286,7 @@ pub fn probe_transaction(
                         inner_instructions,
                         subgraph_request,
                         slot,
-                        transaction.signature().clone(),
+                        *transaction.signature(),
                         entries,
                     )
                     .map_err(|e| {
@@ -337,7 +338,7 @@ pub fn probe_transaction(
                         &account_pubkeys,
                         data.transaction_status_meta,
                         slot,
-                        transaction.signature().clone(),
+                        *transaction.signature(),
                         subgraph_request,
                         &mut already_found_token_accounts,
                         entries,
@@ -376,7 +377,7 @@ impl PdaMapping {
         pda_mapping
             .lock()
             .map_err(|e| format!("Failed to lock PdaMapping: {}", e))
-            .and_then(|mapping| Ok(mapping._get(pubkey).cloned()))
+            .map(|mapping| mapping._get(pubkey).cloned())
     }
 }
 

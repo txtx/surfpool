@@ -91,11 +91,7 @@ pub async fn handle_start_local_surfnet_command(
         workspace: None,
     };
 
-    let subgraph_database_path = cmd
-        .subgraph_db
-        .as_ref()
-        .map(|p| p.as_str())
-        .unwrap_or(":memory:");
+    let subgraph_database_path = cmd.subgraph_db.as_deref().unwrap_or(":memory:");
     let explorer_handle = match start_subgraph_and_explorer_server(
         studio_binding_address,
         subgraph_database_path,
@@ -207,6 +203,7 @@ pub async fn handle_start_local_surfnet_command(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn start_service(
     cmd: StartSimnet,
     simnet_events_rx: Receiver<SimnetEvent>,
@@ -400,16 +397,17 @@ fn log_events(
                 }
             },
             i => match oper.recv(&deploy_progress_rx[i - 2]) {
-                Ok(event) => match event {
-                    BlockEvent::LogEvent(log) => handle_log_event(
-                        &mut multi_progress,
-                        log,
-                        &log_filter,
-                        &mut active_spinners,
-                        false,
-                    ),
-                    _ => {}
-                },
+                Ok(event) => {
+                    if let BlockEvent::LogEvent(log) = event {
+                        handle_log_event(
+                            &mut multi_progress,
+                            log,
+                            &log_filter,
+                            &mut active_spinners,
+                            false,
+                        )
+                    }
+                }
                 Err(_e) => {
                     deployment_completed = true;
                 }

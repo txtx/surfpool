@@ -746,6 +746,7 @@ impl SurfnetSvmLocker {
 /// Functions for simulating and processing transactions in the underlying SurfnetSvm instance
 impl SurfnetSvmLocker {
     /// Simulates a transaction on the SVM, returning detailed info or failure metadata.
+    #[allow(clippy::result_large_err)]
     pub fn simulate_transaction(
         &self,
         transaction: VersionedTransaction,
@@ -942,14 +943,7 @@ impl SurfnetSvmLocker {
                 let token_accounts_before = transaction_accounts
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, p)| {
-                        svm_reader
-                            .token_accounts
-                            .get(&p)
-                            .cloned()
-                            .map(|a| (i, a))
-                            .clone()
-                    })
+                    .filter_map(|(i, p)| svm_reader.token_accounts.get(p).cloned().map(|a| (i, a)))
                     .collect::<Vec<_>>();
 
                 let token_programs = token_accounts_before
@@ -1019,6 +1013,7 @@ impl SurfnetSvmLocker {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn generate_instruction_profiles(
         &self,
         transaction: &VersionedTransaction,
@@ -1071,14 +1066,14 @@ impl SurfnetSvmLocker {
             if let Some((partial_tx, all_required_accounts_for_last_ix)) = self
                 .create_partial_transaction(
                     instructions,
-                    &transaction_accounts,
+                    transaction_accounts,
                     mutable_signers,
                     readonly_signers,
                     mutable_non_signers,
                     readonly_non_signers,
                     mutable_loaded,
                     readonly_loaded,
-                    &transaction,
+                    transaction,
                     idx,
                     loaded_addresses,
                 )
@@ -1223,6 +1218,7 @@ impl SurfnetSvmLocker {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_execution_failure(
         &self,
         failed_transaction_metadata: FailedTransactionMetadata,
@@ -1340,6 +1336,7 @@ impl SurfnetSvmLocker {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_execution_success(
         &self,
         transaction_metadata: TransactionMetadata,
@@ -1417,7 +1414,7 @@ impl SurfnetSvmLocker {
                 .zip(accounts_after.iter())
                 .enumerate()
             {
-                let token_account = svm_writer.token_accounts.get(&pubkey).cloned();
+                let token_account = svm_writer.token_accounts.get(pubkey).cloned();
                 post_execution_capture.insert(*pubkey, account.clone());
 
                 if let Some(token_account) = token_account {
@@ -1506,6 +1503,7 @@ impl SurfnetSvmLocker {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn process_transaction_internal(
         &self,
         transaction: VersionedTransaction,
@@ -1530,7 +1528,7 @@ impl SurfnetSvmLocker {
                     transaction,
                     self.get_latest_absolute_slot(),
                     transaction_accounts,
-                    &loaded_addresses,
+                    loaded_addresses,
                     accounts_before,
                     token_accounts_before,
                     token_programs,
@@ -1555,7 +1553,7 @@ impl SurfnetSvmLocker {
                 accounts_before,
                 token_accounts_before,
                 token_programs,
-                &loaded_addresses,
+                loaded_addresses,
                 pre_execution_capture,
                 status_tx.clone(),
                 do_propagate,
@@ -1978,7 +1976,7 @@ impl SurfnetSvmLocker {
 
                 // acc_keys.append(&mut alt_pubkeys);
                 if let Some(loaded_addresses) = all_transaction_lookup_table_addresses {
-                    acc_keys.extend(loaded_addresses.into_iter());
+                    acc_keys.extend(loaded_addresses);
                 }
                 acc_keys
             }
@@ -2125,6 +2123,7 @@ impl SurfnetSvmLocker {
     /// # Returns
     /// A partial transaction containing the first `idx` instructions and the accounts used for
     /// the last instruction, or None if creation fails
+    #[allow(clippy::too_many_arguments)]
     fn create_partial_transaction(
         &self,
         instructions: &[CompiledInstruction],
@@ -2152,12 +2151,12 @@ impl SurfnetSvmLocker {
             // Some instructions don't need to read/write any accounts, so the account list is empty.
             // However, we're still using an account to sign, so we add that here.
             {
-                if all_required_accounts.len() == 0 {
+                if all_required_accounts.is_empty() {
                     let mut mutable_signers =
                         mutable_signers.iter().cloned().collect::<IndexSet<_>>();
                     all_required_accounts.append(&mut mutable_signers);
                 }
-                if all_required_accounts.len() == 0 {
+                if all_required_accounts.is_empty() {
                     let mut readonly_signers =
                         readonly_signers.iter().cloned().collect::<IndexSet<_>>();
                     all_required_accounts.append(&mut readonly_signers);
@@ -2176,11 +2175,11 @@ impl SurfnetSvmLocker {
             all_required_accounts_for_last_ix.insert(message_accounts[account_idx as usize]);
         }
         {
-            if all_required_accounts_for_last_ix.len() == 0 {
+            if all_required_accounts_for_last_ix.is_empty() {
                 let mut mutable_signers = mutable_signers.iter().cloned().collect::<IndexSet<_>>();
                 all_required_accounts_for_last_ix.append(&mut mutable_signers);
             }
-            if all_required_accounts_for_last_ix.len() == 0 {
+            if all_required_accounts_for_last_ix.is_empty() {
                 let mut readonly_signers =
                     readonly_signers.iter().cloned().collect::<IndexSet<_>>();
                 all_required_accounts_for_last_ix.append(&mut readonly_signers);
@@ -2412,7 +2411,7 @@ impl SurfnetSvmLocker {
             Some(uuids_or_sigs) => {
                 let mut profiles = Vec::new();
                 for id in uuids_or_sigs {
-                    let profile = self.get_profile_result(id.clone(), config)?;
+                    let profile = self.get_profile_result(id, config)?;
                     if profile.is_none() {
                         return Err(SurfpoolError::tag_not_found(&tag));
                     }
@@ -2551,7 +2550,7 @@ impl SurfnetSvmLocker {
                         )?;
 
                         get_account_result = GetAccountResult::FoundProgramAccount(
-                            (pubkey.clone(), program_account.clone()),
+                            (*pubkey, program_account.clone()),
                             (programdata_address, Some(programdata_account.clone())),
                         );
 
@@ -2568,7 +2567,7 @@ impl SurfnetSvmLocker {
             }
             GetAccountResult::FoundProgramAccount(_, (_, None)) => {
                 return Err(SurfpoolError::invalid_program_account(
-                    &program_id,
+                    program_id,
                     "Program data account does not exist",
                 ));
             }
@@ -2615,7 +2614,7 @@ impl SurfnetSvmLocker {
                     "Setting new authority for program {}",
                     program_id
                 )));
-                let _ = simnet_events_tx.send(SimnetEvent::info(format!("Old Authority: None")));
+                let _ = simnet_events_tx.send(SimnetEvent::info("Old Authority: None".to_string()));
                 let _ = simnet_events_tx.send(SimnetEvent::info(format!("New Authority: {}", new)));
             }
             (None, None) => {
@@ -2889,6 +2888,7 @@ impl SurfnetSvmLocker {
     }
 
     /// Executes an airdrop via the underlying SVM.
+    #[allow(clippy::result_large_err)]
     pub fn airdrop(&self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
         self.with_svm_writer(|svm_writer| svm_writer.airdrop(pubkey, lamports))
     }
@@ -3005,7 +3005,7 @@ fn update_programdata_account(
     let upgradeable_loader_state =
         bincode::deserialize::<UpgradeableLoaderState>(&programdata_account.data).map_err(|e| {
             SurfpoolError::invalid_program_account(
-                &program_id,
+                program_id,
                 format!("Failed to serialize program data: {}", e),
             )
         })?;
@@ -3027,7 +3027,7 @@ fn update_programdata_account(
         })
         .map_err(|e| {
             SurfpoolError::invalid_program_account(
-                &program_id,
+                program_id,
                 format!("Failed to serialize program data: {}", e),
             )
         })?;
@@ -3038,15 +3038,15 @@ fn update_programdata_account(
 
         Ok(upgrade_authority_address)
     } else {
-        return Err(SurfpoolError::invalid_program_account(
-            &program_id,
+        Err(SurfpoolError::invalid_program_account(
+            program_id,
             "Invalid program data account",
-        ));
+        ))
     }
 }
 
 pub fn format_ui_amount_string(amount: u64, decimals: u8) -> String {
-    let formatted_amount = if decimals > 0 {
+    if decimals > 0 {
         let divisor = 10u64.pow(decimals as u32);
         format!(
             "{:.decimals$}",
@@ -3055,8 +3055,7 @@ pub fn format_ui_amount_string(amount: u64, decimals: u8) -> String {
         )
     } else {
         amount.to_string()
-    };
-    formatted_amount
+    }
 }
 
 pub fn format_ui_amount(amount: u64, decimals: u8) -> f64 {

@@ -153,6 +153,7 @@ async fn dist(path: web::Path<String>) -> impl Responder {
     handle_embedded_file(path_str)
 }
 
+#[allow(clippy::await_holding_lock)]
 async fn post_graphql(
     req: HttpRequest,
     payload: web::Payload,
@@ -173,6 +174,7 @@ async fn post_graphql(
     graphql_handler(schema, &context, req, payload).await
 }
 
+#[allow(clippy::await_holding_lock)]
 async fn get_graphql(
     req: HttpRequest,
     payload: web::Payload,
@@ -245,7 +247,7 @@ fn start_subgraph_runloop(
                                 })?;
 
                                 let metadata = CollectionMetadata::from_request(&uuid, &request, "surfpool");
-                                cached_metadata.insert(uuid.clone(), metadata.clone());
+                                cached_metadata.insert(uuid, metadata.clone());
 
                                 let gql_context = gql_context.write().map_err(|_| {
                                     format!(
@@ -300,7 +302,7 @@ fn start_subgraph_runloop(
 
                                 if let Err(e) = gql_context
                                     .pool
-                                    .insert_entries_into_collection(entries, &metadata)
+                                    .insert_entries_into_collection(entries, metadata)
                                 {
                                     let _ = subgraph_events_tx.send(SubgraphEvent::error(format!(
                                         "{err_ctx}: {e}"

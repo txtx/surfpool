@@ -631,13 +631,9 @@ pub fn setup_logger(
         log_location.append_path(&filename)?;
 
         if !log_location.exists() {
-            log_location.create_dir_and_file().map_err(|e| {
-                format!(
-                    "Failed to create log file {}: {}",
-                    log_location.to_string(),
-                    e
-                )
-            })?;
+            log_location
+                .create_dir_and_file()
+                .map_err(|e| format!("Failed to create log file {}: {}", log_location, e))?;
         }
         log_location
     };

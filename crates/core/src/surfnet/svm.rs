@@ -287,6 +287,7 @@ impl SurfnetSvm {
     ///
     /// # Returns
     /// A `TransactionResult` indicating success or failure.
+    #[allow(clippy::result_large_err)]
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
         let res = self.inner.airdrop(pubkey, lamports);
         let (status_tx, _rx) = unbounded();
@@ -311,14 +312,14 @@ impl SurfnetSvm {
             // we need the airdrop tx to store in our transactions list,
             // but for it to be properly processed we need its signature to match
             // the actual underlying transaction
-            tx.signatures[0] = tx_result.signature.clone();
+            tx.signatures[0] = tx_result.signature;
 
             let system_lamports = self
                 .get_account(&system_program::id())
                 .map(|a| a.lamports())
                 .unwrap_or(1);
             self.transactions.insert(
-                tx.get_signature().clone(),
+                *tx.get_signature(),
                 SurfnetTransactionStatus::processed(
                     TransactionWithStatusMeta {
                         slot,
@@ -669,6 +670,7 @@ impl SurfnetSvm {
     ///
     /// # Returns
     /// `Ok(res)` if processed successfully, or `Err(tx_failure)` if failed.
+    #[allow(clippy::result_large_err)]
     pub fn send_transaction(
         &mut self,
         tx: VersionedTransaction,
@@ -777,6 +779,7 @@ impl SurfnetSvm {
     ///
     /// # Returns
     /// `Ok(SimulatedTransactionInfo)` if successful, or `Err(FailedTransactionMetadata)` if failed.
+    #[allow(clippy::result_large_err)]
     pub fn simulate_transaction(
         &self,
         tx: VersionedTransaction,
@@ -864,12 +867,12 @@ impl SurfnetSvm {
                 let signature = &tx.signatures[0];
                 self.notify_signature_subscribers(
                     SignatureSubscriptionType::finalized(),
-                    &signature,
+                    signature,
                     self.latest_epoch_info.absolute_slot,
                     None,
                 );
                 let Some(SurfnetTransactionStatus::Processed(tx_data)) =
-                    self.transactions.get(&signature)
+                    self.transactions.get(signature)
                 else {
                     continue;
                 };
@@ -983,7 +986,7 @@ impl SurfnetSvm {
             num_non_vote_transactions: None,
         });
 
-        self.updated_at = self.updated_at + self.slot_time;
+        self.updated_at += self.slot_time;
         self.latest_epoch_info.slot_index += 1;
         self.latest_epoch_info.block_height = self.chain_tip.index;
         self.latest_epoch_info.absolute_slot += 1;
@@ -1358,7 +1361,7 @@ impl SurfnetSvm {
         let tag = tag.unwrap_or_else(|| uuid.to_string());
         self.profile_tag_map
             .entry(tag)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(UuidOrSignature::Uuid(uuid));
     }
 
@@ -1371,7 +1374,7 @@ impl SurfnetSvm {
             .insert(signature, profile_result);
         self.profile_tag_map
             .entry(signature.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(UuidOrSignature::Signature(signature));
     }
 
@@ -1382,7 +1385,7 @@ impl SurfnetSvm {
     ) -> Receiver<(Slot, RpcLogsResponse)> {
         let (tx, rx) = unbounded();
         self.logs_subscriptions
-            .push((commitment_level.clone(), filter.clone(), tx));
+            .push((*commitment_level, filter.clone(), tx));
         rx
     }
 
@@ -1406,11 +1409,11 @@ impl SurfnetSvm {
     }
 
     pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) {
-        let slot = slot.unwrap_or_else(|| self.latest_epoch_info.absolute_slot);
+        let slot = slot.unwrap_or(self.latest_epoch_info.absolute_slot);
         let program_id = Pubkey::from_str_const(&idl.address);
         self.registered_idls
             .entry(program_id)
-            .or_insert_with(BinaryHeap::new)
+            .or_default()
             .push(VersionedIdl(slot, idl));
     }
 
@@ -1427,19 +1430,19 @@ impl SurfnetSvm {
             AccountProfileState::Writable(account_change) => {
                 let change = match account_change {
                     AccountChange::Create(account) => UiAccountChange::Create(
-                        self.encode_ui_account(&pubkey, &account, *encoding, additional_data, None),
+                        self.encode_ui_account(pubkey, &account, *encoding, additional_data, None),
                     ),
                     AccountChange::Update(account_before, account_after) => {
                         UiAccountChange::Update(
                             self.encode_ui_account(
-                                &pubkey,
+                                pubkey,
                                 &account_before,
                                 *encoding,
                                 additional_data,
                                 None,
                             ),
                             self.encode_ui_account(
-                                &pubkey,
+                                pubkey,
                                 &account_after,
                                 *encoding,
                                 additional_data,
@@ -1448,12 +1451,12 @@ impl SurfnetSvm {
                         )
                     }
                     AccountChange::Delete(account) => UiAccountChange::Delete(
-                        self.encode_ui_account(&pubkey, &account, *encoding, additional_data, None),
+                        self.encode_ui_account(pubkey, &account, *encoding, additional_data, None),
                     ),
                     AccountChange::Unchanged(account) => {
                         UiAccountChange::Unchanged(account.map(|account| {
                             self.encode_ui_account(
-                                &pubkey,
+                                pubkey,
                                 &account,
                                 *encoding,
                                 additional_data,
@@ -1483,7 +1486,7 @@ impl SurfnetSvm {
 
         let account_states = pre_execution_capture
             .into_iter()
-            .zip(post_execution_capture.into_iter())
+            .zip(post_execution_capture)
             .map(|((pubkey, pre_account), (_, post_account))| {
                 // if pubkey != post {
                 //     panic!(
@@ -1526,22 +1529,14 @@ impl SurfnetSvm {
         let readonly_accounts = readonly_account_states.keys().cloned().collect::<Vec<_>>();
 
         let default = RpcProfileDepth::default();
-        let instruction_profiles = match config.depth.as_ref().unwrap_or(&default) {
-            &RpcProfileDepth::Transaction => None,
-            &RpcProfileDepth::Instruction => {
-                if let Some(instruction_profiles) = instruction_profiles {
-                    Some(
-                        instruction_profiles
-                            .into_iter()
-                            .map(|p| {
-                                self.encode_ui_profile_result(p, &readonly_accounts, &encoding)
-                            })
-                            .collect(),
-                    )
-                } else {
-                    None
-                }
-            }
+        let instruction_profiles = match *config.depth.as_ref().unwrap_or(&default) {
+            RpcProfileDepth::Transaction => None,
+            RpcProfileDepth::Instruction => instruction_profiles.map(|instruction_profiles| {
+                instruction_profiles
+                    .into_iter()
+                    .map(|p| self.encode_ui_profile_result(p, &readonly_accounts, &encoding))
+                    .collect()
+            }),
         };
 
         let transaction_profile =
@@ -1575,75 +1570,75 @@ impl SurfnetSvm {
         let owner_program_id = account.owner();
 
         let filter_slot = self.latest_epoch_info.absolute_slot; // todo: consider if we should pass in a slot
-        match encoding {
-            UiAccountEncoding::JsonParsed => {
-                if let Some(registered_idls) = self.registered_idls.get(owner_program_id) {
-                    let ordered_available_idls = registered_idls
+        if encoding == UiAccountEncoding::JsonParsed {
+            if let Some(registered_idls) = self.registered_idls.get(owner_program_id) {
+                let ordered_available_idls = registered_idls
+                    .iter()
+                    // only get IDLs that are active (their slot is before the latest slot)
+                    .filter_map(|VersionedIdl(slot, idl)| {
+                        if *slot <= filter_slot {
+                            Some(idl)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                // if we have none in this loop, it means the only IDLs registered for this pubkey are for a
+                // future slot, for some reason. if we have some, we'll try each one in this loop, starting
+                // with the most recent one, to see if the account data can be parsed to the IDL type
+                for idl in &ordered_available_idls {
+                    // If we have a valid IDL, use it to parse the account data
+                    let data = account.data();
+                    let discriminator = &data[..8];
+                    if let Some(matching_account) = idl
+                        .accounts
                         .iter()
-                        // only get IDLs that are active (their slot is before the latest slot)
-                        .filter_map(|VersionedIdl(slot, idl)| {
-                            if *slot <= filter_slot {
-                                Some(idl)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    // if we have none in this loop, it means the only IDLs registered for this pubkey are for a
-                    // future slot, for some reason. if we have some, we'll try each one in this loop, starting
-                    // with the most recent one, to see if the account data can be parsed to the IDL type
-                    for idl in &ordered_available_idls {
-                        // If we have a valid IDL, use it to parse the account data
-                        let data = account.data();
-                        let discriminator = &data[..8];
-                        if let Some(matching_account) = idl
-                            .accounts
-                            .iter()
-                            .find(|a| a.discriminator.eq(&discriminator))
+                        .find(|a| a.discriminator.eq(&discriminator))
+                    {
+                        // If we found a matching account, we can look up the type to parse the account
+                        if let Some(account_type) =
+                            idl.types.iter().find(|t| t.name == matching_account.name)
                         {
-                            // If we found a matching account, we can look up the type to parse the account
-                            if let Some(account_type) =
-                                idl.types.iter().find(|t| t.name == matching_account.name)
-                            {
-                                let empty_vec = vec![];
-                                let idl_type_def_generics = idl
-                                    .types
-                                    .iter()
-                                    .find(|t| t.name == account_type.name)
-                                    .map(|t| &t.generics);
+                            let empty_vec = vec![];
+                            let idl_type_def_generics = idl
+                                .types
+                                .iter()
+                                .find(|t| t.name == account_type.name)
+                                .map(|t| &t.generics);
 
-                                // If we found a matching account type, we can use it to parse the account data
-                                let rest = data[8..].as_ref();
-                                if let Ok(parsed_value) =
-                                    parse_bytes_to_value_with_expected_idl_type_def_ty(
-                                        &rest,
-                                        &account_type.ty,
-                                        &idl.types,
-                                        &vec![],
-                                        idl_type_def_generics.unwrap_or(&empty_vec),
-                                    )
-                                {
-                                    return UiAccount {
-                                        lamports: account.lamports(),
-                                        data: UiAccountData::Json(ParsedAccount {
-                                            program: format!("{}", idl.metadata.name)
-                                                .to_case(convert_case::Case::Kebab),
-                                            parsed: parsed_value
-                                                .to_json(Some(&get_txtx_value_json_converters())),
-                                            space: data.len() as u64,
-                                        }),
-                                        owner: account.owner().to_string(),
-                                        executable: account.executable(),
-                                        rent_epoch: account.rent_epoch(),
-                                        space: Some(account.data().len() as u64),
-                                    };
-                                }
+                            // If we found a matching account type, we can use it to parse the account data
+                            let rest = data[8..].as_ref();
+                            if let Ok(parsed_value) =
+                                parse_bytes_to_value_with_expected_idl_type_def_ty(
+                                    rest,
+                                    &account_type.ty,
+                                    &idl.types,
+                                    &vec![],
+                                    idl_type_def_generics.unwrap_or(&empty_vec),
+                                )
+                            {
+                                return UiAccount {
+                                    lamports: account.lamports(),
+                                    data: UiAccountData::Json(ParsedAccount {
+                                        program: idl
+                                            .metadata
+                                            .name
+                                            .to_string()
+                                            .to_case(convert_case::Case::Kebab),
+                                        parsed: parsed_value
+                                            .to_json(Some(&get_txtx_value_json_converters())),
+                                        space: data.len() as u64,
+                                    }),
+                                    owner: account.owner().to_string(),
+                                    executable: account.executable(),
+                                    rent_epoch: account.rent_epoch(),
+                                    space: Some(account.data().len() as u64),
+                                };
                             }
                         }
                     }
                 }
             }
-            _ => {}
         }
 
         // Fall back to the default encoding

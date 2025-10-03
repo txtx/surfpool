@@ -180,7 +180,7 @@ pub fn scaffold_iac_layout(
     // signer_simnet.push_str(&get_interpolated_addon_template("http://localhost:8899"));
     signer_localnet.push_str(&get_interpolated_localnet_signer_template(&format!(
         "\"{}\"",
-        DEFAULT_SOLANA_KEYPAIR_PATH.to_string()
+        *DEFAULT_SOLANA_KEYPAIR_PATH
     )));
 
     for program_metadata in selected_programs.iter() {
