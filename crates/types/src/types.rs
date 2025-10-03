@@ -602,7 +602,7 @@ pub struct SubgraphPluginConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct SvmSimnetInitializationRequest {
+pub struct CreateSurfnetRequest {
     pub domain: String,
     pub block_production_mode: BlockProductionMode,
     pub datasource_rpc_url: String,
@@ -615,8 +615,24 @@ pub struct CloudSurfnetSettings {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum SvmSimnetCommand {
-    Init(SvmSimnetInitializationRequest),
+pub struct CreateSubgraphRequest {
+    pub subgraph_id: Uuid,
+    pub subgraph_revision_id: Uuid,
+    pub revision_number: i32,
+    pub start_block: i64,
+    pub network: String,
+    pub workspace_slug: String,
+    pub request: SubgraphRequest,
+    pub settings: Option<CloudSubgraphSettings>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CloudSubgraphSettings {}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum SvmCloudCommand {
+    CreateSurfnet(CreateSurfnetRequest),
+    CreateSubgraph(CreateSubgraphRequest),
 }
 
 #[derive(Serialize, Deserialize)]
