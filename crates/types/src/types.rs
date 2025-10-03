@@ -511,6 +511,7 @@ pub struct SimnetConfig {
     pub expiry: Option<u64>,
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
+    pub log_bytes_limit: Option<usize>,
 }
 
 impl Default for SimnetConfig {
@@ -525,6 +526,7 @@ impl Default for SimnetConfig {
             expiry: None,
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
+            log_bytes_limit: Some(10_000),
         }
     }
 }
