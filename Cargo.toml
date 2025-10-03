@@ -95,7 +95,7 @@ rust-embed = "8.2.0"
 serde = { version = "1.0.226", default-features = false }
 serde_derive = { version = "1.0.226", default-features = false } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = { version = "1.0.135", default-features = false }
-serde_with = { version = "3", default-features = false }
+serde_with = { version = "3.14.0", default-features = false }
 solana-account = { version = "2.2.1", default-features = false }
 solana-account-decoder = { version = "2.3.7", default-features = false }
 solana-account-decoder-client-types = { version = "2.3.7", default-features = false }
