@@ -7,6 +7,7 @@ use surfpool_db::{
         self, ExpressionMethods, QueryDsl, RunQueryDsl,
         deserialize::{self, FromSql},
         r2d2::{ConnectionManager, Pool},
+        result::DatabaseErrorKind,
         sql_query,
         sql_types::{Bool, Integer, Text, Untyped},
     },
@@ -308,9 +309,13 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             columns.join(",\n    ")
         );
 
-        sql_query(&create_entries_sql)
-            .execute(&mut *conn)
-            .map_err(|e| format!("Failed to create entries table: {e}"))?;
+        match sql_query(&create_entries_sql).execute(&mut *conn) {
+            Ok(_)
+            | Err(diesel::result::Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to create entries table: {}", e)),
+        }?;
         // let schema_json = serde_json::to_string(request)
         //     .map_err(|e| format!("Failed to serialize schema: {e}"))?;
         let schema_json = serde_json::to_string(request).expect("Failed to serialize schema");
@@ -328,9 +333,13 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             worker_id
         );
 
-        sql_query(&sql)
-            .execute(&mut *conn)
-            .map_err(|e| format!("Failed to insert subgraph: {e}"))?;
+        match sql_query(&sql).execute(&mut *conn) {
+            Ok(_)
+            | Err(diesel::result::Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to create entries table: {}", e)),
+        }?;
 
         Ok(())
     }
