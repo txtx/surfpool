@@ -105,7 +105,7 @@ impl SurfnetRemoteClient {
             Some(account) => {
                 let mut result = None;
                 if is_supported_token_program(&account.owner) {
-                    if let Some(token_account) = TokenAccount::unpack(&account.data).ok() {
+                    if let Ok(token_account) = TokenAccount::unpack(&account.data) {
                         let mint = self
                             .client
                             .get_account_with_commitment(&token_account.mint(), commitment_config)
@@ -158,7 +158,7 @@ impl SurfnetRemoteClient {
         for (pubkey, remote_account) in pubkeys.iter().zip(remote_accounts) {
             if let Some(remote_account) = remote_account {
                 if is_supported_token_program(&remote_account.owner) {
-                    if let Some(token_account) = TokenAccount::unpack(&remote_account.data).ok() {
+                    if let Ok(token_account) = TokenAccount::unpack(&remote_account.data) {
                         // TODO: move the query out of the loop to prevent rate-limiting by `api.mainnet-beta.solana.com`
                         let mint = self
                             .client
@@ -310,7 +310,6 @@ impl SurfnetRemoteClient {
                     },
                 )
                 .await
-                .map(|res| res)
                 .map_err(|e| SurfpoolError::get_program_accounts(*program_id, e))
         })
         .await

@@ -41,10 +41,9 @@ use crate::cli::{DEFAULT_ID_SVC_URL, ExecuteRunbook, setup_logger};
 
 lazy_static::lazy_static! {
     static ref CLI_SPINNER_STYLE: ProgressStyle = {
-        let style = ProgressStyle::with_template("{spinner} {msg}")
+        ProgressStyle::with_template("{spinner} {msg}")
             .unwrap()
-            .tick_strings(&["⠋", "⠙", "⠸", "⠴", "⠦", "⠇"]);
-        style
+            .tick_strings(&["⠋", "⠙", "⠸", "⠴", "⠦", "⠇"])
     };
 }
 
@@ -103,15 +102,14 @@ pub async fn handle_execute_runbook_command(cmd: ExecuteRunbook) -> Result<(), S
         let mut active_spinners: IndexMap<Uuid, ProgressBar> = IndexMap::new();
         let mut multi_progress = MultiProgress::new();
         while let Ok(msg) = progress_rx.recv() {
-            match msg {
-                BlockEvent::LogEvent(log) => handle_log_event(
+            if let BlockEvent::LogEvent(log) = msg {
+                handle_log_event(
                     &mut multi_progress,
                     log,
                     &log_filter,
                     &mut active_spinners,
                     true,
-                ),
-                _ => {}
+                )
             }
         }
     });
@@ -749,32 +747,32 @@ pub fn persist_log(
     match log_level {
         LogLevel::Trace => {
             trace!(target: &namespace, "{}", msg);
-            if do_log_to_cli && log_filter.should_log(&log_level) {
+            if do_log_to_cli && log_filter.should_log(log_level) {
                 println!("→ {}", msg);
             }
         }
         LogLevel::Debug => {
             debug!(target: &namespace, "{}", msg);
-            if do_log_to_cli && log_filter.should_log(&log_level) {
+            if do_log_to_cli && log_filter.should_log(log_level) {
                 println!("→ {}", msg);
             }
         }
 
         LogLevel::Info => {
             info!(target: &namespace, "{}", msg);
-            if do_log_to_cli && log_filter.should_log(&log_level) {
+            if do_log_to_cli && log_filter.should_log(log_level) {
                 println!("{} {} - {}", purple!("→"), purple!(summary), message);
             }
         }
         LogLevel::Warn => {
             warn!(target: &namespace, "{}", msg);
-            if do_log_to_cli && log_filter.should_log(&log_level) {
+            if do_log_to_cli && log_filter.should_log(log_level) {
                 println!("{} {} - {}", yellow!("!"), yellow!(summary), message);
             }
         }
         LogLevel::Error => {
             error!(target: &namespace, "{}", msg);
-            if do_log_to_cli && log_filter.should_log(&log_level) {
+            if do_log_to_cli && log_filter.should_log(log_level) {
                 println!("{} {} - {}", red!("x"), red!(summary), message);
             }
         }
@@ -796,7 +794,7 @@ pub fn handle_log_event(
                 &summary,
                 &static_log_event.namespace,
                 &static_log_event.level,
-                &log_filter,
+                log_filter,
                 do_log_to_cli,
             );
         }
@@ -821,7 +819,7 @@ pub fn handle_log_event(
                         &summary,
                         &log.namespace,
                         &log.level,
-                        &log_filter,
+                        log_filter,
                         false,
                     );
                 }
@@ -841,7 +839,7 @@ pub fn handle_log_event(
                     &summary,
                     &log.namespace,
                     &log.level,
-                    &log_filter,
+                    log_filter,
                     false,
                 );
             }
@@ -859,7 +857,7 @@ pub fn handle_log_event(
                     &summary,
                     &log.namespace,
                     &log.level,
-                    &log_filter,
+                    log_filter,
                     false,
                 );
             }

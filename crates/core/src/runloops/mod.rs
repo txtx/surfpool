@@ -68,7 +68,7 @@ pub async fn start_local_surfnet_runloop(
     let remote_rpc_client = match simnet.offline_mode {
         true => None,
         false => SurfnetRemoteClient::new_unsafe(
-            &simnet
+            simnet
                 .remote_rpc_url
                 .as_ref()
                 .unwrap_or(&DEFAULT_RPC_URL.to_string()),
@@ -128,6 +128,7 @@ pub async fn start_local_surfnet_runloop(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn start_block_production_runloop(
     clock_event_rx: Receiver<ClockEvent>,
     clock_command_tx: Sender<ClockCommand>,
@@ -433,7 +434,7 @@ fn start_geyser_runloop(
                         let transaction = match sanitized_transaction {
                             Some(tx) => tx,
                             None => {
-                                let _ = simnet_events_tx.send(SimnetEvent::warn(format!("Unable to index sanitized transaction")));
+                                let _ = simnet_events_tx.send(SimnetEvent::warn("Unable to index sanitized transaction".to_string()));
                                 continue;
                             }
                         };

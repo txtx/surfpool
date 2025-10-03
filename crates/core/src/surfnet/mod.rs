@@ -32,6 +32,7 @@ pub const SLOTS_PER_EPOCH: u64 = 432000;
 
 pub type AccountFactory = Box<dyn Fn(SurfnetSvmLocker) -> GetAccountResult + Send + Sync>;
 
+#[allow(clippy::large_enum_variant)]
 pub enum GeyserEvent {
     NotifyTransaction(TransactionWithStatusMeta, Option<SanitizedTransaction>),
     UpdateAccount(GeyserAccountUpdate),
@@ -152,6 +153,7 @@ impl GetAccountResult {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn map_account_with_token_data(
         self,
     ) -> Option<((Pubkey, Account), Option<(Pubkey, Option<Account>)>)> {
@@ -203,6 +205,7 @@ impl SignatureSubscriptionType {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum GetTransactionResult {
     None(Signature),
     FoundTransaction(

@@ -153,13 +153,13 @@ impl SetTokenAccountsResponse {
 /// # Arguments
 /// * `surfnet_address`: The HTTP RPC endpoint of the target Surfnet instance .
 /// * `wallet_address_opt`: An optional base58-encoded public key of the wallet to fund.
-///                         If `None`, a new keypair is generated, and its details are returned.
+///   If `None`, a new keypair is generated, and its details are returned.
 /// * `token_mint`: A string indicating the token to fund. If not provided, the token symbol will be inferred from the token mint address.
-///                          a base58-encoded SPL token mint address, or a known symbol.
+///   a base58-encoded SPL token mint address, or a known symbol.
 /// * `token_amount`: An optional amount of the token to set (in its smallest unit, e.g., lamports for SOL).
-///                       If `None`, a default amount is used.
+///   If `None`, a default amount is used.
 /// * `program_id_opt`: An optional base58-encoded public key of the token-issuing program.
-///                     If `None`, defaults to the standard SPL Token program ID.
+///   If `None`, defaults to the standard SPL Token program ID.
 ///
 /// # Returns
 /// * `SetTokenAccountResponse`: Contains either details of the successful account update (including new wallet details if generated) or an error message.                             
