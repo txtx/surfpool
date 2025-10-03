@@ -241,6 +241,7 @@ impl SurfnetSvm {
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
+        log_bytes_limit: Option<usize>,
     ) {
         self.chain_tip = self.new_blockhash();
         self.latest_epoch_info = epoch_info.clone();
@@ -248,6 +249,7 @@ impl SurfnetSvm {
         self.slot_time = slot_time;
         self.instruction_profiling_enabled = do_profile_instructions;
         self.set_profiling_map_capacity(self.max_profiles);
+        self.inner.set_log_bytes_limit(log_bytes_limit);
 
         if let Some(remote_client) = remote_ctx {
             let _ = self

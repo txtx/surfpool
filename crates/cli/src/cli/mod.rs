@@ -212,6 +212,9 @@ pub struct StartSimnet {
     /// Changing this will affect the memory usage of surfpool. (eg. surfpool start --max-profiles 2000)
     #[arg(long = "max-profiles", short = 'c', default_value = "200")]
     pub max_profiles: usize,
+    /// The maximum number of bytes to allow in transaction logs. Set to 0 for unlimited. (eg. surfpool start --log-bytes-limit 64000)
+    #[arg(long = "log-bytes-limit", default_value = "10000")]
+    pub log_bytes_limit: usize,
     /// Start Surfpool as a background process (eg. surfpool start --daemon)
     #[clap(long = "daemon", action=ArgAction::SetTrue, default_value = "false")]
     pub daemon: bool,
@@ -338,6 +341,11 @@ impl StartSimnet {
             offline_mode: self.offline,
             instruction_profiling_enabled: !self.disable_instruction_profiling,
             max_profiles: self.max_profiles,
+            log_bytes_limit: if self.log_bytes_limit == 0 {
+                None
+            } else {
+                Some(self.log_bytes_limit)
+            },
         }
     }
 
