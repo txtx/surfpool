@@ -940,6 +940,8 @@ impl SurfnetSvm {
 
     pub fn confirm_current_block(&mut self) -> Result<(), SurfpoolError> {
         let slot = self.get_latest_absolute_slot();
+        let previous_chain_tip = self.chain_tip.clone();
+        self.chain_tip = self.new_blockhash();
         // Confirm processed transactions
         let (confirmed_signatures, all_mutated_account_keys) = self.confirm_transactions()?;
         let write_version = self.increment_write_version();
@@ -957,9 +959,6 @@ impl SurfnetSvm {
         }
 
         let num_transactions = confirmed_signatures.len() as u64;
-
-        let previous_chain_tip = self.chain_tip.clone();
-        self.chain_tip = self.new_blockhash();
 
         self.blocks.insert(
             slot,

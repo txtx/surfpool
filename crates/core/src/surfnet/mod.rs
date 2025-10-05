@@ -219,14 +219,20 @@ impl GetTransactionResult {
         latest_absolute_slot: u64,
     ) -> Self {
         let is_finalized = latest_absolute_slot >= tx.slot + FINALIZATION_SLOT_THRESHOLD;
+        let is_confirmed = latest_absolute_slot >= tx.slot + 1;
         let (confirmation_status, confirmations) = if is_finalized {
             (
                 Some(solana_transaction_status::TransactionConfirmationStatus::Finalized),
                 None,
             )
-        } else {
+        } else if is_confirmed {
             (
                 Some(solana_transaction_status::TransactionConfirmationStatus::Confirmed),
+                Some((latest_absolute_slot - tx.slot) as usize),
+            )
+        } else {
+            (
+                Some(solana_transaction_status::TransactionConfirmationStatus::Processed),
                 Some((latest_absolute_slot - tx.slot) as usize),
             )
         };
