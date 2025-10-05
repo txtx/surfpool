@@ -14,7 +14,7 @@ use solana_client::{
     },
     rpc_custom_error::RpcCustomError,
     rpc_response::{
-        RpcApiVersion, RpcBlockhash, RpcConfirmedTransactionStatusWithSignature, RpcContactInfo,
+        RpcBlockhash, RpcConfirmedTransactionStatusWithSignature, RpcContactInfo,
         RpcInflationReward, RpcPerfSample, RpcPrioritizationFee, RpcResponseContext,
         RpcSimulateTransactionResult,
     },
@@ -2098,24 +2098,35 @@ impl Full for SurfpoolFullRpc {
     fn get_latest_blockhash(
         &self,
         meta: Self::Metadata,
-        _config: Option<RpcContextConfig>,
+        config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<RpcBlockhash>> {
-        meta.with_svm_reader(|svm_reader| {
-            let last_valid_block_height =
-                svm_reader.latest_epoch_info.block_height + MAX_RECENT_BLOCKHASHES as u64;
-            let value = RpcBlockhash {
-                blockhash: svm_reader.latest_blockhash().to_string(),
-                last_valid_block_height,
-            };
-            RpcResponse {
-                context: RpcResponseContext {
-                    slot: svm_reader.get_latest_absolute_slot(),
-                    api_version: Some(RpcApiVersion::default()),
-                },
-                value,
+        let svm_locker = meta.get_svm_locker()?;
+
+        let config = config.unwrap_or_default();
+        let commitment = config.commitment.unwrap_or_default();
+
+        let committed_latest_slot = svm_locker.get_slot_for_commitment(&commitment);
+        if let Some(min_context_slot) = config.min_context_slot {
+            if committed_latest_slot < min_context_slot {
+                return Err(RpcCustomError::MinContextSlotNotReached {
+                    context_slot: min_context_slot,
+                }
+                .into());
             }
+        }
+
+        let blockhash = svm_locker
+            .get_latest_blockhash(&commitment)
+            .unwrap_or_else(|| svm_locker.latest_absolute_blockhash());
+
+        let last_valid_block_height = committed_latest_slot + MAX_RECENT_BLOCKHASHES as u64;
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: RpcBlockhash {
+                blockhash: blockhash.to_string(),
+                last_valid_block_height,
+            },
         })
-        .map_err(Into::into)
     }
 
     fn is_blockhash_valid(
