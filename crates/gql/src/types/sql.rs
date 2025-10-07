@@ -285,7 +285,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         request: &SubgraphRequest,
         worker_id: &Uuid,
     ) -> Result<(), String> {
-        let SubgraphRequest::V0(request) = request;
+        let SubgraphRequest::V0(request_v0) = request;
         let mut conn = self.get().expect("unable to connect to db");
 
         // 2. Create a new entries table for this subgraph, using the schema to determine the fields
@@ -329,7 +329,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             &metadata.table_name,
             &metadata.workspace_slug,
             schema_json,
-            request.slot,
+            request_v0.slot,
             worker_id
         );
 
