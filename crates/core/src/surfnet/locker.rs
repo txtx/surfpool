@@ -2879,6 +2879,10 @@ impl SurfnetSvmLocker {
         self.with_svm_reader(|svm_reader| svm_reader.blockhash_for_slot(slot))
     }
 
+    pub fn latest_absolute_blockhash(&self) -> Hash {
+        self.with_svm_reader(|svm_reader| svm_reader.latest_blockhash())
+    }
+
     pub fn get_slot_for_commitment(&self, commitment: &CommitmentConfig) -> Slot {
         self.with_svm_reader(|svm_reader| {
             let slot = svm_reader.get_latest_absolute_slot();
