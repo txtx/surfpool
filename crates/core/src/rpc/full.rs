@@ -2396,7 +2396,7 @@ mod tests {
     use crate::{
         surfnet::{BlockHeader, BlockIdentifier, remote::SurfnetRemoteClient},
         tests::helpers::TestSetup,
-        types::TransactionWithStatusMeta,
+        types::{SyntheticBlockhash, TransactionWithStatusMeta},
     };
 
     fn build_v0_transaction(
@@ -3150,33 +3150,116 @@ mod tests {
     #[test]
     fn test_get_latest_blockhash() {
         let setup = TestSetup::new(SurfpoolFullRpc);
-        let res = setup
-            .rpc
-            .get_latest_blockhash(Some(setup.context.clone()), None)
-            .unwrap();
-        let expected_blockhash = setup
-            .context
-            .svm_locker
-            .0
-            .blocking_read()
-            .latest_blockhash();
-        let expected_last_valid_block_height = setup
-            .context
-            .svm_locker
-            .0
-            .blocking_read()
-            .latest_epoch_info
-            .block_height
-            + MAX_RECENT_BLOCKHASHES as u64;
-        assert_eq!(
-            res.value.blockhash,
-            expected_blockhash.to_string(),
-            "Latest blockhash does not match expected value"
-        );
-        assert_eq!(
-            res.value.last_valid_block_height, expected_last_valid_block_height,
-            "Last valid block height does not match expected value"
-        );
+
+        insert_test_blocks(&setup, 100..=150);
+
+        // processed commitment
+        {
+            let commitment = CommitmentConfig::processed();
+            let res = setup
+                .rpc
+                .get_latest_blockhash(
+                    Some(setup.context.clone()),
+                    Some(RpcContextConfig {
+                        commitment: Some(commitment.clone()),
+                        ..Default::default()
+                    }),
+                )
+                .unwrap();
+            let expected_blockhash = setup
+                .context
+                .svm_locker
+                .get_latest_blockhash(&commitment)
+                .unwrap();
+
+            let committed_slot = setup
+                .context
+                .svm_locker
+                .get_slot_for_commitment(&commitment);
+            let expected_last_valid_block_height = committed_slot + MAX_RECENT_BLOCKHASHES as u64;
+
+            assert_eq!(
+                res.value.blockhash,
+                expected_blockhash.to_string(),
+                "Latest blockhash does not match expected value"
+            );
+            assert_eq!(
+                res.value.last_valid_block_height, expected_last_valid_block_height,
+                "Last valid block height does not match expected value"
+            );
+        }
+
+        // confirmed commitment
+        {
+            let commitment = CommitmentConfig::confirmed();
+            let res = setup
+                .rpc
+                .get_latest_blockhash(
+                    Some(setup.context.clone()),
+                    Some(RpcContextConfig {
+                        commitment: Some(commitment.clone()),
+                        ..Default::default()
+                    }),
+                )
+                .unwrap();
+            let expected_blockhash = setup
+                .context
+                .svm_locker
+                .get_latest_blockhash(&commitment)
+                .unwrap();
+
+            let committed_slot = setup
+                .context
+                .svm_locker
+                .get_slot_for_commitment(&commitment);
+            let expected_last_valid_block_height = committed_slot + MAX_RECENT_BLOCKHASHES as u64;
+
+            assert_eq!(
+                res.value.blockhash,
+                expected_blockhash.to_string(),
+                "Latest blockhash does not match expected value"
+            );
+            assert_eq!(
+                res.value.last_valid_block_height, expected_last_valid_block_height,
+                "Last valid block height does not match expected value"
+            );
+        }
+
+        // confirmed finalized
+        {
+            let commitment = CommitmentConfig::finalized();
+            let res = setup
+                .rpc
+                .get_latest_blockhash(
+                    Some(setup.context.clone()),
+                    Some(RpcContextConfig {
+                        commitment: Some(commitment.clone()),
+                        ..Default::default()
+                    }),
+                )
+                .unwrap();
+            let expected_blockhash = setup
+                .context
+                .svm_locker
+                .get_latest_blockhash(&commitment)
+                .unwrap();
+
+            let committed_slot = setup
+                .context
+                .svm_locker
+                .get_slot_for_commitment(&commitment);
+            let expected_last_valid_block_height = committed_slot + MAX_RECENT_BLOCKHASHES as u64;
+
+            assert_eq!(
+                res.value.blockhash,
+                expected_blockhash.to_string(),
+                "Latest blockhash does not match expected value"
+            );
+            assert_eq!(
+                res.value.last_valid_block_height, expected_last_valid_block_height,
+                "Last valid block height does not match expected value"
+            );
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -3302,25 +3385,7 @@ mod tests {
     async fn test_get_blocks_with_limit() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-
-            for slot in 100..=110 {
-                svm_writer.blocks.insert(
-                    slot,
-                    BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot - 1),
-                        block_time: chrono::Utc::now().timestamp_millis(),
-                        block_height: slot,
-                        parent_slot: slot.saturating_sub(1),
-                        signatures: Vec::new(),
-                    },
-                );
-            }
-
-            svm_writer.latest_epoch_info.absolute_slot = 110;
-        }
+        insert_test_blocks(&setup, 100..=110);
 
         let result = setup
             .rpc
@@ -3335,25 +3400,7 @@ mod tests {
     async fn test_get_blocks_with_limit_exceeds_available() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-
-            for slot in [100, 101, 102] {
-                svm_writer.blocks.insert(
-                    slot,
-                    BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot - 1),
-                        block_time: chrono::Utc::now().timestamp_millis(),
-                        block_height: slot,
-                        parent_slot: slot.saturating_sub(1),
-                        signatures: Vec::new(),
-                    },
-                );
-            }
-
-            svm_writer.latest_epoch_info.absolute_slot = 102;
-        }
+        insert_test_blocks(&setup, 100..=102);
 
         let result = setup
             .rpc
@@ -3368,26 +3415,7 @@ mod tests {
     async fn test_get_blocks_with_limit_commitment_levels() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-
-            // Create blocks for slots 80-120
-            for slot in 80..=120 {
-                svm_writer.blocks.insert(
-                    slot,
-                    BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot - 1),
-                        block_time: chrono::Utc::now().timestamp_millis(),
-                        block_height: slot,
-                        parent_slot: slot.saturating_sub(1),
-                        signatures: Vec::new(),
-                    },
-                );
-            }
-
-            svm_writer.latest_epoch_info.absolute_slot = 120;
-        }
+        insert_test_blocks(&setup, 80..=120);
 
         // Test processed commitment (latest = 120)
         let processed_result = setup
@@ -3448,26 +3476,10 @@ mod tests {
     async fn test_get_blocks_with_limit_sparse_blocks() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-
-            // sparse blocks -> not every slot has a block
-            for slot in [100, 103, 105, 107, 109, 112, 115, 118, 120, 122] {
-                svm_writer.blocks.insert(
-                    slot,
-                    BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot - 1),
-                        block_time: chrono::Utc::now().timestamp_millis(),
-                        block_height: slot,
-                        parent_slot: slot.saturating_sub(1),
-                        signatures: Vec::new(),
-                    },
-                );
-            }
-
-            svm_writer.latest_epoch_info.absolute_slot = 125;
-        }
+        insert_test_blocks(
+            &setup,
+            vec![100, 103, 105, 107, 109, 112, 115, 118, 120, 122],
+        );
 
         let result = setup
             .rpc
@@ -3503,25 +3515,7 @@ mod tests {
     async fn test_get_blocks_with_limit_large_limit() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-
-            for slot in 0..1000 {
-                svm_writer.blocks.insert(
-                    slot,
-                    BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot.saturating_sub(1)),
-                        block_time: chrono::Utc::now().timestamp_millis(),
-                        block_height: slot,
-                        parent_slot: slot.saturating_sub(1),
-                        signatures: Vec::new(),
-                    },
-                );
-            }
-
-            svm_writer.latest_epoch_info.absolute_slot = 999;
-        }
+        insert_test_blocks(&setup, 0..1000);
 
         let result = setup
             .rpc
@@ -3546,25 +3540,11 @@ mod tests {
         // basic functionality with explicit start and end slots
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
+        insert_test_blocks(&setup, 100..=102);
 
-            for slot in 100..=102 {
-                svm_writer.blocks.insert(
-                    slot,
-                    BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot - 1),
-                        block_time: chrono::Utc::now().timestamp_millis(),
-                        block_height: slot,
-                        parent_slot: slot.saturating_sub(1),
-                        signatures: Vec::new(),
-                    },
-                );
-            }
-
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
             svm_writer.latest_epoch_info.absolute_slot = 150;
-        }
+        });
 
         let result = setup
             .rpc
@@ -3584,25 +3564,7 @@ mod tests {
     async fn test_get_blocks_no_end_slot() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-
-            for slot in 100..=105 {
-                svm_writer.blocks.insert(
-                    slot,
-                    BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot - 1),
-                        block_time: chrono::Utc::now().timestamp_millis(),
-                        block_height: slot,
-                        parent_slot: slot.saturating_sub(1),
-                        signatures: Vec::new(),
-                    },
-                );
-            }
-
-            svm_writer.latest_epoch_info.absolute_slot = 105;
-        }
+        insert_test_blocks(&setup, 100..=105);
 
         // test without end slot - should return up to committed latest
         let result = setup
@@ -3629,25 +3591,7 @@ mod tests {
     async fn test_get_blocks_commitment_levels() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-
-            for slot in 50..=100 {
-                svm_writer.blocks.insert(
-                    slot,
-                    BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot - 1),
-                        block_time: chrono::Utc::now().timestamp_millis(),
-                        block_height: slot,
-                        parent_slot: slot.saturating_sub(1),
-                        signatures: Vec::new(),
-                    },
-                );
-            }
-
-            svm_writer.latest_epoch_info.absolute_slot = 100;
-        }
+        insert_test_blocks(&setup, 50..=100);
 
         // processed commitment -> latest = 100
         let processed_result = setup
@@ -3708,23 +3652,7 @@ mod tests {
     async fn test_get_blocks_min_context_slot() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-            for slot in 100..=110 {
-                svm_writer.blocks.insert(
-                    slot,
-                    BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot - 1),
-                        block_time: chrono::Utc::now().timestamp_millis(),
-                        block_height: slot,
-                        parent_slot: slot.saturating_sub(1),
-                        signatures: Vec::new(),
-                    },
-                );
-            }
-            svm_writer.latest_epoch_info.absolute_slot = 110;
-        }
+        insert_test_blocks(&setup, 100..=110);
 
         // min_context_slot = 105 > 79, so should return MinContextSlotNotReached error
         let result = setup
@@ -3765,26 +3693,8 @@ mod tests {
     async fn test_get_blocks_sparse_blocks() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-
-            // sparse blocks (only some slots have blocks)
-            for slot in [100, 102, 105, 107, 110].iter() {
-                svm_writer.blocks.insert(
-                    *slot,
-                    BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot - 1),
-                        block_time: chrono::Utc::now().timestamp_millis(),
-                        block_height: *slot,
-                        parent_slot: slot.saturating_sub(1),
-                        signatures: Vec::new(),
-                    },
-                );
-            }
-
-            svm_writer.latest_epoch_info.absolute_slot = 150;
-        }
+        // sparse blocks (only some slots have blocks)
+        insert_test_blocks(&setup, vec![100, 102, 105, 107, 110]);
 
         let result = setup
             .rpc
@@ -3802,14 +3712,19 @@ mod tests {
     }
 
     // helper to insert blocks into the SVM at specific slots
-    fn insert_test_blocks(setup: &TestSetup<SurfpoolFullRpc>, slots: Vec<Slot>) {
+    fn insert_test_blocks<I>(setup: &TestSetup<SurfpoolFullRpc>, slots: I)
+    where
+        I: IntoIterator<Item = u64>,
+    {
+        let slots: Vec<u64> = slots.into_iter().collect();
         setup.context.svm_locker.with_svm_writer(|svm_writer| {
-            for slot in &slots {
+            for slot in slots.iter() {
                 svm_writer.blocks.insert(
                     *slot,
                     BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot.saturating_sub(1)),
+                        hash: SyntheticBlockhash::new(*slot).to_string(),
+                        previous_blockhash: SyntheticBlockhash::new(slot.saturating_sub(1))
+                            .to_string(),
                         block_time: chrono::Utc::now().timestamp_millis(),
                         block_height: *slot,
                         parent_slot: slot.saturating_sub(1),
@@ -3817,6 +3732,7 @@ mod tests {
                     },
                 );
             }
+            svm_writer.latest_epoch_info.absolute_slot = slots.into_iter().max().unwrap_or(0);
         });
     }
 
@@ -3824,7 +3740,7 @@ mod tests {
     async fn test_get_blocks_local_only() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        insert_test_blocks(&setup, (50..=100).collect());
+        insert_test_blocks(&setup, 50..=100);
 
         // request blocks 75-90 (all local)
         let result = setup
@@ -3846,7 +3762,7 @@ mod tests {
     async fn test_get_blocks_no_remote_context() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        insert_test_blocks(&setup, (50..=100).collect());
+        insert_test_blocks(&setup, 50..=100);
 
         let result = setup
             .rpc
@@ -3958,11 +3874,11 @@ mod tests {
     async fn test_get_blocks_all_below_range_mock_remote() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
+        insert_test_blocks(&setup, 100..=150);
+
         setup.context.svm_locker.with_svm_writer(|svm_writer| {
             svm_writer.latest_epoch_info.absolute_slot = 200; // set to 200 so all blocks are "committed"
         });
-
-        insert_test_blocks(&setup, (100..=150).collect());
 
         let (local_min, latest_slot) = setup.context.svm_locker.with_svm_reader(|svm_reader| {
             let min = svm_reader.blocks.keys().min().copied();
@@ -4235,27 +4151,7 @@ mod tests {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
         // Set up some block history to test commitment levels
-        {
-            let mut svm_writer = setup.context.svm_locker.0.write().await;
-
-            // Update the absolute slot to something higher to test commitment differences
-            svm_writer.latest_epoch_info.absolute_slot = 100;
-
-            // Add some block headers for different slots
-            for slot in 70..=100 {
-                svm_writer.blocks.insert(
-                    slot,
-                    BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot - 1),
-                        block_time: chrono::Utc::now().timestamp_millis(),
-                        block_height: slot,
-                        parent_slot: slot.saturating_sub(1),
-                        signatures: Vec::new(),
-                    },
-                );
-            }
-        }
+        insert_test_blocks(&setup, 70..=100);
 
         let recent_blockhash = setup
             .context
