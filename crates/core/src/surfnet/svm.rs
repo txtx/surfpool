@@ -66,15 +66,13 @@ use super::{
     SignatureSubscriptionType, remote::SurfnetRemoteClient,
 };
 
-/// Base string used for generating synthetic blockhashes
-const SURFNET_SAFEHASH_PREFIX: &str = "SURFNETxSAFEHASHx";
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
     surfnet::{LogsSubscriptionData, locker::is_supported_token_program},
     types::{
-        GeyserAccountUpdate, MintAccount, SurfnetTransactionStatus, TokenAccount,
-        TransactionWithStatusMeta,
+        GeyserAccountUpdate, MintAccount, SurfnetTransactionStatus, SyntheticBlockhash,
+        TokenAccount, TransactionWithStatusMeta,
     },
 };
 
@@ -424,33 +422,15 @@ impl SurfnetSvm {
         let latest_entry = recent_blockhashes_overriden
             .first()
             .expect("Latest blockhash not found");
-        // Create a new synthetic blockhash - SURFNETxSAFEHASHxxxxxxxxxxxxxxxxxxxxxxxxx28
-        // Create a string and decode it from base58 to get the raw bytes
-        let index_hex = format!("{:08x}", self.chain_tip.index)
-            .replace('0', "x") // Replace 0 with x
-            .replace('O', "x"); // Replace O with x
 
-        // Calculate how many 'x' characters we need to pad to reach a consistent length
-        let target_length = 43; // 43 base58 sequence leads us to 32 bytes
-        let padding_needed = target_length - SURFNET_SAFEHASH_PREFIX.len() - index_hex.len();
-        let padding = "x".repeat(padding_needed.max(0));
+        let new_synthetic_blockhash = SyntheticBlockhash::new(self.chain_tip.index);
 
-        let target_string = format!("{}{}{}", SURFNET_SAFEHASH_PREFIX, padding, index_hex);
-
-        let decoded_bytes = bs58::decode(&target_string).into_vec().unwrap_or_else(|_| {
-            // Fallback if decode fails
-            vec![0u8; 32]
-        });
-
-        let mut blockhash_bytes = [0u8; 32];
-        blockhash_bytes[..decoded_bytes.len().min(32)]
-            .copy_from_slice(&decoded_bytes[..decoded_bytes.len().min(32)]);
-        let new_synthetic_blockhash = Hash::new_from_array(blockhash_bytes);
         recent_blockhashes.push(IterItem(
             0,
-            &new_synthetic_blockhash,
+            new_synthetic_blockhash.hash(),
             latest_entry.fee_calculator.lamports_per_signature,
         ));
+
         // Append the previous blockhashes, ignoring the first one
         for (index, entry) in recent_blockhashes_backup.iter().enumerate() {
             if recent_blockhashes.len() >= MAX_ENTRIES {
@@ -467,7 +447,10 @@ impl SurfnetSvm {
             .set_sysvar(&RecentBlockhashes::from_iter(recent_blockhashes));
 
         let mut slot_hashes = self.inner.get_sysvar::<SlotHashes>();
-        slot_hashes.add(self.get_latest_absolute_slot() + 1, new_synthetic_blockhash);
+        slot_hashes.add(
+            self.get_latest_absolute_slot() + 1,
+            *new_synthetic_blockhash.hash(),
+        );
         self.inner.set_sysvar(&SlotHashes::new(&slot_hashes));
 
         BlockIdentifier::new(
@@ -1728,9 +1711,9 @@ mod tests {
             .replace('O', "x");
 
         let target_length = 43;
-        let padding_needed = target_length - SURFNET_SAFEHASH_PREFIX.len() - index_hex.len();
+        let padding_needed = target_length - SyntheticBlockhash::PREFIX.len() - index_hex.len();
         let padding = "x".repeat(padding_needed.max(0));
-        let target_string = format!("{}{}{}", SURFNET_SAFEHASH_PREFIX, padding, index_hex);
+        let target_string = format!("{}{}{}", SyntheticBlockhash::PREFIX, padding, index_hex);
 
         println!("Target string: {}", target_string);
 
