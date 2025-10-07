@@ -80,6 +80,7 @@ pub async fn start_local_surfnet_runloop(
             simnet.slot_time,
             &remote_rpc_client,
             simnet.instruction_profiling_enabled,
+            simnet.log_bytes_limit,
         )
         .await?;
 
