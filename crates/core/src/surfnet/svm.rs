@@ -65,7 +65,6 @@ use super::{
     GetAccountResult, GeyserEvent, SLOTS_PER_EPOCH, SignatureSubscriptionData,
     SignatureSubscriptionType, remote::SurfnetRemoteClient,
 };
-
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
