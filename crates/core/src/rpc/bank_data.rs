@@ -12,9 +12,8 @@ use solana_commitment_config::CommitmentConfig;
 use solana_epoch_schedule::EpochSchedule;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
-use crate::SURFPOOL_IDENTITY_PUBKEY;
-
 use super::{RunloopContext, State};
+use crate::SURFPOOL_IDENTITY_PUBKEY;
 
 #[rpc]
 pub trait BankData {
