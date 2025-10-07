@@ -76,6 +76,8 @@ impl TransactionWithStatusMeta {
             confirmation_status: Some(TransactionConfirmationStatus::Finalized),
         }
     }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         slot: u64,
         transaction: VersionedTransaction,
@@ -313,6 +315,8 @@ impl TransactionWithStatusMeta {
             }
         }
     }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn from_failure(
         slot: u64,
         transaction: VersionedTransaction,
@@ -691,9 +695,7 @@ impl TokenAccount {
                     "frozen" => spl_token_2022::state::AccountState::Frozen,
                     "initialized" => spl_token_2022::state::AccountState::Initialized,
                     _ => {
-                        return Err(SurfpoolError::invalid_token_account_state(
-                            &state.to_string(),
-                        ));
+                        return Err(SurfpoolError::invalid_token_account_state(state));
                     }
                 }
             }
@@ -703,9 +705,7 @@ impl TokenAccount {
                     "frozen" => spl_token::state::AccountState::Frozen,
                     "initialized" => spl_token::state::AccountState::Initialized,
                     _ => {
-                        return Err(SurfpoolError::invalid_token_account_state(
-                            &state.to_string(),
-                        ));
+                        return Err(SurfpoolError::invalid_token_account_state(state));
                     }
                 }
             }
@@ -722,7 +722,7 @@ pub enum MintAccount {
 
 impl MintAccount {
     pub fn unpack(bytes: &[u8]) -> SurfpoolResult<Self> {
-        if let Ok(mint) = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&bytes) {
+        if let Ok(mint) = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(bytes) {
             Ok(Self::SplToken2022(mint.base))
         } else if let Ok(mint) = spl_token_2022::state::Mint::unpack(bytes) {
             Ok(Self::SplToken2022(mint))

@@ -1686,7 +1686,7 @@ impl Full for SurfpoolFullRpc {
                                     ui_account = Some(
                                         svm_locker
                                             .account_to_rpc_keyed_account(
-                                                &*updated_pubkey,
+                                                updated_pubkey,
                                                 account,
                                                 &RpcAccountInfoConfig::default(),
                                                 None,
@@ -2349,7 +2349,7 @@ fn get_simulate_transaction_result(
         logs: Some(metadata.logs.clone()),
         replacement_blockhash,
         return_data: if metadata.return_data.program_id == system_program::id()
-            && metadata.return_data.data.len() == 0
+            && metadata.return_data.data.is_empty()
         {
             None
         } else {

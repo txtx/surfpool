@@ -8,7 +8,7 @@ use crate::types::{TimeTravelConfig, TimeTravelError};
 /// This module contains pure functions that calculate the new clock state when time traveling
 /// in a Solana network. These functions are extracted from the RPC implementation to make
 /// them testable and reusable.
-
+///
 /// Calculates the new clock state when traveling to an absolute timestamp.
 ///
 /// # Arguments
@@ -143,11 +143,7 @@ pub fn calculate_absolute_epoch_clock(
     }
 
     let new_absolute_slot = new_epoch * epoch_info.slots_in_epoch;
-    let time_jump_in_absolute_slots = if new_absolute_slot >= current_absolute_slot {
-        new_absolute_slot - current_absolute_slot
-    } else {
-        0 // Same epoch case
-    };
+    let time_jump_in_absolute_slots = new_absolute_slot.saturating_sub(current_absolute_slot);
     let time_jump_in_ms = time_jump_in_absolute_slots * slot_time;
     let timestamp_target = current_updated_at + time_jump_in_ms;
 

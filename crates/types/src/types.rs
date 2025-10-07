@@ -258,6 +258,7 @@ pub struct UiProfileResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "type", content = "accountChange")]
+#[allow(clippy::large_enum_variant)]
 pub enum UiAccountProfileState {
     Readonly,
     Writable(UiAccountChange),
@@ -282,7 +283,6 @@ pub enum UiAccountChange {
 ///
 /// Profile result 2 is from executing Ix 1 and Ix 2
 /// AccountProfileState::Writable(P, AccountChange::Update( UiAccount { lamports: 400, ...}, UiAccount { lamports: 500, ... }))
-
 pub mod profile_state_map {
     use super::*;
 
@@ -533,9 +533,7 @@ impl Default for SimnetConfig {
 
 impl SimnetConfig {
     pub fn get_sanitized_datasource_url(&self) -> Option<String> {
-        let Some(raw) = self.remote_rpc_url.as_ref() else {
-            return None;
-        };
+        let raw = self.remote_rpc_url.as_ref()?;
         let base = raw
             .split('?')
             .next()
@@ -799,7 +797,7 @@ impl<'de> Deserialize<'de> for UuidOrSignature {
     }
 }
 
-impl<'de> Serialize for UuidOrSignature {
+impl Serialize for UuidOrSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -850,15 +848,16 @@ pub struct FifoMap<K, V> {
     map: IndexMap<K, V>,
 }
 
+impl<K: std::hash::Hash + Eq, V> Default for FifoMap<K, V> {
+    fn default() -> Self {
+        Self::new(DEFAULT_PROFILING_MAP_CAPACITY)
+    }
+}
 impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
     pub fn new(capacity: usize) -> Self {
         Self {
             map: IndexMap::with_capacity(capacity),
         }
-    }
-
-    pub fn default() -> Self {
-        Self::new(DEFAULT_PROFILING_MAP_CAPACITY)
     }
 
     pub fn capacity(&self) -> usize {
