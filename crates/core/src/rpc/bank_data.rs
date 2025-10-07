@@ -12,8 +12,9 @@ use solana_commitment_config::CommitmentConfig;
 use solana_epoch_schedule::EpochSchedule;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
+use crate::SURFPOOL_IDENTITY_PUBKEY;
+
 use super::{RunloopContext, State};
-use crate::surfnet::SURFPOOL_IDENTITY_PUBKEY;
 
 #[rpc]
 pub trait BankData {
@@ -510,7 +511,7 @@ impl BankData for SurfpoolBankDataRpc {
             });
         }
 
-        Ok(vec![])
+        Ok(vec![SURFPOOL_IDENTITY_PUBKEY.to_string()])
     }
 
     fn get_block_production(

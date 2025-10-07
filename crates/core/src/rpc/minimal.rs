@@ -18,11 +18,9 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
+    SURFPOOL_IDENTITY_PUBKEY,
     rpc::{State, utils::verify_pubkey},
-    surfnet::{
-        FINALIZATION_SLOT_THRESHOLD, GetAccountResult, SURFPOOL_IDENTITY_PUBKEY,
-        locker::SvmAccessContext,
-    },
+    surfnet::{FINALIZATION_SLOT_THRESHOLD, GetAccountResult, locker::SvmAccessContext},
 };
 
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");

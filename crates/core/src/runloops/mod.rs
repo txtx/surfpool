@@ -148,7 +148,7 @@ pub async fn start_block_production_runloop(
     });
     let mut next_scheduled_expiry_check: Option<u64> =
         expiry_duration_ms.map(|expiry_val| Utc::now().timestamp_millis() as u64 + expiry_val);
-    let sigverify = true; // always verify signatures during block production 
+    let sigverify = true; // always verify signatures during block production
     loop {
         let mut do_produce_block = false;
 

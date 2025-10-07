@@ -41,6 +41,7 @@ use super::{
     utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
 };
 use crate::{
+    SURFPOOL_IDENTITY_PUBKEY,
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::{adjust_default_transaction_config, get_default_transaction_config},
     surfnet::{FINALIZATION_SLOT_THRESHOLD, GetTransactionResult, locker::SvmAccessContext},
@@ -1398,7 +1399,22 @@ impl Full for SurfpoolFullRpc {
     }
 
     fn get_cluster_nodes(&self, _meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
-        Ok(vec![])
+        Ok(vec![RpcContactInfo {
+            pubkey: SURFPOOL_IDENTITY_PUBKEY.to_string(),
+            gossip: None,
+            tvu: None,
+            tpu: None,
+            tpu_quic: None,
+            tpu_forwards: None,
+            tpu_forwards_quic: None,
+            tpu_vote: None,
+            serve_repair: None,
+            rpc: None,
+            pubsub: None,
+            version: None,
+            feature_set: None,
+            shred_version: None,
+        }])
     }
 
     fn get_recent_performance_samples(
