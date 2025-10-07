@@ -4002,7 +4002,25 @@ mod tests {
 
         let cluster_nodes = setup.rpc.get_cluster_nodes(Some(setup.context)).unwrap();
 
-        assert_eq!(cluster_nodes, vec![]);
+        assert_eq!(
+            cluster_nodes,
+            vec![RpcContactInfo {
+                pubkey: SURFPOOL_IDENTITY_PUBKEY.to_string(),
+                gossip: None,
+                tvu: None,
+                tpu: None,
+                tpu_quic: None,
+                tpu_forwards: None,
+                tpu_forwards_quic: None,
+                tpu_vote: None,
+                serve_repair: None,
+                rpc: None,
+                pubsub: None,
+                version: None,
+                feature_set: None,
+                shred_version: None,
+            }]
+        );
     }
 
     #[test]

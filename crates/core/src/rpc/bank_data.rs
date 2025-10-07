@@ -617,9 +617,10 @@ mod tests {
             .get_slot_leaders(Some(setup.context.clone()), 0, 10)
             .unwrap();
 
-        assert!(
-            result.is_empty(),
-            "Should return empty leaders in simulation"
+        assert_eq!(
+            result[0],
+            SURFPOOL_IDENTITY_PUBKEY.to_string(),
+            "Should only return on leader - itself"
         );
 
         // test with invalid limit
