@@ -25,8 +25,6 @@ pub mod locker;
 pub mod remote;
 pub mod svm;
 
-pub const SURFPOOL_IDENTITY_PUBKEY: Pubkey =
-    Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr");
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
 pub const SLOTS_PER_EPOCH: u64 = 432000;
 

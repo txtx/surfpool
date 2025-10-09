@@ -21,11 +21,15 @@ use crossbeam_channel::{Receiver, Sender};
 pub use jsonrpc_core;
 pub use jsonrpc_http_server;
 pub use litesvm;
+use solana_pubkey::Pubkey;
 pub use solana_rpc_client;
 use surfnet::{GeyserEvent, locker::SurfnetSvmLocker, svm::SurfnetSvm};
 use surfpool_types::{SimnetCommand, SubgraphCommand, SurfpoolConfig};
 use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
+
+pub const SURFPOOL_IDENTITY_PUBKEY: Pubkey =
+    Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr");
 
 pub async fn start_local_surfnet(
     surfnet_svm: SurfnetSvm,

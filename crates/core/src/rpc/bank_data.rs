@@ -13,7 +13,7 @@ use solana_epoch_schedule::EpochSchedule;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
 use super::{RunloopContext, State};
-use crate::surfnet::SURFPOOL_IDENTITY_PUBKEY;
+use crate::SURFPOOL_IDENTITY_PUBKEY;
 
 #[rpc]
 pub trait BankData {
@@ -510,7 +510,7 @@ impl BankData for SurfpoolBankDataRpc {
             });
         }
 
-        Ok(vec![])
+        Ok(vec![SURFPOOL_IDENTITY_PUBKEY.to_string()])
     }
 
     fn get_block_production(
@@ -617,9 +617,10 @@ mod tests {
             .get_slot_leaders(Some(setup.context.clone()), 0, 10)
             .unwrap();
 
-        assert!(
-            result.is_empty(),
-            "Should return empty leaders in simulation"
+        assert_eq!(
+            result[0],
+            SURFPOOL_IDENTITY_PUBKEY.to_string(),
+            "Should only return one leader - itself"
         );
 
         // test with invalid limit
