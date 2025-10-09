@@ -123,7 +123,7 @@ solana-rpc-client = { version = "2.3.8", default-features = false }
 solana-rpc-client-api = { version = "2.3.8", default-features = false }
 solana-runtime = { version = "2.3.8", default-features = false }
 solana-sdk-ids = { version = "2.2.1", default-features = false }
-solana-signature = { version = "2.3.0", default-features = false }
+solana-signature = { version = "2.3.0", default-features = false, features = ["rand"] }
 solana-signer = { version = "2.2.1", default-features = false }
 solana-slot-hashes = { version = "2.2.1", default-features = false }
 solana-system-interface = { version = "1.0.0", default-features = false }
@@ -153,16 +153,16 @@ surfpool-studio-ui = { path = "crates/studio", default-features = false }
 surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
 
-txtx-addon-kit = "0.4.9"
-txtx-addon-network-svm = { version = "0.3.9" }
-txtx-addon-network-svm-types = { version = "0.3.8" }
-txtx-cloud = { version = "0.1.12", features = [
+txtx-addon-kit = "0.4.10"
+txtx-addon-network-svm = { version = "0.3.10" }
+txtx-addon-network-svm-types = { version = "0.3.9" }
+txtx-cloud = { version = "0.1.13", features = [
     "clap",
     "toml",
 ], default-features = false }
-txtx-core = { version = "0.4.12" }
-txtx-gql = { version = "0.3.6" }
-txtx-supervisor-ui = { version = "0.2.8", default-features = false }
+txtx-core = { version = "0.4.13" }
+txtx-gql = { version = "0.3.7" }
+txtx-supervisor-ui = { version = "0.2.9", default-features = false }
 
 [patch.crates-io]
 ## Local
