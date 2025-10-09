@@ -620,7 +620,7 @@ mod tests {
         assert_eq!(
             result[0],
             SURFPOOL_IDENTITY_PUBKEY.to_string(),
-            "Should only return on leader - itself"
+            "Should only return one leader - itself"
         );
 
         // test with invalid limit
