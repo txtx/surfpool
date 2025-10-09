@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.10.8"
+version = "0.10.9"
 edition = "2024"
 description = "Surfpool is the best place to train before surfing Solana."
 license = "Apache-2.0"
