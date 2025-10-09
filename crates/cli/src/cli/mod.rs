@@ -202,7 +202,7 @@ pub struct StartSimnet {
     /// Disable instruction profiling (eg. surfpool start --disable-instruction-profiling)
     #[clap(long = "disable-instruction-profiling", action=ArgAction::SetTrue)]
     pub disable_instruction_profiling: bool,
-    /// The log level to use for simnet logs. Options are "trace", "debug", "info", "warn", "error". (eg. surfpool start --log-level debug)
+    /// The log level to use for simnet logs. Options are "trace", "debug", "info", "warn", "error", or "none". (eg. surfpool start --log-level debug)
     #[arg(long = "log-level", short = 'l', default_value = "info")]
     pub log_level: String,
     /// The directory to put simnet logs. (eg. surfpool start --log-path ./logs)
@@ -516,6 +516,7 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 cmd.disable_instruction_profiling = true;
                 cmd.no_studio = true;
                 cmd.no_tui = true;
+                cmd.log_level = "none".to_string();
             }
 
             if cmd.daemon {
@@ -532,7 +533,9 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 }
             }
 
-            setup_logger(&cmd.log_dir, None, "simnet", &cmd.log_level, cmd.no_tui)?;
+            if cmd.log_level.to_ascii_lowercase() != "none" {
+                setup_logger(&cmd.log_dir, None, "simnet", &cmd.log_level, cmd.no_tui)?;
+            }
 
             if cmd.daemon {
                 #[cfg(not(target_os = "windows"))]
