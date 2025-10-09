@@ -14,6 +14,7 @@ use txtx_core::{
     kit::{helpers::fs::FileLocation, indexmap::indexmap},
     manifest::{RunbookMetadata, WorkspaceManifest},
     templates::{TXTX_MANIFEST_TEMPLATE, build_manifest_data},
+    types::RunbookSources,
 };
 
 use crate::{cli::DEFAULT_SOLANA_KEYPAIR_PATH, types::Framework};
@@ -86,9 +87,64 @@ impl ProgramMetadata {
     }
 }
 
+pub fn scaffold_in_memory_iac(
+    framework: &Framework,
+    programs: &Vec<ProgramMetadata>,
+) -> Result<(String, RunbookSources, WorkspaceManifest), String> {
+    let mut deployment_runbook_src: String = String::new();
+
+    deployment_runbook_src.push_str(&get_interpolated_addon_template(
+        "input.rpc_api_url",
+        "input.network_id",
+    ));
+    deployment_runbook_src.push_str(&get_interpolated_localnet_signer_template(&format!(
+        "\"{}\"",
+        *DEFAULT_SOLANA_KEYPAIR_PATH
+    )));
+    for program_metadata in programs.iter() {
+        deployment_runbook_src.push_str(
+            &framework
+                .get_in_memory_interpolated_program_deployment_template(&program_metadata.name),
+        );
+
+        if let Some(subgraph_iac) = &framework
+            .get_interpolated_subgraph_template(
+                &program_metadata.name,
+                program_metadata.idl.as_ref(),
+            )
+            .ok()
+            .flatten()
+        {
+            deployment_runbook_src.push_str(&subgraph_iac);
+        }
+    }
+
+    let runbook_id = "deployment";
+    let mut manifest = WorkspaceManifest::new("memory".to_string());
+    let runbook = RunbookMetadata::new(runbook_id, runbook_id, Some("Deploy programs".to_string()));
+    manifest.runbooks.push(runbook);
+
+    manifest.environments.insert(
+        "localnet".into(),
+        indexmap! {
+            "network_id".to_string() => "localnet".to_string(),
+            "rpc_api_url".to_string() => format!("http://{}:{}", DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT),
+        },
+    );
+
+    let mut runbook_sources = RunbookSources::new();
+    runbook_sources.add_source(
+        runbook_id.to_string(),
+        FileLocation::working_dir(),
+        deployment_runbook_src,
+    );
+
+    Ok((runbook_id.into(), runbook_sources, manifest))
+}
+
 pub fn scaffold_iac_layout(
     framework: &Framework,
-    programs: Vec<ProgramMetadata>,
+    programs: &Vec<ProgramMetadata>,
     base_location: &FileLocation,
     auto_generate_runbooks: bool,
 ) -> Result<(), String> {
