@@ -176,6 +176,15 @@ pub trait SurfnetCheatcodes {
         pubkey: String,
         update: AccountUpdate,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
+    ///TODO:Add usage descreption
+    #[rpc(meta, name = "surfnet_setMultipleAccounts")]
+    fn set_multiple_accounts(
+        &self,
+        meta: Self::Metadata,
+        pubkeys_str: Vec<String>,
+        updates: Vec<AccountUpdate>,
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
+
 
     /// A "cheat code" method for developers to set or update a token account in Surfpool.
     ///
@@ -867,6 +876,83 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(latest_absolute_slot),
+                value: (),
+            })
+        })
+    }
+ fn set_multiple_accounts(
+        &self,
+        meta: Self::Metadata,
+        pubkeys_str: Vec<String>,
+        updates: Vec<AccountUpdate>,
+    ) -> BoxFuture<Result<RpcResponse<()>>> {
+        let pubkeys = match verify_pubkeys(&pubkeys_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        let mut updates_ext = Vec::with_capacity(updates.len());
+        for update in updates {
+            match update.to_account_ext() {
+                Ok(res) => updates_ext.push((update, res)),
+                Err(e) => return Box::pin(future::err(e)),
+            }
+        }
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            let SvmAccessContext {
+                slot,
+                inner: fetched_accounts,
+                ..
+            } = svm_locker
+                .get_multiple_accounts(&remote_ctx, &pubkeys, None)
+                .await?;
+
+            let mut accounts_to_set = Vec::with_capacity(pubkeys.len());
+
+            for (i, pubkey) in pubkeys.iter().enumerate() {
+                let (update, account_ext_opt) = &updates_ext[i];
+
+                let mut account_result =
+                    if let Some(account) = account_ext_opt {
+                        GetAccountResult::FoundAccount(*pubkey, account.clone(), true)
+                    } else if fetched_accounts[i].is_none() {
+                        // Lazy creation fallback with event logging (same as single-account path)
+                        let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(format!(
+                    "Account {pubkey} not found, creating a new account from default values"
+                )));
+                        GetAccountResult::FoundAccount(
+                            *pubkey,
+                            solana_account::Account {
+                                lamports: 0,
+                                owner: system_program::id(),
+                                executable: false,
+                                rent_epoch: 0,
+                                data: vec![],
+                            },
+                            true,
+                        )
+                    } else {
+                        fetched_accounts[i].clone()
+                    };
+
+                update.clone().apply_ext(&mut account_result)?;
+
+                accounts_to_set.push(account_result);
+            }
+
+            svm_locker.write_multiple_account_updates(&accounts_to_set);
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
                 value: (),
             })
         })
