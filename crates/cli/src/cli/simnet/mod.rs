@@ -22,17 +22,21 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 use surfpool_core::{start_local_surfnet, surfnet::svm::SurfnetSvm};
 use surfpool_types::{SanitizedConfig, SimnetCommand, SimnetEvent, SubgraphEvent};
-use txtx_core::kit::{
-    channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
-    types::frontend::BlockEvent,
+use txtx_core::{
+    kit::{
+        channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
+        types::frontend::BlockEvent,
+    },
+    manifest::WorkspaceManifest,
+    types::RunbookSources,
 };
 use txtx_gql::kit::{indexmap::IndexMap, types::frontend::LogLevel, uuid::Uuid};
 
 use super::{Context, ExecuteRunbook, StartSimnet};
 use crate::{
     http::start_subgraph_and_explorer_server,
-    runbook::{execute_runbook, handle_log_event},
-    scaffold::{detect_program_frameworks, scaffold_iac_layout},
+    runbook::{execute_in_memory_runbook, execute_on_disk_runbook, handle_log_event},
+    scaffold::{detect_program_frameworks, scaffold_iac_layout, scaffold_in_memory_iac},
     tui::{self, simnet::DisplayedUrl},
 };
 
@@ -433,33 +437,42 @@ async fn write_and_execute_iac(
             FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
         let mut txtx_manifest_location = base_location.clone();
         txtx_manifest_location.append_path("txtx.yml")?;
-        if !txtx_manifest_location.exists() {
+        let txtx_manifest_exists = txtx_manifest_location.exists();
+        let do_write_scaffold = !cmd.autopilot && !txtx_manifest_exists;
+        if do_write_scaffold {
             // Scaffold IaC
             scaffold_iac_layout(
                 &framework,
-                programs,
+                &programs,
                 &base_location,
                 cmd.skip_runbook_generation_prompts,
             )?;
         }
 
-        let mut futures = vec![];
-        let runbooks_ids_to_execute = cmd.runbooks.clone();
-        let simnet_events_tx_copy = simnet_events_tx.clone();
-        for runbook_id in runbooks_ids_to_execute.iter() {
-            futures.push(execute_runbook(
-                progress_tx.clone(),
-                simnet_events_tx_copy.clone(),
-                ExecuteRunbook::default_localnet(runbook_id)
-                    .with_manifest_path(txtx_manifest_location.to_string()),
-                false,
-            ));
-        }
+        // If there were existing on-disk runbooks, we'll execute those instead of in-memory ones
+        // If there were no existing runbooks and the user requested autopilot, we'll generate and execute in-memory runbooks
+        // If there were no existing runbooks and the user did not request autopilot, we'll generate and execute on-disk runbooks
+        let do_execute_in_memory_runbooks = cmd.autopilot && !txtx_manifest_exists;
+
+        let mut on_disk_runbook_data = None;
+        let mut in_memory_runbook_data = None;
+        if do_execute_in_memory_runbooks {
+            in_memory_runbook_data = Some(scaffold_in_memory_iac(&framework, &programs)?);
+        } else {
+            let runbooks_ids_to_execute = cmd.runbooks.clone();
+            on_disk_runbook_data = Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
+        };
+        let futures = assemble_runbook_execution_futures(
+            &progress_tx,
+            &simnet_events_tx,
+            &on_disk_runbook_data,
+            &in_memory_runbook_data,
+        );
 
         let simnet_events_tx = simnet_events_tx.clone();
         let _handle = hiro_system_kit::thread_named("Deployment Runbook Executions")
             .spawn(move || {
-                let _ = hiro_system_kit::nestable_block_on(join_all(futures));
+                let _ = hiro_system_kit::nestable_block_on(join_all(futures.into_iter()));
                 Ok::<(), String>(())
             })
             .map_err(|e| format!("Thread to execute runbooks exited: {}", e))?;
@@ -510,16 +523,13 @@ async fn write_and_execute_iac(
                             continue;
                         }
 
-                        let mut futures = vec![];
-                        for runbook_id in runbooks_ids_to_execute.iter() {
-                            futures.push(execute_runbook(
-                                progress_tx.clone(),
-                                simnet_events_tx.clone(),
-                                ExecuteRunbook::default_localnet(runbook_id)
-                                    .with_manifest_path(txtx_manifest_location.to_string()),
-                                false,
-                            ));
-                        }
+                        let futures = assemble_runbook_execution_futures(
+                            &progress_tx,
+                            &simnet_events_tx,
+                            &on_disk_runbook_data,
+                            &in_memory_runbook_data,
+                        );
+
                         let _ = hiro_system_kit::nestable_block_on(join_all(futures));
                     }
                     Ok::<(), String>(())
@@ -528,4 +538,49 @@ async fn write_and_execute_iac(
         }
     }
     Ok(progress_rx)
+}
+
+fn assemble_runbook_execution_futures(
+    progress_tx: &Sender<BlockEvent>,
+    simnet_events_tx: &Sender<SimnetEvent>,
+    on_disk_runbook_data: &Option<(FileLocation, Vec<String>)>,
+    in_memory_runbook_data: &Option<(String, RunbookSources, WorkspaceManifest)>,
+) -> Vec<std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>> {
+    let mut futures: Vec<
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>,
+    > = vec![];
+    let simnet_events_tx_copy = simnet_events_tx.clone();
+    let do_setup_logger = false;
+    if let Some((runbook_id, runbook_sources, manifest)) = in_memory_runbook_data {
+        // Clone owned values so all arguments are 'static
+        let runbook_id_owned = runbook_id.clone();
+        let runbook_sources_owned = runbook_sources.clone();
+        let manifest_owned = manifest.clone();
+        futures.push(Box::pin(execute_in_memory_runbook(
+            progress_tx.clone(),
+            simnet_events_tx_copy.clone(),
+            ExecuteRunbook::default_localnet(&runbook_id_owned),
+            do_setup_logger,
+            runbook_id_owned,
+            manifest_owned,
+            runbook_sources_owned,
+        )));
+    }
+
+    if let Some((file_location, runbooks_ids_to_execute)) = on_disk_runbook_data {
+        let file_location_owned = file_location.clone();
+        let runbooks_ids_to_execute_owned = runbooks_ids_to_execute.clone();
+        let simnet_events_tx_copy = simnet_events_tx.clone();
+        for runbook_id in runbooks_ids_to_execute_owned.iter() {
+            let runbook_id_owned = runbook_id.clone();
+            futures.push(Box::pin(execute_on_disk_runbook(
+                progress_tx.clone(),
+                simnet_events_tx_copy.clone(),
+                ExecuteRunbook::default_localnet(&runbook_id_owned)
+                    .with_manifest_path(file_location_owned.to_string()),
+                do_setup_logger,
+            )));
+        }
+    }
+    futures
 }

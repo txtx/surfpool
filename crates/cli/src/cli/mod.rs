@@ -221,6 +221,10 @@ pub struct StartSimnet {
     /// Start surfpool with some CI adequate settings  (eg. surfpool start --ci)
     #[clap(long = "ci", action=ArgAction::SetTrue, default_value = "false")]
     pub ci: bool,
+    /// Apply suggested defaults for runbook generation and execution.
+    /// This includes executing any deployment runbooks, and generating in-memory deployment runbooks if none exist. (eg. surfpool start --autopilot)
+    #[clap(long = "autopilot", action=ArgAction::SetTrue, default_value = "false")]
+    pub autopilot: bool,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -453,7 +457,7 @@ impl ExecuteRunbook {
             unsupervised: true,
             web_console: false,
             term_console: false,
-            output_json: Some(Some("runbook-outputs".to_string())),
+            output_json: Some(Some(".surfpool/runbook-outputs".to_string())),
             output: None,
             explain: false,
             #[cfg(feature = "supervisor_ui")]

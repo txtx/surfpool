@@ -19,7 +19,7 @@ use txtx_core::{
         RunbookStateLocation, WorkspaceManifest,
         file::{read_runbook_from_location, read_runbooks_from_manifest},
     },
-    runbook::{ConsolidatedChanges, SynthesizedChange},
+    runbook::{ConsolidatedChanges, RunbookTopLevelInputsMap, SynthesizedChange},
     start_supervised_runbook_runloop, start_unsupervised_runbook_runloop,
     std::StdAddon,
     types::{Runbook, RunbookSnapshotContext, RunbookSources},
@@ -28,6 +28,7 @@ use txtx_core::{
 use txtx_gql::kit::{
     indexmap::IndexMap,
     types::{
+        RunbookId,
         cloud_interface::CloudServiceContext,
         frontend::{LogDetails, LogEvent, LogLevel, TransientLogEventStatus},
         types::{AddonJsonConverter, Value},
@@ -114,7 +115,7 @@ pub async fn handle_execute_runbook_command(cmd: ExecuteRunbook) -> Result<(), S
         }
     });
 
-    execute_runbook(progress_tx, simnet_events_tx, cmd, true).await?;
+    execute_on_disk_runbook(progress_tx, simnet_events_tx, cmd, true).await?;
 
     Ok(())
 }
@@ -130,7 +131,31 @@ pub async fn load_runbook_from_file_path(
     Ok((runbook_name, runbook, runbook_sources))
 }
 
-pub async fn execute_runbook(
+pub async fn execute_in_memory_runbook(
+    progress_tx: Sender<BlockEvent>,
+    simnet_events_tx: crossbeam::channel::Sender<SimnetEvent>,
+    cmd: ExecuteRunbook,
+    do_setup_logger: bool,
+    runbook_id: String,
+    manifest: WorkspaceManifest,
+    runbook_sources: RunbookSources,
+) -> Result<(), String> {
+    let runbook = Runbook::new(RunbookId::new(None, None, &runbook_id), None);
+    execute_runbook(
+        progress_tx,
+        simnet_events_tx,
+        cmd,
+        do_setup_logger,
+        runbook_id,
+        manifest,
+        runbook,
+        runbook_sources,
+        None,
+    )
+    .await
+}
+
+pub async fn execute_on_disk_runbook(
     progress_tx: Sender<BlockEvent>,
     simnet_events_tx: crossbeam::channel::Sender<SimnetEvent>,
     cmd: ExecuteRunbook,
@@ -141,8 +166,7 @@ pub async fn execute_runbook(
     let runbook_selector = vec![runbook_id.clone()];
     let mut runbooks =
         read_runbooks_from_manifest(&manifest, &cmd.environment, Some(&runbook_selector))?;
-
-    let (mut runbook, runbook_sources, _, runbook_state_location) =
+    let (runbook, runbook_sources, _, runbook_state_location) =
         match runbooks.swap_remove(&runbook_id) {
             Some(res) => res,
             None => {
@@ -151,8 +175,39 @@ pub async fn execute_runbook(
                 (runbook, sources, runbook_name, None)
             }
         };
+    execute_runbook(
+        progress_tx,
+        simnet_events_tx,
+        cmd,
+        do_setup_logger,
+        runbook_id,
+        manifest,
+        runbook,
+        runbook_sources,
+        runbook_state_location,
+    )
+    .await
+}
 
-    let top_level_inputs_map = manifest.get_runbook_inputs(&cmd.environment, &cmd.inputs, None)?;
+pub async fn execute_runbook(
+    progress_tx: Sender<BlockEvent>,
+    simnet_events_tx: crossbeam::channel::Sender<SimnetEvent>,
+    cmd: ExecuteRunbook,
+    do_setup_logger: bool,
+    runbook_id: String,
+    manifest: WorkspaceManifest,
+    mut runbook: Runbook,
+    runbook_sources: RunbookSources,
+    runbook_state_location: Option<RunbookStateLocation>,
+) -> Result<(), String> {
+    let top_level_inputs_map = manifest
+        .get_runbook_inputs(&cmd.environment, &cmd.inputs, None)
+        .unwrap_or_else(|_| RunbookTopLevelInputsMap::new());
+
+    let authorization_context = manifest
+        .location
+        .map(|l| AuthorizationContext::new(l))
+        .unwrap_or_else(|| AuthorizationContext::empty());
 
     if do_setup_logger {
         setup_logger(
@@ -164,7 +219,6 @@ pub async fn execute_runbook(
         )?;
     }
 
-    let authorization_context = AuthorizationContext::new(manifest.location.clone().unwrap());
     let cloud_svc_context = CloudServiceContext::new(Some(Arc::new(
         TxtxAuthenticatedCloudServiceRouter::new(DEFAULT_ID_SVC_URL),
     )));
