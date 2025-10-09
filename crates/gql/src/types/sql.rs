@@ -7,6 +7,7 @@ use surfpool_db::{
         self, ExpressionMethods, QueryDsl, RunQueryDsl,
         deserialize::{self, FromSql},
         r2d2::{ConnectionManager, Pool},
+        result::DatabaseErrorKind,
         sql_query,
         sql_types::{Bool, Integer, Text, Untyped},
     },
@@ -285,7 +286,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         request: &SubgraphRequest,
         worker_id: &Uuid,
     ) -> Result<(), String> {
-        let SubgraphRequest::V0(request) = request;
+        let SubgraphRequest::V0(request_v0) = request;
         let mut conn = self.get().expect("unable to connect to db");
 
         // 2. Create a new entries table for this subgraph, using the schema to determine the fields
@@ -309,9 +310,13 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             columns.join(",\n    ")
         );
 
-        sql_query(&create_entries_sql)
-            .execute(&mut *conn)
-            .map_err(|e| format!("Failed to create entries table: {e}"))?;
+        match sql_query(&create_entries_sql).execute(&mut *conn) {
+            Ok(_)
+            | Err(diesel::result::Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to create entries table: {}", e)),
+        }?;
         // let schema_json = serde_json::to_string(request)
         //     .map_err(|e| format!("Failed to serialize schema: {e}"))?;
         let schema_json = serde_json::to_string(request).expect("Failed to serialize schema");
@@ -325,13 +330,17 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             &metadata.table_name,
             &metadata.workspace_slug,
             schema_json,
-            request.slot,
+            request_v0.slot,
             worker_id
         );
 
-        sql_query(&sql)
-            .execute(&mut *conn)
-            .map_err(|e| format!("Failed to insert subgraph: {e}"))?;
+        match sql_query(&sql).execute(&mut *conn) {
+            Ok(_)
+            | Err(diesel::result::Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to create entries table: {}", e)),
+        }?;
 
         Ok(())
     }

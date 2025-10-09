@@ -602,7 +602,8 @@ pub struct SubgraphPluginConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct SvmSimnetInitializationRequest {
+#[serde(rename_all = "snake_case")]
+pub struct CreateSurfnetRequest {
     pub domain: String,
     pub block_production_mode: BlockProductionMode,
     pub datasource_rpc_url: String,
@@ -610,16 +611,37 @@ pub struct SvmSimnetInitializationRequest {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
 pub struct CloudSurfnetSettings {
     pub profiling_disabled: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum SvmSimnetCommand {
-    Init(SvmSimnetInitializationRequest),
+#[serde(rename_all = "snake_case")]
+pub struct CreateSubgraphRequest {
+    pub subgraph_id: Uuid,
+    pub subgraph_revision_id: Uuid,
+    pub revision_number: i32,
+    pub start_block: i64,
+    pub network: String,
+    pub workspace_slug: String,
+    pub request: SubgraphRequest,
+    pub settings: Option<CloudSubgraphSettings>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub struct CloudSubgraphSettings {}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum SvmCloudCommand {
+    CreateSurfnet(CreateSurfnetRequest),
+    CreateSubgraph(CreateSubgraphRequest),
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct CreateNetworkRequest {
     pub workspace_id: Uuid,
     pub name: String,
