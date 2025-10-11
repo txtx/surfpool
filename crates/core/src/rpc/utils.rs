@@ -16,9 +16,10 @@ use solana_hash::Hash;
 use solana_packet::PACKET_DATA_SIZE;
 use solana_pubkey::{ParsePubkeyError, Pubkey};
 use solana_signature::Signature;
+use solana_message::{AccountKeys, VersionedMessage};
 use solana_transaction_status::{
-    InnerInstruction, InnerInstructions, TransactionBinaryEncoding, UiInnerInstructions,
-    UiTransactionEncoding,
+    parse_ui_inner_instructions, InnerInstruction, InnerInstructions, TransactionBinaryEncoding,
+    UiInnerInstructions, UiTransactionEncoding,
 };
 
 use crate::error::{SurfpoolError, SurfpoolResult};
@@ -179,7 +180,14 @@ where
         .map(|output| (wire_output, output))
 }
 
-pub fn transform_tx_metadata_to_ui_accounts(meta: TransactionMetadata) -> Vec<UiInnerInstructions> {
+pub fn transform_tx_metadata_to_ui_accounts(
+    meta: TransactionMetadata,
+    message: &VersionedMessage,
+    loaded_addresses: Option<&solana_message::v0::LoadedAddresses>,
+) -> Vec<UiInnerInstructions> {
+    // Create AccountKeys from the transaction message with loaded addresses from ALTs
+    let account_keys = AccountKeys::new(message.static_account_keys(), loaded_addresses);
+
     meta.inner_instructions
         .into_iter()
         .enumerate()
@@ -194,13 +202,13 @@ pub fn transform_tx_metadata_to_ui_accounts(meta: TransactionMetadata) -> Vec<Ui
             if instructions.is_empty() {
                 None
             } else {
-                Some(
-                    InnerInstructions {
-                        index: i as u8,
-                        instructions,
-                    }
-                    .into(),
-                )
+                // Create InnerInstructions and then parse it into UiInnerInstructions
+                // This will properly convert CompiledInstruction to UiInstruction format
+                let inner_instructions = InnerInstructions {
+                    index: i as u8,
+                    instructions,
+                };
+                Some(parse_ui_inner_instructions(inner_instructions, &account_keys))
             }
         })
         .collect()
