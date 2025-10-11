@@ -1525,6 +1525,8 @@ impl Full for SurfpoolFullRpc {
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding)?;
         let signatures = unsanitized_tx.signatures.clone();
         let signature = signatures[0];
+        // Clone the message before moving the transaction, as we'll need it for error reporting
+        let tx_message = unsanitized_tx.message.clone();
         let Some(ctx) = meta else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
@@ -1554,6 +1556,8 @@ impl Full for SurfpoolFullRpc {
                             Some(error.clone()),
                             None,
                             false,
+                            &tx_message,
+                            None, // No loaded addresses available in error reporting context
                         ))
                         .map_err(|e| {
                             Error::invalid_params(format!(
@@ -1667,6 +1671,9 @@ impl Full for SurfpoolFullRpc {
 
             svm_locker.write_multiple_account_updates(&account_updates);
 
+            // Convert TransactionLoadedAddresses to LoadedAddresses before it gets consumed
+            let loaded_addresses_data = loaded_addresses.as_ref().map(|la| la.loaded_addresses());
+
             if let Some(alt_pubkeys) = loaded_addresses.map(|l| l.alt_addresses()) {
                 let alt_updates = svm_locker
                     .get_multiple_accounts(&remote_ctx, &alt_pubkeys, None)
@@ -1689,6 +1696,9 @@ impl Full for SurfpoolFullRpc {
             } else {
                 None
             };
+
+            // Clone the message before moving the transaction for later use in result formatting
+            let tx_message = unsanitized_tx.message.clone();
 
             let value = match svm_locker.simulate_transaction(unsanitized_tx, config.sig_verify) {
                 Ok(tx_info) => {
@@ -1721,6 +1731,8 @@ impl Full for SurfpoolFullRpc {
                         None,
                         replacement_blockhash,
                         config.inner_instructions,
+                        &tx_message,
+                        loaded_addresses_data.as_ref(),
                     )
                 }
                 Err(tx_info) => get_simulate_transaction_result(
@@ -1729,6 +1741,8 @@ impl Full for SurfpoolFullRpc {
                     Some(tx_info.err),
                     replacement_blockhash,
                     config.inner_instructions,
+                    &tx_message,
+                    loaded_addresses_data.as_ref(),
                 ),
             };
 
@@ -2353,12 +2367,18 @@ fn get_simulate_transaction_result(
     error: Option<TransactionError>,
     replacement_blockhash: Option<RpcBlockhash>,
     include_inner_instructions: bool,
+    message: &VersionedMessage,
+    loaded_addresses: Option<&solana_message::v0::LoadedAddresses>,
 ) -> RpcSimulateTransactionResult {
     RpcSimulateTransactionResult {
         accounts,
         err: error,
         inner_instructions: if include_inner_instructions {
-            Some(transform_tx_metadata_to_ui_accounts(metadata.clone()))
+            Some(transform_tx_metadata_to_ui_accounts(
+                metadata.clone(),
+                message,
+                loaded_addresses,
+            ))
         } else {
             None
         },
