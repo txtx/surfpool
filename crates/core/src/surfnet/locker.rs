@@ -331,8 +331,11 @@ impl SurfnetSvmLocker {
         })
     }
 
-    /// Retrieves multiple accounts, fetching missing ones from remote, returning a contextualized result.
-    pub async fn get_multiple_accounts_local_then_remote(
+    /// Retrieves multiple accounts from local storage, with remote fallback for missing accounts.
+    ///
+    /// Returns accounts in the same order as the input `pubkeys` array. Accounts found locally
+    /// are returned as-is; accounts not found locally are fetched from the remote RPC client.
+    pub async fn get_multiple_accounts_with_remote_fallback(
         &self,
         client: &SurfnetRemoteClient,
         pubkeys: &[Pubkey],
@@ -345,30 +348,54 @@ impl SurfnetSvmLocker {
             inner: local_results,
         } = self.get_multiple_accounts_local(pubkeys);
 
-        let mut missing_accounts = vec![];
-        let mut found_accounts = vec![];
-        for result in local_results.into_iter() {
-            if let GetAccountResult::None(pubkey) = result {
-                missing_accounts.push(pubkey)
-            } else {
-                found_accounts.push(result.clone());
-            }
-        }
+        // Collect missing pubkeys (local_results is already in correct order from pubkeys)
+        let missing_accounts: Vec<Pubkey> = local_results
+            .iter()
+            .filter_map(|result| match result {
+                GetAccountResult::None(pubkey) => Some(*pubkey),
+                _ => None,
+            })
+            .collect();
 
         if missing_accounts.is_empty() {
+            // All accounts found locally, already in correct order
             return Ok(SvmAccessContext::new(
                 slot,
                 latest_epoch_info,
                 latest_blockhash,
-                found_accounts,
+                local_results,
             ));
         }
 
-        let mut remote_results = client
+        // Fetch missing accounts from remote
+        let remote_results = client
             .get_multiple_accounts(&missing_accounts, commitment_config)
             .await?;
-        let mut combined_results = found_accounts.clone();
-        combined_results.append(&mut remote_results);
+
+        // Build map of pubkey -> remote result for O(1) lookup
+        let remote_map: HashMap<Pubkey, GetAccountResult> = missing_accounts
+            .into_iter()
+            .zip(remote_results.into_iter())
+            .collect();
+
+        // Replace None entries with remote results while preserving order
+        // We iterate through original pubkeys array to ensure order is explicit
+        let combined_results: Vec<GetAccountResult> = pubkeys
+            .iter()
+            .zip(local_results.into_iter())
+            .map(|(pubkey, local_result)| {
+                match local_result {
+                    GetAccountResult::None(_) => {
+                        // Replace with remote result if available
+                        remote_map
+                            .get(pubkey)
+                            .cloned()
+                            .unwrap_or(GetAccountResult::None(*pubkey))
+                    }
+                    found => found, // Keep found accounts (no clone, just move)
+                }
+            })
+            .collect();
 
         Ok(SvmAccessContext::new(
             slot,
@@ -386,7 +413,7 @@ impl SurfnetSvmLocker {
         factory: Option<AccountFactory>,
     ) -> SurfpoolContextualizedResult<Vec<GetAccountResult>> {
         let results = if let Some((remote_client, commitment_config)) = remote_ctx {
-            self.get_multiple_accounts_local_then_remote(remote_client, pubkeys, *commitment_config)
+            self.get_multiple_accounts_with_remote_fallback(remote_client, pubkeys, *commitment_config)
                 .await?
         } else {
             self.get_multiple_accounts_local(pubkeys)
@@ -501,7 +528,7 @@ impl SurfnetSvmLocker {
             combined.append(&mut remote_circulating_pubkeys);
 
             let get_account_results = self
-                .get_multiple_accounts_local_then_remote(client, &combined, commitment_config)
+                .get_multiple_accounts_with_remote_fallback(client, &combined, commitment_config)
                 .await?
                 .inner;
 
