@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
 use solana_account::Account;
+use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_response::{RpcLogsResponse, RpcResponseContext};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
@@ -24,7 +26,7 @@ use crate::{
         State,
         utils::{verify_pubkey, verify_pubkeys},
     },
-    surfnet::{GetAccountResult, locker::SvmAccessContext},
+    surfnet::{GetAccountResult, locker::SvmAccessContext, svm::AccountFixture},
     types::{TimeTravelConfig, TokenAccount},
 };
 
@@ -756,6 +758,54 @@ pub trait SurfnetCheatcodes {
         config: Option<ResetAccountConfig>,
     ) -> Result<RpcResponse<()>>;
 
+    /// A cheat code to export all accounts as fixtures for testing.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `encoding` (optional): The encoding to use for account data. Defaults to Base64.
+    ///   - `Base64`: Returns raw account data as base64 encoded strings
+    ///   - `JsonParsed`: Attempts to parse known account types (tokens, programs with IDLs, etc.)
+    ///
+    /// ## Returns
+    /// A `HashMap<String, AccountFixture>` where:
+    /// - Key: The account's public key as a base-58 string
+    /// - Value: An `AccountFixture` containing the account's full state
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_exportSnapshot",
+    ///   "params": ["base64"]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa": {
+    ///       "pubkey": "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa",
+    ///       "lamports": 1000000,
+    ///       "owner": "11111111111111111111111111111111",
+    ///       "executable": false,
+    ///       "rentEpoch": 0,
+    ///       "data": ["...", "base64"]
+    ///     }
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    /// 
+    #[rpc(meta, name = "surfnet_exportSnapshot")]
+    fn export_account_fixtures(
+        &self,
+        meta: Self::Metadata,
+        encoding: Option<UiAccountEncoding>,
+    ) -> Result<HashMap<String,AccountFixture> >;
+
     /// A cheat code to get Surfnet network information.
     ///
     /// ## Parameters
@@ -1337,6 +1387,21 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: GetSurfnetInfoResponse::new(runbook_executions),
         })
+    }
+
+    fn export_account_fixtures(
+        &self,
+        ctx: Option<RunloopContext>,
+        encoding: Option<UiAccountEncoding>,
+    ) -> Result<HashMap<String, AccountFixture>> {
+        let svm_locker = ctx.get_svm_locker()?;
+        let encoding = encoding.unwrap_or(UiAccountEncoding::Base64);
+        
+        let fixtures = svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader.export_accounts_as_fixtures(encoding)
+        });
+        
+        Ok(fixtures)
     }
 }
 

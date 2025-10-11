@@ -138,11 +138,25 @@ pub struct SurfnetSvm {
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
     pub runbook_executions: Vec<RunbookExecutionStatusReport>,
+    pub account_update_slots: HashMap<Pubkey, Slot>,
 }
 
 pub const FEATURE: Feature = Feature {
     activated_at: Some(0),
 };
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountFixture {
+    pub pubkey: String,
+    pub lamports: u64,
+    pub owner: String,
+    pub executable: bool,
+    pub rent_epoch: u64,
+    pub data: UiAccountData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parsed_data: Option<serde_json::Value>,
+    pub slot: Slot,
+}
 
 impl SurfnetSvm {
     /// Creates a new instance of `SurfnetSvm`.
@@ -211,6 +225,7 @@ impl SurfnetSvm {
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             runbook_executions: Vec::new(),
+            account_update_slots: HashMap::new(),
         };
 
         // Generate the initial synthetic blockhash
@@ -488,6 +503,8 @@ impl SurfnetSvm {
         self.inner
             .set_account(*pubkey, account.clone())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+
+        self.account_update_slots.insert(*pubkey, self.get_latest_absolute_slot());
 
         // Update the account registries and indexes
         self.update_account_registries(pubkey, &account)?;
@@ -1656,6 +1673,55 @@ impl SurfnetSvm {
             execution.mark_completed(error);
         }
     }
+
+    /// Export all accounts to a JSON file suitable for test fixtures
+    /// 
+    /// # Arguments
+    /// * `encoding` - The encoding to use for account data (Base64, JsonParsed, etc.)
+    /// 
+    /// # Returns
+    /// A HashMap of pubkey -> AccountFixture that can be serialized to JSON
+    pub fn export_accounts_as_fixtures(
+        &self,
+        encoding: UiAccountEncoding
+    ) -> HashMap<String, AccountFixture> {
+        let mut fixtures = HashMap::new();
+        let current_slot = self.get_latest_absolute_slot();
+
+        for(pubkey, account_shared_data) in self.iter_accounts() {
+            let account = Account::from(account_shared_data.clone());
+
+            let ui_account = self.encode_ui_account(
+                pubkey, 
+                &account, 
+                encoding, 
+                self.account_associated_data.get(pubkey).cloned(), 
+                None
+            );
+
+            let account_slot = self.account_update_slots
+                .get(pubkey)
+                .copied()
+                .unwrap_or_else(|| current_slot);
+
+            let fixture = AccountFixture {
+                pubkey: pubkey.to_string(),
+                lamports: ui_account.lamports,
+                owner: ui_account.owner,
+                executable: ui_account.executable,
+                rent_epoch: ui_account.rent_epoch,
+                data: ui_account.data.clone(),
+                parsed_data: match &ui_account.data {
+                    UiAccountData::Json(parsed) => Some(parsed.parsed.clone()),
+                    _ => None,
+                },
+                slot: account_slot,
+            };
+            fixtures.insert(pubkey.to_string(), fixture);
+        }
+        fixtures
+    }
+
 }
 
 #[cfg(test)]
@@ -2378,5 +2444,141 @@ mod tests {
         let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
         svm.set_profiling_map_capacity(10);
         assert_eq!(svm.executed_transaction_profiles.capacity(), 10);
+    }
+
+    #[test]
+    fn test_export_accounts_as_fixtures() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let pubkey1 = Pubkey::new_unique();
+        let account1 = Account {
+            lamports: 1_000_000,
+            data: vec![1, 2, 3, 4],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        svm.set_account(&pubkey1, account1.clone()).unwrap();
+
+        let pubkey2 = Pubkey::new_unique();
+        let account2 = Account {
+            lamports: 2_000_000,
+            data: vec![5, 6, 7, 8, 9],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        svm.set_account(&pubkey2, account2.clone()).unwrap();
+
+        // Export with Base64 encoding
+        let fixtures = svm.export_accounts_as_fixtures(UiAccountEncoding::Base64);
+
+        assert!(fixtures.contains_key(&pubkey1.to_string()));
+        assert!(fixtures.contains_key(&pubkey2.to_string()));
+
+        // Verify account details
+        let fixture1 = fixtures.get(&pubkey1.to_string()).unwrap();
+        assert_eq!(fixture1.pubkey, pubkey1.to_string());
+        assert_eq!(fixture1.lamports, 1_000_000);
+        assert_eq!(fixture1.owner, system_program::id().to_string());
+        assert_eq!(fixture1.executable, false);
+        assert_eq!(fixture1.rent_epoch, 0);
+        assert_eq!(fixture1.slot, svm.get_latest_absolute_slot());
+
+        // Verify the data is encoded as base64
+        match &fixture1.data {
+            UiAccountData::Binary(encoded, encoding) => {
+                assert_eq!(encoding, &UiAccountEncoding::Base64);
+                let decoded = general_purpose::STANDARD.decode(encoded).unwrap();
+                assert_eq!(decoded, vec![1, 2, 3, 4]);
+            }
+            _ => panic!("Expected Binary encoding"),
+        }
+    }
+
+    #[test]
+    fn test_export_accounts_as_fixtures_with_json_parsed() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        // Create a token account
+        let owner = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let token_account_pubkey = Pubkey::new_unique();
+
+        let mut token_account_data = [0u8; TokenAccount::LEN];
+        let token_account = TokenAccount {
+            mint,
+            owner,
+            amount: 1000,
+            delegate: COption::None,
+            state: AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 0,
+            close_authority: COption::None,
+        };
+        token_account.pack_into_slice(&mut token_account_data);
+
+        let account = Account {
+            lamports: 2_000_000,
+            data: token_account_data.to_vec(),
+            owner: spl_token::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        svm.set_account(&token_account_pubkey, account).unwrap();
+
+        let fixtures = svm.export_accounts_as_fixtures(UiAccountEncoding::JsonParsed);
+
+        let fixture = fixtures.get(&token_account_pubkey.to_string()).unwrap();
+        assert_eq!(fixture.pubkey, token_account_pubkey.to_string());
+        assert_eq!(fixture.lamports, 2_000_000);
+        assert_eq!(fixture.slot, svm.get_latest_absolute_slot());
+
+        assert!(fixture.parsed_data.is_some());
+    }
+
+    #[test]
+    fn test_export_accounts_at_different_slots() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let pubkey1 = Pubkey::new_unique();
+        let account1 = Account {
+            lamports: 1_000_000,
+            data: vec![1, 2, 3],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        
+        // Create first account at slot 0
+        let slot1 = svm.get_latest_absolute_slot();
+        svm.set_account(&pubkey1, account1).unwrap();
+
+        // Advance to next slot
+        svm.confirm_current_block().unwrap();
+
+        let pubkey2 = Pubkey::new_unique();
+        let account2 = Account {
+            lamports: 2_000_000,
+            data: vec![4, 5, 6],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        
+        // Create second account at slot 1
+        let slot2 = svm.get_latest_absolute_slot();
+        svm.set_account(&pubkey2, account2).unwrap();
+
+        // Export fixtures
+        let fixtures = svm.export_accounts_as_fixtures(UiAccountEncoding::Base64);
+
+        // Verify each account has its correct slot
+        let fixture1 = fixtures.get(&pubkey1.to_string()).unwrap();
+        assert_eq!(fixture1.slot, slot1);
+
+        let fixture2 = fixtures.get(&pubkey2.to_string()).unwrap();
+        assert_eq!(fixture2.slot, slot2);
     }
 }
