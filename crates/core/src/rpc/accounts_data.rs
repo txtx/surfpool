@@ -1,9 +1,16 @@
+use super::{RunloopContext, SurfnetRpcContext};
+use crate::{
+    error::{SurfpoolError, SurfpoolResult},
+    rpc::{utils::verify_pubkey, State},
+    surfnet::locker::{is_supported_token_program, SvmAccessContext},
+    types::{MintAccount, TokenAccount},
+};
 use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_account_decoder::{
-    UiAccount,
     parse_account_data::SplTokenAdditionalDataV2,
-    parse_token::{TokenAccountType, UiTokenAmount, parse_token_v3},
+    parse_token::{parse_token_v3, TokenAccountType, UiTokenAmount},
+    UiAccount,
 };
 use solana_client::{
     rpc_config::RpcAccountInfoConfig,
@@ -13,14 +20,7 @@ use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_runtime::commitment::BlockCommitmentArray;
-
-use super::{RunloopContext, SurfnetRpcContext};
-use crate::{
-    error::{SurfpoolError, SurfpoolResult},
-    rpc::{State, utils::verify_pubkey},
-    surfnet::locker::{SvmAccessContext, is_supported_token_program},
-    types::{MintAccount, TokenAccount},
-};
+use crate::surfnet::GetAccountResult;
 
 #[rpc]
 pub trait AccountsData {
@@ -156,7 +156,7 @@ pub trait AccountsData {
     /// - `config`: Optional configuration to control encoding, commitment level, data slicing, etc.
     ///
     /// ## Returns
-    /// A [`RpcResponse`] wrapping a vector of optional [`UiAccount`] objects.  
+    /// A [`RpcResponse`] wrapping a vector of optional [`UiAccount`] objects.
     /// Each element in the response corresponds to the public key at the same index in the request.
     /// If an account is not found, the corresponding entry will be `null`.
     ///
@@ -437,25 +437,41 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
             svm_locker.write_multiple_account_updates(&account_updates);
 
-            let mut ui_accounts = vec![];
-
+            // Build a map from pubkey to account result to preserve order
+            let mut account_map = std::collections::HashMap::new();
             for account_update in account_updates.into_iter() {
-                if let Some(((pubkey, account), token_data)) =
-                    account_update.map_account_with_token_data()
-                {
-                    ui_accounts.push(Some(
-                        svm_locker
-                            .account_to_rpc_keyed_account(
-                                &pubkey,
-                                &account,
-                                &config,
-                                token_data.map(|(mint, _)| mint),
-                            )
-                            .account,
-                    ));
+                let pubkey = match &account_update {
+                    GetAccountResult::None(key) => *key,
+                    GetAccountResult::FoundAccount(key, _, _) => *key,
+                    GetAccountResult::FoundProgramAccount((key, _), _) => *key,
+                    GetAccountResult::FoundTokenAccount((key, _), _) => *key
+                };
+                account_map.insert(pubkey, account_update);
+            }
+
+            // Iterate through original pubkeys array to preserve request order
+            let mut ui_accounts = vec![];
+            for pubkey in pubkeys.iter() {
+                if let Some(account_update) = account_map.remove(pubkey) {
+                    if let Some(((pubkey, account), token_data)) =
+                        account_update.map_account_with_token_data()
+                    {
+                        ui_accounts.push(Some(
+                            svm_locker
+                                .account_to_rpc_keyed_account(
+                                    &pubkey,
+                                    &account,
+                                    &config,
+                                    token_data.map(|(mint, _)| mint),
+                                )
+                                .account,
+                        ));
+                    } else {
+                        ui_accounts.push(None);
+                    }
                 } else {
                     ui_accounts.push(None);
-                };
+                }
             }
 
             Ok(RpcResponse {
@@ -680,7 +696,7 @@ mod tests {
     use solana_keypair::Keypair;
     use solana_program_option::COption;
     use solana_program_pack::Pack;
-    use solana_pubkey::Pubkey;
+    use solana_pubkey::{new_rand, Pubkey};
     use solana_signer::Signer;
     use solana_system_interface::instruction::create_account;
     use solana_transaction::Transaction;
@@ -692,7 +708,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        surfnet::{GetAccountResult, remote::SurfnetRemoteClient},
+        surfnet::{remote::SurfnetRemoteClient, GetAccountResult},
         tests::helpers::TestSetup,
         types::SyntheticBlockhash,
     };
@@ -1496,5 +1512,86 @@ mod tests {
         } else {
             panic!("destination account data was not in json parsed format");
         }
+    }
+
+    #[ignore = "requires-network"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_multiple_accounts_with_remote_preserves_order() {
+        // This test checks that order is preserved when mixing local and remote accounts
+        let mut setup = TestSetup::new(SurfpoolAccountsDataRpc);
+
+        // Add a remote client to trigger get_multiple_accounts_local_then_remote path
+        let remote_client = SurfnetRemoteClient::new("https://api.mainnet-beta.solana.com");
+        setup.context.remote_rpc_client = Some(remote_client);
+
+        // Create three accounts with different lamport amounts
+        let pk1 = new_rand();
+        let pk2 = new_rand();
+        let pk3 = new_rand();
+
+        println!("{}", pk1);
+        println!("{}", pk2);
+        println!("{}", pk3);
+
+        let account1 = Account {
+            lamports: 1_000_000,
+            data: vec![],
+            owner: solana_pubkey::Pubkey::default(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        let account3 = Account {
+            lamports: 3_000_000,
+            data: vec![],
+            owner: solana_pubkey::Pubkey::default(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        // Store only account1 and account3 locally (account2 will need remote fetch)
+        setup
+            .context
+            .svm_locker
+            .write_account_update(GetAccountResult::FoundAccount(pk1, account1, true));
+        setup
+            .context
+            .svm_locker
+            .write_account_update(GetAccountResult::FoundAccount(pk3, account3, true));
+
+        // Request accounts in order: [pk1, pk2, pk3]
+        // pk1 and pk3 are local, pk2 is missing (will try remote fetch and fail)
+        let pubkeys_str = vec![pk1.to_string(), pk2.to_string(), pk3.to_string()];
+
+        let response = setup
+            .rpc
+            .get_multiple_accounts(
+                Some(setup.context),
+                pubkeys_str,
+                Some(RpcAccountInfoConfig::default()),
+            )
+            .await
+            .unwrap();
+
+        // Verify we got 3 results
+        assert_eq!(response.value.len(), 3);
+
+        println!("{:?}", response);
+
+        // First account should be account1 with 1M lamports
+        assert!(response.value[0].is_some());
+        assert_eq!(response.value[0].as_ref().unwrap().lamports, 1_000_000,
+            "First element should be account1");
+
+        // Second account should be None (pk2 doesn't exist locally or remotely)
+        assert!(response.value[1].is_none(),
+            "Second element should be None for missing pk2");
+
+        // Third account should be account3 with 3M lamports
+        assert!(response.value[2].is_some());
+        assert_eq!(response.value[2].as_ref().unwrap().lamports, 3_000_000,
+            "Third element should be account3");
+
+        println!("✅ Account order preserved with remote: [1M lamports, None, 3M lamports]");
     }
 }
