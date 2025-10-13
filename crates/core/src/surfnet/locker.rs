@@ -413,8 +413,12 @@ impl SurfnetSvmLocker {
         factory: Option<AccountFactory>,
     ) -> SurfpoolContextualizedResult<Vec<GetAccountResult>> {
         let results = if let Some((remote_client, commitment_config)) = remote_ctx {
-            self.get_multiple_accounts_with_remote_fallback(remote_client, pubkeys, *commitment_config)
-                .await?
+            self.get_multiple_accounts_with_remote_fallback(
+                remote_client,
+                pubkeys,
+                *commitment_config,
+            )
+            .await?
         } else {
             self.get_multiple_accounts_local(pubkeys)
         };
