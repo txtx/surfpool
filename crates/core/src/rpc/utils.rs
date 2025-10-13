@@ -13,13 +13,13 @@ use solana_client::{
 };
 use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
+use solana_message::{AccountKeys, VersionedMessage};
 use solana_packet::PACKET_DATA_SIZE;
 use solana_pubkey::{ParsePubkeyError, Pubkey};
 use solana_signature::Signature;
-use solana_message::{AccountKeys, VersionedMessage};
 use solana_transaction_status::{
-    parse_ui_inner_instructions, InnerInstruction, InnerInstructions, TransactionBinaryEncoding,
-    UiInnerInstructions, UiTransactionEncoding,
+    InnerInstruction, InnerInstructions, TransactionBinaryEncoding, UiInnerInstructions,
+    UiTransactionEncoding, parse_ui_inner_instructions,
 };
 
 use crate::error::{SurfpoolError, SurfpoolResult};
@@ -208,7 +208,10 @@ pub fn transform_tx_metadata_to_ui_accounts(
                     index: i as u8,
                     instructions,
                 };
-                Some(parse_ui_inner_instructions(inner_instructions, &account_keys))
+                Some(parse_ui_inner_instructions(
+                    inner_instructions,
+                    &account_keys,
+                ))
             }
         })
         .collect()
