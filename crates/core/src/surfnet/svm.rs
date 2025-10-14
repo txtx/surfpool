@@ -1,6 +1,6 @@
 use std::{
     cmp::max,
-    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BinaryHeap, HashMap, HashSet, VecDeque},
     str::FromStr,
 };
 
@@ -1680,15 +1680,15 @@ impl SurfnetSvm {
     /// * `encoding` - The encoding to use for account data (Base64, JsonParsed, etc.)
     /// 
     /// # Returns
-    /// A HashMap of pubkey -> AccountFixture that can be serialized to JSON
+    /// A BTreeMap of pubkey -> AccountFixture that can be serialized to JSON.
     pub fn export_accounts_as_fixtures(
         &self,
         encoding: UiAccountEncoding
-    ) -> HashMap<String, AccountFixture> {
-        let mut fixtures = HashMap::new();
+    ) -> BTreeMap<String, AccountFixture> {
+        let mut fixtures = BTreeMap::new();
         let current_slot = self.get_latest_absolute_slot();
 
-        for(pubkey, account_shared_data) in self.iter_accounts() {
+        for (pubkey, account_shared_data) in self.iter_accounts() {
             let account = Account::from(account_shared_data.clone());
 
             let ui_account = self.encode_ui_account(
@@ -2470,7 +2470,7 @@ mod tests {
         };
         svm.set_account(&pubkey2, account2.clone()).unwrap();
 
-        // Export with Base64 encoding
+        // Export with base64 encoding
         let fixtures = svm.export_accounts_as_fixtures(UiAccountEncoding::Base64);
 
         assert!(fixtures.contains_key(&pubkey1.to_string()));

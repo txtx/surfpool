@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
@@ -761,10 +761,9 @@ pub trait SurfnetCheatcodes {
     /// A cheat code to export all accounts as fixtures for testing.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
-    /// - `encoding` (optional): The encoding to use for account data. Defaults to Base64.
-    ///   - `Base64`: Returns raw account data as base64 encoded strings
-    ///   - `JsonParsed`: Attempts to parse known account types (tokens, programs with IDLs, etc.)
+    /// - `encoding` (optional): The encoding to use for account data. Defaults to `"base64"`.
+    ///   - `"base64"`: Returns raw account data as base64 encoded strings
+    ///   - `"jsonParsed"`: Attempts to parse known account types (tokens, programs with IDLs, etc.)
     ///
     /// ## Returns
     /// A `HashMap<String, AccountFixture>` where:
@@ -804,7 +803,7 @@ pub trait SurfnetCheatcodes {
         &self,
         meta: Self::Metadata,
         encoding: Option<UiAccountEncoding>,
-    ) -> Result<HashMap<String,AccountFixture> >;
+    ) -> Result<BTreeMap<String, AccountFixture>>;
 
     /// A cheat code to get Surfnet network information.
     ///
@@ -1391,17 +1390,12 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
 
     fn export_account_fixtures(
         &self,
-        ctx: Option<RunloopContext>,
+        meta: Self::Metadata,
         encoding: Option<UiAccountEncoding>,
-    ) -> Result<HashMap<String, AccountFixture>> {
-        let svm_locker = ctx.get_svm_locker()?;
+    ) -> Result<BTreeMap<String, AccountFixture>> {
         let encoding = encoding.unwrap_or(UiAccountEncoding::Base64);
-        
-        let fixtures = svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.export_accounts_as_fixtures(encoding)
-        });
-        
-        Ok(fixtures)
+        meta.with_svm_reader(|svm_reader| svm_reader.export_accounts_as_fixtures(encoding))
+            .map_err(Into::into)
     }
 }
 
