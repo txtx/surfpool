@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
@@ -797,7 +798,7 @@ pub trait SurfnetCheatcodes {
     ///   "id": 1
     /// }
     /// ```
-    /// 
+    ///
     #[rpc(meta, name = "surfnet_exportSnapshot")]
     fn export_account_fixtures(
         &self,
