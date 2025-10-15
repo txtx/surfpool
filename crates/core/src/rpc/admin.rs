@@ -770,15 +770,71 @@ impl AdminRpc for SurfpoolAdminRpc {
 
     fn reload_plugin(
         &self,
-        _meta: Self::Metadata,
-        _name: String,
-        _config_file: String,
+        meta: Self::Metadata,
+        name: String,
+        config_file: String,
     ) -> BoxFuture<Result<()>> {
-        not_implemented_err_async("reload_plugin")
+        // Parse the UUID from the name parameter
+        let uuid = match Uuid::parse_str(&name) {
+            Ok(uuid) => uuid,
+            Err(e) => return Box::pin(async move {
+                Err(jsonrpc_core::Error::invalid_params(format!("Invalid UUID: {}", e)))
+            }),
+        };
+
+        // Parse the new configuration
+        let config = match serde_json::from_str::<PluginConfig>(&config_file)
+            .map_err(|e| format!("failed to deserialize plugin config: {e}"))
+        {
+            Ok(config) => config,
+            Err(e) => return Box::pin(async move { Err(jsonrpc_core::Error::invalid_params(&e)) }),
+        };
+
+        let Some(ctx) = meta else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let _ = ctx
+            .plugin_manager_commands_tx
+            .send(PluginManagerCommand::ReloadPlugin(uuid, config, tx));
+
+        let Ok(result) = rx.recv_timeout(Duration::from_secs(10)) else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        Box::pin(async move {
+            result
+                .map(|_| ())  // Convert Ok(String) to Ok(())
+                .map_err(|e| jsonrpc_core::Error::invalid_params(&e))
+        })
     }
 
-    fn unload_plugin(&self, _meta: Self::Metadata, _name: String) -> BoxFuture<Result<()>> {
-        not_implemented_err_async("unload_plugin")
+    fn unload_plugin(&self, meta: Self::Metadata, name: String) -> BoxFuture<Result<()>> {
+        // Parse the UUID from the name parameter
+        let uuid = match Uuid::parse_str(&name) {
+            Ok(uuid) => uuid,
+            Err(e) => return Box::pin(async move {
+                Err(jsonrpc_core::Error::invalid_params(format!("Invalid UUID: {}", e)))
+            }),
+        };
+
+        let Some(ctx) = meta else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let _ = ctx
+            .plugin_manager_commands_tx
+            .send(PluginManagerCommand::UnloadPlugin(uuid, tx));
+
+        let Ok(result) = rx.recv_timeout(Duration::from_secs(10)) else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        Box::pin(async move {
+            result.map_err(|e| jsonrpc_core::Error::invalid_params(&e))
+        })
     }
 
     fn load_plugin(&self, meta: Self::Metadata, config_file: String) -> BoxFuture<Result<String>> {
@@ -798,7 +854,9 @@ impl AdminRpc for SurfpoolAdminRpc {
         let Ok(endpoint_url) = rx.recv_timeout(Duration::from_secs(10)) else {
             return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
         };
-        Box::pin(async move { Ok(endpoint_url) })
+        // Return a JSON string containing both UUID and endpoint URL
+        let response = format!(r#"{{"uuid": "{}", "endpoint": "{}"}}"#, uuid, endpoint_url);
+        Box::pin(async move { Ok(response) })
     }
 
     fn list_plugins(&self, _meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>> {
