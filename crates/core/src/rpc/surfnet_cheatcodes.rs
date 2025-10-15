@@ -176,16 +176,59 @@ pub trait SurfnetCheatcodes {
         pubkey: String,
         update: AccountUpdate,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
-    ///TODO:Add usage descreption
+     /// A "cheat code" method for developers to set or update multiple accounts in Surfpool at once.
+    ///
+    /// This method allows developers to set or update the lamports, data, owner, executable status,
+    /// and rent epoch of multiple accounts in a single call. Each `AccountUpdate` in the `updates` vector
+    /// corresponds to the account at the same index in the `pubkeys` vector.
+    ///
+    /// ## Parameters
+    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `pubkeys`: A vector of public keys (base-58 encoded) of the accounts to be updated.
+    /// - `updates`: A vector of `AccountUpdate` structs containing the fields to update for each account.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the account updates were successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_setMultipleAccounts",
+    ///   "params": [
+    ///     ["account_pubkey_1", "account_pubkey_2"],
+    ///     [
+    ///       {"lamports": 1000, "data": "base58string1", "owner": "program_pubkey_1"},
+    ///       {"lamports": 2000, "data": "base58string2", "owner": "program_pubkey_2"}
+    ///     ]
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// - Each element in `updates` corresponds to the account at the same index in `pubkeys`.
+    /// - This method is intended to help developers quickly test or modify multiple account attributes,
+    ///   such as lamports, program ownership, executable status, and rent epoch, within Surfpool.
+    ///
+    /// # See Also
+    /// - `getAccount`, `getAccountInfo`, `getAccountBalance`
     #[rpc(meta, name = "surfnet_setMultipleAccounts")]
     fn set_multiple_accounts(
         &self,
         meta: Self::Metadata,
-        pubkeys_str: Vec<String>,
+        pubkeys: Vec<String>,
         updates: Vec<AccountUpdate>,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
-
-
     /// A "cheat code" method for developers to set or update a token account in Surfpool.
     ///
     /// This method allows developers to set or update various properties of a token account,
@@ -883,10 +926,10 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
  fn set_multiple_accounts(
         &self,
         meta: Self::Metadata,
-        pubkeys_str: Vec<String>,
+        pubkeys: Vec<String>,
         updates: Vec<AccountUpdate>,
     ) -> BoxFuture<Result<RpcResponse<()>>> {
-        let pubkeys = match verify_pubkeys(&pubkeys_str) {
+        let pubkeys = match verify_pubkeys(&pubkeys) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
