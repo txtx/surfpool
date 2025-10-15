@@ -1249,7 +1249,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
     ) -> Result<RpcResponse<Option<UiKeyedProfileResult>>> {
         let config = config.unwrap_or_default();
         let svm_locker = meta.get_svm_locker()?;
-        let profile_result = svm_locker.get_profile_result(signature_or_uuid.clone(), &config)?;
+        let profile_result = svm_locker.get_profile_result(signature_or_uuid, &config)?;
         let context_slot = profile_result
             .as_ref()
             .map(|pr| pr.slot)
@@ -1309,7 +1309,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             Err(e) => return e.into(),
         };
 
-        let limit = limit.unwrap_or_else(|| 50);
+        let limit = limit.unwrap_or(50);
         let latest = svm_locker.get_latest_absolute_slot();
         if limit == 0 {
             return Box::pin(async move {

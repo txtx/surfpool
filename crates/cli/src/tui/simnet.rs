@@ -584,7 +584,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                         persist_log(
                                             &message,
                                             &summary,
-                                            &ns,
+                                            ns,
                                             &level,
                                             &LogLevel::Info,
                                             false,
@@ -631,7 +631,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                             persist_log(
                                                 &message,
                                                 &summary,
-                                                &ns,
+                                                ns,
                                                 &level,
                                                 &LogLevel::Info,
                                                 false,
@@ -647,7 +647,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                             persist_log(
                                                 &message,
                                                 &summary,
-                                                &ns,
+                                                ns,
                                                 &level,
                                                 &LogLevel::Info,
                                                 false,

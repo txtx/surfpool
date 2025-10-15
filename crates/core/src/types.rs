@@ -7,6 +7,7 @@ use litesvm::types::TransactionMetadata;
 use solana_account::Account;
 use solana_account_decoder::parse_token::UiTokenAmount;
 use solana_clock::{Epoch, Slot};
+use solana_hash::Hash;
 use solana_message::{
     AccountKeys, VersionedMessage,
     v0::{LoadedAddresses, LoadedMessage, MessageAddressTableLookup},
@@ -75,6 +76,8 @@ impl TransactionWithStatusMeta {
             confirmation_status: Some(TransactionConfirmationStatus::Finalized),
         }
     }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         slot: u64,
         transaction: VersionedTransaction,
@@ -312,6 +315,8 @@ impl TransactionWithStatusMeta {
             }
         }
     }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn from_failure(
         slot: u64,
         transaction: VersionedTransaction,
@@ -690,9 +695,7 @@ impl TokenAccount {
                     "frozen" => spl_token_2022::state::AccountState::Frozen,
                     "initialized" => spl_token_2022::state::AccountState::Initialized,
                     _ => {
-                        return Err(SurfpoolError::invalid_token_account_state(
-                            &state.to_string(),
-                        ));
+                        return Err(SurfpoolError::invalid_token_account_state(state));
                     }
                 }
             }
@@ -702,9 +705,7 @@ impl TokenAccount {
                     "frozen" => spl_token::state::AccountState::Frozen,
                     "initialized" => spl_token::state::AccountState::Initialized,
                     _ => {
-                        return Err(SurfpoolError::invalid_token_account_state(
-                            &state.to_string(),
-                        ));
+                        return Err(SurfpoolError::invalid_token_account_state(state));
                     }
                 }
             }
@@ -721,7 +722,7 @@ pub enum MintAccount {
 
 impl MintAccount {
     pub fn unpack(bytes: &[u8]) -> SurfpoolResult<Self> {
-        if let Ok(mint) = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&bytes) {
+        if let Ok(mint) = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(bytes) {
             Ok(Self::SplToken2022(mint.base))
         } else if let Ok(mint) = spl_token_2022::state::Mint::unpack(bytes) {
             Ok(Self::SplToken2022(mint))
@@ -961,5 +962,41 @@ impl TransactionLoadedAddresses {
             .values()
             .map(|loaded_addresses| loaded_addresses.readonly.len())
             .sum()
+    }
+}
+
+pub struct SyntheticBlockhash(Hash);
+impl SyntheticBlockhash {
+    pub const PREFIX: &str = "SURFNETxSAFEHASHx";
+    pub fn new(chain_tip_index: u64) -> Self {
+        // Create a new synthetic blockhash - SURFNETxSAFEHASHxxxxxxxxxxxxxxxxxxxxxxxxx28
+        // Create a string and decode it from base58 to get the raw bytes
+        let index_hex = format!("{:08x}", chain_tip_index)
+            .replace('0', "x") // Replace 0 with x
+            .replace('O', "x"); // Replace O with x
+
+        // Calculate how many 'x' characters we need to pad to reach a consistent length
+        let target_length = 43; // 43 base58 sequence leads us to 32 bytes
+        let padding_needed = target_length - SyntheticBlockhash::PREFIX.len() - index_hex.len();
+        let padding = "x".repeat(padding_needed.max(0));
+        let target_string = format!("{}{}{}", SyntheticBlockhash::PREFIX, padding, index_hex);
+
+        let decoded_bytes = bs58::decode(&target_string).into_vec().unwrap_or_else(|_| {
+            // Fallback if decode fails
+            vec![0u8; 32]
+        });
+
+        let mut blockhash_bytes = [0u8; 32];
+        blockhash_bytes[..decoded_bytes.len().min(32)]
+            .copy_from_slice(&decoded_bytes[..decoded_bytes.len().min(32)]);
+        Self(Hash::new_from_array(blockhash_bytes))
+    }
+
+    pub fn to_string(&self) -> String {
+        self.0.to_string()
+    }
+
+    pub fn hash(&self) -> &Hash {
+        &self.0
     }
 }

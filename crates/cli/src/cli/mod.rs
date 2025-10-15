@@ -202,7 +202,7 @@ pub struct StartSimnet {
     /// Disable instruction profiling (eg. surfpool start --disable-instruction-profiling)
     #[clap(long = "disable-instruction-profiling", action=ArgAction::SetTrue)]
     pub disable_instruction_profiling: bool,
-    /// The log level to use for simnet logs. Options are "trace", "debug", "info", "warn", "error". (eg. surfpool start --log-level debug)
+    /// The log level to use for simnet logs. Options are "trace", "debug", "info", "warn", "error", or "none". (eg. surfpool start --log-level debug)
     #[arg(long = "log-level", short = 'l', default_value = "info")]
     pub log_level: String,
     /// The directory to put simnet logs. (eg. surfpool start --log-path ./logs)
@@ -212,12 +212,19 @@ pub struct StartSimnet {
     /// Changing this will affect the memory usage of surfpool. (eg. surfpool start --max-profiles 2000)
     #[arg(long = "max-profiles", short = 'c', default_value = "200")]
     pub max_profiles: usize,
+    /// The maximum number of bytes to allow in transaction logs. Set to 0 for unlimited. (eg. surfpool start --log-bytes-limit 64000)
+    #[arg(long = "log-bytes-limit", default_value = "10000")]
+    pub log_bytes_limit: usize,
     /// Start Surfpool as a background process (eg. surfpool start --daemon)
     #[clap(long = "daemon", action=ArgAction::SetTrue, default_value = "false")]
     pub daemon: bool,
     /// Start surfpool with some CI adequate settings  (eg. surfpool start --ci)
     #[clap(long = "ci", action=ArgAction::SetTrue, default_value = "false")]
     pub ci: bool,
+    /// Apply suggested defaults for runbook generation and execution.
+    /// This includes executing any deployment runbooks, and generating in-memory deployment runbooks if none exist. (eg. surfpool start --autopilot)
+    #[clap(long = "autopilot", action=ArgAction::SetTrue, default_value = "false")]
+    pub autopilot: bool,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -338,6 +345,11 @@ impl StartSimnet {
             offline_mode: self.offline,
             instruction_profiling_enabled: !self.disable_instruction_profiling,
             max_profiles: self.max_profiles,
+            log_bytes_limit: if self.log_bytes_limit == 0 {
+                None
+            } else {
+                Some(self.log_bytes_limit)
+            },
         }
     }
 
@@ -445,7 +457,7 @@ impl ExecuteRunbook {
             unsupervised: true,
             web_console: false,
             term_console: false,
-            output_json: Some(Some("runbook-outputs".to_string())),
+            output_json: Some(Some(".surfpool/runbook-outputs".to_string())),
             output: None,
             explain: false,
             #[cfg(feature = "supervisor_ui")]
@@ -508,6 +520,7 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 cmd.disable_instruction_profiling = true;
                 cmd.no_studio = true;
                 cmd.no_tui = true;
+                cmd.log_level = "none".to_string();
             }
 
             if cmd.daemon {
@@ -524,7 +537,9 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 }
             }
 
-            setup_logger(&cmd.log_dir, None, "simnet", &cmd.log_level, cmd.no_tui)?;
+            if cmd.log_level.to_ascii_lowercase() != "none" {
+                setup_logger(&cmd.log_dir, None, "simnet", &cmd.log_level, cmd.no_tui)?;
+            }
 
             if cmd.daemon {
                 #[cfg(not(target_os = "windows"))]
@@ -631,13 +646,9 @@ pub fn setup_logger(
         log_location.append_path(&filename)?;
 
         if !log_location.exists() {
-            log_location.create_dir_and_file().map_err(|e| {
-                format!(
-                    "Failed to create log file {}: {}",
-                    log_location.to_string(),
-                    e
-                )
-            })?;
+            log_location
+                .create_dir_and_file()
+                .map_err(|e| format!("Failed to create log file {}: {}", log_location, e))?;
         }
         log_location
     };

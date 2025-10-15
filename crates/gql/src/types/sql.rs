@@ -7,6 +7,7 @@ use surfpool_db::{
         self, ExpressionMethods, QueryDsl, RunQueryDsl,
         deserialize::{self, FromSql},
         r2d2::{ConnectionManager, Pool},
+        result::DatabaseErrorKind,
         sql_query,
         sql_types::{Bool, Integer, Text, Untyped},
     },
@@ -157,6 +158,7 @@ pub fn fetch_dynamic_entries_from_postres(
 }
 
 #[cfg(feature = "sqlite")]
+#[allow(clippy::type_complexity)]
 pub fn fetch_dynamic_entries_from_sqlite(
     sqlite_conn: &mut diesel::sqlite::SqliteConnection,
     metadata: &CollectionMetadata,
@@ -168,11 +170,11 @@ pub fn fetch_dynamic_entries_from_sqlite(
     let dynamic_table = table(metadata.table_name.as_str());
     let (filters_specs, fetched_fields) = extract_graphql_features(executor);
     for field_name in fetched_fields.iter() {
-        select.add_field(dynamic_table.column::<Untyped, _>(format!("{}", field_name)));
+        select.add_field(dynamic_table.column::<Untyped, _>(field_name.to_string()));
     }
 
     // Build the query and apply filters immediately to avoid borrow checker issues
-    let mut query = dynamic_table.clone().select(select).into_boxed();
+    let mut query = dynamic_table.select(select).into_boxed();
 
     for (field, predicate, value) in filters_specs {
         match value {
@@ -236,7 +238,7 @@ pub fn fetch_dynamic_entries_from_sqlite(
         .load::<DynamicRow<NamedField<DynamicValue>>>(&mut *sqlite_conn)
         .map_err(|err| {
             FieldError::new(
-                format!("Internal error: unable to fetch data"),
+                "Internal error: unable to fetch data".to_string(),
                 graphql_value!({"error": err.to_string()}),
             )
         })?;
@@ -284,7 +286,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
         request: &SubgraphRequest,
         worker_id: &Uuid,
     ) -> Result<(), String> {
-        let SubgraphRequest::V0(request) = request;
+        let SubgraphRequest::V0(request_v0) = request;
         let mut conn = self.get().expect("unable to connect to db");
 
         // 2. Create a new entries table for this subgraph, using the schema to determine the fields
@@ -308,9 +310,13 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             columns.join(",\n    ")
         );
 
-        sql_query(&create_entries_sql)
-            .execute(&mut *conn)
-            .map_err(|e| format!("Failed to create entries table: {e}"))?;
+        match sql_query(&create_entries_sql).execute(&mut *conn) {
+            Ok(_)
+            | Err(diesel::result::Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to create entries table: {}", e)),
+        }?;
         // let schema_json = serde_json::to_string(request)
         //     .map_err(|e| format!("Failed to serialize schema: {e}"))?;
         let schema_json = serde_json::to_string(request).expect("Failed to serialize schema");
@@ -324,13 +330,17 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             &metadata.table_name,
             &metadata.workspace_slug,
             schema_json,
-            request.slot,
+            request_v0.slot,
             worker_id
         );
 
-        sql_query(&sql)
-            .execute(&mut *conn)
-            .map_err(|e| format!("Failed to insert subgraph: {e}"))?;
+        match sql_query(&sql).execute(&mut *conn) {
+            Ok(_)
+            | Err(diesel::result::Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to create entries table: {}", e)),
+        }?;
 
         Ok(())
     }

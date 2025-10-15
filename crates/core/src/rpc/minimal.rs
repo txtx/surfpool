@@ -18,11 +18,9 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
+    SURFPOOL_IDENTITY_PUBKEY,
     rpc::{State, utils::verify_pubkey},
-    surfnet::{
-        FINALIZATION_SLOT_THRESHOLD, GetAccountResult, SURFPOOL_IDENTITY_PUBKEY,
-        locker::SvmAccessContext,
-    },
+    surfnet::{FINALIZATION_SLOT_THRESHOLD, GetAccountResult, locker::SvmAccessContext},
 };
 
 const SURFPOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -817,7 +815,7 @@ mod tests {
     use solana_pubkey::Pubkey;
 
     use super::*;
-    use crate::tests::helpers::TestSetup;
+    use crate::{tests::helpers::TestSetup, types::SyntheticBlockhash};
 
     #[test]
     fn test_get_block_height_processed_commitment() {
@@ -876,8 +874,8 @@ mod tests {
                 svm_writer.blocks.insert(
                     *slot,
                     crate::surfnet::BlockHeader {
-                        hash: format!("hash_{}", slot),
-                        previous_blockhash: format!("prev_hash_{}", slot - 1),
+                        hash: SyntheticBlockhash::new(*slot).to_string(),
+                        previous_blockhash: SyntheticBlockhash::new(slot - 1).to_string(),
                         block_time: chrono::Utc::now().timestamp_millis(),
                         block_height: *block_height,
                         parent_slot: slot - 1,
@@ -919,8 +917,8 @@ mod tests {
             svm_writer.blocks.insert(
                 100,
                 crate::surfnet::BlockHeader {
-                    hash: "hash_100".to_string(),
-                    previous_blockhash: "prev_hash_99".to_string(),
+                    hash: SyntheticBlockhash::new(100).to_string(),
+                    previous_blockhash: SyntheticBlockhash::new(99).to_string(),
                     block_time: chrono::Utc::now().timestamp_millis(),
                     block_height: 50,
                     parent_slot: 99,

@@ -668,7 +668,7 @@ impl Rpc for SurfpoolWsRpc {
         let config = config.unwrap_or_default();
         let rpc_transaction_config = RpcTransactionConfig {
             encoding: Some(UiTransactionEncoding::Json),
-            commitment: config.commitment.clone(),
+            commitment: config.commitment,
             max_supported_transaction_version: Some(0),
         };
 

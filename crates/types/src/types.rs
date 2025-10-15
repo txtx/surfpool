@@ -258,6 +258,7 @@ pub struct UiProfileResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "type", content = "accountChange")]
+#[allow(clippy::large_enum_variant)]
 pub enum UiAccountProfileState {
     Readonly,
     Writable(UiAccountChange),
@@ -282,7 +283,6 @@ pub enum UiAccountChange {
 ///
 /// Profile result 2 is from executing Ix 1 and Ix 2
 /// AccountProfileState::Writable(P, AccountChange::Update( UiAccount { lamports: 400, ...}, UiAccount { lamports: 500, ... }))
-
 pub mod profile_state_map {
     use super::*;
 
@@ -511,6 +511,7 @@ pub struct SimnetConfig {
     pub expiry: Option<u64>,
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
+    pub log_bytes_limit: Option<usize>,
 }
 
 impl Default for SimnetConfig {
@@ -525,15 +526,14 @@ impl Default for SimnetConfig {
             expiry: None,
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
+            log_bytes_limit: Some(10_000),
         }
     }
 }
 
 impl SimnetConfig {
     pub fn get_sanitized_datasource_url(&self) -> Option<String> {
-        let Some(raw) = self.remote_rpc_url.as_ref() else {
-            return None;
-        };
+        let raw = self.remote_rpc_url.as_ref()?;
         let base = raw
             .split('?')
             .next()
@@ -602,7 +602,8 @@ pub struct SubgraphPluginConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct SvmSimnetInitializationRequest {
+#[serde(rename_all = "snake_case")]
+pub struct CreateSurfnetRequest {
     pub domain: String,
     pub block_production_mode: BlockProductionMode,
     pub datasource_rpc_url: String,
@@ -610,16 +611,37 @@ pub struct SvmSimnetInitializationRequest {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
 pub struct CloudSurfnetSettings {
     pub profiling_disabled: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum SvmSimnetCommand {
-    Init(SvmSimnetInitializationRequest),
+#[serde(rename_all = "snake_case")]
+pub struct CreateSubgraphRequest {
+    pub subgraph_id: Uuid,
+    pub subgraph_revision_id: Uuid,
+    pub revision_number: i32,
+    pub start_block: i64,
+    pub network: String,
+    pub workspace_slug: String,
+    pub request: SubgraphRequest,
+    pub settings: Option<CloudSubgraphSettings>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub struct CloudSubgraphSettings {}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum SvmCloudCommand {
+    CreateSurfnet(CreateSurfnetRequest),
+    CreateSubgraph(CreateSubgraphRequest),
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct CreateNetworkRequest {
     pub workspace_id: Uuid,
     pub name: String,
@@ -797,7 +819,7 @@ impl<'de> Deserialize<'de> for UuidOrSignature {
     }
 }
 
-impl<'de> Serialize for UuidOrSignature {
+impl Serialize for UuidOrSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -848,15 +870,16 @@ pub struct FifoMap<K, V> {
     map: IndexMap<K, V>,
 }
 
+impl<K: std::hash::Hash + Eq, V> Default for FifoMap<K, V> {
+    fn default() -> Self {
+        Self::new(DEFAULT_PROFILING_MAP_CAPACITY)
+    }
+}
 impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
     pub fn new(capacity: usize) -> Self {
         Self {
             map: IndexMap::with_capacity(capacity),
         }
-    }
-
-    pub fn default() -> Self {
-        Self::new(DEFAULT_PROFILING_MAP_CAPACITY)
     }
 
     pub fn capacity(&self) -> usize {

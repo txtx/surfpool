@@ -25,13 +25,12 @@ pub mod locker;
 pub mod remote;
 pub mod svm;
 
-pub const SURFPOOL_IDENTITY_PUBKEY: Pubkey =
-    Pubkey::from_str_const("SUrFPooLSUrFPooLSUrFPooLSUrFPooLSUrFPooLSUr");
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
 pub const SLOTS_PER_EPOCH: u64 = 432000;
 
 pub type AccountFactory = Box<dyn Fn(SurfnetSvmLocker) -> GetAccountResult + Send + Sync>;
 
+#[allow(clippy::large_enum_variant)]
 pub enum GeyserEvent {
     NotifyTransaction(TransactionWithStatusMeta, Option<SanitizedTransaction>),
     UpdateAccount(GeyserAccountUpdate),
@@ -152,6 +151,7 @@ impl GetAccountResult {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn map_account_with_token_data(
         self,
     ) -> Option<((Pubkey, Account), Option<(Pubkey, Option<Account>)>)> {
@@ -203,6 +203,7 @@ impl SignatureSubscriptionType {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum GetTransactionResult {
     None(Signature),
     FoundTransaction(
@@ -219,14 +220,20 @@ impl GetTransactionResult {
         latest_absolute_slot: u64,
     ) -> Self {
         let is_finalized = latest_absolute_slot >= tx.slot + FINALIZATION_SLOT_THRESHOLD;
+        let is_confirmed = latest_absolute_slot >= tx.slot + 1;
         let (confirmation_status, confirmations) = if is_finalized {
             (
                 Some(solana_transaction_status::TransactionConfirmationStatus::Finalized),
                 None,
             )
-        } else {
+        } else if is_confirmed {
             (
                 Some(solana_transaction_status::TransactionConfirmationStatus::Confirmed),
+                Some((latest_absolute_slot - tx.slot) as usize),
+            )
+        } else {
+            (
+                Some(solana_transaction_status::TransactionConfirmationStatus::Processed),
                 Some((latest_absolute_slot - tx.slot) as usize),
             )
         };

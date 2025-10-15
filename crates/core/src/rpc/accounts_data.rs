@@ -694,6 +694,7 @@ mod tests {
     use crate::{
         surfnet::{GetAccountResult, remote::SurfnetRemoteClient},
         tests::helpers::TestSetup,
+        types::SyntheticBlockhash,
     };
 
     #[ignore = "connection-required"]
@@ -817,8 +818,8 @@ mod tests {
             svm_writer.blocks.insert(
                 test_slot,
                 BlockHeader {
-                    hash: "test_hash".to_string(),
-                    previous_blockhash: "prev_hash".to_string(),
+                    hash: SyntheticBlockhash::new(test_slot).to_string(),
+                    previous_blockhash: SyntheticBlockhash::new(test_slot - 1).to_string(),
                     parent_slot: test_slot - 1,
                     block_time: chrono::Utc::now().timestamp_millis(),
                     block_height: test_slot,
