@@ -31,8 +31,8 @@ use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatus,
-    UiConfirmedBlock, UiTransactionEncoding,
+    EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding,
+    TransactionConfirmationStatus, TransactionStatus, UiConfirmedBlock, UiTransactionEncoding,
 };
 use surfpool_types::{SimnetCommand, TransactionStatusEvent};
 
@@ -1474,7 +1474,18 @@ impl Full for SurfpoolFullRpc {
                     .await?;
 
                 last_latest_absolute_slot = svm_locker.get_latest_absolute_slot();
-                responses.push(res.map_some_transaction_status());
+                let mut status = res.map_some_transaction_status();
+                if let Some(confirmation_status) =
+                    status.as_ref().and_then(|s| s.confirmation_status.as_ref())
+                {
+                    if confirmation_status.eq(&TransactionConfirmationStatus::Processed) {
+                        // If the transaction is only processed, we cannot be sure it won't be dropped
+                        // before being confirmed. So we return None in this case to match the behavior
+                        // of a real Solana node.
+                        status = None;
+                    }
+                }
+                responses.push(status);
             }
             Ok(RpcResponse {
                 context: RpcResponseContext::new(last_latest_absolute_slot),
