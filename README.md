@@ -6,17 +6,15 @@
   </picture>
 </div>
 
-### TL;DR
+## 🌊 Overview
 
-`surfpool` is to Solana what `anvil` is to Ethereum: a blazing fast ⚡️ in-memory testnet that has the ability to point-fork Solana mainnet instantly.
+Surfpool is your drop-in replacement for `solana-test-validator` (local validator), designed for builders who want to work with real mainnet state — without downloading the entire chain.
 
-## Introduction
+But Surfpool goes further: it introduces Infrastructure as Code for Solana, empowering developers to define, deploy, and operate both on-chain and off-chain infrastructure declaratively and reproducibly.
 
-Surfpool provides a blazing-fast, developer-friendly simulation of Solana Mainnet that runs seamlessly on your local machine. It eliminates the need for high-performance hardware while maintaining an authentic testing environment.
+It’s built local-first and offline-ready, so you can spin up networks on your laptop — and then promote the exact same setup to the cloud when it’s showtime.
 
-Whether you're developing, debugging, or educating yourself on Solana, Surfpool gives you an instant, self-contained network that dynamically fetches missing Mainnet data as needed—no more manual account setups.
-
-## Surfpool in action: 101 Series 
+## Surfpool in action: 101 Series
 
 <a href="https://www.youtube.com/playlist?list=PL0FMgRjJMRzO1FdunpMS-aUS4GNkgyr3T">
   <picture>
@@ -25,17 +23,28 @@ Whether you're developing, debugging, or educating yourself on Solana, Surfpool 
   </picture>
 </a>
 
-## Features
+## 💡 Key Features
 
-- Fast & Lightweight – Runs smoothly on any machine without heavy system requirements.
+### 🪄 Drop-in replacement for solana-test-validator
+Spin up local networks that mirror mainnet state instantly — no 2 TB snapshots, no heavy setup (yes, even runs on a Raspberry Pi 🍓).
+Surfpool has been battle-tested by hundreds of developers with existing Solana tools — including `solana-cli`, `anchor`, and `Kit` — so you can plug it into your workflow without changing a thing.
 
-- Dynamic Account Fetching – Automatically retrieves necessary Mainnet accounts during transaction execution.
+### 🧩 IDL-to-SQL
+Transform your on-chain IDL into a fully queryable SQL schema.
+Surfpool’s IDL-to-SQL engine bridges programs and databases — automatically generating tables and syncing chain data to local SQLite/Postgres for instant indexing and analytics.
 
-- Anchor Integration – Detects Anchor projects and deploys programs automatically.
+### 🛡️ Infrastructure as Code (IaC) for Web3
+Define your stack once — then deploy and tweak it thousands of times before mainnet, with minimal friction.
+Inspired by Terraform, Surfpool’s IaC makes your setup reproducible by design:
+your local environment is optimized for speed and feedback, while production is optimized for safety and scales gracefully.
 
-- Educational & Debug-Friendly – Provides clear insights into transaction execution and state changes.
+### 🎮 Cheatcodes for Builders
+Simulate, debug, and replay transactions — all without touching mainnet.
+Includes Stream Oracles, Universal Faucet, Transaction Inspector, and Time Travel for fast, fearless experimentation.
 
-- Easy Installation – Available via Homebrew, Snap, and direct binaries.
+### ☁️ Surfpool Studio → Surfpool Cloud
+Surfpool Studio is your local dashboard to visualize, inspect, and manage your networks in real time.
+Surfpool Cloud extends that same experience to the cloud — letting you index mainnet data and run large-scale simulations with the same developer experience. It’s serverless, backend-as-a-service, and built for analytics at scale.
 
 ## Installation
 
@@ -53,7 +62,6 @@ brew reinstall surfpool
 # Note: there have been errors updating the Snap Store to the latest version
 # While this is being resolved, Linux users should install from source
 ```
-
 
 Install from source:
 
