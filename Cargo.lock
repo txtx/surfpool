@@ -4471,6 +4471,7 @@ dependencies = [
 [[package]]
 name = "kaigan"
 version = "0.3.0"
+source = "git+https://github.com/metaplex-foundation/kaigan.git?rev=8b8f45da59f75e40167c8f7f5e46ff29e0865fe1#8b8f45da59f75e40167c8f7f5e46ff29e0865fe1"
 dependencies = [
  "borsh",
  "serde",
@@ -9427,6 +9428,7 @@ dependencies = [
 [[package]]
 name = "solana-record-service-client"
 version = "0.1.0"
+source = "git+https://github.com/solana-foundation/solana-record-service.git?rev=ecc5a1633c180d095ad9660c7d1ba7bc77ac5280#ecc5a1633c180d095ad9660c7d1ba7bc77ac5280"
 dependencies = [
  "borsh",
  "kaigan",
