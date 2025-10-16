@@ -60,6 +60,32 @@ pub enum BlockProductionMode {
     Manual,
 }
 
+impl fmt::Display for BlockProductionMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BlockProductionMode::Clock => write!(f, "clock"),
+            BlockProductionMode::Transaction => write!(f, "transaction"),
+            BlockProductionMode::Manual => write!(f, "manual"),
+        }
+    }
+}
+
+impl FromStr for BlockProductionMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "clock" => Ok(BlockProductionMode::Clock),
+            "transaction" => Ok(BlockProductionMode::Transaction),
+            "manual" => Ok(BlockProductionMode::Manual),
+            _ => Err(format!(
+                "Invalid block production mode: {}. Valid values are: clock, transaction, manual",
+                s
+            )),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum SubgraphEvent {
     EndpointReady,
