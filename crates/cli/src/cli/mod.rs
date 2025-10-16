@@ -13,9 +13,9 @@ use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
 use surfpool_types::{
-    CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED, DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT,
-    DEFAULT_SLOT_TIME_MS, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, SimnetEvent, StudioConfig,
-    SubgraphConfig, SurfpoolConfig,
+    BlockProductionMode, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
+    DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT, DEFAULT_SLOT_TIME_MS, DEFAULT_WS_PORT, RpcConfig,
+    SimnetConfig, SimnetEvent, StudioConfig, SubgraphConfig, SurfpoolConfig,
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -151,6 +151,9 @@ pub struct StartSimnet {
     /// Set the slot time (eg. surfpool start --slot-time 400)
     #[arg(long = "slot-time", short = 't', default_value_t = DEFAULT_SLOT_TIME_MS)]
     pub slot_time: u64,
+    /// Set the block production mode (eg. surfpool start --block-production-mode transaction)
+    #[arg(long = "block-production-mode", short = 'b', default_value_t = BlockProductionMode::Clock)]
+    pub block_production_mode: BlockProductionMode,
     /// Set a datasource RPC URL (cannot be used with --network). Can also be set via SURFPOOL_DATASOURCE_RPC_URL. (eg. surfpool start --rpc-url https://api.mainnet-beta.solana.com)
     #[arg(long = "rpc-url", short = 'u', conflicts_with = "network", default_value = DEFAULT_RPC_URL)]
     pub rpc_url: Option<String>,
@@ -166,7 +169,7 @@ pub struct StartSimnet {
     /// Disable auto deployments (eg. surfpool start --no-deploy)
     #[clap(long = "no-deploy", default_value = "false")]
     pub no_deploy: bool,
-    /// List of runbooks-id to run (eg. surfpool start --runbook runbook-1 --runbook runbook-2)  
+    /// List of runbooks-id to run (eg. surfpool start --runbook runbook-1 --runbook runbook-2)
     #[arg(long = "runbook", short = 'r', default_value = DEFAULT_RUNBOOK)]
     pub runbooks: Vec<String>,
     /// Skip prompts for generating runbooks, and assume "yes" for all (eg. surfpool start -y)
@@ -338,7 +341,7 @@ impl StartSimnet {
         SimnetConfig {
             remote_rpc_url,
             slot_time: self.slot_time,
-            block_production_mode: surfpool_types::BlockProductionMode::Clock,
+            block_production_mode: self.block_production_mode.clone(),
             airdrop_addresses,
             airdrop_token_amount: self.airdrop_token_amount,
             expiry: None,
