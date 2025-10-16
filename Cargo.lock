@@ -4902,6 +4902,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "litesvm-token"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c643347d7f08566efa47559928b163b53fbef1081272ba9e93e8aa9da651111"
+dependencies = [
+ "litesvm",
+ "smallvec",
+ "solana-account 3.1.0",
+ "solana-keypair",
+ "solana-program-option 3.0.0",
+ "solana-program-pack 3.0.0",
+ "solana-pubkey 3.0.0",
+ "solana-rent 3.0.0",
+ "solana-signer",
+ "solana-system-interface 2.0.0",
+ "solana-transaction",
+ "solana-transaction-error 3.0.0",
+ "spl-associated-token-account-interface",
+ "spl-token-interface",
+]
+
+[[package]]
 name = "local-channel"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12110,6 +12132,7 @@ dependencies = [
  "jsonrpc-ws-server",
  "libloading",
  "litesvm",
+ "litesvm-token",
  "log 0.4.28",
  "reqwest 0.12.23",
  "serde",
