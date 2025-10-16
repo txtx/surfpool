@@ -240,8 +240,16 @@ impl GetTransactionResult {
         let status = TransactionStatus {
             slot: tx.slot,
             confirmations,
-            status: tx.transaction.clone().meta.map_or(Ok(()), |m| m.status),
-            err: tx.transaction.clone().meta.and_then(|m| m.err),
+            status: tx
+                .transaction
+                .clone()
+                .meta
+                .map_or(Ok(()), |m| m.status.map_err(|e| e.into())),
+            err: tx
+                .transaction
+                .clone()
+                .meta
+                .and_then(|m| m.err.map(|e| e.into())),
             confirmation_status,
         };
 

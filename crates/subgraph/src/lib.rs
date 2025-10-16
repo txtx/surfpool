@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
-    ReplicaEntryInfoVersions, ReplicaTransactionInfoV2, ReplicaTransactionInfoVersions,
+    ReplicaEntryInfoVersions, ReplicaTransactionInfoV3, ReplicaTransactionInfoVersions,
     Result as PluginResult, SlotStatus,
 };
 use ipc_channel::ipc::IpcSender;
@@ -158,7 +158,30 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
 
         let mut entries = vec![];
         match transaction {
-            ReplicaTransactionInfoVersions::V0_0_2(data) => {
+            ReplicaTransactionInfoVersions::V0_0_2(_) => {
+                return Err(GeyserPluginError::Custom(
+                    "ReplicaTransactionInfoVersions::V0_0_2 is not supported, skipping transaction"
+                        .into(),
+                ));
+                // probe_transaction(
+                //     &self.account_update_purgatory,
+                //     &self.pda_mappings,
+                //     subgraph_request,
+                //     data,
+                //     slot,
+                //     &mut entries,
+                // )
+                // .map_err(|e| GeyserPluginError::TransactionUpdateError {
+                //     msg: format!("{} at slot {}", e, slot),
+                // })?;
+            }
+            ReplicaTransactionInfoVersions::V0_0_1(_) => {
+                return Err(GeyserPluginError::Custom(
+                    "ReplicaTransactionInfoVersions::V0_0_1 is not supported, skipping transaction"
+                        .into(),
+                ));
+            }
+            ReplicaTransactionInfoVersions::V0_0_3(data) => {
                 probe_transaction(
                     &self.account_update_purgatory,
                     &self.pda_mappings,
@@ -170,12 +193,6 @@ impl GeyserPlugin for SurfpoolSubgraphPlugin {
                 .map_err(|e| GeyserPluginError::TransactionUpdateError {
                     msg: format!("{} at slot {}", e, slot),
                 })?;
-            }
-            ReplicaTransactionInfoVersions::V0_0_1(_) => {
-                return Err(GeyserPluginError::Custom(
-                    "ReplicaTransactionInfoVersions::V0_0_1 is not supported, skipping transaction"
-                        .into(),
-                ));
             }
         };
         if !entries.is_empty() {
@@ -255,7 +272,7 @@ pub fn probe_transaction(
     purgatory: &Mutex<AccountPurgatory>,
     pda_mappings: &Mutex<PdaMapping>,
     subgraph_request: &SubgraphRequest,
-    data: &ReplicaTransactionInfoV2<'_>,
+    data: &ReplicaTransactionInfoV3<'_>,
     slot: Slot,
     entries: &mut Vec<HashMap<String, Value>>,
 ) -> Result<(), String> {
@@ -265,9 +282,10 @@ pub fn probe_transaction(
     }
 
     let transaction = data.transaction;
-    let account_keys = transaction.message().account_keys();
+    // FIXME: for versioned messages we have to handle also dynamic keys
+    let account_keys = transaction.message.static_account_keys();
     let account_pubkeys = account_keys.iter().cloned().collect::<Vec<_>>();
-    let is_program_id_match = transaction.message().instructions().iter().any(|ix| {
+    let is_program_id_match = transaction.message.instructions().iter().any(|ix| {
         ix.program_id(account_pubkeys.as_ref())
             .eq(&subgraph_request_v0.program_id)
     });
@@ -286,7 +304,7 @@ pub fn probe_transaction(
                         inner_instructions,
                         subgraph_request,
                         slot,
-                        *transaction.signature(),
+                        *transaction.signatures.first().unwrap(),
                         entries,
                     )
                     .map_err(|e| {
@@ -298,7 +316,7 @@ pub fn probe_transaction(
             }
         }
         IndexedSubgraphSourceType::Pda(pda_source) => {
-            for instruction in transaction.message().instructions() {
+            for instruction in transaction.message.instructions() {
                 let Some(pda) = pda_source.evaluate_instruction(instruction, &account_pubkeys)
                 else {
                     continue;
@@ -331,14 +349,14 @@ pub fn probe_transaction(
         }
         IndexedSubgraphSourceType::TokenAccount(token_account_source) => {
             let mut already_found_token_accounts = vec![];
-            for instruction in transaction.message().instructions() {
+            for instruction in transaction.message.instructions() {
                 token_account_source
                     .evaluate_instruction(
                         instruction,
                         &account_pubkeys,
                         data.transaction_status_meta,
                         slot,
-                        *transaction.signature(),
+                        *transaction.signatures.first().unwrap(),
                         subgraph_request,
                         &mut already_found_token_accounts,
                         entries,

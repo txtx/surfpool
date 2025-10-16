@@ -684,11 +684,12 @@ mod tests {
     use solana_signer::Signer;
     use solana_system_interface::instruction::create_account;
     use solana_transaction::Transaction;
-    use spl_associated_token_account::{
-        get_associated_token_address_with_program_id, instruction::create_associated_token_account,
+    use spl_associated_token_account_interface::{
+        address::get_associated_token_address_with_program_id,
+        instruction::create_associated_token_account,
     };
-    use spl_token::state::{Account as TokenAccount, AccountState, Mint};
-    use spl_token_2022::instruction::{initialize_mint2, mint_to, transfer_checked};
+    use spl_token_2022_interface::instruction::{initialize_mint2, mint_to, transfer_checked};
+    use spl_token_interface::state::{Account as TokenAccount, AccountState, Mint};
 
     use super::*;
     use crate::{
@@ -722,7 +723,7 @@ mod tests {
 
         let mint_account = Account {
             lamports: minimum_rent,
-            owner: spl_token::ID,
+            owner: spl_token_interface::ID,
             executable: false,
             rent_epoch: 0,
             data: data.to_vec(),
@@ -745,7 +746,7 @@ mod tests {
 
         let default = TokenAccount {
             mint: mint_pk,
-            owner: spl_token::ID,
+            owner: spl_token_interface::ID,
             state: AccountState::Initialized,
             amount: 100 * 1000000,
             ..Default::default()
@@ -754,7 +755,7 @@ mod tests {
 
         let token_account = Account {
             lamports: minimum_rent,
-            owner: spl_token::ID,
+            owner: spl_token_interface::ID,
             executable: false,
             rent_epoch: 0,
             data: data.to_vec(),
@@ -890,7 +891,7 @@ mod tests {
                     .minimum_balance_for_rent_exemption(Mint::LEN)
             }),
             data: mint_data.to_vec(),
-            owner: spl_token::id(),
+            owner: spl_token_interface::id(),
             executable: false,
             rent_epoch: 0,
         };
@@ -997,7 +998,7 @@ mod tests {
             let invalid_mint_account = Account {
                 lamports: 1000000,
                 data: vec![0xFF; 50], // invalid mint data (random bytes)
-                owner: spl_token::id(),
+                owner: spl_token_interface::id(),
                 executable: false,
                 rent_epoch: 0,
             };
@@ -1099,16 +1100,16 @@ mod tests {
 
         // Instruction to create new account for mint (token 2022 program)
         let create_account_instruction = create_account(
-            &fee_payer.pubkey(),   // payer
-            &mint.pubkey(),        // new account (mint)
-            mint_rent,             // lamports
-            mint_space as u64,     // space
-            &spl_token_2022::id(), // program id
+            &fee_payer.pubkey(),             // payer
+            &mint.pubkey(),                  // new account (mint)
+            mint_rent,                       // lamports
+            mint_space as u64,               // space
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Instruction to initialize mint account data
         let initialize_mint_instruction = initialize_mint2(
-            &spl_token_2022::id(),
+            &spl_token_2022_interface::id(),
             &mint.pubkey(),            // mint
             &fee_payer.pubkey(),       // mint authority
             Some(&fee_payer.pubkey()), // freeze authority
@@ -1118,32 +1119,32 @@ mod tests {
 
         // Calculate the associated token account address for fee_payer
         let source_token_address = get_associated_token_address_with_program_id(
-            &fee_payer.pubkey(),   // owner
-            &mint.pubkey(),        // mint
-            &spl_token_2022::id(), // program_id
+            &fee_payer.pubkey(),             // owner
+            &mint.pubkey(),                  // mint
+            &spl_token_2022_interface::id(), // program_id
         );
 
         // Instruction to create associated token account for fee_payer
         let create_source_ata_instruction = create_associated_token_account(
-            &fee_payer.pubkey(),   // funding address
-            &fee_payer.pubkey(),   // wallet address
-            &mint.pubkey(),        // mint address
-            &spl_token_2022::id(), // program id
+            &fee_payer.pubkey(),             // funding address
+            &fee_payer.pubkey(),             // wallet address
+            &mint.pubkey(),                  // mint address
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Calculate the associated token account address for recipient
         let destination_token_address = get_associated_token_address_with_program_id(
-            &recipient.pubkey(),   // owner
-            &mint.pubkey(),        // mint
-            &spl_token_2022::id(), // program_id
+            &recipient.pubkey(),             // owner
+            &mint.pubkey(),                  // mint
+            &spl_token_2022_interface::id(), // program_id
         );
 
         // Instruction to create associated token account for recipient
         let create_destination_ata_instruction = create_associated_token_account(
-            &fee_payer.pubkey(),   // funding address
-            &recipient.pubkey(),   // wallet address
-            &mint.pubkey(),        // mint address
-            &spl_token_2022::id(), // program id
+            &fee_payer.pubkey(),             // funding address
+            &recipient.pubkey(),             // wallet address
+            &mint.pubkey(),                  // mint address
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Amount of tokens to mint (100 tokens with 2 decimal places)
@@ -1151,7 +1152,7 @@ mod tests {
 
         // Create mint_to instruction to mint tokens to the source token account
         let mint_to_instruction = mint_to(
-            &spl_token_2022::id(),
+            &spl_token_2022_interface::id(),
             &mint.pubkey(),         // mint
             &source_token_address,  // destination
             &fee_payer.pubkey(),    // authority
@@ -1202,14 +1203,14 @@ mod tests {
 
         // Create transfer_checked instruction to send tokens from source to destination
         let transfer_instruction = transfer_checked(
-            &spl_token_2022::id(),      // program id
-            &source_token_address,      // source
-            &mint.pubkey(),             // mint
-            &destination_token_address, // destination
-            &fee_payer.pubkey(),        // owner of source
-            &[&fee_payer.pubkey()],     // signers
-            transfer_amount,            // amount
-            2,                          // decimals
+            &spl_token_2022_interface::id(), // program id
+            &source_token_address,           // source
+            &mint.pubkey(),                  // mint
+            &destination_token_address,      // destination
+            &fee_payer.pubkey(),             // owner of source
+            &[&fee_payer.pubkey()],          // signers
+            transfer_amount,                 // amount
+            2,                               // decimals
         )
         .unwrap();
 
@@ -1312,16 +1313,16 @@ mod tests {
 
         // Instruction to create new account for mint (token 2022 program)
         let create_account_instruction = create_account(
-            &fee_payer.pubkey(),   // payer
-            &mint.pubkey(),        // new account (mint)
-            mint_rent,             // lamports
-            mint_space as u64,     // space
-            &spl_token_2022::id(), // program id
+            &fee_payer.pubkey(),             // payer
+            &mint.pubkey(),                  // new account (mint)
+            mint_rent,                       // lamports
+            mint_space as u64,               // space
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Instruction to initialize mint account data
         let initialize_mint_instruction = initialize_mint2(
-            &spl_token_2022::id(),
+            &spl_token_2022_interface::id(),
             &mint.pubkey(),            // mint
             &fee_payer.pubkey(),       // mint authority
             Some(&fee_payer.pubkey()), // freeze authority
@@ -1331,32 +1332,32 @@ mod tests {
 
         // Calculate the associated token account address for fee_payer
         let source_token_address = get_associated_token_address_with_program_id(
-            &fee_payer.pubkey(),   // owner
-            &mint.pubkey(),        // mint
-            &spl_token_2022::id(), // program_id
+            &fee_payer.pubkey(),             // owner
+            &mint.pubkey(),                  // mint
+            &spl_token_2022_interface::id(), // program_id
         );
 
         // Instruction to create associated token account for fee_payer
         let create_source_ata_instruction = create_associated_token_account(
-            &fee_payer.pubkey(),   // funding address
-            &fee_payer.pubkey(),   // wallet address
-            &mint.pubkey(),        // mint address
-            &spl_token_2022::id(), // program id
+            &fee_payer.pubkey(),             // funding address
+            &fee_payer.pubkey(),             // wallet address
+            &mint.pubkey(),                  // mint address
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Calculate the associated token account address for recipient
         let destination_token_address = get_associated_token_address_with_program_id(
-            &recipient.pubkey(),   // owner
-            &mint.pubkey(),        // mint
-            &spl_token_2022::id(), // program_id
+            &recipient.pubkey(),             // owner
+            &mint.pubkey(),                  // mint
+            &spl_token_2022_interface::id(), // program_id
         );
 
         // Instruction to create associated token account for recipient
         let create_destination_ata_instruction = create_associated_token_account(
-            &fee_payer.pubkey(),   // funding address
-            &recipient.pubkey(),   // wallet address
-            &mint.pubkey(),        // mint address
-            &spl_token_2022::id(), // program id
+            &fee_payer.pubkey(),             // funding address
+            &recipient.pubkey(),             // wallet address
+            &mint.pubkey(),                  // mint address
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Amount of tokens to mint (100 tokens with 2 decimal places)
@@ -1364,7 +1365,7 @@ mod tests {
 
         // Create mint_to instruction to mint tokens to the source token account
         let mint_to_instruction = mint_to(
-            &spl_token_2022::id(),
+            &spl_token_2022_interface::id(),
             &mint.pubkey(),         // mint
             &source_token_address,  // destination
             &fee_payer.pubkey(),    // authority
@@ -1416,14 +1417,14 @@ mod tests {
 
         // Create transfer_checked instruction to send tokens from source to destination
         let transfer_instruction = transfer_checked(
-            &spl_token_2022::id(),      // program id
-            &source_token_address,      // source
-            &mint.pubkey(),             // mint
-            &destination_token_address, // destination
-            &fee_payer.pubkey(),        // owner of source
-            &[&fee_payer.pubkey()],     // signers
-            transfer_amount,            // amount
-            2,                          // decimals
+            &spl_token_2022_interface::id(), // program id
+            &source_token_address,           // source
+            &mint.pubkey(),                  // mint
+            &destination_token_address,      // destination
+            &fee_payer.pubkey(),             // owner of source
+            &[&fee_payer.pubkey()],          // signers
+            transfer_amount,                 // amount
+            2,                               // decimals
         )
         .unwrap();
 

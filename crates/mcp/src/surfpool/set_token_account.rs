@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer as _;
-use spl_associated_token_account::get_associated_token_address_with_program_id;
+use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
     types::{AccountUpdate, TokenAccountUpdate},
     verified_tokens::VERIFIED_TOKENS_BY_SYMBOL,
@@ -316,7 +316,7 @@ pub fn run(
                                             ));
                                         }
                                     },
-                                    None => spl_token::id(),
+                                    None => spl_token_interface::id(),
                                 };
                                 get_associated_token_address_with_program_id(
                                     &owner_pubkey,

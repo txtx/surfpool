@@ -10,7 +10,7 @@ use solana_program_option::COption;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
-use spl_associated_token_account::get_associated_token_address_with_program_id;
+use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
     ClockCommand, GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcProfileResultConfig,
     SimnetCommand, SimnetEvent, StreamAccountConfig, UiKeyedProfileResult,
@@ -925,7 +925,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 Ok(res) => res,
                 Err(e) => return e.into(),
             },
-            None => spl_token::id(),
+            None => spl_token_interface::id(),
         };
 
         let associated_token_account =
@@ -1296,7 +1296,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             .into_iter()
             .map(|(signature, _slot, err, logs)| RpcLogsResponse {
                 signature,
-                err,
+                err: err.map(|e| e.into()),
                 logs,
             })
             .collect();
@@ -1399,11 +1399,12 @@ mod tests {
     use solana_signer::Signer;
     use solana_system_interface::instruction::create_account;
     use solana_transaction::Transaction;
-    use spl_associated_token_account::{
-        get_associated_token_address_with_program_id, instruction::create_associated_token_account,
+    use spl_associated_token_account_interface::{
+        address::get_associated_token_address_with_program_id,
+        instruction::create_associated_token_account,
     };
-    use spl_token::state::Mint;
-    use spl_token_2022::instruction::{initialize_mint2, mint_to, transfer_checked};
+    use spl_token_2022_interface::instruction::{initialize_mint2, mint_to, transfer_checked};
+    use spl_token_interface::state::Mint;
     use surfpool_types::{RpcProfileDepth, UiAccountChange, UiAccountProfileState};
 
     use super::*;
@@ -1453,16 +1454,16 @@ mod tests {
 
         // Instruction to create new account for mint (token 2022 program)
         let create_account_instruction = create_account(
-            &payer.pubkey(),       // payer
-            &mint.pubkey(),        // new account (mint)
-            mint_rent,             // lamports
-            mint_space as u64,     // space
-            &spl_token_2022::id(), // program id
+            &payer.pubkey(),                 // payer
+            &mint.pubkey(),                  // new account (mint)
+            mint_rent,                       // lamports
+            mint_space as u64,               // space
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Instruction to initialize mint account data
         let initialize_mint_instruction = initialize_mint2(
-            &spl_token_2022::id(),
+            &spl_token_2022_interface::id(),
             &mint.pubkey(),        // mint
             &payer.pubkey(),       // mint authority
             Some(&payer.pubkey()), // freeze authority
@@ -1472,32 +1473,32 @@ mod tests {
 
         // Calculate the associated token account address for fee_payer
         let source_ata = get_associated_token_address_with_program_id(
-            &owner.pubkey(),       // owner
-            &mint.pubkey(),        // mint
-            &spl_token_2022::id(), // program_id
+            &owner.pubkey(),                 // owner
+            &mint.pubkey(),                  // mint
+            &spl_token_2022_interface::id(), // program_id
         );
 
         // Instruction to create associated token account for fee_payer
         let create_source_ata_instruction = create_associated_token_account(
-            &payer.pubkey(),       // funding address
-            &owner.pubkey(),       // wallet address
-            &mint.pubkey(),        // mint address
-            &spl_token_2022::id(), // program id
+            &payer.pubkey(),                 // funding address
+            &owner.pubkey(),                 // wallet address
+            &mint.pubkey(),                  // mint address
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Calculate the associated token account address for recipient
         let destination_ata = get_associated_token_address_with_program_id(
-            &recipient.pubkey(),   // owner
-            &mint.pubkey(),        // mint
-            &spl_token_2022::id(), // program_id
+            &recipient.pubkey(),             // owner
+            &mint.pubkey(),                  // mint
+            &spl_token_2022_interface::id(), // program_id
         );
 
         // Instruction to create associated token account for recipient
         let create_destination_ata_instruction = create_associated_token_account(
-            &payer.pubkey(),       // funding address
-            &recipient.pubkey(),   // wallet address
-            &mint.pubkey(),        // mint address
-            &spl_token_2022::id(), // program id
+            &payer.pubkey(),                 // funding address
+            &recipient.pubkey(),             // wallet address
+            &mint.pubkey(),                  // mint address
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Amount of tokens to mint (100 tokens with 2 decimal places)
@@ -1505,7 +1506,7 @@ mod tests {
 
         // Create mint_to instruction to mint tokens to the source token account
         let mint_to_instruction = mint_to(
-            &spl_token_2022::id(),
+            &spl_token_2022_interface::id(),
             &mint.pubkey(),     // mint
             &source_ata,        // destination
             &payer.pubkey(),    // authority
@@ -1605,7 +1606,7 @@ mod tests {
                         );
                         assert_eq!(
                             mint_account.owner,
-                            spl_token_2022::id().to_string(),
+                            spl_token_2022_interface::id().to_string(),
                             "Mint account should be owned by the SPL Token program"
                         );
                         // initialized account data should be empty bytes
@@ -1656,7 +1657,7 @@ mod tests {
                         );
                         assert_eq!(
                             after.owner,
-                            spl_token_2022::id().to_string(),
+                            spl_token_2022_interface::id().to_string(),
                             "Mint account should be owned by the SPL Token program"
                         );
                         // initialized account data should be empty bytes
@@ -1750,7 +1751,7 @@ mod tests {
                         );
                         assert_eq!(
                             new.owner,
-                            spl_token_2022::id().to_string(),
+                            spl_token_2022_interface::id().to_string(),
                             "Source ATA should be owned by the SPL Token program"
                         );
 
@@ -1859,7 +1860,7 @@ mod tests {
                         );
                         assert_eq!(
                             new.owner,
-                            spl_token_2022::id().to_string(),
+                            spl_token_2022_interface::id().to_string(),
                             "Source ATA should be owned by the SPL Token program"
                         );
                         match &new.data {
@@ -1992,7 +1993,7 @@ mod tests {
 
         // Create transfer_checked instruction to send tokens from source to destination
         let transfer_instruction = transfer_checked(
-            &spl_token_2022::id(),               // program id
+            &spl_token_2022_interface::id(),     // program id
             &source_ata,                         // source
             &mint.pubkey(),                      // mint
             &destination_ata,                    // destination
@@ -2102,7 +2103,7 @@ mod tests {
                 panic!("Expected mint account state to be Readonly");
             };
             let UiAccountProfileState::Readonly = account_states
-                .swap_remove(&spl_token_2022::ID)
+                .swap_remove(&spl_token_2022_interface::ID)
                 .expect("account state should be present")
             else {
                 panic!("Expected account state to be Readonly");

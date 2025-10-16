@@ -2365,7 +2365,7 @@ fn get_simulate_transaction_result(
 ) -> RpcSimulateTransactionResult {
     RpcSimulateTransactionResult {
         accounts,
-        err: error,
+        err: error.map(|e| e.into()),
         inner_instructions: if include_inner_instructions {
             Some(transform_tx_metadata_to_ui_accounts(
                 metadata.clone(),
@@ -2386,6 +2386,12 @@ fn get_simulate_transaction_result(
         },
         units_consumed: Some(metadata.compute_units_consumed),
         loaded_accounts_data_size: None,
+        fee: None,
+        pre_balances: None,
+        post_balances: None,
+        pre_token_balances: None,
+        post_token_balances: None,
+        loaded_addresses: None,
     }
 }
 
@@ -2918,7 +2924,7 @@ mod tests {
 
         assert_eq!(
             simulation_res.value.err,
-            Some(TransactionError::SignatureFailure)
+            Some(TransactionError::SignatureFailure.into())
         );
     }
 
