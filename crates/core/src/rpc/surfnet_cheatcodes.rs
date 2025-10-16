@@ -137,7 +137,6 @@ pub trait SurfnetCheatcodes {
     /// and rent epoch of a given account.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `pubkey`: The public key of the account to be updated, as a base-58 encoded string.
     /// - `update`: The `AccountUpdate` struct containing the fields to update the account.
     ///
@@ -183,7 +182,6 @@ pub trait SurfnetCheatcodes {
     /// including the token amount, delegate, state, delegated amount, and close authority.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `owner`: The base-58 encoded public key of the token account's owner.
     /// - `mint`: The base-58 encoded public key of the token mint (e.g., the token type).
     /// - `update`: The `TokenAccountUpdate` struct containing the fields to update the token account.
@@ -242,7 +240,6 @@ pub trait SurfnetCheatcodes {
     /// potential errors.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request.
     /// - `transaction_data`: A base64 encoded string of the `VersionedTransaction`.
     /// - `tag`: An optional tag for the transaction.
     /// - `encoding`: An optional encoding for returned account data.
@@ -271,7 +268,6 @@ pub trait SurfnetCheatcodes {
     /// Retrieves all profiling results for a given tag.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request.
     /// - `tag`: The tag to retrieve profiling results for.
     ///
     /// ## Returns
@@ -291,10 +287,9 @@ pub trait SurfnetCheatcodes {
     /// by the `getSupply` RPC method.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `update`: The `SupplyUpdate` struct containing the optional fields to update:
     ///   - `total`: Optional total supply in lamports
-    ///   - `circulating`: Optional circulating supply in lamports  
+    ///   - `circulating`: Optional circulating supply in lamports
     ///   - `non_circulating`: Optional non-circulating supply in lamports
     ///   - `non_circulating_accounts`: Optional list of non-circulating account addresses
     ///
@@ -344,7 +339,6 @@ pub trait SurfnetCheatcodes {
     /// This method allows developers to directly patch the upgrade authority of a program's ProgramData account.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `program_id`: The base-58 encoded public key of the program.
     /// - `new_authority`: The base-58 encoded public key of the new authority. If omitted, the program will have no upgrade authority.
     ///
@@ -383,7 +377,6 @@ pub trait SurfnetCheatcodes {
     /// A cheat code to get the transaction profile for a given signature or UUID.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `signature_or_uuid`: The transaction signature (as a base-58 string) or a UUID (as a string) for which to retrieve the profile.
     ///
     /// ## Returns
@@ -424,7 +417,6 @@ pub trait SurfnetCheatcodes {
     /// A cheat code to register an IDL for a given program in memory.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `idl`: The full IDL object to be registered in memory. The `address` field should match the program's public key.
     /// - `slot` (optional): The slot at which to register the IDL. If omitted, uses the latest slot.
     ///
@@ -522,7 +514,6 @@ pub trait SurfnetCheatcodes {
     /// A cheat code to get the registered IDL for a given program ID.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `program_id`: The base-58 encoded public key of the program whose IDL is being requested.
     /// - `slot` (optional): The slot at which to query the IDL. If omitted, uses the latest slot.
     ///
@@ -717,7 +708,6 @@ pub trait SurfnetCheatcodes {
     /// A cheat code to reset an account on the local network.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `pubkey_str`: The base-58 encoded public key of the account to reset.
     /// - `config`: A `ResetAccountConfig` specifying how to reset the account. If omitted, the account will be reset without cascading to owned accounts.
     ///
@@ -757,9 +747,6 @@ pub trait SurfnetCheatcodes {
     ) -> Result<RpcResponse<()>>;
 
     /// A cheat code to get Surfnet network information.
-    ///
-    /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     ///
     /// ## Returns
     /// A `RpcResponse<GetSurfnetInfoResponse>` containing the Surfnet network information.
