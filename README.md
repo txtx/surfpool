@@ -8,7 +8,7 @@
 
 ## 🌊 Overview
 
-Surfpool is your drop-in replacement for `solana-test-validator` (local validator), designed for builders who want to work with real mainnet state — without downloading the entire chain.
+Surfpool is your drop-in replacement for `solana-test-validator`, designed for builders who want to work with real mainnet state — without downloading the entire chain.
 
 But Surfpool goes further: it introduces Infrastructure as Code for Solana, empowering developers to define, deploy, and operate both on-chain and off-chain infrastructure declaratively and reproducibly.
 
@@ -26,7 +26,7 @@ It’s built local-first and offline-ready, so you can spin up networks on your 
 ## 💡 Key Features
 
 ### 🪄 Drop-in replacement for solana-test-validator
-Spin up local networks that mirror mainnet state instantly — no 2 TB snapshots, no heavy setup (yes, even runs on a Raspberry Pi 🍓).
+Spin up local networks that mirror mainnet state instantly — no 2 TB snapshots, no heavy setup (yes, even runs on a Raspberry Pi).
 Surfpool has been battle-tested by hundreds of developers with existing Solana tools — including `solana-cli`, `anchor`, and `Kit` — so you can plug it into your workflow without changing a thing.
 
 ### 🧩 IDL-to-SQL
