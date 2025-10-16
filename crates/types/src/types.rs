@@ -931,13 +931,26 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ResetAccountConfig {
-    pub recursive: Option<bool>,
+    pub include_owned_accounts: Option<bool>,
 }
 
 impl Default for ResetAccountConfig {
     fn default() -> Self {
         Self {
-            recursive: Some(false),
+            include_owned_accounts: Some(false),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StreamAccountConfig {
+    pub include_owned_accounts: Option<bool>,
+}
+
+impl Default for StreamAccountConfig {
+    fn default() -> Self {
+        Self {
+            include_owned_accounts: Some(false),
         }
     }
 }

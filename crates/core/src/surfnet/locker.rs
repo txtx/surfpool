@@ -54,9 +54,9 @@ use solana_transaction_status::{
 };
 use surfpool_types::{
     ComputeUnitsEstimationResult, ExecutionCapture, Idl, KeyedProfileResult, ProfileResult,
-    ResetAccountConfig, RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetCommand,
-    SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent, UiKeyedProfileResult,
-    UuidOrSignature, VersionedIdl,
+    RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetCommand, SimnetEvent,
+    TransactionConfirmationStatus, TransactionStatusEvent, UiKeyedProfileResult, UuidOrSignature,
+    VersionedIdl,
 };
 use tokio::sync::RwLock;
 use txtx_addon_kit::indexmap::IndexSet;
@@ -1643,33 +1643,38 @@ impl SurfnetSvmLocker {
     /// This function coordinates the reset of accounts by calling the SVM's reset_account method.
     /// It handles program accounts (including their program data accounts) and can optionally
     /// cascade the reset to all accounts owned by a program.
-    pub fn reset_account(&self, pubkey: Pubkey, config: ResetAccountConfig) -> SurfpoolResult<()> {
-        let cascade_to_owned = config.recursive.unwrap_or_default();
+    pub fn reset_account(
+        &self,
+        pubkey: Pubkey,
+        include_owned_accounts: bool,
+    ) -> SurfpoolResult<()> {
+        let simnet_events_tx = self.simnet_events_tx();
+        let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+            "Account {} will be reset",
+            pubkey
+        )));
         self.with_svm_writer(move |svm_writer| {
-            if let Some(account) = svm_writer.get_account(&pubkey) {
-                // Check if this is an executable account (program)
-                if account.executable {
-                    // Handle upgradeable program - also reset the program data account
-                    if account.owner == solana_sdk_ids::bpf_loader_upgradeable::id() {
-                        let program_data_address =
-                            solana_loader_v3_interface::get_program_data_address(&pubkey);
-
-                        // Reset the program data account first
-                        svm_writer.reset_account(&program_data_address)?;
-                    }
-                }
-                if cascade_to_owned {
-                    let owned_accounts = svm_writer.get_account_owned_by(pubkey);
-                    for (owned_pubkey, _) in owned_accounts {
-                        // Avoid infinite recursion by not cascading further
-                        svm_writer.reset_account(&owned_pubkey)?;
-                    }
-                }
-                // Reset the account itself
-                svm_writer.reset_account(&pubkey)?;
-            }
-            Ok(())
+            svm_writer.reset_account(&pubkey, include_owned_accounts)
         })
+    }
+
+    /// Streams an account by its pubkey.
+    pub fn stream_account(
+        &self,
+        pubkey: Pubkey,
+        include_owned_accounts: bool,
+    ) -> SurfpoolResult<()> {
+        let simnet_events_tx = self.simnet_events_tx();
+        let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+            "Account {} changes will be streamed",
+            pubkey
+        )));
+        self.with_svm_writer(|svm_writer| {
+            svm_writer
+                .streamed_accounts
+                .insert(pubkey, include_owned_accounts);
+        });
+        Ok(())
     }
 }
 
@@ -2681,7 +2686,7 @@ impl SurfnetSvmLocker {
         filters: Option<Vec<RpcFilterType>>,
     ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
         let res = self.with_svm_reader(|svm_reader| {
-            let res = svm_reader.get_account_owned_by(*program_id);
+            let res = svm_reader.get_account_owned_by(program_id);
 
             let mut filtered = vec![];
             for (pubkey, account) in &res {

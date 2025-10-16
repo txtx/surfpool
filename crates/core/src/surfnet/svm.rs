@@ -138,6 +138,7 @@ pub struct SurfnetSvm {
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
     pub runbook_executions: Vec<RunbookExecutionStatusReport>,
+    pub streamed_accounts: HashMap<Pubkey, bool>,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -211,6 +212,7 @@ impl SurfnetSvm {
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             runbook_executions: Vec::new(),
+            streamed_accounts: HashMap::new(),
         };
 
         // Generate the initial synthetic blockhash
@@ -626,12 +628,43 @@ impl SurfnetSvm {
         }
     }
 
-    pub fn reset_account(&mut self, pubkey: &Pubkey) -> SurfpoolResult<()> {
-        // Get the existing account if it exists
-        if let Some(account) = self.get_account(pubkey) {
-            // Remove from indexes
-            self.remove_from_indexes(pubkey, &account);
+    pub fn reset_account(
+        &mut self,
+        pubkey: &Pubkey,
+        include_owned_accounts: bool,
+    ) -> SurfpoolResult<()> {
+        let Some(account) = self.get_account(pubkey) else {
+            return Ok(());
+        };
+
+        if account.executable {
+            // Handle upgradeable program - also reset the program data account
+            if account.owner == solana_sdk_ids::bpf_loader_upgradeable::id() {
+                let program_data_pubkey =
+                    solana_loader_v3_interface::get_program_data_address(pubkey);
+
+                // Reset the program data account first
+                self.purge_account_from_cache(&account, &program_data_pubkey)?;
+            }
         }
+        if include_owned_accounts {
+            let owned_accounts = self.get_account_owned_by(pubkey);
+            for (owned_pubkey, _) in owned_accounts {
+                // Avoid infinite recursion by not cascading further
+                self.purge_account_from_cache(&account, &owned_pubkey)?;
+            }
+        }
+        // Reset the account itself
+        self.purge_account_from_cache(&account, pubkey)?;
+        Ok(())
+    }
+
+    fn purge_account_from_cache(
+        &mut self,
+        account: &Account,
+        pubkey: &Pubkey,
+    ) -> SurfpoolResult<()> {
+        self.remove_from_indexes(pubkey, account);
 
         // Set the empty account
         self.inner
@@ -1000,6 +1033,12 @@ impl SurfnetSvm {
 
         self.finalize_transactions()?;
 
+        // Evict the accounts marked as streamed from cache to enforce them to be fetched again
+        let accounts_to_reset = self.streamed_accounts.clone();
+        for (pubkey, include_owned_accounts) in accounts_to_reset.iter() {
+            self.reset_account(pubkey, *include_owned_accounts)?;
+        }
+
         Ok(())
     }
 
@@ -1197,8 +1236,8 @@ impl SurfnetSvm {
     /// # Returns
     ///
     /// * A vector of (account_pubkey, account) tuples for all accounts owned by the program.
-    pub fn get_account_owned_by(&self, program_id: Pubkey) -> Vec<(Pubkey, Account)> {
-        if let Some(account_pubkeys) = self.accounts_by_owner.get(&program_id) {
+    pub fn get_account_owned_by(&self, program_id: &Pubkey) -> Vec<(Pubkey, Account)> {
+        if let Some(account_pubkeys) = self.accounts_by_owner.get(program_id) {
             account_pubkeys
                 .iter()
                 .filter_map(|pubkey| {

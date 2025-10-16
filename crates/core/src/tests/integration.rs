@@ -28,9 +28,8 @@ use solana_system_interface::{
 };
 use solana_transaction::{Transaction, versioned::VersionedTransaction};
 use surfpool_types::{
-    DEFAULT_SLOT_TIME_MS, Idl, ResetAccountConfig, RpcProfileDepth, RpcProfileResultConfig,
-    SimnetCommand, SimnetEvent, SurfpoolConfig, UiAccountChange, UiAccountProfileState,
-    UiKeyedProfileResult,
+    DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
+    SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
     types::{
         BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
     },
@@ -51,7 +50,7 @@ use crate::{
     runloops::start_local_surfnet_runloop,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
     tests::helpers::get_free_port,
-    types::{TimeTravelConfig, TokenAccount, TransactionLoadedAddresses},
+    types::{TimeTravelConfig, TransactionLoadedAddresses},
 };
 
 fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<SimnetEvent>) {
@@ -3824,14 +3823,7 @@ fn test_reset_account() {
         svm_locker.get_account_local(&p1.pubkey()).inner
     );
 
-    svm_locker
-        .reset_account(
-            p1.pubkey(),
-            ResetAccountConfig {
-                recursive: Some(false),
-            },
-        )
-        .unwrap();
+    svm_locker.reset_account(p1.pubkey(), false).unwrap();
 
     println!("Reset account");
 
@@ -3885,26 +3877,86 @@ fn test_reset_account_cascade() {
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
     // Reset with cascade=true (for regular accounts, doesn't cascade but tests the code path)
-    svm_locker
-        .reset_account(
-            owner,
-            ResetAccountConfig {
-                recursive: Some(true),
-            },
-        )
-        .unwrap();
+    svm_locker.reset_account(owner, true).unwrap();
 
     // Owner is deleted, owned account is deleted
     assert!(svm_locker.get_account_local(&owner).inner.is_none());
     assert!(svm_locker.get_account_local(&owned).inner.is_none());
 
     // Clean up
+    svm_locker.reset_account(owned, false).unwrap();
+}
+
+#[test]
+fn test_reset_streamed_account() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    let p1 = Keypair::new();
+    println!("P1 pubkey: {}", p1.pubkey());
+    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap(); // account is created in the SVM
+    println!("Airdropped SOL to p1");
+
+    let _ = svm_locker.confirm_current_block();
+    // Account still exists
+    assert!(!svm_locker.get_account_local(&p1.pubkey()).inner.is_none());
+
+    svm_locker.stream_account(p1.pubkey(), false).unwrap();
+
+    let _ = svm_locker.confirm_current_block();
+    // Account is cleaned up as soon as the block is processed
+    assert!(
+        svm_locker.get_account_local(&p1.pubkey()).inner.is_none(),
+        "Streamed account should be deleted"
+    );
+}
+
+#[test]
+fn test_reset_streamed_account_cascade() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // Create owner account and owned account
+    let owner = Pubkey::new_unique();
+    let owned = Pubkey::new_unique();
+
+    let owner_account = Account {
+        lamports: 10 * LAMPORTS_PER_SOL,
+        data: vec![0x01, 0x02],
+        owner: solana_sdk_ids::system_program::id(),
+        executable: false,
+        rent_epoch: 0,
+    };
+
+    let owned_account = Account {
+        lamports: 5 * LAMPORTS_PER_SOL,
+        data: vec![0x03, 0x04],
+        owner, // Owned by the first account
+        executable: false,
+        rent_epoch: 0,
+    };
+
+    // Insert accounts
     svm_locker
-        .reset_account(
-            owned,
-            ResetAccountConfig {
-                recursive: Some(false),
-            },
-        )
+        .with_svm_writer(|svm_writer| {
+            svm_writer.set_account(&owner, owner_account).unwrap();
+            svm_writer.set_account(&owned, owned_account).unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
         .unwrap();
+
+    // Verify accounts exist
+    assert!(!svm_locker.get_account_local(&owner).inner.is_none());
+    assert!(!svm_locker.get_account_local(&owned).inner.is_none());
+
+    let _ = svm_locker.confirm_current_block();
+    // Accounts still exists
+    assert!(!svm_locker.get_account_local(&owner).inner.is_none());
+    assert!(!svm_locker.get_account_local(&owned).inner.is_none());
+
+    svm_locker.stream_account(owner, true).unwrap();
+    let _ = svm_locker.confirm_current_block();
+
+    // Owner is deleted, owned account is deleted
+    assert!(svm_locker.get_account_local(&owner).inner.is_none());
+    assert!(svm_locker.get_account_local(&owned).inner.is_none());
 }
