@@ -1592,25 +1592,7 @@ impl Full for SurfpoolFullRpc {
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
             }
-            Ok(TransactionStatusEvent::ExecutionFailure((error, metadata))) => {
-                return Err(Error {
-                    data: None,
-                    message: format!(
-                        "Transaction execution failed: {}{}",
-                        error,
-                        if metadata.logs.is_empty() {
-                            String::new()
-                        } else {
-                            format!(
-                                ": {} log messages:\n{}",
-                                metadata.logs.len(),
-                                metadata.logs.iter().map(|l| l.to_string()).join("\n")
-                            )
-                        }
-                    ),
-                    code: jsonrpc_core::ErrorCode::ServerError(-32002),
-                });
-            }
+            Ok(TransactionStatusEvent::ExecutionFailure(_)) => {}
             Ok(TransactionStatusEvent::VerificationFailure(signature)) => {
                 return Err(Error {
                     data: None,
