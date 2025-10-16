@@ -11409,8 +11409,8 @@ dependencies = [
  "toml 0.8.23",
  "txtx-addon-network-svm",
  "txtx-cloud",
- "txtx-core",
- "txtx-gql",
+ "txtx-core 0.4.13",
+ "txtx-gql 0.3.7",
  "txtx-supervisor-ui",
  "url 1.7.2",
 ]
@@ -12494,8 +12494,6 @@ dependencies = [
 [[package]]
 name = "txtx-cloud"
 version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8998e4b70f1a7586520594a44528bedf8d3216e1af2539b35f5f5baf1d6f950f"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -12515,9 +12513,36 @@ dependencies = [
  "serde_urlencoded",
  "tokio",
  "toml 0.8.23",
- "txtx-addon-kit 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
- "txtx-core",
- "txtx-gql",
+ "txtx-addon-kit 0.4.10",
+ "txtx-core 0.4.13",
+ "txtx-gql 0.3.7",
+]
+
+[[package]]
+name = "txtx-core"
+version = "0.4.13"
+dependencies = [
+ "base64 0.22.1",
+ "better-debug",
+ "bs58",
+ "chrono",
+ "daggy",
+ "getrandom 0.2.16",
+ "jaq-interpret",
+ "jaq-parse",
+ "lazy_static",
+ "libsecp256k1 0.7.2",
+ "mustache",
+ "petgraph 0.8.2",
+ "ripemd",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_with",
+ "serde_yml",
+ "similar",
+ "tokio",
+ "txtx-addon-kit 0.4.10",
 ]
 
 [[package]]
@@ -12547,6 +12572,19 @@ dependencies = [
  "similar",
  "tokio",
  "txtx-addon-kit 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "txtx-gql"
+version = "0.3.7"
+dependencies = [
+ "async-stream",
+ "futures 0.3.31",
+ "futures-enum",
+ "juniper",
+ "juniper_codegen",
+ "tokio",
+ "txtx-addon-kit 0.4.10",
 ]
 
 [[package]]
@@ -12587,8 +12625,8 @@ dependencies = [
  "tokio-tungstenite 0.23.1",
  "totp-rs",
  "txtx-addon-kit 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
- "txtx-core",
- "txtx-gql",
+ "txtx-core 0.4.13 (registry+https://github.com/rust-lang/crates.io-index)",
+ "txtx-gql 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

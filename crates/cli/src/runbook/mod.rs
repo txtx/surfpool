@@ -6,6 +6,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::{debug, error, info, trace, warn};
 use surfpool_types::SimnetEvent;
 use tokio::{sync::RwLock, task::JoinHandle};
+use txtx_addon_network_svm::SvmNetworkAddon;
 use txtx_cloud::router::TxtxAuthenticatedCloudServiceRouter;
 use txtx_core::{
     kit::{
@@ -57,8 +58,9 @@ pub fn get_json_converters() -> Vec<AddonJsonConverter<'static>> {
 }
 
 pub fn get_available_addons() -> Vec<Box<dyn Addon>> {
-    vec![Box::new(StdAddon::new())]
+    vec![Box::new(StdAddon::new()), Box::new(SvmNetworkAddon::new())]
 }
+
 pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
     get_available_addons()
         .into_iter()
