@@ -2576,6 +2576,26 @@ mod tests {
         );
         setup.process_txs(txs.clone()).await;
 
+        // fetch while transactions are still in processed status
+        {
+            let res = setup
+                .rpc
+                .get_signature_statuses(
+                    Some(setup.context.clone()),
+                    txs.iter().map(|tx| tx.signatures[0].to_string()).collect(),
+                    None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                res.value.iter().flatten().collect::<Vec<_>>().len(),
+                0,
+                "processed transactions should not be returning values"
+            );
+        }
+
+        // confirm a block to move transactions to confirmed status
+        setup.context.svm_locker.confirm_current_block().unwrap();
         let res = setup
             .rpc
             .get_signature_statuses(
