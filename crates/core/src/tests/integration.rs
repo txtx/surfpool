@@ -28,9 +28,8 @@ use solana_system_interface::{
 };
 use solana_transaction::{Transaction, versioned::VersionedTransaction};
 use surfpool_types::{
-    DEFAULT_SLOT_TIME_MS, Idl, ResetAccountConfig, RpcProfileDepth, RpcProfileResultConfig,
-    SimnetCommand, SimnetEvent, SurfpoolConfig, UiAccountChange, UiAccountProfileState,
-    UiKeyedProfileResult,
+    DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
+    SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
     types::{
         BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
     },
@@ -51,7 +50,7 @@ use crate::{
     runloops::start_local_surfnet_runloop,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
     tests::helpers::get_free_port,
-    types::{TimeTravelConfig, TokenAccount, TransactionLoadedAddresses},
+    types::{TimeTravelConfig, TransactionLoadedAddresses},
 };
 
 fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<SimnetEvent>) {
@@ -3824,14 +3823,7 @@ fn test_reset_account() {
         svm_locker.get_account_local(&p1.pubkey()).inner
     );
 
-    svm_locker
-        .reset_account(
-            p1.pubkey(),
-            ResetAccountConfig {
-                recursive: Some(false),
-            },
-        )
-        .unwrap();
+    svm_locker.reset_account(p1.pubkey(), false).unwrap();
 
     println!("Reset account");
 
@@ -3885,26 +3877,12 @@ fn test_reset_account_cascade() {
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
     // Reset with cascade=true (for regular accounts, doesn't cascade but tests the code path)
-    svm_locker
-        .reset_account(
-            owner,
-            ResetAccountConfig {
-                recursive: Some(true),
-            },
-        )
-        .unwrap();
+    svm_locker.reset_account(owner, true).unwrap();
 
     // Owner is deleted, owned account is deleted
     assert!(svm_locker.get_account_local(&owner).inner.is_none());
     assert!(svm_locker.get_account_local(&owned).inner.is_none());
 
     // Clean up
-    svm_locker
-        .reset_account(
-            owned,
-            ResetAccountConfig {
-                recursive: Some(false),
-            },
-        )
-        .unwrap();
+    svm_locker.reset_account(owned, false).unwrap();
 }
