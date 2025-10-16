@@ -1303,7 +1303,7 @@ impl SurfnetSvmLocker {
             )));
             let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((
                 err.clone(),
-                meta_canonical,
+                meta_canonical.clone(),
             )));
 
             self.with_svm_writer(|svm_writer| {
@@ -1328,9 +1328,20 @@ impl SurfnetSvmLocker {
                         HashSet::new(),
                     ),
                 );
-            });
 
-            self.with_svm_writer(|svm_writer| {
+                let _ = svm_writer
+                    .simnet_events_tx
+                    .try_send(SimnetEvent::transaction_processed(
+                        meta_canonical,
+                        Some(err.clone()),
+                    ));
+
+                svm_writer.transactions_queued_for_confirmation.push_back((
+                    transaction.clone(),
+                    status_tx.clone(),
+                    Some(err.clone()),
+                ));
+
                 svm_writer.notify_signature_subscribers(
                     SignatureSubscriptionType::processed(),
                     &signature,
@@ -1491,9 +1502,11 @@ impl SurfnetSvmLocker {
                 let _ = status_tx.try_send(TransactionStatusEvent::Success(
                     TransactionConfirmationStatus::Processed,
                 ));
-                svm_writer
-                    .transactions_queued_for_confirmation
-                    .push_back((transaction.clone(), status_tx.clone()));
+                svm_writer.transactions_queued_for_confirmation.push_back((
+                    transaction.clone(),
+                    status_tx.clone(),
+                    None,
+                ));
 
                 svm_writer.notify_signature_subscribers(
                     SignatureSubscriptionType::processed(),

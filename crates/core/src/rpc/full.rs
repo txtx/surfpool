@@ -2479,9 +2479,11 @@ mod tests {
             Ok(SimnetCommand::TransactionReceived(_, tx, status_tx, _)) => {
                 let mut writer = setup.context.svm_locker.0.write().await;
                 let slot = writer.get_latest_absolute_slot();
-                writer
-                    .transactions_queued_for_confirmation
-                    .push_back((tx.clone(), status_tx.clone()));
+                writer.transactions_queued_for_confirmation.push_back((
+                    tx.clone(),
+                    status_tx.clone(),
+                    None,
+                ));
                 let sig = tx.signatures[0];
                 let tx_with_status_meta = TransactionWithStatusMeta {
                     slot,

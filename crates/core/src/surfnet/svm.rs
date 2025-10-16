@@ -98,10 +98,17 @@ pub struct SurfnetSvm {
     pub chain_tip: BlockIdentifier,
     pub blocks: HashMap<Slot, BlockHeader>,
     pub transactions: HashMap<Signature, SurfnetTransactionStatus>,
-    pub transactions_queued_for_confirmation:
-        VecDeque<(VersionedTransaction, Sender<TransactionStatusEvent>)>,
-    pub transactions_queued_for_finalization:
-        VecDeque<(Slot, VersionedTransaction, Sender<TransactionStatusEvent>)>,
+    pub transactions_queued_for_confirmation: VecDeque<(
+        VersionedTransaction,
+        Sender<TransactionStatusEvent>,
+        Option<TransactionError>,
+    )>,
+    pub transactions_queued_for_finalization: VecDeque<(
+        Slot,
+        VersionedTransaction,
+        Sender<TransactionStatusEvent>,
+        Option<TransactionError>,
+    )>,
     pub perf_samples: VecDeque<RpcPerfSample>,
     pub transactions_processed: u64,
     pub latest_epoch_info: EpochInfo,
@@ -353,7 +360,7 @@ impl SurfnetSvm {
                 ),
             );
             self.transactions_queued_for_confirmation
-                .push_back((tx, status_tx.clone()));
+                .push_back((tx, status_tx.clone(), None));
             let account = self.get_account(pubkey).unwrap();
             let _ = self.set_account(pubkey, account);
         }
@@ -828,21 +835,28 @@ impl SurfnetSvm {
 
         let mut all_mutated_account_keys = HashSet::new();
 
-        while let Some((tx, status_tx)) = self.transactions_queued_for_confirmation.pop_front() {
+        while let Some((tx, status_tx, error)) =
+            self.transactions_queued_for_confirmation.pop_front()
+        {
             let _ = status_tx.try_send(TransactionStatusEvent::Success(
                 TransactionConfirmationStatus::Confirmed,
             ));
             let signature = tx.signatures[0];
             let finalized_at = self.latest_epoch_info.absolute_slot + FINALIZATION_SLOT_THRESHOLD;
-            self.transactions_queued_for_finalization
-                .push_back((finalized_at, tx, status_tx));
+            self.transactions_queued_for_finalization.push_back((
+                finalized_at,
+                tx,
+                status_tx,
+                error.clone(),
+            ));
 
             self.notify_signature_subscribers(
                 SignatureSubscriptionType::confirmed(),
                 &signature,
                 slot,
-                None,
+                error,
             );
+
             let Some(SurfnetTransactionStatus::Processed(tx_data)) =
                 self.transactions.get(&signature)
             else {
@@ -874,7 +888,7 @@ impl SurfnetSvm {
     fn finalize_transactions(&mut self) -> Result<(), SurfpoolError> {
         let current_slot = self.latest_epoch_info.absolute_slot;
         let mut requeue = VecDeque::new();
-        while let Some((finalized_at, tx, status_tx)) =
+        while let Some((finalized_at, tx, status_tx, error)) =
             self.transactions_queued_for_finalization.pop_front()
         {
             if current_slot >= finalized_at {
@@ -886,7 +900,7 @@ impl SurfnetSvm {
                     SignatureSubscriptionType::finalized(),
                     signature,
                     self.latest_epoch_info.absolute_slot,
-                    None,
+                    error,
                 );
                 let Some(SurfnetTransactionStatus::Processed(tx_data)) =
                     self.transactions.get(signature)
@@ -901,7 +915,7 @@ impl SurfnetSvm {
                     .unwrap_or(vec![]);
                 self.notify_logs_subscribers(signature, None, logs, CommitmentLevel::Finalized);
             } else {
-                requeue.push_back((finalized_at, tx, status_tx));
+                requeue.push_back((finalized_at, tx, status_tx, error));
             }
         }
         // Requeue any transactions that are not yet finalized
