@@ -85,6 +85,7 @@ libloading = "0.7.4"
 litesvm = { git = "https://github.com/txtx/litesvm.git", branch = "fix/relax-deps", features = [
     "nodejs-internal",
 ] }
+litesvm-token = { git = "https://github.com/txtx/litesvm.git", branch = "fix/relax-deps" }
 log = "0.4.27"
 mime_guess = { version = "2.0.4", default-features = false }
 mustache = "0.9.0"
