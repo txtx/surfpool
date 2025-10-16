@@ -664,7 +664,6 @@ impl SurfnetSvm {
         account: &Account,
         pubkey: &Pubkey,
     ) -> SurfpoolResult<()> {
-        // Get the existing account if it exists
         self.remove_from_indexes(pubkey, account);
 
         // Set the empty account
