@@ -147,15 +147,15 @@ surfpool-studio-ui = { path = "crates/studio", default-features = false }
 surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
 
-txtx-addon-kit = { git = "https://github.com/txtx/txtx.git", rev = "6164e2e5ac795d66bb8facf40c37727bc8a7de36" }
-txtx-addon-network-svm = { git = "https://github.com/txtx/txtx.git", rev = "6164e2e5ac795d66bb8facf40c37727bc8a7de36" }
-txtx-addon-network-svm-types = { git = "https://github.com/txtx/txtx.git", rev = "6164e2e5ac795d66bb8facf40c37727bc8a7de36" }
-txtx-cloud = { git = "https://github.com/txtx/txtx.git", rev = "6164e2e5ac795d66bb8facf40c37727bc8a7de36", features = [
+txtx-addon-kit = "0.4.10"
+txtx-addon-network-svm = { version = "0.3.11" }
+txtx-addon-network-svm-types = { version = "0.3.10" }
+txtx-cloud = { version = "0.1.13", features = [
     "clap",
     "toml",
 ], default-features = false }
-txtx-core = { git = "https://github.com/txtx/txtx.git", rev = "6164e2e5ac795d66bb8facf40c37727bc8a7de36" }
-txtx-gql = { git = "https://github.com/txtx/txtx.git", rev = "6164e2e5ac795d66bb8facf40c37727bc8a7de36" }
+txtx-core = { version = "0.4.13" }
+txtx-gql = { version = "0.3.7" }
 txtx-supervisor-ui = { version = "0.2.9", default-features = false }
 
 [patch.crates-io]
