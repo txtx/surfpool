@@ -43,7 +43,7 @@ use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{TransactionDetails, TransactionStatusMeta, UiConfirmedBlock};
-use spl_token_2022::extension::{
+use spl_token_2022_interface::extension::{
     BaseStateWithExtensions, StateWithExtensions, interest_bearing_mint::InterestBearingConfig,
     scaled_ui_amount::ScaledUiAmountConfig,
 };
@@ -564,7 +564,7 @@ impl SurfnetSvm {
             }
 
             if let Ok(mint) =
-                StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&account.data)
+                StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(&account.data)
             {
                 let unix_timestamp = self.inner.get_sysvar::<Clock>().unix_timestamp;
                 let interest_bearing_config = mint
@@ -1436,7 +1436,7 @@ impl SurfnetSvm {
             if expected_level.eq(&commitment_level) {
                 let message = RpcLogsResponse {
                     signature: signature.to_string(),
-                    err: err.clone(),
+                    err: err.clone().map(|e| e.into()),
                     logs: logs.clone(),
                 };
                 let _ = tx.send((self.get_latest_absolute_slot(), message));
@@ -1719,7 +1719,7 @@ mod tests {
     use solana_account::Account;
     use solana_loader_v3_interface::get_program_data_address;
     use solana_program_pack::Pack;
-    use spl_token::state::{Account as TokenAccount, AccountState};
+    use spl_token_interface::state::{Account as TokenAccount, AccountState};
 
     use super::*;
 
@@ -1842,7 +1842,7 @@ mod tests {
         let account = Account {
             lamports: 1000000,
             data: token_account_data.to_vec(),
-            owner: spl_token::id(),
+            owner: spl_token_interface::id(),
             executable: false,
             rent_epoch: 0,
         };
@@ -1895,7 +1895,7 @@ mod tests {
         let account = Account {
             lamports: 1000000,
             data: token_account_data.to_vec(),
-            owner: spl_token::id(),
+            owner: spl_token_interface::id(),
             executable: false,
             rent_epoch: 0,
         };
@@ -1923,7 +1923,7 @@ mod tests {
         let updated_account = Account {
             lamports: 1000000,
             data: token_account_data.to_vec(),
-            owner: spl_token::id(),
+            owner: spl_token_interface::id(),
             executable: false,
             rent_epoch: 0,
         };

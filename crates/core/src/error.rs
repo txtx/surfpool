@@ -154,9 +154,9 @@ impl SurfpoolError {
 
         let filter_description = match filter {
             TokenAccountsFilter::ProgramId(program_id) => {
-                let program_name = if *program_id == spl_token::ID {
+                let program_name = if *program_id == spl_token_interface::ID {
                     "SPL Token program"
-                } else if *program_id == spl_token_2022::ID {
+                } else if *program_id == spl_token_2022_interface::ID {
                     "Token 2022 program"
                 } else {
                     "custom token program"
@@ -181,8 +181,8 @@ impl SurfpoolError {
         error.data = Some(json!(format!(
             "Unsupported token program: {}. Only SPL Token ({}) and Token 2022 ({}) are currently supported.",
             program_id,
-            spl_token::ID,
-            spl_token_2022::ID
+            spl_token_interface::ID,
+            spl_token_2022_interface::ID
         )));
         Self(error)
     }

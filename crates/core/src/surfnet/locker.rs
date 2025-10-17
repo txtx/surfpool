@@ -619,7 +619,7 @@ impl SurfnetSvmLocker {
                     Some(RpcConfirmedTransactionStatusWithSignature {
                         err: match &meta.status {
                             Ok(_) => None,
-                            Err(e) => Some(e.clone()),
+                            Err(e) => Some(e.clone().into()),
                         },
                         slot: *slot,
                         memo: None,
@@ -1448,8 +1448,12 @@ impl SurfnetSvmLocker {
 
                 if let Some(token_account) = token_account {
                     token_accounts_after.push((i, token_account));
-                    post_token_program_ids
-                        .push(account.as_ref().map(|a| a.owner).unwrap_or(spl_token::id()));
+                    post_token_program_ids.push(
+                        account
+                            .as_ref()
+                            .map(|a| a.owner)
+                            .unwrap_or(spl_token_interface::id()),
+                    );
                 }
             }
 
@@ -3034,7 +3038,7 @@ fn apply_rpc_filters(account_data: &[u8], filters: &[RpcFilterType]) -> Surfpool
 
 // used in the remote.rs
 pub fn is_supported_token_program(program_id: &Pubkey) -> bool {
-    *program_id == spl_token::ID || *program_id == spl_token_2022::ID
+    *program_id == spl_token_interface::ID || *program_id == spl_token_2022_interface::ID
 }
 
 fn update_programdata_account(
