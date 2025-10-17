@@ -224,8 +224,8 @@ pub struct StartSimnet {
     /// Start surfpool with some CI adequate settings  (eg. surfpool start --ci)
     #[clap(long = "ci", action=ArgAction::SetTrue, default_value = "false")]
     pub ci: bool,
-    /// Apply suggested defaults for runbook generation and execution when running as part of an anchor test suite (eg. surfpool start --anchor-compatibility)
-    #[clap(long = "anchor-compatibility", action=ArgAction::SetTrue, default_value = "false")]
+    /// Apply suggested defaults for runbook generation and execution when running as part of an anchor test suite (eg. surfpool start --legacy-anchor-compatibility)
+    #[clap(long = "legacy-anchor-compatibility", action=ArgAction::SetTrue, default_value = "false")]
     pub anchor_compat: bool,
 }
 
