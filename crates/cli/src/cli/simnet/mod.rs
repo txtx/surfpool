@@ -431,14 +431,14 @@ async fn write_and_execute_iac(
         .map_err(|e| format!("Failed to detect project framework: {}", e))?;
 
     let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-    if let Some((framework, programs)) = deployment {
+    if let Some((framework, programs, genesis_accounts)) = deployment {
         // Is infrastructure-as-code (IaC) already setup?
         let base_location =
             FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
         let mut txtx_manifest_location = base_location.clone();
         txtx_manifest_location.append_path("txtx.yml")?;
         let txtx_manifest_exists = txtx_manifest_location.exists();
-        let do_write_scaffold = !cmd.autopilot && !txtx_manifest_exists;
+        let do_write_scaffold = !cmd.anchor_compat && !txtx_manifest_exists;
         if do_write_scaffold {
             // Scaffold IaC
             scaffold_iac_layout(
@@ -452,12 +452,16 @@ async fn write_and_execute_iac(
         // If there were existing on-disk runbooks, we'll execute those instead of in-memory ones
         // If there were no existing runbooks and the user requested autopilot, we'll generate and execute in-memory runbooks
         // If there were no existing runbooks and the user did not request autopilot, we'll generate and execute on-disk runbooks
-        let do_execute_in_memory_runbooks = cmd.autopilot && !txtx_manifest_exists;
+        let do_execute_in_memory_runbooks = cmd.anchor_compat && !txtx_manifest_exists;
 
         let mut on_disk_runbook_data = None;
         let mut in_memory_runbook_data = None;
         if do_execute_in_memory_runbooks {
-            in_memory_runbook_data = Some(scaffold_in_memory_iac(&framework, &programs)?);
+            in_memory_runbook_data = Some(scaffold_in_memory_iac(
+                &framework,
+                &programs,
+                &genesis_accounts,
+            )?);
         } else {
             let runbooks_ids_to_execute = cmd.runbooks.clone();
             on_disk_runbook_data = Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
