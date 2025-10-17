@@ -14,6 +14,7 @@ use litesvm::{
         FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
     },
 };
+use litesvm_token::create_native_mint;
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_account_decoder::{
     UiAccount, UiAccountData, UiAccountEncoding, UiDataSliceConfig, encode_ui_account,
@@ -166,10 +167,20 @@ impl SurfnetSvm {
         // todo: consider making this configurable via config
         feature_set.deactivate(&enable_extend_program_checked::id());
 
-        let inner = LiteSVM::new()
+        let mut inner = LiteSVM::new()
             .with_feature_set(feature_set.clone())
             .with_blockhash_check(false)
             .with_sigverify(false);
+
+        // Add the native mint (SOL) to the SVM
+        create_native_mint(&mut inner);
+        let native_mint_account = inner.get_account(&spl_token::native_mint::ID).unwrap();
+        let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
+
+        // Load native mint into owned account and token mint indexes
+        let accounts_by_owner =
+            HashMap::from([(native_mint_account.owner, vec![spl_token::native_mint::ID])]);
+        let token_mints = HashMap::from([(spl_token::native_mint::ID, parsed_mint_account)]);
 
         let mut svm = Self {
             inner,
@@ -200,10 +211,10 @@ impl SurfnetSvm {
             logs_subscriptions: Vec::new(),
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
-            accounts_by_owner: HashMap::new(),
+            accounts_by_owner,
             account_associated_data: HashMap::new(),
             token_accounts: HashMap::new(),
-            token_mints: HashMap::new(),
+            token_mints,
             token_accounts_by_owner: HashMap::new(),
             token_accounts_by_delegate: HashMap::new(),
             token_accounts_by_mint: HashMap::new(),

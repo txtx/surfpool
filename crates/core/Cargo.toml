@@ -38,6 +38,7 @@ jsonrpc-pubsub = { workspace = true }
 jsonrpc-ws-server = { workspace = true }
 libloading = { workspace = true }
 litesvm = { workspace = true }
+litesvm-token = { workspace = true }
 log = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
