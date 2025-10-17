@@ -12101,6 +12101,7 @@ dependencies = [
  "txtx-gql",
  "txtx-supervisor-ui",
  "url 1.7.2",
+ "walkdir",
 ]
 
 [[package]]
