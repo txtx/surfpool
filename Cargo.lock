@@ -12203,6 +12203,7 @@ dependencies = [
 name = "surfpool-gql"
 version = "0.10.9"
 dependencies = [
+ "base64 0.22.1",
  "blake3",
  "chrono",
  "convert_case 0.8.0",
