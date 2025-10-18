@@ -9,6 +9,7 @@ keywords = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
+base64 = { workspace = true }
 blake3 = { workspace = true }
 chrono = { workspace = true }
 convert_case = { workspace = true }

@@ -1,5 +1,10 @@
 use std::collections::HashMap;
 
+use crate::{
+    query::{DatabaseConnection, Dataloader, DataloaderContext, extract_graphql_features},
+    types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata},
+};
+use base64::{Engine, prelude::BASE64_STANDARD};
 use diesel::prelude::*;
 use juniper::{DefaultScalarValue, Executor, FieldError, Value, graphql_value};
 use surfpool_db::{
@@ -20,11 +25,6 @@ use surfpool_db::{
 use txtx_addon_kit::types::types::Type;
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
-
-use crate::{
-    query::{DatabaseConnection, Dataloader, DataloaderContext, extract_graphql_features},
-    types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata},
-};
 
 #[derive(PartialEq, Debug)]
 pub struct DynamicValue(pub Value);
@@ -317,9 +317,9 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             }
             Err(e) => Err(format!("Failed to create entries table: {}", e)),
         }?;
-        // let schema_json = serde_json::to_string(request)
-        //     .map_err(|e| format!("Failed to serialize schema: {e}"))?;
-        let schema_json = serde_json::to_string(request).expect("Failed to serialize schema");
+
+        let schema_json = serde_json::to_string(request)
+            .map_err(|e| format!("Failed to serialize schema: {e}"))?;
         let now = chrono::Utc::now().naive_utc();
 
         let sql = format!(
@@ -329,7 +329,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             now,
             &metadata.table_name,
             &metadata.workspace_slug,
-            schema_json,
+            BASE64_STANDARD.encode(schema_json),
             request_v0.slot,
             worker_id
         );
@@ -339,7 +339,7 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             | Err(diesel::result::Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
                 Ok(())
             }
-            Err(e) => Err(format!("Failed to create entries table: {}", e)),
+            Err(e) => Err(format!("Failed to update entries table: {}", e)),
         }?;
 
         Ok(())
