@@ -814,6 +814,7 @@ impl SurfnetSvm {
     fn confirm_transactions(&mut self) -> Result<(Vec<Signature>, HashSet<Pubkey>), SurfpoolError> {
         let mut confirmed_transactions = vec![];
         let slot = self.latest_epoch_info.slot_index;
+        let current_slot = self.latest_epoch_info.absolute_slot;
 
         let mut all_mutated_account_keys = HashSet::new();
 
@@ -839,6 +840,10 @@ impl SurfnetSvm {
             };
             let (tx_with_status_meta, mutated_account_keys) = tx_data.as_ref();
             all_mutated_account_keys.extend(mutated_account_keys);
+
+            for pubkey in mutated_account_keys {
+                self.account_update_slots.insert(*pubkey, current_slot);
+            }
 
             self.notify_logs_subscribers(
                 &signature,
@@ -2651,5 +2656,98 @@ mod tests {
             .get(&pubkey2.to_string())
             .expect("Account2 fixture not found");
         assert_eq!(fixture2.slot, slot2);
+    }
+
+    #[test]
+    fn test_export_account_slot_tracking_via_transaction() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+
+        svm.airdrop(&payer.pubkey(), 10_000_000).unwrap();
+        let initial_slot = svm.get_latest_absolute_slot();
+
+        // verify payer account slot is tracked after airdrop
+        assert_eq!(
+            svm.account_update_slots.get(&payer.pubkey()),
+            Some(&initial_slot)
+        );
+
+        svm.confirm_current_block().unwrap();
+
+        let next_slot = svm.get_latest_absolute_slot();
+
+        let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
+
+        let message = Message::new(&[transfer_ix], Some(&payer.pubkey()));
+        let mut tx =
+            VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
+
+        tx.message.set_recent_blockhash(svm.latest_blockhash());
+
+        let result = svm.send_transaction(tx.clone(), false, false);
+        assert!(result.is_ok(), "Transaction should succeed");
+
+        // Queue it for confirmation
+        let signature = tx.signatures[0];
+        let (status_tx, _rx) = unbounded();
+
+        // Get the transaction result from send_transaction
+        let tx_result = result.unwrap();
+
+        // Store the processed transaction
+        svm.transactions.insert(
+            signature,
+            SurfnetTransactionStatus::processed(
+                TransactionWithStatusMeta {
+                    slot: next_slot,
+                    transaction: tx.clone(),
+                    meta: TransactionStatusMeta {
+                        status: Ok(()),
+                        fee: 5000,
+                        pre_balances: vec![10_000_000 - 5000, 0, 1], // payer (after airdrop fee), recipient, system program
+                        post_balances: vec![10_000_000 - 5000 - 1_000_000 - 5000, 1_000_000, 1],
+                        inner_instructions: Some(vec![]),
+                        log_messages: Some(tx_result.logs.clone()),
+                        pre_token_balances: Some(vec![]),
+                        post_token_balances: Some(vec![]),
+                        rewards: Some(vec![]),
+                        loaded_addresses: LoadedAddresses::default(),
+                        return_data: Some(tx_result.return_data.clone()),
+                        compute_units_consumed: Some(tx_result.compute_units_consumed),
+                        cost_units: None,
+                    },
+                },
+                HashSet::from([payer.pubkey(), recipient]),
+            ),
+        );
+        svm.transactions_queued_for_confirmation
+            .push_back((tx, status_tx));
+
+        svm.confirm_current_block().unwrap();
+
+        // verify both accounts have their slots tracked
+        assert_eq!(
+            svm.account_update_slots.get(&payer.pubkey()),
+            Some(&next_slot)
+        );
+        assert_eq!(svm.account_update_slots.get(&recipient), Some(&next_slot));
+
+        let fixtures = svm.export_accounts_as_fixtures(UiAccountEncoding::Base64);
+
+        if let Some(payer_fixture) = fixtures.get(&payer.pubkey().to_string()) {
+            assert_eq!(
+                payer_fixture.slot, next_slot,
+                "Payer fixture should have slot from transfer"
+            );
+        }
+
+        if let Some(recipient_fixture) = fixtures.get(&recipient.to_string()) {
+            assert_eq!(
+                recipient_fixture.slot, next_slot,
+                "Recipient fixture should have slot from transfer"
+            );
+        }
     }
 }
