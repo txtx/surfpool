@@ -103,6 +103,7 @@ pub async fn handle_start_local_surfnet_command(
         subgraph_events_tx.clone(),
         subgraph_commands_rx,
         ctx,
+        !cmd.no_studio,
     )
     .await
     {

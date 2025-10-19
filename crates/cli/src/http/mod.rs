@@ -47,6 +47,7 @@ pub async fn start_subgraph_and_explorer_server(
     subgraph_events_tx: Sender<SubgraphEvent>,
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     ctx: &Context,
+    enable_studio: bool,
 ) -> Result<(ServerHandle, JoinHandle<Result<(), String>>), Box<dyn StdError>> {
     let sql_store = SqlStore::new(subgraph_database_path);
     sql_store.init_subgraph_tables()?;
@@ -73,7 +74,7 @@ pub async fn start_subgraph_and_explorer_server(
     )?;
 
     let server = HttpServer::new(move || {
-        App::new()
+        let mut app = App::new()
             .app_data(schema_wrapped.clone())
             .app_data(context_wrapped.clone())
             .app_data(config_wrapped.clone())
@@ -94,8 +95,13 @@ pub async fn start_subgraph_and_explorer_server(
                     .route("/v1/graphql?<request..>", web::get().to(get_graphql))
                     .route("/v1/graphql", web::post().to(post_graphql))
                     .route("/v1/subscriptions", web::get().to(subscriptions)),
-            )
-            .service(serve_studio_static_files)
+            );
+        
+        if enable_studio {
+            app = app.service(serve_studio_static_files);
+        }
+        
+        app
     })
     .workers(5)
     .bind(network_binding)?
