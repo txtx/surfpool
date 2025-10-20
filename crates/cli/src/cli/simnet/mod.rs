@@ -79,9 +79,16 @@ pub async fn handle_start_local_surfnet_command(
     let config = cmd.surfpool_config(airdrop_addresses);
 
     let studio_binding_address = config.studio.get_studio_base_url();
-    let rpc_url = format!("http://{}", config.rpc.get_rpc_base_url());
-    let ws_url = format!("ws://{}", config.rpc.get_ws_base_url());
-    let studio_url = format!("http://{}", studio_binding_address);
+
+    // Allow overriding public-facing URLs via environment variables
+    // This is useful when running behind a reverse proxy (e.g., Caddy, nginx)
+    let rpc_url = std::env::var("SURFPOOL_PUBLIC_RPC_URL")
+        .unwrap_or_else(|_| format!("http://{}", config.rpc.get_rpc_base_url()));
+    let ws_url = std::env::var("SURFPOOL_PUBLIC_WS_URL")
+        .unwrap_or_else(|_| format!("ws://{}", config.rpc.get_ws_base_url()));
+    let studio_url = std::env::var("SURFPOOL_PUBLIC_STUDIO_URL")
+        .unwrap_or_else(|_| format!("http://{}", studio_binding_address));
+
     let graphql_query_route_url = format!("{}/workspace/v1/graphql", studio_url);
     let rpc_datasource_url = config.simnets[0].get_sanitized_datasource_url();
 
