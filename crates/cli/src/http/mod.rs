@@ -96,11 +96,11 @@ pub async fn start_subgraph_and_explorer_server(
                     .route("/v1/graphql", web::post().to(post_graphql))
                     .route("/v1/subscriptions", web::get().to(subscriptions)),
             );
-        
+
         if enable_studio {
             app = app.service(serve_studio_static_files);
         }
-        
+
         app
     })
     .workers(5)
