@@ -1675,6 +1675,15 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Resets SVM state
+    ///
+    /// This function coordinates the reset of accounts by calling the SVM's reset_account method.
+    pub fn reset_network(&self) -> SurfpoolResult<()> {
+        let simnet_events_tx = self.simnet_events_tx();
+        let _ = simnet_events_tx.send(SimnetEvent::info("Network will be reset"));
+        self.with_svm_writer(move |svm_writer| svm_writer.reset_network())
+    }
+
     /// Streams an account by its pubkey.
     pub fn stream_account(
         &self,

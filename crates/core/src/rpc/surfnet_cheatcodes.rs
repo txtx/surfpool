@@ -749,6 +749,37 @@ pub trait SurfnetCheatcodes {
         config: Option<ResetAccountConfig>,
     ) -> Result<RpcResponse<()>>;
 
+    /// A cheat code to reset a network.
+    ///
+    /// ## Returns
+    /// An `RpcResponse<()>` indicating whether the network reset was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_resetNetwork",    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 123456789,
+    ///       "apiVersion": "2.3.8"
+    ///     },
+    ///     "value": null    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+
+    #[rpc(meta, name = "surfnet_resetNetwork")]
+    fn reset_network(&self, meta: Self::Metadata) -> Result<RpcResponse<()>>;
+
     /// A cheat code to export a snapshot of all accounts in the Surfnet SVM.
     ///
     /// This method retrieves the current state of all accounts stored in the Surfnet Virtual Machine (SVM)
@@ -1416,6 +1447,15 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         let config = config.unwrap_or_default();
         let include_owned_accounts = config.include_owned_accounts.unwrap_or_default();
         svm_locker.reset_account(pubkey, include_owned_accounts)?;
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: (),
+        })
+    }
+
+    fn reset_network(&self, meta: Self::Metadata) -> Result<RpcResponse<()>> {
+        let svm_locker = meta.get_svm_locker()?;
+        svm_locker.reset_network()?;
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: (),
