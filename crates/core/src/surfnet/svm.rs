@@ -34,6 +34,7 @@ use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
 use solana_inflation::Inflation;
 use solana_keypair::Keypair;
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
 use solana_program_option::COption;
 use solana_pubkey::Pubkey;
@@ -79,6 +80,14 @@ use crate::{
 };
 
 pub type AccountOwner = Pubkey;
+
+#[allow(deprecated)]
+use solana_sysvar::recent_blockhashes::MAX_ENTRIES;
+
+#[allow(deprecated)]
+pub const MAX_RECENT_BLOCKHASHES_INTERNAL: usize = MAX_ENTRIES;
+pub const MAX_RECENT_BLOCKHASHES_EXTERNAL: usize = 500;
+pub const MAX_BLOCKHASH_TIME: usize = 30 * 1000;
 
 pub fn get_txtx_value_json_converters() -> Vec<AddonJsonConverter<'static>> {
     vec![
@@ -150,6 +159,7 @@ pub struct SurfnetSvm {
     pub runbook_executions: Vec<RunbookExecutionStatusReport>,
     pub account_update_slots: HashMap<Pubkey, Slot>,
     pub streamed_accounts: HashMap<Pubkey, bool>,
+    pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -240,6 +250,7 @@ impl SurfnetSvm {
             runbook_executions: Vec::new(),
             account_update_slots: HashMap::new(),
             streamed_accounts: HashMap::new(),
+            recent_blockhashes: VecDeque::new(),
         };
 
         // Generate the initial synthetic blockhash
@@ -440,10 +451,12 @@ impl SurfnetSvm {
     #[allow(deprecated)]
     fn new_blockhash(&mut self) -> BlockIdentifier {
         use solana_slot_hashes::SlotHashes;
-        use solana_sysvar::recent_blockhashes::{IterItem, MAX_ENTRIES, RecentBlockhashes};
+        use solana_sysvar::recent_blockhashes::{IterItem, RecentBlockhashes};
         // Backup the current block hashes
         let recent_blockhashes_backup = self.inner.get_sysvar::<RecentBlockhashes>();
-        let num_blockhashes_expected = recent_blockhashes_backup.len().min(MAX_ENTRIES);
+        let num_blockhashes_expected = recent_blockhashes_backup
+            .len()
+            .min(MAX_RECENT_BLOCKHASHES_INTERNAL);
         // Invalidate the current block hash.
         // LiteSVM bug / feature: calling this method empties `sysvar::<RecentBlockhashes>()`
         self.inner.expire_blockhash();
@@ -455,6 +468,7 @@ impl SurfnetSvm {
             .expect("Latest blockhash not found");
 
         let new_synthetic_blockhash = SyntheticBlockhash::new(self.chain_tip.index);
+        let new_synthetic_blockhash_str = new_synthetic_blockhash.to_string();
 
         recent_blockhashes.push(IterItem(
             0,
@@ -464,7 +478,7 @@ impl SurfnetSvm {
 
         // Append the previous blockhashes, ignoring the first one
         for (index, entry) in recent_blockhashes_backup.iter().enumerate() {
-            if recent_blockhashes.len() >= MAX_ENTRIES {
+            if recent_blockhashes.len() >= MAX_RECENT_BLOCKHASHES_INTERNAL {
                 break;
             }
             recent_blockhashes.push(IterItem(
@@ -484,9 +498,16 @@ impl SurfnetSvm {
         );
         self.inner.set_sysvar(&SlotHashes::new(&slot_hashes));
 
+        let now = Utc::now().timestamp_millis();
+        self.recent_blockhashes
+            .push_front((new_synthetic_blockhash, now));
+        self.recent_blockhashes.retain_mut(|(_, timestamp)| {
+            now.saturating_sub(*timestamp) <= MAX_BLOCKHASH_TIME as i64
+        });
+
         BlockIdentifier::new(
             self.chain_tip.index + 1,
-            new_synthetic_blockhash.to_string().as_str(),
+            new_synthetic_blockhash_str.as_str(),
         )
     }
 
@@ -498,11 +519,9 @@ impl SurfnetSvm {
     /// # Returns
     /// `true` if the blockhash is recent, `false` otherwise.
     pub fn check_blockhash_is_recent(&self, recent_blockhash: &Hash) -> bool {
-        #[allow(deprecated)]
-        self.inner
-            .get_sysvar::<solana_sysvar::recent_blockhashes::RecentBlockhashes>()
+        self.recent_blockhashes
             .iter()
-            .any(|entry| entry.blockhash == *recent_blockhash)
+            .any(|(h, _)| h.hash() == recent_blockhash)
     }
 
     /// Sets an account in the local SVM state and notifies listeners.
@@ -760,7 +779,6 @@ impl SurfnetSvm {
                 ));
             return Err(FailedTransactionMetadata { err, meta });
         }
-        self.inner.set_blockhash_check(false);
 
         match self.inner.send_transaction(tx.clone()) {
             Ok(res) => Ok(res),
@@ -958,9 +976,58 @@ impl SurfnetSvm {
     /// # Arguments
     /// * `account_update` - The account update result to process.
     pub fn write_account_update(&mut self, account_update: GetAccountResult) {
+        let init_programdata_account = |program_account: &Account| {
+            if !program_account.executable {
+                return None;
+            }
+            if !program_account
+                .owner
+                .eq(&solana_sdk_ids::bpf_loader_upgradeable::id())
+            {
+                return None;
+            }
+            let Ok(UpgradeableLoaderState::Program {
+                programdata_address,
+            }) = bincode::deserialize::<UpgradeableLoaderState>(&program_account.data)
+            else {
+                return None;
+            };
+
+            let programdata_state = UpgradeableLoaderState::ProgramData {
+                upgrade_authority_address: Some(system_program::id()),
+                slot: self.get_latest_absolute_slot(),
+            };
+            let mut data = bincode::serialize(&programdata_state).unwrap();
+
+            data.extend_from_slice(&include_bytes!("../tests/assets/minimum_program.so").to_vec());
+            let lamports = self.inner.minimum_balance_for_rent_exemption(data.len());
+            Some((
+                programdata_address,
+                Account {
+                    lamports,
+                    data,
+                    owner: solana_sdk_ids::bpf_loader_upgradeable::id(),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            ))
+        };
         match account_update {
             GetAccountResult::FoundAccount(pubkey, account, do_update_account) => {
                 if do_update_account {
+                    if let Some((programdata_address, programdata_account)) =
+                        init_programdata_account(&account)
+                    {
+                        if self.get_account(&programdata_address).is_none() {
+                            if let Err(e) =
+                                self.set_account(&programdata_address, programdata_account)
+                            {
+                                let _ = self
+                                    .simnet_events_tx
+                                    .send(SimnetEvent::error(e.to_string()));
+                            }
+                        }
+                    }
                     if let Err(e) = self.set_account(&pubkey, account.clone()) {
                         let _ = self
                             .simnet_events_tx
@@ -968,8 +1035,26 @@ impl SurfnetSvm {
                     }
                 }
             }
-            GetAccountResult::FoundProgramAccount((pubkey, account), (_, None))
-            | GetAccountResult::FoundTokenAccount((pubkey, account), (_, None)) => {
+            GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
+                if let Some((programdata_address, programdata_account)) =
+                    init_programdata_account(&account)
+                {
+                    if self.get_account(&programdata_address).is_none() {
+                        if let Err(e) = self.set_account(&programdata_address, programdata_account)
+                        {
+                            let _ = self
+                                .simnet_events_tx
+                                .send(SimnetEvent::error(e.to_string()));
+                        }
+                    }
+                }
+                if let Err(e) = self.set_account(&pubkey, account.clone()) {
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                }
+            }
+            GetAccountResult::FoundTokenAccount((pubkey, account), (_, None)) => {
                 if let Err(e) = self.set_account(&pubkey, account.clone()) {
                     let _ = self
                         .simnet_events_tx
@@ -2088,7 +2173,7 @@ mod tests {
         }
     }
 
-    fn expect_error_event(events_rx: &Receiver<SimnetEvent>, expected_error: &str) -> bool {
+    fn _expect_error_event(events_rx: &Receiver<SimnetEvent>, expected_error: &str) -> bool {
         match events_rx.recv() {
             Ok(event) => match event {
                 SimnetEvent::ErrorLog(_, err) => {
@@ -2190,10 +2275,29 @@ mod tests {
             }
         }
 
-        // GetAccountResult::FoundProgramAccount with no program account fails
+        // GetAccountResult::FoundProgramAccount with no program account inserts a default programdata account
         {
             let (program_address, program_account, program_data_address, _) =
                 create_program_accounts();
+
+            let mut data = bincode::serialize(
+                &solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
+                    slot: svm.get_latest_absolute_slot(),
+                    upgrade_authority_address: Some(system_program::id()),
+                },
+            )
+            .unwrap();
+
+            let mut bin = include_bytes!("../tests/assets/minimum_program.so").to_vec();
+            data.append(&mut bin); // push our binary after the state data
+            let lamports = svm.inner.minimum_balance_for_rent_exemption(data.len());
+            let default_program_data_account = Account {
+                lamports,
+                data,
+                owner: solana_sdk_ids::bpf_loader_upgradeable::ID,
+                executable: false,
+                rent_epoch: 0,
+            };
 
             let index_before = svm.inner.accounts_db().clone().inner;
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
@@ -2202,18 +2306,26 @@ mod tests {
             );
             svm.write_account_update(found_program_account_update);
 
-            if !expect_error_event(
+            if !expect_account_update_event(
                 &events_rx,
-                &format!(
-                    "Internal error: \"Failed to set account {}: An account required by the instruction is missing\"",
-                    program_address
-                ),
+                &svm,
+                &program_data_address,
+                &default_program_data_account,
             ) {
                 panic!(
-                    "Expected error event not received after inserting program account with no program data account"
+                    "Expected account update event not received after inserting default program data account"
                 );
             }
-            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
+
+            if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
+                panic!(
+                    "Expected account update event not received after GetAccountResult::FoundProgramAccount update for program pubkey"
+                );
+            }
+            assert_eq!(
+                svm.inner.accounts_db().clone().inner.len(),
+                index_before.len() + 2
+            );
         }
 
         // GetAccountResult::FoundProgramAccount with program account + program data account inserts two accounts

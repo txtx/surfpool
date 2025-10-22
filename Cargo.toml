@@ -127,7 +127,7 @@ solana-transaction = { version = "3.0.0", default-features = false }
 solana-transaction-context = { version = "3.0.0", default-features = false }
 solana-transaction-error = { version = "3.0.0", default-features = false }
 solana-transaction-status = { version = "3.0.0", default-features = false }
-solana-version = { version = "2.3.7", default-features = false }
+solana-version = { version = "3.0.0", default-features = false }
 spl-associated-token-account-interface = { version = "2.0.0", default-features = false }
 spl-token-2022-interface = { version = "2.0.0", default-features = false }
 spl-token-interface = { version = "2.0.0", default-features = false }
@@ -138,7 +138,6 @@ toml = { version = "0.8.23", default-features = false }
 tracing = { version = "0.1.41", default-features = false }
 url = { version = "1.7.2", default-features = false }
 uuid = "1.15.1"
-walkdir = "2.3.3"
 zip = { version = "0.6", features = ["deflate"], default-features = false }
 
 surfpool-core = { path = "crates/core", default-features = false }
@@ -150,8 +149,8 @@ surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
 
 txtx-addon-kit = "0.4.10"
-txtx-addon-network-svm = { version = "0.3.13" }
-txtx-addon-network-svm-types = { version = "0.3.12" }
+txtx-addon-network-svm = { version = "0.3.14" }
+txtx-addon-network-svm-types = { version = "0.3.13" }
 txtx-cloud = { version = "0.1.13", features = [
     "clap",
     "toml",

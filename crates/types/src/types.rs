@@ -491,6 +491,7 @@ pub enum SimnetCommand {
     Terminate(Option<(Hash, String)>),
     StartRunbookExecution(String),
     CompleteRunbookExecution(String, Option<Vec<String>>),
+    FetchRemoteAccounts(Vec<Pubkey>, String),
 }
 
 #[derive(Debug)]

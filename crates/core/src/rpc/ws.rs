@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, RwLock, atomic},
 };
 
+use crossbeam_channel::TryRecvError;
 use jsonrpc_core::{Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_pubsub::{
@@ -745,8 +746,20 @@ impl Rpc for SurfpoolWsRpc {
                         Some(TransactionConfirmationStatus::Processed),
                     )
                     | (
+                        &SignatureSubscriptionType::Commitment(CommitmentLevel::Processed),
+                        Some(TransactionConfirmationStatus::Confirmed),
+                    )
+                    | (
+                        &SignatureSubscriptionType::Commitment(CommitmentLevel::Processed),
+                        Some(TransactionConfirmationStatus::Finalized),
+                    )
+                    | (
                         &SignatureSubscriptionType::Commitment(CommitmentLevel::Confirmed),
                         Some(TransactionConfirmationStatus::Confirmed),
+                    )
+                    | (
+                        &SignatureSubscriptionType::Commitment(CommitmentLevel::Confirmed),
+                        Some(TransactionConfirmationStatus::Finalized),
                     )
                     | (
                         &SignatureSubscriptionType::Commitment(CommitmentLevel::Finalized),
@@ -773,17 +786,33 @@ impl Rpc for SurfpoolWsRpc {
                 svm_locker.subscribe_for_signature_updates(&signature, subscription_type.clone());
 
             loop {
-                let Ok((slot, some_err)) = rx.try_recv() else {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                    continue;
+                let (slot, some_err) = match rx.try_recv() {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        match e {
+                            TryRecvError::Empty => {
+                                // no update yet, continue
+                                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                                continue;
+                            }
+                            TryRecvError::Disconnected => {
+                                warn!(
+                                    "Signature subscription channel closed for sub id {:?}",
+                                    sub_id
+                                );
+                                // channel closed, exit loop
+                                break;
+                            }
+                        }
+                    }
                 };
 
-                let Ok(guard) = active.read() else {
+                let Ok(mut guard) = active.write() else {
                     log::error!("Failed to acquire read lock on signature_subscription_map");
                     break;
                 };
 
-                let Some(sink) = guard.get(&sub_id) else {
+                let Some(sink) = guard.remove(&sub_id) else {
                     log::error!("Failed to get sink for subscription ID");
                     break;
                 };
@@ -802,6 +831,10 @@ impl Rpc for SurfpoolWsRpc {
                         }),
                     })),
                 };
+
+                if guard.is_empty() {
+                    break;
+                }
 
                 if let Err(e) = res {
                     log::error!("Failed to notify client about account update: {e}");
