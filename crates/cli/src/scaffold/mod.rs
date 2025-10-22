@@ -6,9 +6,9 @@ use std::{
 use dialoguer::{Confirm, Input, MultiSelect, console::Style, theme::ColorfulTheme};
 use surfpool_types::{DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT};
 use txtx_addon_network_svm::templates::{
-    GenesisEntry, get_interpolated_addon_template, get_interpolated_devnet_signer_template,
-    get_interpolated_header_template, get_interpolated_localnet_signer_template,
-    get_interpolated_mainnet_signer_template,
+    AccountDirEntry, AccountEntry, GenesisEntry, get_interpolated_addon_template,
+    get_interpolated_devnet_signer_template, get_interpolated_header_template,
+    get_interpolated_localnet_signer_template, get_interpolated_mainnet_signer_template,
 };
 use txtx_core::{
     kit::{helpers::fs::FileLocation, indexmap::indexmap},
@@ -28,46 +28,86 @@ mod steel;
 mod typhoon;
 pub mod utils;
 
+pub struct ProgramFrameworkData {
+    pub framework: Framework,
+    pub programs: Vec<ProgramMetadata>,
+    pub genesis_accounts: Option<Vec<GenesisEntry>>,
+    pub accounts: Option<Vec<AccountEntry>>,
+    pub accounts_dir: Option<Vec<AccountDirEntry>>,
+    pub clones: Option<Vec<String>>,
+}
+
+impl ProgramFrameworkData {
+    pub fn new(
+        framework: Framework,
+        programs: Vec<ProgramMetadata>,
+        genesis_accounts: Option<Vec<GenesisEntry>>,
+        accounts: Option<Vec<AccountEntry>>,
+        accounts_dir: Option<Vec<AccountDirEntry>>,
+        clones: Option<Vec<String>>,
+    ) -> Self {
+        Self {
+            framework,
+            programs,
+            genesis_accounts,
+            accounts,
+            accounts_dir,
+            clones,
+        }
+    }
+
+    pub fn partial(framework: Framework, programs: Vec<ProgramMetadata>) -> Self {
+        Self {
+            framework,
+            programs,
+            genesis_accounts: None,
+            accounts: None,
+            accounts_dir: None,
+            clones: None,
+        }
+    }
+}
+
 pub async fn detect_program_frameworks(
     manifest_path: &str,
-) -> Result<Option<(Framework, Vec<ProgramMetadata>, Option<Vec<GenesisEntry>>)>, String> {
+    test_paths: &Vec<String>,
+) -> Result<Option<ProgramFrameworkData>, String> {
     let manifest_location = FileLocation::from_path_string(manifest_path)?;
     let base_dir = manifest_location.get_parent_location()?;
     // Look for Anchor project layout
     // Note: Poseidon projects generate Anchor.toml files, so they will also be identified here
-    if let Some((framework, programs, genesis_accounts)) =
-        anchor::try_get_programs_from_project(base_dir.clone())
-            .map_err(|e| format!("Invalid Anchor project: {e}"))?
+    if let Some(res) = anchor::try_get_programs_from_project(base_dir.clone(), test_paths)
+        .map_err(|e| format!("Invalid Anchor project: {e}"))?
     {
-        return Ok(Some((framework, programs, genesis_accounts)));
+        return Ok(Some(res));
     }
 
     // Look for Steel project layout
     if let Some((framework, programs)) = steel::try_get_programs_from_project(base_dir.clone())
         .map_err(|e| format!("Invalid Steel project: {e}"))?
     {
-        return Ok(Some((framework, programs, None)));
+        return Ok(Some(ProgramFrameworkData::partial(framework, programs)));
     }
 
     // Look for Typhoon project layout
     if let Some((framework, programs)) = typhoon::try_get_programs_from_project(base_dir.clone())
         .map_err(|e| format!("Invalid Typhoon project: {e}"))?
     {
-        return Ok(Some((framework, programs, None)));
+        return Ok(Some(ProgramFrameworkData::partial(framework, programs)));
     }
 
     // Look for Pinocchio project layout
     if let Some((framework, programs)) = pinocchio::try_get_programs_from_project(base_dir.clone())
         .map_err(|e| format!("Invalid Pinocchio project: {e}"))?
     {
-        return Ok(Some((framework, programs, None)));
+        return Ok(Some(ProgramFrameworkData::partial(framework, programs)));
     }
 
     // Look for Native project layout
     if let Some((framework, programs)) = native::try_get_programs_from_project(base_dir.clone())
         .map_err(|e| format!("Invalid Native project: {e}"))?
     {
-        return Ok(Some((framework, programs, None)));
+        return Ok(Some(ProgramFrameworkData::partial(framework, programs)));
     }
 
     Ok(None)
@@ -92,6 +132,8 @@ pub fn scaffold_in_memory_iac(
     framework: &Framework,
     programs: &Vec<ProgramMetadata>,
     genesis_accounts: &Option<Vec<GenesisEntry>>,
+    accounts: &Option<Vec<AccountEntry>>,
+    accounts_dir: &Option<Vec<AccountDirEntry>>,
 ) -> Result<(String, RunbookSources, WorkspaceManifest), String> {
     let mut deployment_runbook_src: String = String::new();
 
@@ -121,9 +163,11 @@ pub fn scaffold_in_memory_iac(
         }
     }
 
-    if let Some(setup_surfnet_iac) = framework
-        .get_interpolated_setup_surfnet_template(genesis_accounts.as_ref().unwrap_or(&vec![]))
-    {
+    if let Some(setup_surfnet_iac) = framework.get_interpolated_setup_surfnet_template(
+        genesis_accounts.as_ref().unwrap_or(&vec![]),
+        accounts.as_ref().unwrap_or(&vec![]),
+        accounts_dir.as_ref().unwrap_or(&vec![]),
+    ) {
         deployment_runbook_src.push_str(&setup_surfnet_iac);
     }
 

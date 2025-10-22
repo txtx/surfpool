@@ -36,7 +36,10 @@ use super::{Context, ExecuteRunbook, StartSimnet};
 use crate::{
     http::start_subgraph_and_explorer_server,
     runbook::{execute_in_memory_runbook, execute_on_disk_runbook, handle_log_event},
-    scaffold::{detect_program_frameworks, scaffold_iac_layout, scaffold_in_memory_iac},
+    scaffold::{
+        ProgramFrameworkData, detect_program_frameworks, scaffold_iac_layout,
+        scaffold_in_memory_iac,
+    },
     tui::{self, simnet::DisplayedUrl},
 };
 
@@ -161,9 +164,10 @@ pub async fn handle_start_local_surfnet_command(
         let _ = simnet_events_tx.send(event);
     }
 
+    let simnet_commands_tx_copy = simnet_commands_tx.clone();
     let mut deploy_progress_rx = vec![];
     if !cmd.no_deploy {
-        match write_and_execute_iac(&cmd, &simnet_events_tx).await {
+        match write_and_execute_iac(&cmd, &simnet_events_tx, &simnet_commands_tx_copy).await {
             Ok(rx) => deploy_progress_rx.push(rx),
             Err(e) => {
                 let _ = simnet_events_tx.send(SimnetEvent::warn(format!(
@@ -432,14 +436,38 @@ fn log_events(
 async fn write_and_execute_iac(
     cmd: &StartSimnet,
     simnet_events_tx: &Sender<SimnetEvent>,
+    simnet_commands_tx: &Sender<SimnetCommand>,
 ) -> Result<Receiver<BlockEvent>, String> {
     // Are we in a project directory?
-    let deployment = detect_program_frameworks(&cmd.manifest_path)
+    let deployment = detect_program_frameworks(&cmd.manifest_path, &cmd.anchor_test_config_paths)
         .await
         .map_err(|e| format!("Failed to detect project framework: {}", e))?;
 
     let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-    if let Some((framework, programs, genesis_accounts)) = deployment {
+    if let Some(ProgramFrameworkData {
+        framework,
+        programs,
+        genesis_accounts,
+        accounts,
+        accounts_dir,
+        clones,
+    }) = deployment
+    {
+        if let Some(clones) = clones.as_ref() {
+            if !clones.is_empty() {
+                let _ = simnet_commands_tx.try_send(SimnetCommand::FetchRemoteAccounts(
+                    clones
+                        .iter()
+                        .map(|c| {
+                            c.parse()
+                                .map_err(|e| format!("Failed to parse clone address {}: {}", c, e))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                    cmd.datasource_rpc_url(),
+                ));
+            }
+        }
+
         // Is infrastructure-as-code (IaC) already setup?
         let base_location =
             FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
@@ -469,6 +497,8 @@ async fn write_and_execute_iac(
                 &framework,
                 &programs,
                 &genesis_accounts,
+                &accounts,
+                &accounts_dir,
             )?);
         } else {
             let runbooks_ids_to_execute = cmd.runbooks.clone();

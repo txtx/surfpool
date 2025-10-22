@@ -227,6 +227,9 @@ pub struct StartSimnet {
     /// Apply suggested defaults for runbook generation and execution when running as part of an anchor test suite (eg. surfpool start --legacy-anchor-compatibility)
     #[clap(long = "legacy-anchor-compatibility", action=ArgAction::SetTrue, default_value = "false")]
     pub anchor_compat: bool,
+    /// Path to the Test.toml test suite files to load (eg. surfpool start --anchor-test-config-path ./path/to/Test.toml)
+    #[arg(long = "anchor-test-config-path")]
+    pub anchor_test_config_paths: Vec<String>,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -321,18 +324,7 @@ impl StartSimnet {
 
     pub fn simnet_config(&self, airdrop_addresses: Vec<Pubkey>) -> SimnetConfig {
         let remote_rpc_url = if !self.offline {
-            Some(match &self.network {
-                Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
-                Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
-                Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
-                None => match self.rpc_url {
-                    Some(ref rpc_url) => rpc_url.clone(),
-                    None => match env::var("SURFPOOL_DATASOURCE_RPC_URL") {
-                        Ok(value) => value,
-                        _ => DEFAULT_RPC_URL.to_string(),
-                    },
-                },
-            })
+            Some(self.datasource_rpc_url())
         } else {
             None
         };
@@ -351,6 +343,21 @@ impl StartSimnet {
                 None
             } else {
                 Some(self.log_bytes_limit)
+            },
+        }
+    }
+
+    pub fn datasource_rpc_url(&self) -> String {
+        match self.network {
+            Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
+            Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
+            Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
+            None => match self.rpc_url {
+                Some(ref rpc_url) => rpc_url.clone(),
+                None => match env::var("SURFPOOL_DATASOURCE_RPC_URL") {
+                    Ok(value) => value,
+                    _ => DEFAULT_RPC_URL.to_string(),
+                },
             },
         }
     }

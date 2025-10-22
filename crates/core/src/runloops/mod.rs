@@ -24,6 +24,7 @@ use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
 use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
 use libloading::{Library, Symbol};
+use solana_commitment_config::CommitmentConfig;
 #[cfg(feature = "geyser_plugin")]
 use solana_geyser_plugin_manager::geyser_plugin_manager::{
     GeyserPluginManager, LoadedGeyserPlugin,
@@ -230,6 +231,19 @@ pub async fn start_block_production_runloop(
                     }
                     SimnetCommand::CompleteRunbookExecution(runbook_id, error) => {
                         svm_locker.complete_runbook_execution(runbook_id, error);
+                    }
+                    SimnetCommand::FetchRemoteAccounts(pubkeys, remote_url) => {
+                        let remote_client = SurfnetRemoteClient::new_unsafe(&remote_url);
+                        if let Some(remote_client) = remote_client {
+                              match svm_locker.get_multiple_accounts_with_remote_fallback(&remote_client, &pubkeys, CommitmentConfig::confirmed()).await {
+                                 Ok(account_updates) => {
+                                     svm_locker.write_multiple_account_updates(&account_updates.inner);
+                                 }
+                                 Err(e) => {
+                                     svm_locker.simnet_events_tx().try_send(SimnetEvent::error(format!("Failed to fetch remote accounts {:?}: {}", pubkeys, e))).ok();
+                                 }
+                             };
+                        }
                     }
                 }
             },
