@@ -60,6 +60,32 @@ pub enum BlockProductionMode {
     Manual,
 }
 
+impl fmt::Display for BlockProductionMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BlockProductionMode::Clock => write!(f, "clock"),
+            BlockProductionMode::Transaction => write!(f, "transaction"),
+            BlockProductionMode::Manual => write!(f, "manual"),
+        }
+    }
+}
+
+impl FromStr for BlockProductionMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "clock" => Ok(BlockProductionMode::Clock),
+            "transaction" => Ok(BlockProductionMode::Transaction),
+            "manual" => Ok(BlockProductionMode::Manual),
+            _ => Err(format!(
+                "Invalid block production mode: {}. Valid values are: clock, transaction, manual",
+                s
+            )),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum SubgraphEvent {
     EndpointReady,
@@ -931,13 +957,26 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ResetAccountConfig {
-    pub recursive: Option<bool>,
+    pub include_owned_accounts: Option<bool>,
 }
 
 impl Default for ResetAccountConfig {
     fn default() -> Self {
         Self {
-            recursive: Some(false),
+            include_owned_accounts: Some(false),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StreamAccountConfig {
+    pub include_owned_accounts: Option<bool>,
+}
+
+impl Default for StreamAccountConfig {
+    fn default() -> Self {
+        Self {
+            include_owned_accounts: Some(false),
         }
     }
 }

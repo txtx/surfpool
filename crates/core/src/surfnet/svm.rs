@@ -14,6 +14,7 @@ use litesvm::{
         FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
     },
 };
+use litesvm_token::create_native_mint;
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_account_decoder::{
     UiAccount, UiAccountData, UiAccountEncoding, UiDataSliceConfig, encode_ui_account,
@@ -50,6 +51,9 @@ use spl_token_2022::{
         BaseStateWithExtensions, StateWithExtensions, interest_bearing_mint::InterestBearingConfig,
         scaled_ui_amount::ScaledUiAmountConfig,
     },
+use spl_token_2022_interface::extension::{
+    BaseStateWithExtensions, StateWithExtensions, interest_bearing_mint::InterestBearingConfig,
+    scaled_ui_amount::ScaledUiAmountConfig,
 };
 use surfpool_types::{
     AccountChange, AccountProfileState, DEFAULT_PROFILING_MAP_CAPACITY, DEFAULT_SLOT_TIME_MS,
@@ -102,10 +106,17 @@ pub struct SurfnetSvm {
     pub chain_tip: BlockIdentifier,
     pub blocks: HashMap<Slot, BlockHeader>,
     pub transactions: HashMap<Signature, SurfnetTransactionStatus>,
-    pub transactions_queued_for_confirmation:
-        VecDeque<(VersionedTransaction, Sender<TransactionStatusEvent>)>,
-    pub transactions_queued_for_finalization:
-        VecDeque<(Slot, VersionedTransaction, Sender<TransactionStatusEvent>)>,
+    pub transactions_queued_for_confirmation: VecDeque<(
+        VersionedTransaction,
+        Sender<TransactionStatusEvent>,
+        Option<TransactionError>,
+    )>,
+    pub transactions_queued_for_finalization: VecDeque<(
+        Slot,
+        VersionedTransaction,
+        Sender<TransactionStatusEvent>,
+        Option<TransactionError>,
+    )>,
     pub perf_samples: VecDeque<RpcPerfSample>,
     pub transactions_processed: u64,
     pub latest_epoch_info: EpochInfo,
@@ -143,6 +154,7 @@ pub struct SurfnetSvm {
     pub max_profiles: usize,
     pub runbook_executions: Vec<RunbookExecutionStatusReport>,
     pub account_update_slots: HashMap<Pubkey, Slot>,
+    pub streamed_accounts: HashMap<Pubkey, bool>,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -176,10 +188,25 @@ impl SurfnetSvm {
         // todo: consider making this configurable via config
         feature_set.deactivate(&enable_extend_program_checked::id());
 
-        let inner = LiteSVM::new()
+        let mut inner = LiteSVM::new()
             .with_feature_set(feature_set.clone())
             .with_blockhash_check(false)
             .with_sigverify(false);
+
+        // Add the native mint (SOL) to the SVM
+        create_native_mint(&mut inner);
+        let native_mint_account = inner
+            .get_account(&spl_token_interface::native_mint::ID)
+            .unwrap();
+        let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
+
+        // Load native mint into owned account and token mint indexes
+        let accounts_by_owner = HashMap::from([(
+            native_mint_account.owner,
+            vec![spl_token_interface::native_mint::ID],
+        )]);
+        let token_mints =
+            HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
 
         let mut svm = Self {
             inner,
@@ -210,10 +237,10 @@ impl SurfnetSvm {
             logs_subscriptions: Vec::new(),
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
-            accounts_by_owner: HashMap::new(),
+            accounts_by_owner,
             account_associated_data: HashMap::new(),
             token_accounts: HashMap::new(),
-            token_mints: HashMap::new(),
+            token_mints,
             token_accounts_by_owner: HashMap::new(),
             token_accounts_by_delegate: HashMap::new(),
             token_accounts_by_mint: HashMap::new(),
@@ -230,6 +257,7 @@ impl SurfnetSvm {
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             runbook_executions: Vec::new(),
             account_update_slots: HashMap::new(),
+            streamed_accounts: HashMap::new(),
         };
 
         // Generate the initial synthetic blockhash
@@ -370,7 +398,7 @@ impl SurfnetSvm {
                 ),
             );
             self.transactions_queued_for_confirmation
-                .push_back((tx, status_tx.clone()));
+                .push_back((tx, status_tx.clone(), None));
             let account = self.get_account(pubkey).unwrap();
             let _ = self.set_account(pubkey, account);
         }
@@ -577,7 +605,7 @@ impl SurfnetSvm {
             }
 
             if let Ok(mint) =
-                StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&account.data)
+                StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(&account.data)
             {
                 let unix_timestamp = self.inner.get_sysvar::<Clock>().unix_timestamp;
                 let interest_bearing_config = mint
@@ -648,12 +676,43 @@ impl SurfnetSvm {
         }
     }
 
-    pub fn reset_account(&mut self, pubkey: &Pubkey) -> SurfpoolResult<()> {
-        // Get the existing account if it exists
-        if let Some(account) = self.get_account(pubkey) {
-            // Remove from indexes
-            self.remove_from_indexes(pubkey, &account);
+    pub fn reset_account(
+        &mut self,
+        pubkey: &Pubkey,
+        include_owned_accounts: bool,
+    ) -> SurfpoolResult<()> {
+        let Some(account) = self.get_account(pubkey) else {
+            return Ok(());
+        };
+
+        if account.executable {
+            // Handle upgradeable program - also reset the program data account
+            if account.owner == solana_sdk_ids::bpf_loader_upgradeable::id() {
+                let program_data_pubkey =
+                    solana_loader_v3_interface::get_program_data_address(pubkey);
+
+                // Reset the program data account first
+                self.purge_account_from_cache(&account, &program_data_pubkey)?;
+            }
         }
+        if include_owned_accounts {
+            let owned_accounts = self.get_account_owned_by(pubkey);
+            for (owned_pubkey, _) in owned_accounts {
+                // Avoid infinite recursion by not cascading further
+                self.purge_account_from_cache(&account, &owned_pubkey)?;
+            }
+        }
+        // Reset the account itself
+        self.purge_account_from_cache(&account, pubkey)?;
+        Ok(())
+    }
+
+    fn purge_account_from_cache(
+        &mut self,
+        account: &Account,
+        pubkey: &Pubkey,
+    ) -> SurfpoolResult<()> {
+        self.remove_from_indexes(pubkey, account);
 
         // Set the empty account
         self.inner
@@ -818,21 +877,28 @@ impl SurfnetSvm {
 
         let mut all_mutated_account_keys = HashSet::new();
 
-        while let Some((tx, status_tx)) = self.transactions_queued_for_confirmation.pop_front() {
+        while let Some((tx, status_tx, error)) =
+            self.transactions_queued_for_confirmation.pop_front()
+        {
             let _ = status_tx.try_send(TransactionStatusEvent::Success(
                 TransactionConfirmationStatus::Confirmed,
             ));
             let signature = tx.signatures[0];
             let finalized_at = self.latest_epoch_info.absolute_slot + FINALIZATION_SLOT_THRESHOLD;
-            self.transactions_queued_for_finalization
-                .push_back((finalized_at, tx, status_tx));
+            self.transactions_queued_for_finalization.push_back((
+                finalized_at,
+                tx,
+                status_tx,
+                error.clone(),
+            ));
 
             self.notify_signature_subscribers(
                 SignatureSubscriptionType::confirmed(),
                 &signature,
                 slot,
-                None,
+                error,
             );
+
             let Some(SurfnetTransactionStatus::Processed(tx_data)) =
                 self.transactions.get(&signature)
             else {
@@ -868,7 +934,7 @@ impl SurfnetSvm {
     fn finalize_transactions(&mut self) -> Result<(), SurfpoolError> {
         let current_slot = self.latest_epoch_info.absolute_slot;
         let mut requeue = VecDeque::new();
-        while let Some((finalized_at, tx, status_tx)) =
+        while let Some((finalized_at, tx, status_tx, error)) =
             self.transactions_queued_for_finalization.pop_front()
         {
             if current_slot >= finalized_at {
@@ -880,7 +946,7 @@ impl SurfnetSvm {
                     SignatureSubscriptionType::finalized(),
                     signature,
                     self.latest_epoch_info.absolute_slot,
-                    None,
+                    error,
                 );
                 let Some(SurfnetTransactionStatus::Processed(tx_data)) =
                     self.transactions.get(signature)
@@ -895,7 +961,7 @@ impl SurfnetSvm {
                     .unwrap_or(vec![]);
                 self.notify_logs_subscribers(signature, None, logs, CommitmentLevel::Finalized);
             } else {
-                requeue.push_back((finalized_at, tx, status_tx));
+                requeue.push_back((finalized_at, tx, status_tx, error));
             }
         }
         // Requeue any transactions that are not yet finalized
@@ -1026,6 +1092,12 @@ impl SurfnetSvm {
         self.inner.set_sysvar(&clock);
 
         self.finalize_transactions()?;
+
+        // Evict the accounts marked as streamed from cache to enforce them to be fetched again
+        let accounts_to_reset = self.streamed_accounts.clone();
+        for (pubkey, include_owned_accounts) in accounts_to_reset.iter() {
+            self.reset_account(pubkey, *include_owned_accounts)?;
+        }
 
         Ok(())
     }
@@ -1224,8 +1296,8 @@ impl SurfnetSvm {
     /// # Returns
     ///
     /// * A vector of (account_pubkey, account) tuples for all accounts owned by the program.
-    pub fn get_account_owned_by(&self, program_id: Pubkey) -> Vec<(Pubkey, Account)> {
-        if let Some(account_pubkeys) = self.accounts_by_owner.get(&program_id) {
+    pub fn get_account_owned_by(&self, program_id: &Pubkey) -> Vec<(Pubkey, Account)> {
+        if let Some(account_pubkeys) = self.accounts_by_owner.get(program_id) {
             account_pubkeys
                 .iter()
                 .filter_map(|pubkey| {
@@ -1410,7 +1482,7 @@ impl SurfnetSvm {
             if expected_level.eq(&commitment_level) {
                 let message = RpcLogsResponse {
                     signature: signature.to_string(),
-                    err: err.clone(),
+                    err: err.clone().map(|e| e.into()),
                     logs: logs.clone(),
                 };
                 let _ = tx.send((self.get_latest_absolute_slot(), message));
@@ -1751,7 +1823,7 @@ mod tests {
     use solana_account::Account;
     use solana_loader_v3_interface::get_program_data_address;
     use solana_program_pack::Pack;
-    use spl_token::state::{Account as TokenAccount, AccountState};
+    use spl_token_interface::state::{Account as TokenAccount, AccountState};
 
     use super::*;
 
@@ -1874,7 +1946,7 @@ mod tests {
         let account = Account {
             lamports: 1000000,
             data: token_account_data.to_vec(),
-            owner: spl_token::id(),
+            owner: spl_token_interface::id(),
             executable: false,
             rent_epoch: 0,
         };
@@ -1927,7 +1999,7 @@ mod tests {
         let account = Account {
             lamports: 1000000,
             data: token_account_data.to_vec(),
-            owner: spl_token::id(),
+            owner: spl_token_interface::id(),
             executable: false,
             rent_epoch: 0,
         };
@@ -1955,7 +2027,7 @@ mod tests {
         let updated_account = Account {
             lamports: 1000000,
             data: token_account_data.to_vec(),
-            owner: spl_token::id(),
+            owner: spl_token_interface::id(),
             executable: false,
             rent_epoch: 0,
         };

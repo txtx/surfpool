@@ -28,9 +28,8 @@ use solana_system_interface::{
 };
 use solana_transaction::{Transaction, versioned::VersionedTransaction};
 use surfpool_types::{
-    DEFAULT_SLOT_TIME_MS, Idl, ResetAccountConfig, RpcProfileDepth, RpcProfileResultConfig,
-    SimnetCommand, SimnetEvent, SurfpoolConfig, UiAccountChange, UiAccountProfileState,
-    UiKeyedProfileResult,
+    DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
+    SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
     types::{
         BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
     },
@@ -51,7 +50,7 @@ use crate::{
     runloops::start_local_surfnet_runloop,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
     tests::helpers::get_free_port,
-    types::{TimeTravelConfig, TokenAccount, TransactionLoadedAddresses},
+    types::{TimeTravelConfig, TransactionLoadedAddresses},
 };
 
 fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<SimnetEvent>) {
@@ -1995,12 +1994,12 @@ async fn test_profile_transaction_token_transfer() {
         &mint.pubkey(),
         mint_rent,
         82,
-        &spl_token_2022::id(),
+        &spl_token_2022_interface::id(),
     );
 
     // Initialize mint
-    let initialize_mint_ix = spl_token_2022::instruction::initialize_mint2(
-        &spl_token_2022::id(),
+    let initialize_mint_ix = spl_token_2022_interface::instruction::initialize_mint2(
+        &spl_token_2022_interface::id(),
         &mint.pubkey(),
         &payer.pubkey(),
         Some(&payer.pubkey()),
@@ -2009,38 +2008,38 @@ async fn test_profile_transaction_token_transfer() {
     .unwrap();
 
     // Create associated token accounts
-    let source_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
+    let source_ata = spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
         &payer.pubkey(),
         &mint.pubkey(),
-        &spl_token_2022::id(),
+        &spl_token_2022_interface::id(),
     );
     println!("Source ATA: {}", source_ata);
-    let dest_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
+    let dest_ata = spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
         &recipient,
         &mint.pubkey(),
-        &spl_token_2022::id(),
+        &spl_token_2022_interface::id(),
     );
 
     let create_source_ata_ix =
-        spl_associated_token_account::instruction::create_associated_token_account(
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
             &payer.pubkey(),
             &payer.pubkey(),
             &mint.pubkey(),
-            &spl_token_2022::id(),
+            &spl_token_2022_interface::id(),
         );
 
     let create_dest_ata_ix =
-        spl_associated_token_account::instruction::create_associated_token_account(
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
             &payer.pubkey(),
             &recipient,
             &mint.pubkey(),
-            &spl_token_2022::id(),
+            &spl_token_2022_interface::id(),
         );
 
     // Mint tokens
     let mint_amount = 100_00; // 100 tokens with 2 decimals
-    let mint_to_ix = spl_token_2022::instruction::mint_to(
-        &spl_token_2022::id(),
+    let mint_to_ix = spl_token_2022_interface::instruction::mint_to(
+        &spl_token_2022_interface::id(),
         &mint.pubkey(),
         &source_ata,
         &payer.pubkey(),
@@ -2141,7 +2140,7 @@ async fn test_profile_transaction_token_transfer() {
                     );
                     assert_eq!(
                         mint_account.owner,
-                        spl_token_2022::id().to_string(),
+                        spl_token_2022_interface::id().to_string(),
                         "Mint account should be owned by the SPL Token program"
                     );
                     // initialized account data should be empty bytes
@@ -2192,7 +2191,7 @@ async fn test_profile_transaction_token_transfer() {
                     );
                     assert_eq!(
                         after.owner,
-                        spl_token_2022::id().to_string(),
+                        spl_token_2022_interface::id().to_string(),
                         "Mint account should be owned by the SPL Token program"
                     );
                     // initialized account data should be empty bytes
@@ -2287,7 +2286,7 @@ async fn test_profile_transaction_token_transfer() {
                     );
                     assert_eq!(
                         new.owner,
-                        spl_token_2022::id().to_string(),
+                        spl_token_2022_interface::id().to_string(),
                         "Source ATA should be owned by the SPL Token program"
                     );
                     // since we're profiling, the "additional data" needed to json parse token 2022 accounts isn't available,
@@ -2339,8 +2338,8 @@ async fn test_profile_transaction_token_transfer() {
 
     // // Now create a token transfer transaction to profile
     // let transfer_amount = 50; // 0.5 tokens
-    // let transfer_ix = spl_token_2022::instruction::transfer_checked(
-    //     &spl_token_2022::id(),
+    // let transfer_ix = spl_token_2022_interface::instruction::transfer_checked(
+    //     &spl_token_2022_interface::id(),
     //     &source_ata,
     //     &mint.pubkey(),
     //     &dest_ata,
@@ -3443,11 +3442,11 @@ async fn test_ix_profiling_with_alt_tx() {
         &mint.pubkey(),
         mint_rent,
         82,
-        &spl_token_2022::id(),
+        &spl_token_2022_interface::id(),
     );
 
-    let initialize_mint_ix = spl_token_2022::instruction::initialize_mint2(
-        &spl_token_2022::id(),
+    let initialize_mint_ix = spl_token_2022_interface::instruction::initialize_mint2(
+        &spl_token_2022_interface::id(),
         &mint.pubkey(),
         &p1.pubkey(),
         Some(&p1.pubkey()),
@@ -3455,34 +3454,36 @@ async fn test_ix_profiling_with_alt_tx() {
     )
     .unwrap();
 
-    let at1 = spl_associated_token_account::get_associated_token_address_with_program_id(
+    let at1 = spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
         &p1.pubkey(),
         &mint.pubkey(),
-        &spl_token_2022::id(),
+        &spl_token_2022_interface::id(),
     );
-    let at2 = spl_associated_token_account::get_associated_token_address_with_program_id(
+    let at2 = spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
         &p2.pubkey(),
         &mint.pubkey(),
-        &spl_token_2022::id(),
+        &spl_token_2022_interface::id(),
     );
 
-    let create_at1_ix = spl_associated_token_account::instruction::create_associated_token_account(
-        &p1.pubkey(),
-        &p1.pubkey(),
-        &mint.pubkey(),
-        &spl_token_2022::id(),
-    );
+    let create_at1_ix =
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
+            &p1.pubkey(),
+            &p1.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
 
-    let create_at2_ix = spl_associated_token_account::instruction::create_associated_token_account(
-        &p1.pubkey(),
-        &p2.pubkey(),
-        &mint.pubkey(),
-        &spl_token_2022::id(),
-    );
+    let create_at2_ix =
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
+            &p1.pubkey(),
+            &p2.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
 
     let mint_amount = 100_00;
-    let mint_to_ix = spl_token_2022::instruction::mint_to(
-        &spl_token_2022::id(),
+    let mint_to_ix = spl_token_2022_interface::instruction::mint_to(
+        &spl_token_2022_interface::id(),
         &mint.pubkey(),
         &at1,
         &p1.pubkey(),
@@ -3516,7 +3517,7 @@ async fn test_ix_profiling_with_alt_tx() {
 
     let address_lookup_table_account = AddressLookupTableAccount {
         key: alt_key,
-        addresses: vec![at1, at2, spl_token_2022::id(), mint.pubkey()],
+        addresses: vec![at1, at2, spl_token_2022_interface::id(), mint.pubkey()],
     };
 
     println!(
@@ -3546,8 +3547,8 @@ async fn test_ix_profiling_with_alt_tx() {
     });
 
     let transfer_amount = 50_00;
-    let transfer_ix = spl_token_2022::instruction::transfer_checked(
-        &spl_token_2022::id(),
+    let transfer_ix = spl_token_2022_interface::instruction::transfer_checked(
+        &spl_token_2022_interface::id(),
         &at1,
         &mint.pubkey(),
         &at2,
@@ -3654,7 +3655,7 @@ async fn test_ix_profiling_with_alt_tx() {
     let account_states = ix_profile.account_states.clone();
 
     let UiAccountProfileState::Readonly = account_states
-        .get(&spl_token_2022::id())
+        .get(&spl_token_2022_interface::id())
         .expect("token-2022 program should be present")
     else {
         panic!("expected token-2022 program to be Readonly");
@@ -3824,14 +3825,7 @@ fn test_reset_account() {
         svm_locker.get_account_local(&p1.pubkey()).inner
     );
 
-    svm_locker
-        .reset_account(
-            p1.pubkey(),
-            ResetAccountConfig {
-                recursive: Some(false),
-            },
-        )
-        .unwrap();
+    svm_locker.reset_account(p1.pubkey(), false).unwrap();
 
     println!("Reset account");
 
@@ -3885,26 +3879,86 @@ fn test_reset_account_cascade() {
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
     // Reset with cascade=true (for regular accounts, doesn't cascade but tests the code path)
-    svm_locker
-        .reset_account(
-            owner,
-            ResetAccountConfig {
-                recursive: Some(true),
-            },
-        )
-        .unwrap();
+    svm_locker.reset_account(owner, true).unwrap();
 
     // Owner is deleted, owned account is deleted
     assert!(svm_locker.get_account_local(&owner).inner.is_none());
     assert!(svm_locker.get_account_local(&owned).inner.is_none());
 
     // Clean up
+    svm_locker.reset_account(owned, false).unwrap();
+}
+
+#[test]
+fn test_reset_streamed_account() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    let p1 = Keypair::new();
+    println!("P1 pubkey: {}", p1.pubkey());
+    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap(); // account is created in the SVM
+    println!("Airdropped SOL to p1");
+
+    let _ = svm_locker.confirm_current_block();
+    // Account still exists
+    assert!(!svm_locker.get_account_local(&p1.pubkey()).inner.is_none());
+
+    svm_locker.stream_account(p1.pubkey(), false).unwrap();
+
+    let _ = svm_locker.confirm_current_block();
+    // Account is cleaned up as soon as the block is processed
+    assert!(
+        svm_locker.get_account_local(&p1.pubkey()).inner.is_none(),
+        "Streamed account should be deleted"
+    );
+}
+
+#[test]
+fn test_reset_streamed_account_cascade() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // Create owner account and owned account
+    let owner = Pubkey::new_unique();
+    let owned = Pubkey::new_unique();
+
+    let owner_account = Account {
+        lamports: 10 * LAMPORTS_PER_SOL,
+        data: vec![0x01, 0x02],
+        owner: solana_sdk_ids::system_program::id(),
+        executable: false,
+        rent_epoch: 0,
+    };
+
+    let owned_account = Account {
+        lamports: 5 * LAMPORTS_PER_SOL,
+        data: vec![0x03, 0x04],
+        owner, // Owned by the first account
+        executable: false,
+        rent_epoch: 0,
+    };
+
+    // Insert accounts
     svm_locker
-        .reset_account(
-            owned,
-            ResetAccountConfig {
-                recursive: Some(false),
-            },
-        )
+        .with_svm_writer(|svm_writer| {
+            svm_writer.set_account(&owner, owner_account).unwrap();
+            svm_writer.set_account(&owned, owned_account).unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
         .unwrap();
+
+    // Verify accounts exist
+    assert!(!svm_locker.get_account_local(&owner).inner.is_none());
+    assert!(!svm_locker.get_account_local(&owned).inner.is_none());
+
+    let _ = svm_locker.confirm_current_block();
+    // Accounts still exists
+    assert!(!svm_locker.get_account_local(&owner).inner.is_none());
+    assert!(!svm_locker.get_account_local(&owned).inner.is_none());
+
+    svm_locker.stream_account(owner, true).unwrap();
+    let _ = svm_locker.confirm_current_block();
+
+    // Owner is deleted, owned account is deleted
+    assert!(svm_locker.get_account_local(&owner).inner.is_none());
+    assert!(svm_locker.get_account_local(&owned).inner.is_none());
 }

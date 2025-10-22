@@ -79,9 +79,16 @@ pub async fn handle_start_local_surfnet_command(
     let config = cmd.surfpool_config(airdrop_addresses);
 
     let studio_binding_address = config.studio.get_studio_base_url();
-    let rpc_url = format!("http://{}", config.rpc.get_rpc_base_url());
-    let ws_url = format!("ws://{}", config.rpc.get_ws_base_url());
-    let studio_url = format!("http://{}", studio_binding_address);
+
+    // Allow overriding public-facing URLs via environment variables
+    // This is useful when running behind a reverse proxy (e.g., Caddy, nginx)
+    let rpc_url = std::env::var("SURFPOOL_PUBLIC_RPC_URL")
+        .unwrap_or_else(|_| format!("http://{}", config.rpc.get_rpc_base_url()));
+    let ws_url = std::env::var("SURFPOOL_PUBLIC_WS_URL")
+        .unwrap_or_else(|_| format!("ws://{}", config.rpc.get_ws_base_url()));
+    let studio_url = std::env::var("SURFPOOL_PUBLIC_STUDIO_URL")
+        .unwrap_or_else(|_| format!("http://{}", studio_binding_address));
+
     let graphql_query_route_url = format!("{}/workspace/v1/graphql", studio_url);
     let rpc_datasource_url = config.simnets[0].get_sanitized_datasource_url();
 
@@ -103,6 +110,7 @@ pub async fn handle_start_local_surfnet_command(
         subgraph_events_tx.clone(),
         subgraph_commands_rx,
         ctx,
+        !cmd.no_studio,
     )
     .await
     {
@@ -431,14 +439,14 @@ async fn write_and_execute_iac(
         .map_err(|e| format!("Failed to detect project framework: {}", e))?;
 
     let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-    if let Some((framework, programs)) = deployment {
+    if let Some((framework, programs, genesis_accounts)) = deployment {
         // Is infrastructure-as-code (IaC) already setup?
         let base_location =
             FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
         let mut txtx_manifest_location = base_location.clone();
         txtx_manifest_location.append_path("txtx.yml")?;
         let txtx_manifest_exists = txtx_manifest_location.exists();
-        let do_write_scaffold = !cmd.autopilot && !txtx_manifest_exists;
+        let do_write_scaffold = !cmd.anchor_compat && !txtx_manifest_exists;
         if do_write_scaffold {
             // Scaffold IaC
             scaffold_iac_layout(
@@ -452,12 +460,16 @@ async fn write_and_execute_iac(
         // If there were existing on-disk runbooks, we'll execute those instead of in-memory ones
         // If there were no existing runbooks and the user requested autopilot, we'll generate and execute in-memory runbooks
         // If there were no existing runbooks and the user did not request autopilot, we'll generate and execute on-disk runbooks
-        let do_execute_in_memory_runbooks = cmd.autopilot && !txtx_manifest_exists;
+        let do_execute_in_memory_runbooks = cmd.anchor_compat && !txtx_manifest_exists;
 
         let mut on_disk_runbook_data = None;
         let mut in_memory_runbook_data = None;
         if do_execute_in_memory_runbooks {
-            in_memory_runbook_data = Some(scaffold_in_memory_iac(&framework, &programs)?);
+            in_memory_runbook_data = Some(scaffold_in_memory_iac(
+                &framework,
+                &programs,
+                &genesis_accounts,
+            )?);
         } else {
             let runbooks_ids_to_execute = cmd.runbooks.clone();
             on_disk_runbook_data = Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));

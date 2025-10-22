@@ -54,6 +54,7 @@ solana-transaction = { workspace = true }
 tokio = { workspace = true }
 toml = { workspace = true, optional = true }
 url = { workspace = true }
+walkdir = { workspace = true }
 
 surfpool-core = { workspace = true }
 surfpool-gql = { workspace = true }

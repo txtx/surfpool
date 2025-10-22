@@ -31,7 +31,7 @@ COPY --from=build /out/ /bin/
 
 WORKDIR /workspace
 
-EXPOSE 8899 8900 8488
+EXPOSE 8899 8900 18488
 
 # Create a shell script that provides default behavior
 RUN echo '#!/bin/bash\n\

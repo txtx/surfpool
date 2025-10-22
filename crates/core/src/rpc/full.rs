@@ -31,8 +31,8 @@ use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding, TransactionStatus,
-    UiConfirmedBlock, UiTransactionEncoding,
+    EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding,
+    TransactionConfirmationStatus, TransactionStatus, UiConfirmedBlock, UiTransactionEncoding,
 };
 use surfpool_types::{SimnetCommand, TransactionStatusEvent};
 
@@ -1474,7 +1474,18 @@ impl Full for SurfpoolFullRpc {
                     .await?;
 
                 last_latest_absolute_slot = svm_locker.get_latest_absolute_slot();
-                responses.push(res.map_some_transaction_status());
+                let mut status = res.map_some_transaction_status();
+                if let Some(confirmation_status) =
+                    status.as_ref().and_then(|s| s.confirmation_status.as_ref())
+                {
+                    if confirmation_status.eq(&TransactionConfirmationStatus::Processed) {
+                        // If the transaction is only processed, we cannot be sure it won't be dropped
+                        // before being confirmed. So we return None in this case to match the behavior
+                        // of a real Solana node.
+                        status = None;
+                    }
+                }
+                responses.push(status);
             }
             Ok(RpcResponse {
                 context: RpcResponseContext::new(last_latest_absolute_slot),
@@ -1525,6 +1536,8 @@ impl Full for SurfpoolFullRpc {
             decode_and_deserialize::<VersionedTransaction>(data, binary_encoding)?;
         let signatures = unsanitized_tx.signatures.clone();
         let signature = signatures[0];
+        // Clone the message before moving the transaction, as we'll need it for error reporting
+        let tx_message = unsanitized_tx.message.clone();
         let Some(ctx) = meta else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
@@ -1554,6 +1567,8 @@ impl Full for SurfpoolFullRpc {
                             Some(error.clone()),
                             None,
                             false,
+                            &tx_message,
+                            None, // No loaded addresses available in error reporting context
                         ))
                         .map_err(|e| {
                             Error::invalid_params(format!(
@@ -1577,25 +1592,7 @@ impl Full for SurfpoolFullRpc {
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
             }
-            Ok(TransactionStatusEvent::ExecutionFailure((error, metadata))) => {
-                return Err(Error {
-                    data: None,
-                    message: format!(
-                        "Transaction execution failed: {}{}",
-                        error,
-                        if metadata.logs.is_empty() {
-                            String::new()
-                        } else {
-                            format!(
-                                ": {} log messages:\n{}",
-                                metadata.logs.len(),
-                                metadata.logs.iter().map(|l| l.to_string()).join("\n")
-                            )
-                        }
-                    ),
-                    code: jsonrpc_core::ErrorCode::ServerError(-32002),
-                });
-            }
+            Ok(TransactionStatusEvent::ExecutionFailure(_)) => {}
             Ok(TransactionStatusEvent::VerificationFailure(signature)) => {
                 return Err(Error {
                     data: None,
@@ -1667,6 +1664,9 @@ impl Full for SurfpoolFullRpc {
 
             svm_locker.write_multiple_account_updates(&account_updates);
 
+            // Convert TransactionLoadedAddresses to LoadedAddresses before it gets consumed
+            let loaded_addresses_data = loaded_addresses.as_ref().map(|la| la.loaded_addresses());
+
             if let Some(alt_pubkeys) = loaded_addresses.map(|l| l.alt_addresses()) {
                 let alt_updates = svm_locker
                     .get_multiple_accounts(&remote_ctx, &alt_pubkeys, None)
@@ -1689,6 +1689,9 @@ impl Full for SurfpoolFullRpc {
             } else {
                 None
             };
+
+            // Clone the message before moving the transaction for later use in result formatting
+            let tx_message = unsanitized_tx.message.clone();
 
             let value = match svm_locker.simulate_transaction(unsanitized_tx, config.sig_verify) {
                 Ok(tx_info) => {
@@ -1721,6 +1724,8 @@ impl Full for SurfpoolFullRpc {
                         None,
                         replacement_blockhash,
                         config.inner_instructions,
+                        &tx_message,
+                        loaded_addresses_data.as_ref(),
                     )
                 }
                 Err(tx_info) => get_simulate_transaction_result(
@@ -1729,6 +1734,8 @@ impl Full for SurfpoolFullRpc {
                     Some(tx_info.err),
                     replacement_blockhash,
                     config.inner_instructions,
+                    &tx_message,
+                    loaded_addresses_data.as_ref(),
                 ),
             };
 
@@ -2353,12 +2360,18 @@ fn get_simulate_transaction_result(
     error: Option<TransactionError>,
     replacement_blockhash: Option<RpcBlockhash>,
     include_inner_instructions: bool,
+    message: &VersionedMessage,
+    loaded_addresses: Option<&solana_message::v0::LoadedAddresses>,
 ) -> RpcSimulateTransactionResult {
     RpcSimulateTransactionResult {
         accounts,
-        err: error,
+        err: error.map(|e| e.into()),
         inner_instructions: if include_inner_instructions {
-            Some(transform_tx_metadata_to_ui_accounts(metadata.clone()))
+            Some(transform_tx_metadata_to_ui_accounts(
+                metadata.clone(),
+                message,
+                loaded_addresses,
+            ))
         } else {
             None
         },
@@ -2373,6 +2386,12 @@ fn get_simulate_transaction_result(
         },
         units_consumed: Some(metadata.compute_units_consumed),
         loaded_accounts_data_size: None,
+        fee: None,
+        pre_balances: None,
+        post_balances: None,
+        pre_token_balances: None,
+        post_token_balances: None,
+        loaded_addresses: None,
     }
 }
 
@@ -2466,9 +2485,11 @@ mod tests {
             Ok(SimnetCommand::TransactionReceived(_, tx, status_tx, _)) => {
                 let mut writer = setup.context.svm_locker.0.write().await;
                 let slot = writer.get_latest_absolute_slot();
-                writer
-                    .transactions_queued_for_confirmation
-                    .push_back((tx.clone(), status_tx.clone()));
+                writer.transactions_queued_for_confirmation.push_back((
+                    tx.clone(),
+                    status_tx.clone(),
+                    None,
+                ));
                 let sig = tx.signatures[0];
                 let tx_with_status_meta = TransactionWithStatusMeta {
                     slot,
@@ -2561,6 +2582,26 @@ mod tests {
         );
         setup.process_txs(txs.clone()).await;
 
+        // fetch while transactions are still in processed status
+        {
+            let res = setup
+                .rpc
+                .get_signature_statuses(
+                    Some(setup.context.clone()),
+                    txs.iter().map(|tx| tx.signatures[0].to_string()).collect(),
+                    None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                res.value.iter().flatten().collect::<Vec<_>>().len(),
+                0,
+                "processed transactions should not be returning values"
+            );
+        }
+
+        // confirm a block to move transactions to confirmed status
+        setup.context.svm_locker.confirm_current_block().unwrap();
         let res = setup
             .rpc
             .get_signature_statuses(
@@ -2883,7 +2924,7 @@ mod tests {
 
         assert_eq!(
             simulation_res.value.err,
-            Some(TransactionError::SignatureFailure)
+            Some(TransactionError::SignatureFailure.into())
         );
     }
 

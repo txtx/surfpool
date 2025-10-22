@@ -798,7 +798,7 @@ impl Rpc for SurfpoolWsRpc {
                     SignatureSubscriptionType::Commitment(_) => sink.notify(Ok(RpcResponse {
                         context: RpcResponseContext::new(slot),
                         value: RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
-                            err: some_err,
+                            err: some_err.map(|e| e.into()),
                         }),
                     })),
                 };

@@ -54,9 +54,9 @@ use solana_transaction_status::{
 };
 use surfpool_types::{
     ComputeUnitsEstimationResult, ExecutionCapture, Idl, KeyedProfileResult, ProfileResult,
-    ResetAccountConfig, RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetCommand,
-    SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent, UiKeyedProfileResult,
-    UuidOrSignature, VersionedIdl,
+    RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetCommand, SimnetEvent,
+    TransactionConfirmationStatus, TransactionStatusEvent, UiKeyedProfileResult, UuidOrSignature,
+    VersionedIdl,
 };
 use tokio::sync::RwLock;
 use txtx_addon_kit::indexmap::IndexSet;
@@ -230,18 +230,11 @@ impl SurfnetSvmLocker {
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
             match svm_reader.inner.get_account(pubkey) {
-                Some(account) => {
-                    //TODO: when LiteSVM updates `set_account` to remove accounts if 0 lamports, we can remove this check because the account will be removed from the store
-                    if account.eq(&Account::default()) {
-                        // If the account is default, it means it was deleted but still exists in our litesvm store
-                        return GetAccountResult::None(*pubkey);
-                    }
-                    GetAccountResult::FoundAccount(
-                        *pubkey, account,
-                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                        false,
-                    )
-                }
+                Some(account) => GetAccountResult::FoundAccount(
+                    *pubkey, account,
+                    // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                    false,
+                ),
                 None => match svm_reader.get_account_from_feature_set(pubkey) {
                     Some(account) => GetAccountResult::FoundAccount(
                         *pubkey, account,
@@ -303,19 +296,11 @@ impl SurfnetSvmLocker {
 
             for pubkey in pubkeys {
                 let res = match svm_reader.inner.get_account(pubkey) {
-                    Some(account) => {
-                        //TODO: when LiteSVM updates `set_account` to remove accounts if 0 lamports, we can remove this check because the account will be removed from the store
-                        if account.eq(&Account::default()) {
-                            // If the account is default, it means it was deleted but still exists in our litesvm store
-                            GetAccountResult::None(*pubkey)
-                        } else {
-                            GetAccountResult::FoundAccount(
-                                *pubkey, account,
-                                // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                                false,
-                            )
-                        }
-                    }
+                    Some(account) => GetAccountResult::FoundAccount(
+                        *pubkey, account,
+                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
+                        false,
+                    ),
                     None => match svm_reader.get_account_from_feature_set(pubkey) {
                         Some(account) => GetAccountResult::FoundAccount(
                             *pubkey, account,
@@ -331,8 +316,11 @@ impl SurfnetSvmLocker {
         })
     }
 
-    /// Retrieves multiple accounts, fetching missing ones from remote, returning a contextualized result.
-    pub async fn get_multiple_accounts_local_then_remote(
+    /// Retrieves multiple accounts from local storage, with remote fallback for missing accounts.
+    ///
+    /// Returns accounts in the same order as the input `pubkeys` array. Accounts found locally
+    /// are returned as-is; accounts not found locally are fetched from the remote RPC client.
+    pub async fn get_multiple_accounts_with_remote_fallback(
         &self,
         client: &SurfnetRemoteClient,
         pubkeys: &[Pubkey],
@@ -345,30 +333,54 @@ impl SurfnetSvmLocker {
             inner: local_results,
         } = self.get_multiple_accounts_local(pubkeys);
 
-        let mut missing_accounts = vec![];
-        let mut found_accounts = vec![];
-        for result in local_results.into_iter() {
-            if let GetAccountResult::None(pubkey) = result {
-                missing_accounts.push(pubkey)
-            } else {
-                found_accounts.push(result.clone());
-            }
-        }
+        // Collect missing pubkeys (local_results is already in correct order from pubkeys)
+        let missing_accounts: Vec<Pubkey> = local_results
+            .iter()
+            .filter_map(|result| match result {
+                GetAccountResult::None(pubkey) => Some(*pubkey),
+                _ => None,
+            })
+            .collect();
 
         if missing_accounts.is_empty() {
+            // All accounts found locally, already in correct order
             return Ok(SvmAccessContext::new(
                 slot,
                 latest_epoch_info,
                 latest_blockhash,
-                found_accounts,
+                local_results,
             ));
         }
 
-        let mut remote_results = client
+        // Fetch missing accounts from remote
+        let remote_results = client
             .get_multiple_accounts(&missing_accounts, commitment_config)
             .await?;
-        let mut combined_results = found_accounts.clone();
-        combined_results.append(&mut remote_results);
+
+        // Build map of pubkey -> remote result for O(1) lookup
+        let remote_map: HashMap<Pubkey, GetAccountResult> = missing_accounts
+            .into_iter()
+            .zip(remote_results.into_iter())
+            .collect();
+
+        // Replace None entries with remote results while preserving order
+        // We iterate through original pubkeys array to ensure order is explicit
+        let combined_results: Vec<GetAccountResult> = pubkeys
+            .iter()
+            .zip(local_results.into_iter())
+            .map(|(pubkey, local_result)| {
+                match local_result {
+                    GetAccountResult::None(_) => {
+                        // Replace with remote result if available
+                        remote_map
+                            .get(pubkey)
+                            .cloned()
+                            .unwrap_or(GetAccountResult::None(*pubkey))
+                    }
+                    found => found, // Keep found accounts (no clone, just move)
+                }
+            })
+            .collect();
 
         Ok(SvmAccessContext::new(
             slot,
@@ -386,8 +398,12 @@ impl SurfnetSvmLocker {
         factory: Option<AccountFactory>,
     ) -> SurfpoolContextualizedResult<Vec<GetAccountResult>> {
         let results = if let Some((remote_client, commitment_config)) = remote_ctx {
-            self.get_multiple_accounts_local_then_remote(remote_client, pubkeys, *commitment_config)
-                .await?
+            self.get_multiple_accounts_with_remote_fallback(
+                remote_client,
+                pubkeys,
+                *commitment_config,
+            )
+            .await?
         } else {
             self.get_multiple_accounts_local(pubkeys)
         };
@@ -501,7 +517,7 @@ impl SurfnetSvmLocker {
             combined.append(&mut remote_circulating_pubkeys);
 
             let get_account_results = self
-                .get_multiple_accounts_local_then_remote(client, &combined, commitment_config)
+                .get_multiple_accounts_with_remote_fallback(client, &combined, commitment_config)
                 .await?
                 .inner;
 
@@ -603,7 +619,7 @@ impl SurfnetSvmLocker {
                     Some(RpcConfirmedTransactionStatusWithSignature {
                         err: match &meta.status {
                             Ok(_) => None,
-                            Err(e) => Some(e.clone()),
+                            Err(e) => Some(e.clone().into()),
                         },
                         slot: *slot,
                         memo: None,
@@ -1287,7 +1303,7 @@ impl SurfnetSvmLocker {
             )));
             let _ = status_tx.try_send(TransactionStatusEvent::ExecutionFailure((
                 err.clone(),
-                meta_canonical,
+                meta_canonical.clone(),
             )));
 
             self.with_svm_writer(|svm_writer| {
@@ -1312,9 +1328,20 @@ impl SurfnetSvmLocker {
                         HashSet::new(),
                     ),
                 );
-            });
 
-            self.with_svm_writer(|svm_writer| {
+                let _ = svm_writer
+                    .simnet_events_tx
+                    .try_send(SimnetEvent::transaction_processed(
+                        meta_canonical,
+                        Some(err.clone()),
+                    ));
+
+                svm_writer.transactions_queued_for_confirmation.push_back((
+                    transaction.clone(),
+                    status_tx.clone(),
+                    Some(err.clone()),
+                ));
+
                 svm_writer.notify_signature_subscribers(
                     SignatureSubscriptionType::processed(),
                     &signature,
@@ -1421,8 +1448,12 @@ impl SurfnetSvmLocker {
 
                 if let Some(token_account) = token_account {
                     token_accounts_after.push((i, token_account));
-                    post_token_program_ids
-                        .push(account.as_ref().map(|a| a.owner).unwrap_or(spl_token::id()));
+                    post_token_program_ids.push(
+                        account
+                            .as_ref()
+                            .map(|a| a.owner)
+                            .unwrap_or(spl_token_interface::id()),
+                    );
                 }
             }
 
@@ -1475,9 +1506,11 @@ impl SurfnetSvmLocker {
                 let _ = status_tx.try_send(TransactionStatusEvent::Success(
                     TransactionConfirmationStatus::Processed,
                 ));
-                svm_writer
-                    .transactions_queued_for_confirmation
-                    .push_back((transaction.clone(), status_tx.clone()));
+                svm_writer.transactions_queued_for_confirmation.push_back((
+                    transaction.clone(),
+                    status_tx.clone(),
+                    None,
+                ));
 
                 svm_writer.notify_signature_subscribers(
                     SignatureSubscriptionType::processed(),
@@ -1627,33 +1660,38 @@ impl SurfnetSvmLocker {
     /// This function coordinates the reset of accounts by calling the SVM's reset_account method.
     /// It handles program accounts (including their program data accounts) and can optionally
     /// cascade the reset to all accounts owned by a program.
-    pub fn reset_account(&self, pubkey: Pubkey, config: ResetAccountConfig) -> SurfpoolResult<()> {
-        let cascade_to_owned = config.recursive.unwrap_or_default();
+    pub fn reset_account(
+        &self,
+        pubkey: Pubkey,
+        include_owned_accounts: bool,
+    ) -> SurfpoolResult<()> {
+        let simnet_events_tx = self.simnet_events_tx();
+        let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+            "Account {} will be reset",
+            pubkey
+        )));
         self.with_svm_writer(move |svm_writer| {
-            if let Some(account) = svm_writer.get_account(&pubkey) {
-                // Check if this is an executable account (program)
-                if account.executable {
-                    // Handle upgradeable program - also reset the program data account
-                    if account.owner == solana_sdk_ids::bpf_loader_upgradeable::id() {
-                        let program_data_address =
-                            solana_loader_v3_interface::get_program_data_address(&pubkey);
-
-                        // Reset the program data account first
-                        svm_writer.reset_account(&program_data_address)?;
-                    }
-                }
-                if cascade_to_owned {
-                    let owned_accounts = svm_writer.get_account_owned_by(pubkey);
-                    for (owned_pubkey, _) in owned_accounts {
-                        // Avoid infinite recursion by not cascading further
-                        svm_writer.reset_account(&owned_pubkey)?;
-                    }
-                }
-                // Reset the account itself
-                svm_writer.reset_account(&pubkey)?;
-            }
-            Ok(())
+            svm_writer.reset_account(&pubkey, include_owned_accounts)
         })
+    }
+
+    /// Streams an account by its pubkey.
+    pub fn stream_account(
+        &self,
+        pubkey: Pubkey,
+        include_owned_accounts: bool,
+    ) -> SurfpoolResult<()> {
+        let simnet_events_tx = self.simnet_events_tx();
+        let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+            "Account {} changes will be streamed",
+            pubkey
+        )));
+        self.with_svm_writer(|svm_writer| {
+            svm_writer
+                .streamed_accounts
+                .insert(pubkey, include_owned_accounts);
+        });
+        Ok(())
     }
 }
 
@@ -2665,7 +2703,7 @@ impl SurfnetSvmLocker {
         filters: Option<Vec<RpcFilterType>>,
     ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
         let res = self.with_svm_reader(|svm_reader| {
-            let res = svm_reader.get_account_owned_by(*program_id);
+            let res = svm_reader.get_account_owned_by(program_id);
 
             let mut filtered = vec![];
             for (pubkey, account) in &res {
@@ -3000,7 +3038,7 @@ fn apply_rpc_filters(account_data: &[u8], filters: &[RpcFilterType]) -> Surfpool
 
 // used in the remote.rs
 pub fn is_supported_token_program(program_id: &Pubkey) -> bool {
-    *program_id == spl_token::ID || *program_id == spl_token_2022::ID
+    *program_id == spl_token_interface::ID || *program_id == spl_token_2022_interface::ID
 }
 
 fn update_programdata_account(
