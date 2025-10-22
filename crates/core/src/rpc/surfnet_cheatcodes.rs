@@ -758,7 +758,7 @@ pub trait SurfnetCheatcodes {
     /// - `config`: An optional `ExportSnapshotConfig` to customize the export behavior. The config fields are:
     ///     - `includeParsedAccounts`: If true, includes parsed account data in the snapshot.
     ///     - `filter`: An optional filter config to limit which accounts are included in the snapshot. Fields include:
-    ///         - `includeProgramAccounts`: A list of program IDs to include accounts for.
+    ///         - `includeProgramAccounts`: A boolean indicating whether to include program accounts.
     ///         - `includeAccounts`: A list of specific account public keys to include.
     ///         - `excludeAccounts`: A list of specific account public keys to exclude.
     ///
