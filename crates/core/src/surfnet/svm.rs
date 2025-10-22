@@ -33,6 +33,7 @@ use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
 use solana_inflation::Inflation;
 use solana_keypair::Keypair;
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
 use solana_program_option::COption;
 use solana_pubkey::Pubkey;
@@ -155,6 +156,7 @@ pub struct SurfnetSvm {
     pub max_profiles: usize,
     pub runbook_executions: Vec<RunbookExecutionStatusReport>,
     pub streamed_accounts: HashMap<Pubkey, bool>,
+    pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -962,9 +964,58 @@ impl SurfnetSvm {
     /// # Arguments
     /// * `account_update` - The account update result to process.
     pub fn write_account_update(&mut self, account_update: GetAccountResult) {
+        let init_programdata_account = |program_account: &Account| {
+            if !program_account.executable {
+                return None;
+            }
+            if !program_account
+                .owner
+                .eq(&solana_sdk_ids::bpf_loader_upgradeable::id())
+            {
+                return None;
+            }
+            let Ok(UpgradeableLoaderState::Program {
+                programdata_address,
+            }) = bincode::deserialize::<UpgradeableLoaderState>(&program_account.data)
+            else {
+                return None;
+            };
+
+            let programdata_state = UpgradeableLoaderState::ProgramData {
+                upgrade_authority_address: Some(system_program::id()),
+                slot: self.get_latest_absolute_slot(),
+            };
+            let mut data = bincode::serialize(&programdata_state).unwrap();
+
+            data.extend_from_slice(&include_bytes!("../tests/assets/minimum_program.so").to_vec());
+            let lamports = self.inner.minimum_balance_for_rent_exemption(data.len());
+            Some((
+                programdata_address,
+                Account {
+                    lamports,
+                    data,
+                    owner: solana_sdk_ids::bpf_loader_upgradeable::id(),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            ))
+        };
         match account_update {
             GetAccountResult::FoundAccount(pubkey, account, do_update_account) => {
                 if do_update_account {
+                    if let Some((programdata_address, programdata_account)) =
+                        init_programdata_account(&account)
+                    {
+                        if self.get_account(&programdata_address).is_none() {
+                            if let Err(e) =
+                                self.set_account(&programdata_address, programdata_account)
+                            {
+                                let _ = self
+                                    .simnet_events_tx
+                                    .send(SimnetEvent::error(e.to_string()));
+                            }
+                        }
+                    }
                     if let Err(e) = self.set_account(&pubkey, account.clone()) {
                         let _ = self
                             .simnet_events_tx
@@ -972,8 +1023,26 @@ impl SurfnetSvm {
                     }
                 }
             }
-            GetAccountResult::FoundProgramAccount((pubkey, account), (_, None))
-            | GetAccountResult::FoundTokenAccount((pubkey, account), (_, None)) => {
+            GetAccountResult::FoundProgramAccount((pubkey, account), (_, None)) => {
+                if let Some((programdata_address, programdata_account)) =
+                    init_programdata_account(&account)
+                {
+                    if self.get_account(&programdata_address).is_none() {
+                        if let Err(e) = self.set_account(&programdata_address, programdata_account)
+                        {
+                            let _ = self
+                                .simnet_events_tx
+                                .send(SimnetEvent::error(e.to_string()));
+                        }
+                    }
+                }
+                if let Err(e) = self.set_account(&pubkey, account.clone()) {
+                    let _ = self
+                        .simnet_events_tx
+                        .send(SimnetEvent::error(e.to_string()));
+                }
+            }
+            GetAccountResult::FoundTokenAccount((pubkey, account), (_, None)) => {
                 if let Err(e) = self.set_account(&pubkey, account.clone()) {
                     let _ = self
                         .simnet_events_tx
@@ -2116,10 +2185,29 @@ mod tests {
             }
         }
 
-        // GetAccountResult::FoundProgramAccount with no program account fails
+        // GetAccountResult::FoundProgramAccount with no program account inserts a default programdata account
         {
             let (program_address, program_account, program_data_address, _) =
                 create_program_accounts();
+
+            let mut data = bincode::serialize(
+                &solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
+                    slot: svm.get_latest_absolute_slot(),
+                    upgrade_authority_address: Some(system_program::id()),
+                },
+            )
+            .unwrap();
+
+            let mut bin = include_bytes!("../tests/assets/minimum_program.so").to_vec();
+            data.append(&mut bin); // push our binary after the state data
+            let lamports = svm.inner.minimum_balance_for_rent_exemption(data.len());
+            let default_program_data_account = Account {
+                lamports,
+                data,
+                owner: solana_sdk_ids::bpf_loader_upgradeable::ID,
+                executable: false,
+                rent_epoch: 0,
+            };
 
             let index_before = svm.inner.accounts_db().clone().inner;
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
@@ -2128,18 +2216,26 @@ mod tests {
             );
             svm.write_account_update(found_program_account_update);
 
-            if !expect_error_event(
+            if !expect_account_update_event(
                 &events_rx,
-                &format!(
-                    "Internal error: \"Failed to set account {}: An account required by the instruction is missing\"",
-                    program_address
-                ),
+                &svm,
+                &program_data_address,
+                &default_program_data_account,
             ) {
                 panic!(
-                    "Expected error event not received after inserting program account with no program data account"
+                    "Expected account update event not received after inserting default program data account"
                 );
             }
-            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
+
+            if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
+                panic!(
+                    "Expected account update event not received after GetAccountResult::FoundProgramAccount update for program pubkey"
+                );
+            }
+            assert_eq!(
+                svm.inner.accounts_db().clone().inner.len(),
+                index_before.len() + 2
+            );
         }
 
         // GetAccountResult::FoundProgramAccount with program account + program data account inserts two accounts

@@ -138,7 +138,6 @@ toml = { version = "0.8.23", default-features = false }
 tracing = { version = "0.1.41", default-features = false }
 url = { version = "1.7.2", default-features = false }
 uuid = "1.15.1"
-walkdir = "2.3.3"
 zip = { version = "0.6", features = ["deflate"], default-features = false }
 
 surfpool-core = { path = "crates/core", default-features = false }
@@ -162,13 +161,13 @@ txtx-supervisor-ui = { version = "0.2.9", default-features = false }
 
 [patch.crates-io]
 ## Local
-# txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
-# txtx-core = { path = "../txtx/crates/txtx-core" }
-# txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
-# txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
-# txtx-gql = { path = "../txtx/crates/txtx-gql" }
-# txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
-# txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
+txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
+txtx-core = { path = "../txtx/crates/txtx-core" }
+txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
+txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
+txtx-gql = { path = "../txtx/crates/txtx-gql" }
+txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
+txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
 
 ## Git
 # txtx-addon-kit = { git = "https://github.com/txtx/txtx.git", branch = "main" }
