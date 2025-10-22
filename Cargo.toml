@@ -127,7 +127,7 @@ solana-transaction = { version = "3.0.0", default-features = false }
 solana-transaction-context = { version = "3.0.0", default-features = false }
 solana-transaction-error = { version = "3.0.0", default-features = false }
 solana-transaction-status = { version = "3.0.0", default-features = false }
-solana-version = { version = "2.3.7", default-features = false }
+solana-version = { version = "3.0.0", default-features = false }
 spl-associated-token-account-interface = { version = "2.0.0", default-features = false }
 spl-token-2022-interface = { version = "2.0.0", default-features = false }
 spl-token-interface = { version = "2.0.0", default-features = false }
