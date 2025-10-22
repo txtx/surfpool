@@ -3962,3 +3962,52 @@ fn test_reset_streamed_account_cascade() {
     assert!(svm_locker.get_account_local(&owner).inner.is_none());
     assert!(svm_locker.get_account_local(&owned).inner.is_none());
 }
+
+#[test]
+fn test_reset_network() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // Create owner account and owned account
+    let owner = Pubkey::new_unique();
+    let owned = Pubkey::new_unique();
+
+    let owner_account = Account {
+        lamports: 10 * LAMPORTS_PER_SOL,
+        data: vec![0x01, 0x02],
+        owner: solana_sdk_ids::system_program::id(),
+        executable: false,
+        rent_epoch: 0,
+    };
+
+    let owned_account = Account {
+        lamports: 5 * LAMPORTS_PER_SOL,
+        data: vec![0x03, 0x04],
+        owner, // Owned by the first account
+        executable: false,
+        rent_epoch: 0,
+    };
+
+    // Insert accounts
+    svm_locker
+        .with_svm_writer(|svm_writer| {
+            svm_writer.set_account(&owner, owner_account).unwrap();
+            svm_writer.set_account(&owned, owned_account).unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
+        .unwrap();
+
+    // Verify accounts exist
+    assert!(!svm_locker.get_account_local(&owner).inner.is_none());
+    assert!(!svm_locker.get_account_local(&owned).inner.is_none());
+
+    // Reset with cascade=true (for regular accounts, doesn't cascade but tests the code path)
+    svm_locker.reset_network().unwrap();
+
+    // Owner is deleted, owned account is deleted
+    assert!(svm_locker.get_account_local(&owner).inner.is_none());
+    assert!(svm_locker.get_account_local(&owned).inner.is_none());
+
+    // Clean up
+    svm_locker.reset_account(owned, false).unwrap();
+}

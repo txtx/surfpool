@@ -677,6 +677,51 @@ impl SurfnetSvm {
         }
     }
 
+    pub fn reset_network(&mut self) -> SurfpoolResult<()> {
+        // pub inner: LiteSVM,
+        let mut inner = LiteSVM::new()
+            .with_feature_set(self.feature_set.clone())
+            .with_blockhash_check(false)
+            .with_sigverify(false);
+
+        // Add the native mint (SOL) to the SVM
+        create_native_mint(&mut inner);
+        let native_mint_account = inner
+            .get_account(&spl_token_interface::native_mint::ID)
+            .unwrap();
+        let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
+
+        // Load native mint into owned account and token mint indexes
+        let accounts_by_owner = HashMap::from([(
+            native_mint_account.owner,
+            vec![spl_token_interface::native_mint::ID],
+        )]);
+        let token_mints =
+            HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
+
+        self.inner = inner;
+        self.blocks.clear();
+        self.transactions.clear();
+        self.transactions_queued_for_confirmation.clear();
+        self.transactions_queued_for_finalization.clear();
+        self.perf_samples.clear();
+        self.transactions_processed = 0;
+        self.profile_tag_map.clear();
+        self.simulated_transaction_profiles.clear();
+        self.accounts_by_owner = accounts_by_owner;
+        self.account_associated_data.clear();
+        self.token_accounts.clear();
+        self.token_mints = token_mints;
+        self.token_accounts_by_owner.clear();
+        self.token_accounts_by_delegate.clear();
+        self.token_accounts_by_mint.clear();
+        self.non_circulating_accounts.clear();
+        self.registered_idls.clear();
+        self.runbook_executions.clear();
+        self.streamed_accounts.clear();
+        Ok(())
+    }
+
     pub fn reset_account(
         &mut self,
         pubkey: &Pubkey,

@@ -1,7 +1,7 @@
 [workspace.package]
 version = "0.11.0"
 edition = "2024"
-description = "Surfpool is the best place to train before surfing Solana."
+description = "Surfpool is where developers start their Solana journey."
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/txtx/surfpool"
@@ -19,7 +19,7 @@ members = [
     "crates/subgraph",
     "crates/types",
 ]
-exclude = ["examples/hello-geyser"]
+exclude = ["examples/*"]
 default-members = ["crates/cli"]
 resolver = "2"
 
@@ -39,7 +39,10 @@ bincode = "1.3.3"
 blake3 = { version = "1.8.2", default-features = false }
 borsh = { version = "1.5.5", default-features = false }
 bs58 = { version = "0.5.0", default-features = false }
-chrono = { version = "0.4.42", features = ["alloc", "clock"], default-features = false }
+chrono = { version = "0.4.42", features = [
+    "alloc",
+    "clock",
+], default-features = false }
 clap = { version = "4.5.48", default-features = false }
 clap_complete = { version = "4.5.48", default-features = false }
 convert_case = "0.8.0"
@@ -57,13 +60,17 @@ fern = { version = "0.7.1", default-features = false }
 fork = "0.2.0"
 futures = { version = "0.3.22", default-features = false }
 hex = { version = "0.4.3", default-features = false }
-hiro-system-kit = { version = "0.3.4", default-features = false, features = ["tokio_helpers"] }
+hiro-system-kit = { version = "0.3.4", default-features = false, features = [
+    "tokio_helpers",
+] }
 include_dir = "0.7.4"
 indicatif = { version = "0.18.0", default-features = false }
 ipc-channel = "0.19.0"
 itertools = { version = "0.14.0", default-features = false }
 json5 = "0.4.1"
-jsonrpc-core = { version = "18.0.0", features = ["futures"], default-features = false }
+jsonrpc-core = { version = "18.0.0", features = [
+    "futures",
+], default-features = false }
 jsonrpc-core-client = { version = "18.0.0", default-features = false }
 jsonrpc-derive = "18.0.0"
 jsonrpc-http-server = "18.0.0"
@@ -83,12 +90,14 @@ mustache = "0.9.0"
 notify = { version = "8.0.0", default-features = false }
 npm_rs = "1.0.0"
 once_cell = { version = "1.19.0", default-features = false }
-ratatui = { version = "0.29.0", features = ["crossterm"], default-features = false }
+ratatui = { version = "0.29.0", features = [
+    "crossterm",
+], default-features = false }
 reqwest = { version = "0.12.23", default-features = false }
 rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "ff71a526156e6c9409c450f71eccd6aced9bc339", package = "rmcp" }
 rust-embed = "8.2.0"
 serde = { version = "1.0.226", default-features = false }
-serde_derive = { version = "1.0.226", default-features = false }                                                                        # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
+serde_derive = { version = "1.0.226", default-features = false } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = { version = "1.0.135", default-features = false }
 serde_with = { version = "3.14.0", default-features = false }
 solana-account = { version = "3.0.0", default-features = false }
@@ -118,7 +127,9 @@ solana-rpc-client = { version = "3.0.0", default-features = false }
 solana-rpc-client-api = { version = "3.0.0", default-features = false }
 solana-runtime = { version = "3.0.0", default-features = false }
 solana-sdk-ids = { version = "3.0.0", default-features = false }
-solana-signature = { version = "3.0.0", default-features = false, features = ["rand"] }
+solana-signature = { version = "3.0.0", default-features = false, features = [
+    "rand",
+] }
 solana-signer = { version = "3.0.0", default-features = false }
 solana-slot-hashes = { version = "3.0.0", default-features = false }
 solana-system-interface = { version = "2.0.0", default-features = false }
