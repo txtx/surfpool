@@ -53,10 +53,10 @@ use solana_transaction_status::{
     UiTransactionEncoding,
 };
 use surfpool_types::{
-    ComputeUnitsEstimationResult, ExecutionCapture, Idl, KeyedProfileResult, ProfileResult,
-    RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetCommand, SimnetEvent,
-    TransactionConfirmationStatus, TransactionStatusEvent, UiKeyedProfileResult, UuidOrSignature,
-    VersionedIdl,
+    AccountSnapshot, ComputeUnitsEstimationResult, ExecutionCapture, ExportSnapshotConfig, Idl,
+    KeyedProfileResult, ProfileResult, RpcProfileResultConfig, RunbookExecutionStatusReport,
+    SimnetCommand, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
+    UiKeyedProfileResult, UuidOrSignature, VersionedIdl,
 };
 use tokio::sync::RwLock;
 use txtx_addon_kit::indexmap::IndexSet;
@@ -3008,6 +3008,13 @@ impl SurfnetSvmLocker {
                 svm_writer.instruction_profiling_enabled = true;
             }
         });
+    }
+
+    pub fn export_snapshot(
+        &self,
+        config: ExportSnapshotConfig,
+    ) -> BTreeMap<String, AccountSnapshot> {
+        self.with_svm_reader(|svm_reader| svm_reader.export_snapshot(config))
     }
 }
 

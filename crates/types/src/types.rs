@@ -12,7 +12,7 @@ use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Visitor};
 use serde_with::{BytesOrString, serde_as};
 use solana_account::Account;
-use solana_account_decoder_client_types::{UiAccount, UiAccountEncoding};
+use solana_account_decoder_client_types::{ParsedAccount, UiAccount, UiAccountEncoding};
 use solana_clock::{Clock, Epoch, Slot};
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
@@ -953,6 +953,54 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (&K, &V)> {
         self.map.iter()
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSnapshot {
+    pub lamports: u64,
+    pub owner: String,
+    pub executable: bool,
+    pub rent_epoch: u64,
+    /// Base64 encoded data
+    pub data: String,
+    /// Parsed account data if available
+    pub parsed_data: Option<ParsedAccount>,
+}
+
+impl AccountSnapshot {
+    pub fn new(
+        lamports: u64,
+        owner: String,
+        executable: bool,
+        rent_epoch: u64,
+        data: String,
+        parsed_data: Option<ParsedAccount>,
+    ) -> Self {
+        Self {
+            lamports,
+            owner,
+            executable,
+            rent_epoch,
+            data,
+            parsed_data,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSnapshotConfig {
+    pub include_parsed_accounts: Option<bool>,
+    pub filter: Option<ExportSnapshotFilter>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSnapshotFilter {
+    pub include_program_accounts: Option<bool>,
+    pub include_accounts: Option<Vec<String>>,
+    pub exclude_accounts: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

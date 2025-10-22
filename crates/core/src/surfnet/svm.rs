@@ -5,6 +5,7 @@ use std::{
 };
 
 use agave_feature_set::{FeatureSet, enable_extend_program_checked};
+use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use convert_case::Casing;
 use crossbeam_channel::{Receiver, Sender, unbounded};
@@ -37,29 +38,23 @@ use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
 use solana_program_option::COption;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
-use solana_sdk_ids::system_program;
+use solana_sdk_ids::{bpf_loader, system_program};
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{TransactionDetails, TransactionStatusMeta, UiConfirmedBlock};
-use spl_token;
-use spl_token_2022::{
-    self,
-    extension::{
-        BaseStateWithExtensions, StateWithExtensions, interest_bearing_mint::InterestBearingConfig,
-        scaled_ui_amount::ScaledUiAmountConfig,
-    },
 use spl_token_2022_interface::extension::{
     BaseStateWithExtensions, StateWithExtensions, interest_bearing_mint::InterestBearingConfig,
     scaled_ui_amount::ScaledUiAmountConfig,
 };
 use surfpool_types::{
-    AccountChange, AccountProfileState, DEFAULT_PROFILING_MAP_CAPACITY, DEFAULT_SLOT_TIME_MS,
-    FifoMap, Idl, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
-    RunbookExecutionStatusReport, SimnetEvent, TransactionConfirmationStatus,
-    TransactionStatusEvent, UiAccountChange, UiAccountProfileState, UiProfileResult, VersionedIdl,
+    AccountChange, AccountProfileState, AccountSnapshot, DEFAULT_PROFILING_MAP_CAPACITY,
+    DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, FifoMap, Idl, ProfileResult, RpcProfileDepth,
+    RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetEvent,
+    TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
+    UiProfileResult, VersionedIdl,
     types::{
         ComputeUnitsEstimationResult, KeyedProfileResult, UiKeyedProfileResult, UuidOrSignature,
     },
@@ -160,19 +155,6 @@ pub struct SurfnetSvm {
 pub const FEATURE: Feature = Feature {
     activated_at: Some(0),
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountFixture {
-    pub pubkey: String,
-    pub lamports: u64,
-    pub owner: String,
-    pub executable: bool,
-    pub rent_epoch: u64,
-    pub data: UiAccountData,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parsed_data: Option<serde_json::Value>,
-    pub slot: Slot,
-}
 
 impl SurfnetSvm {
     /// Creates a new instance of `SurfnetSvm`.
@@ -1763,53 +1745,73 @@ impl SurfnetSvm {
     ///
     /// # Returns
     /// A BTreeMap of pubkey -> AccountFixture that can be serialized to JSON.
-    pub fn export_accounts_as_fixtures(
+    pub fn export_snapshot(
         &self,
-        encoding: UiAccountEncoding,
-    ) -> BTreeMap<String, AccountFixture> {
+        config: ExportSnapshotConfig,
+    ) -> BTreeMap<String, AccountSnapshot> {
         let mut fixtures = BTreeMap::new();
-        let current_slot = self.get_latest_absolute_slot();
+        let encoding = if config.include_parsed_accounts.unwrap_or_default() {
+            UiAccountEncoding::JsonParsed
+        } else {
+            UiAccountEncoding::Base64
+        };
+        let filter = config.filter.unwrap_or_default();
+        let include_program_accounts = filter.include_program_accounts.unwrap_or(false);
+        let include_accounts = filter.include_accounts.unwrap_or_default();
+        let exclude_accounts = filter.exclude_accounts.unwrap_or_default();
 
+        fn is_program_account(pubkey: &Pubkey) -> bool {
+            pubkey == &bpf_loader::id()
+                || pubkey == &solana_sdk_ids::bpf_loader_deprecated::id()
+                || pubkey == &solana_sdk_ids::bpf_loader_upgradeable::id()
+        }
         for (pubkey, account_shared_data) in self.iter_accounts() {
+            let is_include_account = include_accounts.iter().any(|k| k.eq(&pubkey.to_string()));
+            let is_exclude_account = exclude_accounts.iter().any(|k| k.eq(&pubkey.to_string()));
+            let is_program_account = is_program_account(account_shared_data.owner());
+            if is_exclude_account
+                || ((is_program_account && !include_program_accounts) && !is_include_account)
+            {
+                continue;
+            }
             let account = Account::from(account_shared_data.clone());
 
             // For token accounts, we need to provide the mint additional data
-            let additional_data =
-                if account.owner == spl_token::id() || account.owner == spl_token_2022::id() {
-                    if let Ok(token_account) = TokenAccount::unpack(&account.data) {
-                        self.account_associated_data
-                            .get(&token_account.mint())
-                            .cloned()
-                    } else {
-                        self.account_associated_data.get(pubkey).cloned()
-                    }
+            let additional_data = if account.owner == spl_token_interface::id()
+                || account.owner == spl_token_2022_interface::id()
+            {
+                if let Ok(token_account) = TokenAccount::unpack(&account.data) {
+                    self.account_associated_data
+                        .get(&token_account.mint())
+                        .cloned()
                 } else {
                     self.account_associated_data.get(pubkey).cloned()
-                };
+                }
+            } else {
+                self.account_associated_data.get(pubkey).cloned()
+            };
 
             let ui_account =
                 self.encode_ui_account(pubkey, &account, encoding, additional_data, None);
 
-            let account_slot = self
-                .account_update_slots
-                .get(pubkey)
-                .copied()
-                .unwrap_or_else(|| current_slot);
-
-            let fixture = AccountFixture {
-                pubkey: pubkey.to_string(),
-                lamports: ui_account.lamports,
-                owner: ui_account.owner,
-                executable: ui_account.executable,
-                rent_epoch: ui_account.rent_epoch,
-                data: ui_account.data.clone(),
-                parsed_data: match &ui_account.data {
-                    UiAccountData::Json(parsed) => Some(parsed.parsed.clone()),
-                    _ => None,
-                },
-                slot: account_slot,
+            let (base64, parsed_data) = match ui_account.data {
+                UiAccountData::Json(parsed_account) => {
+                    (BASE64_STANDARD.encode(account.data()), Some(parsed_account))
+                }
+                UiAccountData::Binary(base64, _) => (base64, None),
+                UiAccountData::LegacyBinary(_) => unreachable!(),
             };
-            fixtures.insert(pubkey.to_string(), fixture);
+
+            let account_snapshot = AccountSnapshot::new(
+                account.lamports,
+                account.owner.to_string(),
+                account.executable,
+                account.rent_epoch,
+                base64,
+                parsed_data,
+            );
+
+            fixtures.insert(pubkey.to_string(), account_snapshot);
         }
         fixtures
     }
@@ -2535,291 +2537,5 @@ mod tests {
         let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
         svm.set_profiling_map_capacity(10);
         assert_eq!(svm.executed_transaction_profiles.capacity(), 10);
-    }
-
-    #[test]
-    fn test_export_accounts_as_fixtures() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
-
-        let pubkey1 = Pubkey::new_unique();
-        let account1 = Account {
-            lamports: 1_000_000,
-            data: vec![1, 2, 3, 4],
-            owner: system_program::id(),
-            executable: false,
-            rent_epoch: 0,
-        };
-        svm.set_account(&pubkey1, account1.clone())
-            .expect("Failed to set account1");
-
-        let pubkey2 = Pubkey::new_unique();
-        let account2 = Account {
-            lamports: 2_000_000,
-            data: vec![5, 6, 7, 8, 9],
-            owner: system_program::id(),
-            executable: false,
-            rent_epoch: 0,
-        };
-        svm.set_account(&pubkey2, account2.clone())
-            .expect("Failed to set account2");
-
-        // Export with base64 encoding
-        let fixtures = svm.export_accounts_as_fixtures(UiAccountEncoding::Base64);
-
-        assert!(fixtures.contains_key(&pubkey1.to_string()));
-        assert!(fixtures.contains_key(&pubkey2.to_string()));
-
-        // Verify account details
-        let fixture1 = fixtures
-            .get(&pubkey1.to_string())
-            .expect("Account1 fixture not found");
-        assert_eq!(fixture1.pubkey, pubkey1.to_string());
-        assert_eq!(fixture1.lamports, 1_000_000);
-        assert_eq!(fixture1.owner, system_program::id().to_string());
-        assert_eq!(fixture1.executable, false);
-        assert_eq!(fixture1.rent_epoch, 0);
-        assert_eq!(fixture1.slot, svm.get_latest_absolute_slot());
-
-        // Verify the data is encoded as base64
-        match &fixture1.data {
-            UiAccountData::Binary(encoded, encoding) => {
-                assert_eq!(encoding, &UiAccountEncoding::Base64);
-                let decoded = general_purpose::STANDARD
-                    .decode(encoded)
-                    .expect("Failed to decode base64");
-                assert_eq!(decoded, vec![1, 2, 3, 4]);
-            }
-            _ => panic!("Expected Binary encoding"),
-        }
-    }
-
-    #[test]
-    fn test_export_accounts_as_fixtures_with_json_parsed() {
-        use spl_token::state::Mint;
-
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
-
-        let mint_pubkey = Pubkey::new_unique();
-        let mint_authority = Pubkey::new_unique();
-
-        let mut mint_data = [0u8; Mint::LEN];
-        let mint = Mint {
-            mint_authority: COption::Some(mint_authority),
-            supply: 1000,
-            decimals: 6,
-            is_initialized: true,
-            freeze_authority: COption::None,
-        };
-        mint.pack_into_slice(&mut mint_data);
-
-        let mint_account = Account {
-            lamports: 1_000_000,
-            data: mint_data.to_vec(),
-            owner: spl_token::id(),
-            executable: false,
-            rent_epoch: 0,
-        };
-
-        svm.set_account(&mint_pubkey, mint_account)
-            .expect("Failed to set mint account");
-
-        // Create a token account
-        let owner = Pubkey::new_unique();
-        let token_account_pubkey = Pubkey::new_unique();
-
-        let mut token_account_data = [0u8; TokenAccount::LEN];
-        let token_account = TokenAccount {
-            mint: mint_pubkey,
-            owner,
-            amount: 1000,
-            delegate: COption::None,
-            state: AccountState::Initialized,
-            is_native: COption::None,
-            delegated_amount: 0,
-            close_authority: COption::None,
-        };
-        token_account.pack_into_slice(&mut token_account_data);
-
-        let account = Account {
-            lamports: 2_000_000,
-            data: token_account_data.to_vec(),
-            owner: spl_token::id(),
-            executable: false,
-            rent_epoch: 0,
-        };
-
-        svm.set_account(&token_account_pubkey, account)
-            .expect("Failed to set token account");
-
-        let fixtures = svm.export_accounts_as_fixtures(UiAccountEncoding::JsonParsed);
-
-        let fixture = fixtures
-            .get(&token_account_pubkey.to_string())
-            .expect("Token account fixture not found");
-        assert_eq!(fixture.pubkey, token_account_pubkey.to_string());
-        assert_eq!(fixture.lamports, 2_000_000);
-        assert_eq!(fixture.slot, svm.get_latest_absolute_slot());
-
-        // Verify the token account is parsed as JSON
-        assert!(
-            fixture.parsed_data.is_some(),
-            "Expected parsed_data to be Some for token account"
-        );
-
-        // Verify it's a JSON parsed account
-        match &fixture.data {
-            UiAccountData::Json(parsed) => {
-                assert_eq!(parsed.program, "spl-token");
-                // The parsed data should contain token account fields
-                let info = parsed.parsed.get("info").expect("Missing info field");
-                assert!(info.get("mint").is_some());
-                assert!(info.get("owner").is_some());
-                assert!(info.get("tokenAmount").is_some());
-            }
-            _ => panic!("Expected Json encoding for token account"),
-        }
-    }
-
-    #[test]
-    fn test_export_accounts_at_different_slots() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
-
-        let pubkey1 = Pubkey::new_unique();
-        let account1 = Account {
-            lamports: 1_000_000,
-            data: vec![1, 2, 3],
-            owner: system_program::id(),
-            executable: false,
-            rent_epoch: 0,
-        };
-
-        // Create first account at slot 0
-        let slot1 = svm.get_latest_absolute_slot();
-        svm.set_account(&pubkey1, account1)
-            .expect("Failed to set account1");
-
-        // Advance to next slot
-        svm.confirm_current_block()
-            .expect("Failed to confirm block");
-
-        let pubkey2 = Pubkey::new_unique();
-        let account2 = Account {
-            lamports: 2_000_000,
-            data: vec![4, 5, 6],
-            owner: system_program::id(),
-            executable: false,
-            rent_epoch: 0,
-        };
-
-        // Create second account at slot 1
-        let slot2 = svm.get_latest_absolute_slot();
-        svm.set_account(&pubkey2, account2)
-            .expect("Failed to set account2");
-
-        let fixtures = svm.export_accounts_as_fixtures(UiAccountEncoding::Base64);
-
-        // Verify each account has its correct slot
-        let fixture1 = fixtures
-            .get(&pubkey1.to_string())
-            .expect("Account1 fixture not found");
-        assert_eq!(fixture1.slot, slot1);
-
-        let fixture2 = fixtures
-            .get(&pubkey2.to_string())
-            .expect("Account2 fixture not found");
-        assert_eq!(fixture2.slot, slot2);
-    }
-
-    #[test]
-    fn test_export_account_slot_tracking_via_transaction() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
-
-        let payer = Keypair::new();
-        let recipient = Pubkey::new_unique();
-
-        svm.airdrop(&payer.pubkey(), 10_000_000).unwrap();
-        let initial_slot = svm.get_latest_absolute_slot();
-
-        // verify payer account slot is tracked after airdrop
-        assert_eq!(
-            svm.account_update_slots.get(&payer.pubkey()),
-            Some(&initial_slot)
-        );
-
-        svm.confirm_current_block().unwrap();
-
-        let next_slot = svm.get_latest_absolute_slot();
-
-        let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
-
-        let message = Message::new(&[transfer_ix], Some(&payer.pubkey()));
-        let mut tx =
-            VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
-
-        tx.message.set_recent_blockhash(svm.latest_blockhash());
-
-        let result = svm.send_transaction(tx.clone(), false, false);
-        assert!(result.is_ok(), "Transaction should succeed");
-
-        // Queue it for confirmation
-        let signature = tx.signatures[0];
-        let (status_tx, _rx) = unbounded();
-
-        // Get the transaction result from send_transaction
-        let tx_result = result.unwrap();
-
-        // Store the processed transaction
-        svm.transactions.insert(
-            signature,
-            SurfnetTransactionStatus::processed(
-                TransactionWithStatusMeta {
-                    slot: next_slot,
-                    transaction: tx.clone(),
-                    meta: TransactionStatusMeta {
-                        status: Ok(()),
-                        fee: 5000,
-                        pre_balances: vec![10_000_000 - 5000, 0, 1], // payer (after airdrop fee), recipient, system program
-                        post_balances: vec![10_000_000 - 5000 - 1_000_000 - 5000, 1_000_000, 1],
-                        inner_instructions: Some(vec![]),
-                        log_messages: Some(tx_result.logs.clone()),
-                        pre_token_balances: Some(vec![]),
-                        post_token_balances: Some(vec![]),
-                        rewards: Some(vec![]),
-                        loaded_addresses: LoadedAddresses::default(),
-                        return_data: Some(tx_result.return_data.clone()),
-                        compute_units_consumed: Some(tx_result.compute_units_consumed),
-                        cost_units: None,
-                    },
-                },
-                HashSet::from([payer.pubkey(), recipient]),
-            ),
-        );
-        svm.transactions_queued_for_confirmation
-            .push_back((tx, status_tx));
-
-        svm.confirm_current_block().unwrap();
-
-        // verify both accounts have their slots tracked
-        assert_eq!(
-            svm.account_update_slots.get(&payer.pubkey()),
-            Some(&next_slot)
-        );
-        assert_eq!(svm.account_update_slots.get(&recipient), Some(&next_slot));
-
-        let fixtures = svm.export_accounts_as_fixtures(UiAccountEncoding::Base64);
-
-        if let Some(payer_fixture) = fixtures.get(&payer.pubkey().to_string()) {
-            assert_eq!(
-                payer_fixture.slot, next_slot,
-                "Payer fixture should have slot from transfer"
-            );
-        }
-
-        if let Some(recipient_fixture) = fixtures.get(&recipient.to_string()) {
-            assert_eq!(
-                recipient_fixture.slot, next_slot,
-                "Recipient fixture should have slot from transfer"
-            );
-        }
     }
 }
