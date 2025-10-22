@@ -78,6 +78,14 @@ use crate::{
 
 pub type AccountOwner = Pubkey;
 
+#[allow(deprecated)]
+use solana_sysvar::recent_blockhashes::MAX_ENTRIES;
+
+#[allow(deprecated)]
+pub const MAX_RECENT_BLOCKHASHES_INTERNAL: usize = MAX_ENTRIES;
+pub const MAX_RECENT_BLOCKHASHES_EXTERNAL: usize = 500;
+pub const MAX_BLOCKHASH_TIME: usize = 30 * 1000;
+
 pub fn get_txtx_value_json_converters() -> Vec<AddonJsonConverter<'static>> {
     vec![
         Box::new(move |value: &txtx_addon_kit::types::types::Value| {
@@ -236,6 +244,7 @@ impl SurfnetSvm {
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             runbook_executions: Vec::new(),
             streamed_accounts: HashMap::new(),
+            recent_blockhashes: VecDeque::new(),
         };
 
         // Generate the initial synthetic blockhash
@@ -436,10 +445,12 @@ impl SurfnetSvm {
     #[allow(deprecated)]
     fn new_blockhash(&mut self) -> BlockIdentifier {
         use solana_slot_hashes::SlotHashes;
-        use solana_sysvar::recent_blockhashes::{IterItem, MAX_ENTRIES, RecentBlockhashes};
+        use solana_sysvar::recent_blockhashes::{IterItem, RecentBlockhashes};
         // Backup the current block hashes
         let recent_blockhashes_backup = self.inner.get_sysvar::<RecentBlockhashes>();
-        let num_blockhashes_expected = recent_blockhashes_backup.len().min(MAX_ENTRIES);
+        let num_blockhashes_expected = recent_blockhashes_backup
+            .len()
+            .min(MAX_RECENT_BLOCKHASHES_INTERNAL);
         // Invalidate the current block hash.
         // LiteSVM bug / feature: calling this method empties `sysvar::<RecentBlockhashes>()`
         self.inner.expire_blockhash();
@@ -451,6 +462,7 @@ impl SurfnetSvm {
             .expect("Latest blockhash not found");
 
         let new_synthetic_blockhash = SyntheticBlockhash::new(self.chain_tip.index);
+        let new_synthetic_blockhash_str = new_synthetic_blockhash.to_string();
 
         recent_blockhashes.push(IterItem(
             0,
@@ -460,7 +472,7 @@ impl SurfnetSvm {
 
         // Append the previous blockhashes, ignoring the first one
         for (index, entry) in recent_blockhashes_backup.iter().enumerate() {
-            if recent_blockhashes.len() >= MAX_ENTRIES {
+            if recent_blockhashes.len() >= MAX_RECENT_BLOCKHASHES_INTERNAL {
                 break;
             }
             recent_blockhashes.push(IterItem(
@@ -480,9 +492,16 @@ impl SurfnetSvm {
         );
         self.inner.set_sysvar(&SlotHashes::new(&slot_hashes));
 
+        let now = Utc::now().timestamp_millis();
+        self.recent_blockhashes
+            .push_front((new_synthetic_blockhash, now));
+        self.recent_blockhashes.retain_mut(|(_, timestamp)| {
+            now.saturating_sub(*timestamp) <= MAX_BLOCKHASH_TIME as i64
+        });
+
         BlockIdentifier::new(
             self.chain_tip.index + 1,
-            new_synthetic_blockhash.to_string().as_str(),
+            new_synthetic_blockhash_str.as_str(),
         )
     }
 
@@ -494,11 +513,9 @@ impl SurfnetSvm {
     /// # Returns
     /// `true` if the blockhash is recent, `false` otherwise.
     pub fn check_blockhash_is_recent(&self, recent_blockhash: &Hash) -> bool {
-        #[allow(deprecated)]
-        self.inner
-            .get_sysvar::<solana_sysvar::recent_blockhashes::RecentBlockhashes>()
+        self.recent_blockhashes
             .iter()
-            .any(|entry| entry.blockhash == *recent_blockhash)
+            .any(|(h, _)| h.hash() == recent_blockhash)
     }
 
     /// Sets an account in the local SVM state and notifies listeners.
@@ -753,7 +770,6 @@ impl SurfnetSvm {
                 ));
             return Err(FailedTransactionMetadata { err, meta });
         }
-        self.inner.set_blockhash_check(false);
 
         match self.inner.send_transaction(tx.clone()) {
             Ok(res) => Ok(res),
@@ -1998,7 +2014,7 @@ mod tests {
         }
     }
 
-    fn expect_error_event(events_rx: &Receiver<SimnetEvent>, expected_error: &str) -> bool {
+    fn _expect_error_event(events_rx: &Receiver<SimnetEvent>, expected_error: &str) -> bool {
         match events_rx.recv() {
             Ok(event) => match event {
                 SimnetEvent::ErrorLog(_, err) => {

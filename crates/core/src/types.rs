@@ -968,6 +968,7 @@ impl TransactionLoadedAddresses {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SyntheticBlockhash(Hash);
 impl SyntheticBlockhash {
     pub const PREFIX: &str = "SURFNETxSAFEHASHx";

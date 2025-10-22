@@ -19,7 +19,7 @@ use solana_client::{
         RpcSimulateTransactionResult,
     },
 };
-use solana_clock::{MAX_RECENT_BLOCKHASHES, Slot, UnixTimestamp};
+use solana_clock::{Slot, UnixTimestamp};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_message::{VersionedMessage, compiled_instruction::CompiledInstruction};
@@ -44,7 +44,10 @@ use crate::{
     SURFPOOL_IDENTITY_PUBKEY,
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::{adjust_default_transaction_config, get_default_transaction_config},
-    surfnet::{FINALIZATION_SLOT_THRESHOLD, GetTransactionResult, locker::SvmAccessContext},
+    surfnet::{
+        FINALIZATION_SLOT_THRESHOLD, GetTransactionResult, locker::SvmAccessContext,
+        svm::MAX_RECENT_BLOCKHASHES_EXTERNAL,
+    },
     types::{SurfnetTransactionStatus, surfpool_tx_metadata_to_litesvm_tx_metadata},
 };
 
@@ -2142,7 +2145,8 @@ impl Full for SurfpoolFullRpc {
             .get_latest_blockhash(&commitment)
             .unwrap_or_else(|| svm_locker.latest_absolute_blockhash());
 
-        let last_valid_block_height = committed_latest_slot + MAX_RECENT_BLOCKHASHES as u64;
+        let last_valid_block_height =
+            committed_latest_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: RpcBlockhash {
@@ -3233,7 +3237,8 @@ mod tests {
                 .context
                 .svm_locker
                 .get_slot_for_commitment(&commitment);
-            let expected_last_valid_block_height = committed_slot + MAX_RECENT_BLOCKHASHES as u64;
+            let expected_last_valid_block_height =
+                committed_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
 
             assert_eq!(
                 res.value.blockhash,
@@ -3269,7 +3274,8 @@ mod tests {
                 .context
                 .svm_locker
                 .get_slot_for_commitment(&commitment);
-            let expected_last_valid_block_height = committed_slot + MAX_RECENT_BLOCKHASHES as u64;
+            let expected_last_valid_block_height =
+                committed_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
 
             assert_eq!(
                 res.value.blockhash,
@@ -3305,7 +3311,8 @@ mod tests {
                 .context
                 .svm_locker
                 .get_slot_for_commitment(&commitment);
-            let expected_last_valid_block_height = committed_slot + MAX_RECENT_BLOCKHASHES as u64;
+            let expected_last_valid_block_height =
+                committed_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
 
             assert_eq!(
                 res.value.blockhash,
