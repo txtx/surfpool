@@ -1515,10 +1515,22 @@ impl Full for SurfpoolFullRpc {
         _config: Option<RpcRequestAirdropConfig>,
     ) -> Result<String> {
         let pubkey = verify_pubkey(&pubkey_str)?;
-        let svm_locker = meta.get_svm_locker()?;
+        let Some(ctx) = meta else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+        let svm_locker = ctx.svm_locker;
         let res = svm_locker
             .airdrop(&pubkey, lamports)
             .map_err(|err| Error::invalid_params(format!("failed to send transaction: {err:?}")))?;
+        ctx.simnet_commands_tx
+            .send(SimnetCommand::AirdropProcessed)
+            .map_err(|_| RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            })?;
+
         Ok(res.signature.to_string())
     }
 

@@ -390,6 +390,18 @@ impl SurfnetSvm {
                     HashSet::from([*pubkey]),
                 ),
             );
+            self.notify_signature_subscribers(
+                SignatureSubscriptionType::processed(),
+                tx.get_signature(),
+                slot,
+                None,
+            );
+            self.notify_logs_subscribers(
+                tx.get_signature(),
+                None,
+                tx_result.logs.clone(),
+                CommitmentLevel::Processed,
+            );
             self.transactions_queued_for_confirmation
                 .push_back((tx, status_tx.clone(), None));
             let account = self.get_account(pubkey).unwrap();

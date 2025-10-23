@@ -245,6 +245,11 @@ pub async fn start_block_production_runloop(
                              };
                         }
                     }
+                    SimnetCommand::AirdropProcessed => {
+                       if block_production_mode.eq(&BlockProductionMode::Transaction) {
+                           do_produce_block = true;
+                       }
+                    }
                 }
             },
         }
