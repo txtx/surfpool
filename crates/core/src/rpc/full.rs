@@ -1516,20 +1516,15 @@ impl Full for SurfpoolFullRpc {
     ) -> Result<String> {
         let pubkey = verify_pubkey(&pubkey_str)?;
         let Some(ctx) = meta else {
-            return Err(RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            }
-            .into());
+            return Err(SurfpoolError::missing_context().into());
         };
         let svm_locker = ctx.svm_locker;
         let res = svm_locker
             .airdrop(&pubkey, lamports)
             .map_err(|err| Error::invalid_params(format!("failed to send transaction: {err:?}")))?;
-        ctx.simnet_commands_tx
-            .send(SimnetCommand::AirdropProcessed)
-            .map_err(|_| RpcCustomError::NodeUnhealthy {
-                num_slots_behind: None,
-            })?;
+        let _ = ctx
+            .simnet_commands_tx
+            .try_send(SimnetCommand::AirdropProcessed);
 
         Ok(res.signature.to_string())
     }
@@ -2496,34 +2491,37 @@ mod tests {
                 res
             })
             .unwrap();
-
-        match mempool_rx.recv() {
-            Ok(SimnetCommand::TransactionReceived(_, tx, status_tx, _)) => {
-                let mut writer = setup.context.svm_locker.0.write().await;
-                let slot = writer.get_latest_absolute_slot();
-                writer.transactions_queued_for_confirmation.push_back((
-                    tx.clone(),
-                    status_tx.clone(),
-                    None,
-                ));
-                let sig = tx.signatures[0];
-                let tx_with_status_meta = TransactionWithStatusMeta {
-                    slot,
-                    transaction: tx,
-                    ..Default::default()
-                };
-                let mutated_accounts = std::collections::HashSet::new();
-                writer.transactions.insert(
-                    sig,
-                    SurfnetTransactionStatus::processed(tx_with_status_meta, mutated_accounts),
-                );
-                status_tx
-                    .send(TransactionStatusEvent::Success(
-                        TransactionConfirmationStatus::Confirmed,
-                    ))
-                    .unwrap();
+        loop {
+            match mempool_rx.recv() {
+                Ok(SimnetCommand::TransactionReceived(_, tx, status_tx, _)) => {
+                    let mut writer = setup.context.svm_locker.0.write().await;
+                    let slot = writer.get_latest_absolute_slot();
+                    writer.transactions_queued_for_confirmation.push_back((
+                        tx.clone(),
+                        status_tx.clone(),
+                        None,
+                    ));
+                    let sig = tx.signatures[0];
+                    let tx_with_status_meta = TransactionWithStatusMeta {
+                        slot,
+                        transaction: tx,
+                        ..Default::default()
+                    };
+                    let mutated_accounts = std::collections::HashSet::new();
+                    writer.transactions.insert(
+                        sig,
+                        SurfnetTransactionStatus::processed(tx_with_status_meta, mutated_accounts),
+                    );
+                    status_tx
+                        .send(TransactionStatusEvent::Success(
+                            TransactionConfirmationStatus::Confirmed,
+                        ))
+                        .unwrap();
+                    break;
+                }
+                Ok(SimnetCommand::AirdropProcessed) => continue,
+                _ => panic!("failed to receive transaction from mempool"),
             }
-            _ => panic!("failed to receive transaction from mempool"),
         }
 
         handle
