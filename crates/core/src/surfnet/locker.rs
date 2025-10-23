@@ -1207,11 +1207,6 @@ impl SurfnetSvmLocker {
                 err
             )));
 
-            let _ = status_tx.try_send(TransactionStatusEvent::SimulationFailure((
-                err.clone(),
-                meta,
-            )));
-
             self.with_svm_writer(|svm_writer| {
                 svm_writer.notify_signature_subscribers(
                     SignatureSubscriptionType::processed(),
@@ -1221,11 +1216,12 @@ impl SurfnetSvmLocker {
                 );
                 svm_writer.notify_logs_subscribers(
                     &signature,
-                    Some(err),
+                    Some(err.clone()),
                     log_messages.clone(),
                     CommitmentLevel::Processed,
                 );
             });
+            let _ = status_tx.try_send(TransactionStatusEvent::SimulationFailure((err, meta)));
         }
         ProfileResult::new(
             pre_execution_capture,
@@ -1329,13 +1325,6 @@ impl SurfnetSvmLocker {
                     ),
                 );
 
-                let _ = svm_writer
-                    .simnet_events_tx
-                    .try_send(SimnetEvent::transaction_processed(
-                        meta_canonical,
-                        Some(err.clone()),
-                    ));
-
                 svm_writer.transactions_queued_for_confirmation.push_back((
                     transaction.clone(),
                     status_tx.clone(),
@@ -1354,6 +1343,12 @@ impl SurfnetSvmLocker {
                     log_messages.clone(),
                     CommitmentLevel::Processed,
                 );
+                let _ = svm_writer
+                    .simnet_events_tx
+                    .try_send(SimnetEvent::transaction_processed(
+                        meta_canonical,
+                        Some(err.clone()),
+                    ));
             });
         }
         ProfileResult::new(
@@ -1503,9 +1498,6 @@ impl SurfnetSvmLocker {
                         sanitized_transaction,
                     ));
 
-                let _ = status_tx.try_send(TransactionStatusEvent::Success(
-                    TransactionConfirmationStatus::Processed,
-                ));
                 svm_writer.transactions_queued_for_confirmation.push_back((
                     transaction.clone(),
                     status_tx.clone(),
@@ -1524,6 +1516,9 @@ impl SurfnetSvmLocker {
                     logs.clone(),
                     CommitmentLevel::Processed,
                 );
+                let _ = status_tx.try_send(TransactionStatusEvent::Success(
+                    TransactionConfirmationStatus::Processed,
+                ));
             }
 
             Ok::<ExecutionCapture, SurfpoolError>(post_execution_capture)
