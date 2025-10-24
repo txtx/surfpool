@@ -204,8 +204,8 @@ impl SurfnetSvmLocker {
                 epoch: 0,
                 slot_index: 0,
                 slots_in_epoch: 0,
-                absolute_slot: 0,
-                block_height: 0,
+                absolute_slot: FINALIZATION_SLOT_THRESHOLD,
+                block_height: FINALIZATION_SLOT_THRESHOLD,
                 transaction_count: None,
             }
         };
