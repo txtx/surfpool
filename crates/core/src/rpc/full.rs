@@ -46,7 +46,7 @@ use crate::{
     rpc::utils::{adjust_default_transaction_config, get_default_transaction_config},
     surfnet::{
         FINALIZATION_SLOT_THRESHOLD, GetTransactionResult, locker::SvmAccessContext,
-        svm::MAX_RECENT_BLOCKHASHES_EXTERNAL,
+        svm::MAX_RECENT_BLOCKHASHES_STANDARD,
     },
     types::{SurfnetTransactionStatus, surfpool_tx_metadata_to_litesvm_tx_metadata},
 };
@@ -1515,10 +1515,17 @@ impl Full for SurfpoolFullRpc {
         _config: Option<RpcRequestAirdropConfig>,
     ) -> Result<String> {
         let pubkey = verify_pubkey(&pubkey_str)?;
-        let svm_locker = meta.get_svm_locker()?;
+        let Some(ctx) = meta else {
+            return Err(SurfpoolError::missing_context().into());
+        };
+        let svm_locker = ctx.svm_locker;
         let res = svm_locker
             .airdrop(&pubkey, lamports)
             .map_err(|err| Error::invalid_params(format!("failed to send transaction: {err:?}")))?;
+        let _ = ctx
+            .simnet_commands_tx
+            .try_send(SimnetCommand::AirdropProcessed);
+
         Ok(res.signature.to_string())
     }
 
@@ -2146,7 +2153,7 @@ impl Full for SurfpoolFullRpc {
             .unwrap_or_else(|| svm_locker.latest_absolute_blockhash());
 
         let last_valid_block_height =
-            committed_latest_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
+            committed_latest_slot + MAX_RECENT_BLOCKHASHES_STANDARD as u64;
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: RpcBlockhash {
@@ -2484,34 +2491,37 @@ mod tests {
                 res
             })
             .unwrap();
-
-        match mempool_rx.recv() {
-            Ok(SimnetCommand::TransactionReceived(_, tx, status_tx, _)) => {
-                let mut writer = setup.context.svm_locker.0.write().await;
-                let slot = writer.get_latest_absolute_slot();
-                writer.transactions_queued_for_confirmation.push_back((
-                    tx.clone(),
-                    status_tx.clone(),
-                    None,
-                ));
-                let sig = tx.signatures[0];
-                let tx_with_status_meta = TransactionWithStatusMeta {
-                    slot,
-                    transaction: tx,
-                    ..Default::default()
-                };
-                let mutated_accounts = std::collections::HashSet::new();
-                writer.transactions.insert(
-                    sig,
-                    SurfnetTransactionStatus::processed(tx_with_status_meta, mutated_accounts),
-                );
-                status_tx
-                    .send(TransactionStatusEvent::Success(
-                        TransactionConfirmationStatus::Confirmed,
-                    ))
-                    .unwrap();
+        loop {
+            match mempool_rx.recv() {
+                Ok(SimnetCommand::TransactionReceived(_, tx, status_tx, _)) => {
+                    let mut writer = setup.context.svm_locker.0.write().await;
+                    let slot = writer.get_latest_absolute_slot();
+                    writer.transactions_queued_for_confirmation.push_back((
+                        tx.clone(),
+                        status_tx.clone(),
+                        None,
+                    ));
+                    let sig = tx.signatures[0];
+                    let tx_with_status_meta = TransactionWithStatusMeta {
+                        slot,
+                        transaction: tx,
+                        ..Default::default()
+                    };
+                    let mutated_accounts = std::collections::HashSet::new();
+                    writer.transactions.insert(
+                        sig,
+                        SurfnetTransactionStatus::processed(tx_with_status_meta, mutated_accounts),
+                    );
+                    status_tx
+                        .send(TransactionStatusEvent::Success(
+                            TransactionConfirmationStatus::Confirmed,
+                        ))
+                        .unwrap();
+                    break;
+                }
+                Ok(SimnetCommand::AirdropProcessed) => continue,
+                _ => panic!("failed to receive transaction from mempool"),
             }
-            _ => panic!("failed to receive transaction from mempool"),
         }
 
         handle
@@ -3238,7 +3248,7 @@ mod tests {
                 .svm_locker
                 .get_slot_for_commitment(&commitment);
             let expected_last_valid_block_height =
-                committed_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
+                committed_slot + MAX_RECENT_BLOCKHASHES_STANDARD as u64;
 
             assert_eq!(
                 res.value.blockhash,
@@ -3275,7 +3285,7 @@ mod tests {
                 .svm_locker
                 .get_slot_for_commitment(&commitment);
             let expected_last_valid_block_height =
-                committed_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
+                committed_slot + MAX_RECENT_BLOCKHASHES_STANDARD as u64;
 
             assert_eq!(
                 res.value.blockhash,
@@ -3312,7 +3322,7 @@ mod tests {
                 .svm_locker
                 .get_slot_for_commitment(&commitment);
             let expected_last_valid_block_height =
-                committed_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
+                committed_slot + MAX_RECENT_BLOCKHASHES_STANDARD as u64;
 
             assert_eq!(
                 res.value.blockhash,
