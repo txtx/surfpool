@@ -46,7 +46,7 @@ use crate::{
     rpc::utils::{adjust_default_transaction_config, get_default_transaction_config},
     surfnet::{
         FINALIZATION_SLOT_THRESHOLD, GetTransactionResult, locker::SvmAccessContext,
-        svm::MAX_RECENT_BLOCKHASHES_EXTERNAL,
+        svm::MAX_RECENT_BLOCKHASHES_STANDARD,
     },
     types::{SurfnetTransactionStatus, surfpool_tx_metadata_to_litesvm_tx_metadata},
 };
@@ -2158,7 +2158,7 @@ impl Full for SurfpoolFullRpc {
             .unwrap_or_else(|| svm_locker.latest_absolute_blockhash());
 
         let last_valid_block_height =
-            committed_latest_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
+            committed_latest_slot + MAX_RECENT_BLOCKHASHES_STANDARD as u64;
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: RpcBlockhash {
@@ -3250,7 +3250,7 @@ mod tests {
                 .svm_locker
                 .get_slot_for_commitment(&commitment);
             let expected_last_valid_block_height =
-                committed_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
+                committed_slot + MAX_RECENT_BLOCKHASHES_STANDARD as u64;
 
             assert_eq!(
                 res.value.blockhash,
@@ -3287,7 +3287,7 @@ mod tests {
                 .svm_locker
                 .get_slot_for_commitment(&commitment);
             let expected_last_valid_block_height =
-                committed_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
+                committed_slot + MAX_RECENT_BLOCKHASHES_STANDARD as u64;
 
             assert_eq!(
                 res.value.blockhash,
@@ -3324,7 +3324,7 @@ mod tests {
                 .svm_locker
                 .get_slot_for_commitment(&commitment);
             let expected_last_valid_block_height =
-                committed_slot + MAX_RECENT_BLOCKHASHES_EXTERNAL as u64;
+                committed_slot + MAX_RECENT_BLOCKHASHES_STANDARD as u64;
 
             assert_eq!(
                 res.value.blockhash,
