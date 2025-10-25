@@ -50,7 +50,7 @@ const SUPPORTS_256_COLOR_INDICATOR: &str = "256";
 const SUPPORTS_TRUECOLOR_INDICATOR: &str = "24bit";
 /// Legacy VT100 terminal type - basic 16-color support only
 const LEGACY_VT100_TERMINAL: &str = "vt100";
-/// ANSI terminal type - basic 16-color support only  
+/// ANSI terminal type - basic 16-color support only
 const LEGACY_ANSI_TERMINAL: &str = "ansi";
 
 /// Terminal detection and color capability analysis
@@ -461,13 +461,6 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             }
                             SimnetEvent::SystemClockUpdated(clock) => {
                                 app.clock = clock.clone();
-                                if app.include_debug_logs {
-                                    new_events.push((
-                                        EventType::Debug,
-                                        Local::now(),
-                                        event.clock_update_msg(),
-                                    ));
-                                }
                             }
                             SimnetEvent::ClockUpdate(ClockCommand::Pause) => {
                                 app.paused = true;

@@ -214,7 +214,7 @@ pub async fn start_block_production_runloop(
                         block_production_mode = update;
                         continue
                     }
-                    SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
+                    SimnetCommand::ProcessTransaction(_key, transaction, status_tx, skip_preflight) => {
                        if let Err(e) = svm_locker.process_transaction(&remote_client_with_commitment, transaction, status_tx, skip_preflight, sigverify).await {
                             let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!("Failed to process transaction: {}", e)));
                        }

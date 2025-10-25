@@ -62,13 +62,14 @@ pub async fn start_subgraph_and_explorer_server(
     let schema_wrapped = Data::new(schema);
     let context_wrapped = Data::new(RwLock::new(context));
     let config_wrapped = Data::new(RwLock::new(config.clone()));
+    let collections_metadata_lookup_wrapped = Data::new(RwLock::new(collections_metadata_lookup));
 
     let subgraph_handle = start_subgraph_runloop(
         subgraph_events_tx,
         subgraph_commands_rx,
         context_wrapped.clone(),
         schema_wrapped.clone(),
-        collections_metadata_lookup,
+        collections_metadata_lookup_wrapped.clone(),
         config,
         ctx,
     )?;
@@ -78,6 +79,7 @@ pub async fn start_subgraph_and_explorer_server(
             .app_data(schema_wrapped.clone())
             .app_data(context_wrapped.clone())
             .app_data(config_wrapped.clone())
+            .app_data(collections_metadata_lookup_wrapped.clone())
             .wrap(
                 Cors::default()
                     .allow_any_origin()
@@ -90,8 +92,10 @@ pub async fn start_subgraph_and_explorer_server(
             .wrap(middleware::Compress::default())
             .wrap(middleware::Logger::default())
             .service(get_config)
+            .service(get_indexers)
             .service(
                 web::scope("/workspace")
+                    .route("/v1/indexers", web::post().to(post_graphql))
                     .route("/v1/graphql?<request..>", web::get().to(get_graphql))
                     .route("/v1/graphql", web::post().to(post_graphql))
                     .route("/v1/subscriptions", web::get().to(subscriptions)),
@@ -143,6 +147,23 @@ async fn get_config(
     Ok(HttpResponse::Ok()
         .content_type("application/json")
         .body(api_config.to_string()))
+}
+
+#[actix_web::get("/workspace/v1/indexers")]
+async fn get_indexers(
+    collections_metadata_lookup: Data<RwLock<CollectionsMetadataLookup>>,
+) -> Result<HttpResponse, Error> {
+    let lookup = collections_metadata_lookup
+        .read()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read collections metadata"))?;
+
+    let collections: Vec<&CollectionMetadata> = lookup.entries.values().collect();
+    let response = serde_json::to_string(&collections)
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to serialize collections"))?;
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/json")
+        .body(response))
 }
 
 #[cfg(not(feature = "explorer"))]
@@ -221,7 +242,7 @@ fn start_subgraph_runloop(
     subgraph_commands_rx: Receiver<SubgraphCommand>,
     gql_context: Data<RwLock<DataloaderContext>>,
     gql_schema: Data<RwLock<Option<DynamicSchema>>>,
-    mut collections_metadata_lookup: CollectionsMetadataLookup,
+    collections_metadata_lookup: Data<RwLock<CollectionsMetadataLookup>>,
     config: SanitizedConfig,
     ctx: &Context,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
@@ -263,10 +284,14 @@ fn start_subgraph_runloop(
                                 if let Err(e) = gql_context.pool.register_collection(&metadata, &request, &worker_id) {
                                     error!("{}", e);
                                 }
-                                collections_metadata_lookup.add_collection(metadata);
-                                gql_schema.replace(new_dynamic_schema(collections_metadata_lookup.clone()));
 
-                                let console_url = format!("{}/subgraphs", config.studio_url.clone());
+                                let mut lookup = collections_metadata_lookup.write().map_err(|_| {
+                                    format!("{err_ctx}: Failed to acquire write lock on collections metadata lookup")
+                                })?;
+                                lookup.add_collection(metadata);
+                                gql_schema.replace(new_dynamic_schema(lookup.clone()));
+
+                                let console_url = format!("{}/accounts", config.studio_url.clone());
                                 let _ = sender.send(console_url);
                             }
                             SubgraphCommand::ObserveCollection(subgraph_observer_rx) => {

@@ -163,9 +163,6 @@ pub struct StartSimnet {
     /// Display streams of logs instead of terminal UI dashboard(eg. surfpool start --no-tui)
     #[clap(long = "no-tui", default_value = "false")]
     pub no_tui: bool,
-    /// Include debug logs (eg. surfpool start --debug)
-    #[clap(long = "debug", action=ArgAction::SetTrue, default_value = "false")]
-    pub debug: bool,
     /// Disable auto deployments (eg. surfpool start --no-deploy)
     #[clap(long = "no-deploy", default_value = "false")]
     pub no_deploy: bool,

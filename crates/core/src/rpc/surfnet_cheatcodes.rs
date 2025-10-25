@@ -14,9 +14,9 @@ use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    AccountSnapshot, ClockCommand, ExportSnapshotConfig, GetSurfnetInfoResponse, Idl,
-    ResetAccountConfig, RpcProfileResultConfig, SimnetCommand, SimnetEvent, StreamAccountConfig,
-    UiKeyedProfileResult,
+    AccountSnapshot, ClockCommand, ExportSnapshotConfig, GetStreamedAccountsResponse,
+    GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcProfileResultConfig, SimnetCommand,
+    SimnetEvent, StreamAccountConfig, UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -883,6 +883,45 @@ pub trait SurfnetCheatcodes {
         config: Option<StreamAccountConfig>,
     ) -> Result<RpcResponse<()>>;
 
+    /// A cheat code to retrieve the streamed accounts.
+    /// When a transaction is processed, the accounts that are accessed are downloaded from the datasource and cached in the SVM.
+    /// With this method, you can simulate the streaming of accounts by providing a pubkey.
+    ///
+    /// ## Parameters
+    ///
+    /// ## Returns
+    /// An `RpcResponse<()>` indicating whether the account stream registration was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_streamAccount",
+    ///   "params": [ "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa", { "includeOwnedAccounts": true } ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 123456789,
+    ///       "apiVersion": "2.3.8"
+    ///     },
+    ///     "value": null
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_getStreamedAccounts")]
+    fn get_streamed_accounts(
+        &self,
+        meta: Self::Metadata,
+    ) -> Result<RpcResponse<GetStreamedAccountsResponse>>;
+
     /// A cheat code to get Surfnet network information.
     ///
     /// ## Returns
@@ -1476,6 +1515,22 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: (),
+        })
+    }
+
+    fn get_streamed_accounts(
+        &self,
+        meta: Self::Metadata,
+    ) -> Result<RpcResponse<GetStreamedAccountsResponse>> {
+        let svm_locker = meta.get_svm_locker()?;
+
+        let value = svm_locker.with_svm_reader(|svm_reader| {
+            GetStreamedAccountsResponse::new(&svm_reader.streamed_accounts)
+        });
+
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value,
         })
     }
 

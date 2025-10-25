@@ -1550,7 +1550,7 @@ impl Full for SurfpoolFullRpc {
 
         let (status_update_tx, status_update_rx) = crossbeam_channel::bounded(1);
         ctx.simnet_commands_tx
-            .send(SimnetCommand::TransactionReceived(
+            .send(SimnetCommand::ProcessTransaction(
                 ctx.id,
                 unsanitized_tx,
                 status_update_tx,
@@ -2486,7 +2486,7 @@ mod tests {
             .unwrap();
 
         match mempool_rx.recv() {
-            Ok(SimnetCommand::TransactionReceived(_, tx, status_tx, _)) => {
+            Ok(SimnetCommand::ProcessTransaction(_, tx, status_tx, _)) => {
                 let mut writer = setup.context.svm_locker.0.write().await;
                 let slot = writer.get_latest_absolute_slot();
                 writer.transactions_queued_for_confirmation.push_back((
