@@ -36,17 +36,14 @@ use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_message::{
-    Message, MessageHeader, SimpleAddressLoader, VersionedMessage,
+    Message, SimpleAddressLoader, VersionedMessage,
     compiled_instruction::CompiledInstruction,
     v0::{LoadedAddresses, MessageAddressTableLookup},
 };
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_signature::Signature;
-use solana_transaction::{
-    sanitized::SanitizedTransaction,
-    versioned::{TransactionVersion, VersionedTransaction},
-};
+use solana_transaction::{sanitized::SanitizedTransaction, versioned::VersionedTransaction};
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta,
@@ -3049,13 +3046,13 @@ pub fn format_ui_amount(amount: u64, decimals: u8) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::scenarios::registry::PYTH_V2_IDL_CONTENT;
-    use crate::surfnet::SurfnetSvm;
+    use std::collections::HashMap;
 
-    use super::*;
     use solana_account::Account;
     use solana_account_decoder::UiAccountEncoding;
-    use std::collections::HashMap;
+
+    use super::*;
+    use crate::{scenarios::registry::PYTH_V2_IDL_CONTENT, surfnet::SurfnetSvm};
 
     #[test]
     fn test_get_forged_account_data_with_pyth_fixture() {

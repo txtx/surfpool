@@ -15,8 +15,8 @@ use solana_transaction::versioned::VersionedTransaction;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
     AccountSnapshot, ClockCommand, ExportSnapshotConfig, GetStreamedAccountsResponse,
-    GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcProfileResultConfig, SimnetCommand,
-    SimnetEvent, StreamAccountConfig, UiKeyedProfileResult,
+    GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcProfileResultConfig, Scenario,
+    SimnetCommand, SimnetEvent, StreamAccountConfig, UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -962,6 +962,116 @@ pub trait SurfnetCheatcodes {
     #[rpc(meta, name = "surfnet_getSurfnetInfo")]
     fn get_surfnet_info(&self, meta: Self::Metadata)
     -> Result<RpcResponse<GetSurfnetInfoResponse>>;
+
+    /// A cheat code to register a scenario with account overrides.
+    ///
+    /// ## Parameters
+    /// - `scenario`: The Scenario object containing:
+    ///   - `id`: Unique identifier for the scenario
+    ///   - `name`: Human-readable name
+    ///   - `description`: Description of the scenario
+    ///   - `overrides`: Array of OverrideInstance objects, each containing:
+    ///     - `id`: Unique identifier for this override instance
+    ///     - `templateId`: Reference to the override template
+    ///     - `values`: HashMap of field paths to override values
+    ///     - `slotHeight`: The slot at which this override should be applied
+    ///     - `label`: Optional label for this override
+    ///     - `enabled`: Whether this override is active
+    ///     - `fetchBeforeUse`: If true, fetch fresh account data just before transaction execution (useful for price feeds, oracle updates, and dynamic balances)
+    ///     - `account`: Account address (either `{ "pubkey": "..." }` or `{ "pda": { "programId": "...", "seeds": [...] } }`)
+    ///   - `tags`: Array of tags for categorization
+    /// - `slot` (optional): The slot at which the scenario should start. If omitted, uses the current slot.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the Scenario registration was successful.
+    ///
+    /// ## Example Request (with slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_registerScenario",
+    ///   "params": [
+    ///     {
+    ///       "id": "scenario-1",
+    ///       "name": "Price Feed Override",
+    ///       "description": "Override Pyth BTC/USD price at specific slots",
+    ///       "overrides": [
+    ///         {
+    ///           "id": "override-1",
+    ///           "templateId": "pyth_btcusd",
+    ///           "values": {
+    ///             "price_message.price_value": 67500,
+    ///             "price_message.conf": 100,
+    ///             "price_message.expo": -8
+    ///           },
+    ///           "slotHeight": 100,
+    ///           "label": "Set BTC price to $67,500",
+    ///           "enabled": true,
+    ///           "fetchBeforeUse": false,
+    ///           "account": {
+    ///             "pubkey": "H6ARHf6YXhGYeQfUzQNGk6rDNnLBQKrenN712K4QJNYH"
+    ///           }
+    ///         }
+    ///       ],
+    ///       "tags": ["defi", "price-feed"]
+    ///     },
+    ///     355684457
+    ///   ]
+    /// }
+    /// ```
+    /// ## Example Request (without slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_registerScenario",
+    ///   "params": [
+    ///     {
+    ///       "id": "scenario-1",
+    ///       "name": "Price Feed Override",
+    ///       "description": "Override Pyth BTC/USD price",
+    ///       "overrides": [
+    ///         {
+    ///           "id": "override-1",
+    ///           "templateId": "pyth_btcusd",
+    ///           "values": {
+    ///             "price_message.price_value": 67500
+    ///           },
+    ///           "slotHeight": 100,
+    ///           "label": "Set BTC price",
+    ///           "enabled": true,
+    ///           "fetchBeforeUse": true,
+    ///           "account": {
+    ///             "pubkey": "H6ARHf6YXhGYeQfUzQNGk6rDNnLBQKrenN712K4QJNYH"
+    ///           }
+    ///         }
+    ///       ],
+    ///       "tags": []
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "context": {
+    ///     "slot": 355684457,
+    ///     "apiVersion": "2.2.2"
+    ///   },
+    ///   "value": null,
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_registerScenario")]
+    fn register_scenario(
+        &self,
+        meta: Self::Metadata,
+        scenario: Scenario,
+        slot: Option<Slot>,
+    ) -> Result<RpcResponse<()>>;
 }
 
 #[derive(Clone)]
@@ -1559,6 +1669,18 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             value: snapshot,
         })
     }
+
+    fn register_scenario(
+        &self,
+        meta: Self::Metadata,
+        scenario: Scenario,
+        slot: Option<Slot>,
+    ) -> Result<RpcResponse<()>> {
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(0),
+            value: (),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1677,7 +1799,7 @@ mod tests {
         );
 
         // Amount of tokens to mint (100 tokens with 2 decimal places)
-        let amount = 100_00;
+        let amount = 10_000;
 
         // Create mint_to instruction to mint tokens to the source token account
         let mint_to_instruction = mint_to(
@@ -1736,7 +1858,7 @@ mod tests {
                     .instruction_profiles
                     .as_ref()
                     .unwrap()
-                    .get(0)
+                    .first()
                     .expect("instruction profile should exist");
                 assert!(
                     ix_profile.error_message.is_none(),
@@ -2230,7 +2352,7 @@ mod tests {
                 .instruction_profiles
                 .as_ref()
                 .unwrap()
-                .get(0)
+                .first()
                 .expect("instruction profile should exist");
             assert!(
                 ix_profile.error_message.is_none(),

@@ -19,6 +19,7 @@ use juniper_graphql_ws::ConnectionConfig;
 use log::{debug, error, info, trace, warn};
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
+use surfpool_core::scenarios::TemplateRegistry;
 use surfpool_gql::{
     DynamicSchema,
     db::schema::collections,
@@ -28,7 +29,8 @@ use surfpool_gql::{
 };
 use surfpool_studio_ui::serve_studio_static_files;
 use surfpool_types::{
-    DataIndexingCommand, SanitizedConfig, SubgraphCommand, SubgraphEvent, SurfpoolConfig,
+    DataIndexingCommand, OverrideTemplate, SanitizedConfig, SubgraphCommand, SubgraphEvent,
+    SurfpoolConfig,
 };
 use txtx_core::kit::types::types::Value;
 use txtx_gql::kit::uuid::Uuid;
@@ -64,6 +66,12 @@ pub async fn start_subgraph_and_explorer_server(
     let config_wrapped = Data::new(RwLock::new(config.clone()));
     let collections_metadata_lookup_wrapped = Data::new(RwLock::new(collections_metadata_lookup));
 
+    // Initialize template registry and load templates
+    let mut template_registry = TemplateRegistry::new();
+    template_registry.load_pyth_overrides();
+
+    let template_registry_wrapped = Data::new(RwLock::new(template_registry));
+
     let subgraph_handle = start_subgraph_runloop(
         subgraph_events_tx,
         subgraph_commands_rx,
@@ -80,6 +88,7 @@ pub async fn start_subgraph_and_explorer_server(
             .app_data(context_wrapped.clone())
             .app_data(config_wrapped.clone())
             .app_data(collections_metadata_lookup_wrapped.clone())
+            .app_data(template_registry_wrapped.clone())
             .wrap(
                 Cors::default()
                     .allow_any_origin()
@@ -93,6 +102,7 @@ pub async fn start_subgraph_and_explorer_server(
             .wrap(middleware::Logger::default())
             .service(get_config)
             .service(get_indexers)
+            .service(get_scenario_templates)
             .service(
                 web::scope("/workspace")
                     .route("/v1/indexers", web::post().to(post_graphql))
@@ -153,19 +163,38 @@ async fn get_config(
 async fn get_indexers(
     collections_metadata_lookup: Data<RwLock<CollectionsMetadataLookup>>,
 ) -> Result<HttpResponse, Error> {
-    let lookup = collections_metadata_lookup
-        .read()
-        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to read collections metadata"))?;
+    let lookup = collections_metadata_lookup.read().map_err(|_| {
+        actix_web::error::ErrorInternalServerError("Failed to read collections metadata")
+    })?;
 
     let collections: Vec<&CollectionMetadata> = lookup.entries.values().collect();
-    let response = serde_json::to_string(&collections)
-        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to serialize collections"))?;
+    let response = serde_json::to_string(&collections).map_err(|_| {
+        actix_web::error::ErrorInternalServerError("Failed to serialize collections")
+    })?;
 
     Ok(HttpResponse::Ok()
         .content_type("application/json")
         .body(response))
 }
 
+#[actix_web::get("/v1/scenarios/templates")]
+async fn get_scenario_templates(
+    template_registry: Data<RwLock<TemplateRegistry>>,
+) -> Result<HttpResponse, Error> {
+    let registry = template_registry.read().map_err(|_| {
+        actix_web::error::ErrorInternalServerError("Failed to read template registry")
+    })?;
+
+    let templates: Vec<&OverrideTemplate> = registry.all();
+    let response = serde_json::to_string(&templates)
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to serialize templates"))?;
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/json")
+        .body(response))
+}
+
+#[allow(dead_code)]
 #[cfg(not(feature = "explorer"))]
 fn handle_embedded_file(_path: &str) -> HttpResponse {
     HttpResponse::NotFound().body("404 Not Found")
