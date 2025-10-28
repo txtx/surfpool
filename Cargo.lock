@@ -9410,7 +9410,7 @@ dependencies = [
  "solana-fee-calculator 2.2.1",
  "solana-hash 2.3.0",
  "solana-pubkey 2.4.0",
- "solana-sha256-hasher 2.2.1",
+ "solana-sha256-hasher 2.3.0",
 ]
 
 [[package]]
@@ -9633,7 +9633,7 @@ dependencies = [
  "solana-secp256k1-recover 2.2.1",
  "solana-serde-varint 2.2.2",
  "solana-serialize-utils 2.2.1",
- "solana-sha256-hasher 2.2.1",
+ "solana-sha256-hasher 2.3.0",
  "solana-short-vec 2.2.1",
  "solana-slot-hashes 2.2.1",
  "solana-slot-history 2.2.1",
@@ -9808,7 +9808,7 @@ dependencies = [
  "solana-decode-error",
  "solana-define-syscall 2.3.0",
  "solana-sanitize 2.2.1",
- "solana-sha256-hasher 2.2.1",
+ "solana-sha256-hasher 2.3.0",
  "wasm-bindgen",
 ]
 
@@ -10535,9 +10535,9 @@ dependencies = [
 
 [[package]]
 name = "solana-sha256-hasher"
-version = "2.2.1"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0037386961c0d633421f53560ad7c80675c0447cba4d1bb66d60974dd486c7ea"
+checksum = "5aa3feb32c28765f6aa1ce8f3feac30936f16c5c3f7eb73d63a5b8f6f8ecdc44"
 dependencies = [
  "sha2 0.10.9",
  "solana-define-syscall 2.3.0",
@@ -13018,9 +13018,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-kit"
-version = "0.4.10"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eac9b4152a798352d8704b9fba3fa8e6a6b48d344bd189918aeff04ba574efe7"
+checksum = "a51ded8b26a18920ac57f268e5e8fd769de45f97cb8eed04e59da506ab3e90f4"
 dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
@@ -13051,9 +13051,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.3.14"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "add854320b3aa54e1cd3320bd607ba279796dda9a45990917046d7f56ac5cf1b"
+checksum = "f2f683a2c9f5cd9e4ff30cacf8fdf52a83bed90232c17ece10f11cf200956134"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -13095,9 +13095,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.3.13"
+version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b8c8776e6a1429951aa2b538b81b87aaaf6716c1b137499039b7d2d7b860f3e"
+checksum = "991c5b1f0484b8fdd21b0c1db68638c5ee3fc0c4f6318a5dcbed7ca66a0cd659"
 dependencies = [
  "anchor-lang-idl",
  "borsh 1.5.7",
@@ -13152,9 +13152,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-core"
-version = "0.4.13"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9aab3151d0d31587bf224861cf4142bb15442a234d9b104f0ff6f2db49baa3d6"
+checksum = "4bfd49818a8a948af2031d7b672bd9bb0df73d58f1c115f7153131eef97d559e"
 dependencies = [
  "base64 0.22.1",
  "better-debug",

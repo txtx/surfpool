@@ -78,58 +78,13 @@ impl GraphQLType<DefaultScalarValue> for CollectionMetadata {
         for field in metadata.fields.iter() {
             let registration = {
                 let description = field.data.description.as_deref().unwrap_or("");
-                match &field.data.expected_type {
-                    Type::String => registry
-                        .field::<&String>(&field.data.display_name, &())
-                        .description(description),
-                    Type::Integer => registry
-                        .field::<&BigInt>(&field.data.display_name, &())
-                        .description(description),
-                    Type::Bool => registry
-                        .field::<&String>(&field.data.display_name, &())
-                        .description(description),
-                    Type::Float => registry
-                        .field::<&String>(&field.data.display_name, &())
-                        .description(description),
-                    Type::Null => registry
-                        .field::<&String>(&field.data.display_name, &())
-                        .description(description),
-                    Type::Array(_array) => registry
-                        .field::<&String>(&field.data.display_name, &())
-                        .description(description),
-                    Type::Buffer => registry
-                        .field::<&String>(&field.data.display_name, &())
-                        .description(description),
-                    Type::Addon(addon_id) => match addon_id.as_str() {
-                        SVM_PUBKEY => registry
-                            .field::<&PublicKey>(&field.data.display_name, &())
-                            .description(description),
-                        SVM_SIGNATURE => registry
-                            .field::<&Signature>(&field.data.display_name, &())
-                            .description(description),
-                        SVM_U8 | SVM_U16 | SVM_I8 | SVM_I16 | SVM_I32 => registry
-                            .field::<&i32>(&field.data.display_name, &())
-                            .description(description),
-                        SVM_U32 | SVM_U64 | SVM_I64 | SVM_I128 => registry
-                            .field::<&BigInt>(&field.data.display_name, &())
-                            .description(description),
-                        SVM_U128 | SVM_U256 | SVM_I256 => registry
-                            .field::<&String>(&field.data.display_name, &())
-                            .description(description),
-                        SVM_F32 | SVM_F64 => registry
-                            .field::<&f64>(&field.data.display_name, &())
-                            .description(description),
-                        _ => registry
-                            .field::<&String>(&field.data.display_name, &())
-                            .description(description),
-                    },
-                    Type::Object(_object) => registry
-                        .field::<&String>(&field.data.display_name, &())
-                        .description(description),
-                    Type::Map(_map) => registry
-                        .field::<&String>(&field.data.display_name, &())
-                        .description(description),
-                }
+                register_txtx_type(
+                    &field.data.expected_type,
+                    &field.data.display_name,
+                    description,
+                    registry,
+                    false,
+                )
             };
             fields.push(registration);
         }
@@ -139,6 +94,148 @@ impl GraphQLType<DefaultScalarValue> for CollectionMetadata {
             object_meta = object_meta.description(description.as_str());
         }
         object_meta.into_meta()
+    }
+}
+
+fn register_txtx_type<'r>(
+    txtx_type: &Type,
+    display_name: &str,
+    description: &str,
+    registry: &mut Registry<'r, DefaultScalarValue>,
+    is_opt: bool,
+) -> Field<'r, DefaultScalarValue> {
+    match &txtx_type {
+        Type::String => match is_opt {
+            true => registry
+                .field::<&Option<String>>(display_name, &())
+                .description(description),
+            false => registry
+                .field::<&String>(display_name, &())
+                .description(description),
+        },
+        Type::Integer => match is_opt {
+            true => registry
+                .field::<&Option<BigInt>>(display_name, &())
+                .description(description),
+            false => registry
+                .field::<&BigInt>(display_name, &())
+                .description(description),
+        },
+        Type::Bool => match is_opt {
+            true => registry
+                .field::<&Option<bool>>(display_name, &())
+                .description(description),
+            false => registry
+                .field::<&bool>(display_name, &())
+                .description(description),
+        },
+        Type::Float => match is_opt {
+            true => registry
+                .field::<&Option<f64>>(display_name, &())
+                .description(description),
+            false => registry
+                .field::<&f64>(display_name, &())
+                .description(description),
+        },
+        Type::Null(inner) => {
+            if let Some(inner) = inner {
+                register_txtx_type(inner, display_name, description, registry, true)
+            } else {
+                registry
+                    .field::<&Option<String>>(display_name, &())
+                    .description(description)
+            }
+        }
+        Type::Array(_array) => match is_opt {
+            true => registry
+                .field::<&Option<String>>(display_name, &())
+                .description(description),
+            false => registry
+                .field::<&String>(display_name, &())
+                .description(description),
+        },
+        Type::Buffer => match is_opt {
+            true => registry
+                .field::<&Option<String>>(display_name, &())
+                .description(description),
+            false => registry
+                .field::<&String>(display_name, &())
+                .description(description),
+        },
+        Type::Addon(addon_id) => match addon_id.as_str() {
+            SVM_PUBKEY => match is_opt {
+                true => registry
+                    .field::<&Option<PublicKey>>(display_name, &())
+                    .description(description),
+                false => registry
+                    .field::<&PublicKey>(display_name, &())
+                    .description(description),
+            },
+            SVM_SIGNATURE => match is_opt {
+                true => registry
+                    .field::<&Option<Signature>>(display_name, &())
+                    .description(description),
+                false => registry
+                    .field::<&Signature>(display_name, &())
+                    .description(description),
+            },
+            SVM_U8 | SVM_U16 | SVM_I8 | SVM_I16 | SVM_I32 => match is_opt {
+                true => registry
+                    .field::<&Option<i32>>(display_name, &())
+                    .description(description),
+                false => registry
+                    .field::<&i32>(display_name, &())
+                    .description(description),
+            },
+            SVM_U32 | SVM_U64 | SVM_I64 | SVM_I128 => match is_opt {
+                true => registry
+                    .field::<&Option<BigInt>>(display_name, &())
+                    .description(description),
+                false => registry
+                    .field::<&BigInt>(display_name, &())
+                    .description(description),
+            },
+            SVM_U128 | SVM_U256 | SVM_I256 => match is_opt {
+                true => registry
+                    .field::<&Option<String>>(display_name, &())
+                    .description(description),
+                false => registry
+                    .field::<&String>(display_name, &())
+                    .description(description),
+            },
+            SVM_F32 | SVM_F64 => match is_opt {
+                true => registry
+                    .field::<&Option<f64>>(display_name, &())
+                    .description(description),
+                false => registry
+                    .field::<&f64>(display_name, &())
+                    .description(description),
+            },
+            _ => match is_opt {
+                true => registry
+                    .field::<&Option<String>>(display_name, &())
+                    .description(description),
+                false => registry
+                    .field::<&String>(display_name, &())
+                    .description(description),
+            },
+        },
+        Type::Object(_object) => match is_opt {
+            true => registry
+                .field::<&Option<String>>(display_name, &())
+                .description(description),
+            false => registry
+                .field::<&String>(display_name, &())
+                .description(description),
+        },
+        Type::Map(_map) => match is_opt {
+            true => registry
+                .field::<&Option<String>>(display_name, &())
+                .description(description),
+            false => registry
+                .field::<&String>(display_name, &())
+                .description(description),
+        },
     }
 }
 
