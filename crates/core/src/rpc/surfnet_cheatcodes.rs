@@ -897,8 +897,8 @@ pub trait SurfnetCheatcodes {
     /// {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
-    ///   "method": "surfnet_streamAccount",
-    ///   "params": [ "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa", { "includeOwnedAccounts": true } ]
+    ///   "method": "surfnet_getStreamedAccounts",
+    ///   "params": []
     /// }
     /// ```
     ///
@@ -911,8 +911,10 @@ pub trait SurfnetCheatcodes {
     ///       "slot": 123456789,
     ///       "apiVersion": "2.3.8"
     ///     },
-    ///     "value": null
-    ///   },
+    ///     "value": [
+    ///       "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa"
+    ///     ]
+    ///    },
     ///   "id": 1
     /// }
     /// ```
@@ -974,13 +976,13 @@ pub trait SurfnetCheatcodes {
     ///     - `id`: Unique identifier for this override instance
     ///     - `templateId`: Reference to the override template
     ///     - `values`: HashMap of field paths to override values
-    ///     - `slotHeight`: The slot at which this override should be applied
+    ///     - `scenarioRelativeSlot`: The relative slot offset (from base slot) when this override should be applied
     ///     - `label`: Optional label for this override
     ///     - `enabled`: Whether this override is active
     ///     - `fetchBeforeUse`: If true, fetch fresh account data just before transaction execution (useful for price feeds, oracle updates, and dynamic balances)
     ///     - `account`: Account address (either `{ "pubkey": "..." }` or `{ "pda": { "programId": "...", "seeds": [...] } }`)
     ///   - `tags`: Array of tags for categorization
-    /// - `slot` (optional): The slot at which the scenario should start. If omitted, uses the current slot.
+    /// - `slot` (optional): The base slot from which relative slot offsets are calculated. If omitted, uses the current slot.
     ///
     /// ## Returns
     /// A `RpcResponse<()>` indicating whether the Scenario registration was successful.
@@ -1005,7 +1007,7 @@ pub trait SurfnetCheatcodes {
     ///             "price_message.conf": 100,
     ///             "price_message.expo": -8
     ///           },
-    ///           "slotHeight": 100,
+    ///           "scenarioRelativeSlot": 100,
     ///           "label": "Set BTC price to $67,500",
     ///           "enabled": true,
     ///           "fetchBeforeUse": false,
@@ -1038,7 +1040,7 @@ pub trait SurfnetCheatcodes {
     ///           "values": {
     ///             "price_message.price_value": 67500
     ///           },
-    ///           "slotHeight": 100,
+    ///           "scenarioRelativeSlot": 100,
     ///           "label": "Set BTC price",
     ///           "enabled": true,
     ///           "fetchBeforeUse": true,
@@ -1556,9 +1558,24 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         let key = meta.as_ref().map(|ctx| ctx.id.clone()).unwrap_or_default();
         let surfnet_command_tx: crossbeam_channel::Sender<SimnetCommand> =
             meta.get_surfnet_command_tx()?;
-        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(key, ClockCommand::Pause));
-        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
-            .map_err(Into::into)
+
+        // Create a channel to receive confirmation
+        let (response_tx, response_rx) = crossbeam_channel::bounded(1);
+
+        // Send pause command with confirmation
+        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(
+            key,
+            ClockCommand::PauseWithConfirmation(response_tx),
+        ));
+
+        // Wait for confirmation with timeout
+        response_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|e| jsonrpc_core::Error {
+                code: jsonrpc_core::ErrorCode::InternalError,
+                message: format!("Failed to confirm clock pause: {}", e),
+                data: None,
+            })
     }
 
     fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo> {
@@ -1676,8 +1693,10 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         scenario: Scenario,
         slot: Option<Slot>,
     ) -> Result<RpcResponse<()>> {
+        let svm_locker = meta.get_svm_locker()?;
+        svm_locker.register_scenario(scenario, slot)?;
         Ok(RpcResponse {
-            context: RpcResponseContext::new(0),
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: (),
         })
     }

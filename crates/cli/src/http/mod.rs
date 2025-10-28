@@ -67,10 +67,7 @@ pub async fn start_subgraph_and_explorer_server(
     let collections_metadata_lookup_wrapped = Data::new(RwLock::new(collections_metadata_lookup));
 
     // Initialize template registry and load templates
-    let mut template_registry = TemplateRegistry::new();
-    template_registry.load_pyth_overrides();
-
-    let template_registry_wrapped = Data::new(RwLock::new(template_registry));
+    let template_registry_wrapped = Data::new(RwLock::new(TemplateRegistry::new()));
 
     let subgraph_handle = start_subgraph_runloop(
         subgraph_events_tx,

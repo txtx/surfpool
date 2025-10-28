@@ -27,7 +27,7 @@ use solana_client::{
     rpc_response::{RpcKeyedAccount, RpcLogsResponse, RpcPerfSample},
 };
 use solana_clock::{Clock, Slot};
-use solana_commitment_config::CommitmentLevel;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
@@ -52,16 +52,20 @@ use spl_token_2022_interface::extension::{
 };
 use surfpool_types::{
     AccountChange, AccountProfileState, AccountSnapshot, DEFAULT_PROFILING_MAP_CAPACITY,
-    DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, FifoMap, Idl, ProfileResult, RpcProfileDepth,
-    RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetEvent,
+    DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, FifoMap, Idl, OverrideInstance, ProfileResult,
+    RpcProfileDepth, RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetEvent,
     TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
     UiProfileResult, VersionedIdl,
     types::{
         ComputeUnitsEstimationResult, KeyedProfileResult, UiKeyedProfileResult, UuidOrSignature,
     },
 };
-use txtx_addon_kit::{indexmap::IndexMap, types::types::AddonJsonConverter};
-use txtx_addon_network_svm_types::subgraph::idl::parse_bytes_to_value_with_expected_idl_type_def_ty;
+use txtx_addon_kit::{indexmap::IndexMap, types::types::{AddonJsonConverter, Value}};
+use txtx_addon_network_svm::codec::idl::borsh_encode_value_to_idl_type;
+use txtx_addon_network_svm_types::subgraph::idl::{
+    parse_bytes_to_value_with_expected_idl_type_def_ty,
+    parse_bytes_to_value_with_expected_idl_type_def_ty_with_leftover_bytes,
+};
 use uuid::Uuid;
 
 use super::{
@@ -72,12 +76,91 @@ use super::{
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
+    scenarios::TemplateRegistry,
     surfnet::{LogsSubscriptionData, locker::is_supported_token_program},
     types::{
         GeyserAccountUpdate, MintAccount, SurfnetTransactionStatus, SyntheticBlockhash,
         TokenAccount, TransactionWithStatusMeta,
     },
 };
+
+/// Helper function to apply an override to a decoded account value using dot notation
+pub fn apply_override_to_decoded_account(
+    decoded_value: &mut Value,
+    path: &str,
+    value: &serde_json::Value,
+) -> SurfpoolResult<()> {
+    let parts: Vec<&str> = path.split('.').collect();
+
+    if parts.is_empty() {
+        return Err(SurfpoolError::internal("Empty path provided for override"));
+    }
+
+    // Navigate to the parent of the target field
+    let mut current = decoded_value;
+    for part in &parts[..parts.len() - 1] {
+        match current {
+            Value::Object(map) => {
+                current = map.get_mut(&part.to_string()).ok_or_else(|| {
+                    SurfpoolError::internal(format!("Path segment '{}' not found in decoded account", part))
+                })?;
+            }
+            _ => {
+                return Err(SurfpoolError::internal(format!(
+                    "Cannot navigate through field '{}' - not an object",
+                    part
+                )));
+            }
+        }
+    }
+
+    // Set the final field
+    let final_key = parts[parts.len() - 1];
+    match current {
+        Value::Object(map) => {
+            // Convert serde_json::Value to txtx Value
+            let txtx_value = json_to_txtx_value(value)?;
+            map.insert(final_key.to_string(), txtx_value);
+            Ok(())
+        }
+        _ => Err(SurfpoolError::internal(format!(
+            "Cannot set field '{}' - parent is not an object",
+            final_key
+        ))),
+    }
+}
+
+/// Helper function to convert serde_json::Value to txtx Value
+fn json_to_txtx_value(json: &serde_json::Value) -> SurfpoolResult<Value> {
+    match json {
+        serde_json::Value::Null => Ok(Value::Null),
+        serde_json::Value::Bool(b) => Ok(Value::Bool(*b)),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(Value::Integer(i as i128))
+            } else if let Some(u) = n.as_u64() {
+                Ok(Value::Integer(u as i128))
+            } else if let Some(f) = n.as_f64() {
+                Ok(Value::Float(f))
+            } else {
+                Err(SurfpoolError::internal(format!("Unable to convert number: {}", n)))
+            }
+        }
+        serde_json::Value::String(s) => Ok(Value::String(s.clone())),
+        serde_json::Value::Array(arr) => {
+            let txtx_arr: Result<Vec<Value>, _> =
+                arr.iter().map(json_to_txtx_value).collect();
+            Ok(Value::Array(Box::new(txtx_arr?)))
+        }
+        serde_json::Value::Object(obj) => {
+            let mut txtx_obj = IndexMap::new();
+            for (k, v) in obj.iter() {
+                txtx_obj.insert(k.clone(), json_to_txtx_value(v)?);
+            }
+            Ok(Value::Object(txtx_obj))
+        }
+    }
+}
 
 pub type AccountOwner = Pubkey;
 
@@ -151,6 +234,7 @@ pub struct SurfnetSvm {
     /// the update with higher write_version should supersede the one with lower write_version.
     pub write_version: u64,
     pub registered_idls: HashMap<Pubkey, BinaryHeap<VersionedIdl>>,
+    // pub registered_idls: HashMap<[u8; 8], BinaryHeap<VersionedIdl>>,
     pub feature_set: FeatureSet,
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
@@ -158,6 +242,7 @@ pub struct SurfnetSvm {
     pub account_update_slots: HashMap<Pubkey, Slot>,
     pub streamed_accounts: HashMap<Pubkey, bool>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
+    pub scheduled_overrides: HashMap<Slot, Vec<OverrideInstance>>,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -249,6 +334,7 @@ impl SurfnetSvm {
             account_update_slots: HashMap::new(),
             streamed_accounts: HashMap::new(),
             recent_blockhashes: VecDeque::new(),
+            scheduled_overrides: HashMap::new(),
         };
 
         // Generate the initial synthetic blockhash
@@ -285,6 +371,11 @@ impl SurfnetSvm {
         self.instruction_profiling_enabled = do_profile_instructions;
         self.set_profiling_map_capacity(self.max_profiles);
         self.inner.set_log_bytes_limit(log_bytes_limit);
+
+        let registry = TemplateRegistry::new();
+        for (_, template) in registry.templates.into_iter() {
+            self.register_idl(template.idl, None);
+        }
 
         if let Some(remote_client) = remote_ctx {
             let _ = self
@@ -724,6 +815,7 @@ impl SurfnetSvm {
         self.registered_idls.clear();
         self.runbook_executions.clear();
         self.streamed_accounts.clear();
+        self.scheduled_overrides.clear();
         Ok(())
     }
 
@@ -1217,6 +1309,328 @@ impl SurfnetSvm {
         }
 
         Ok(())
+    }
+
+    /// Materializes scheduled overrides for the current slot
+    ///
+    /// This function:
+    /// 1. Dequeues overrides scheduled for the current slot
+    /// 2. Resolves account addresses (Pubkey or PDA)
+    /// 3. Optionally fetches fresh account data from remote if `fetch_before_use` is enabled
+    /// 4. Applies the overrides to the account data
+    /// 5. Updates the SVM state
+    pub async fn materialize_overrides(
+        &mut self,
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+    ) -> SurfpoolResult<()> {
+        let current_slot = self.latest_epoch_info.absolute_slot;
+
+        // Remove and get overrides for this slot
+        let Some(overrides) = self.scheduled_overrides.remove(&current_slot) else {
+            // No overrides for this slot
+            return Ok(());
+        };
+
+        debug!(
+            "Materializing {} override(s) for slot {}",
+            overrides.len(),
+            current_slot
+        );
+
+        for override_instance in overrides {
+            if !override_instance.enabled {
+                debug!("Skipping disabled override: {}", override_instance.id);
+                continue;
+            }
+
+            // Resolve account address
+            let account_pubkey = match &override_instance.account {
+                surfpool_types::AccountAddress::Pubkey(pubkey_str) => {
+                    match Pubkey::from_str(pubkey_str) {
+                        Ok(pubkey) => pubkey,
+                        Err(e) => {
+                            warn!(
+                                "Failed to parse pubkey '{}' for override {}: {}",
+                                pubkey_str, override_instance.id, e
+                            );
+                            continue;
+                        }
+                    }
+                }
+                surfpool_types::AccountAddress::Pda {
+                    program_id: _,
+                    seeds: _,
+                } => unimplemented!(),
+            };
+
+            debug!(
+                "Processing override {} for account {} (label: {:?})",
+                override_instance.id, account_pubkey, override_instance.label
+            );
+
+            // Fetch fresh account data from remote if requested
+            if override_instance.fetch_before_use {
+                if let Some((client, _)) = remote_ctx {
+                    debug!(
+                        "Fetching fresh account data for {} from remote",
+                        account_pubkey
+                    );
+
+                    match client
+                        .get_account(&account_pubkey, CommitmentConfig::confirmed())
+                        .await
+                    {
+                        Ok(GetAccountResult::FoundAccount(_pubkey, remote_account, _)) => {
+                            debug!(
+                                "Fetched account {} from remote: {} lamports, {} bytes",
+                                account_pubkey,
+                                remote_account.lamports(),
+                                remote_account.data().len()
+                            );
+
+                            // Set the fresh account data in the SVM
+                            if let Err(e) = self.inner.set_account(account_pubkey, remote_account) {
+                                warn!(
+                                    "Failed to set account {} from remote: {}",
+                                    account_pubkey, e
+                                );
+                            }
+                        }
+                        Ok(GetAccountResult::None(_)) => {
+                            debug!("Account {} not found on remote", account_pubkey);
+                        }
+                        Ok(_) => {
+                            debug!("Account {} fetched (other variant)", account_pubkey);
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to fetch account {} from remote: {}",
+                                account_pubkey, e
+                            );
+                        }
+                    }
+                } else {
+                    debug!(
+                        "fetch_before_use enabled but no remote client available for override {}",
+                        override_instance.id
+                    );
+                }
+            }
+
+            // Apply the override values to the account data
+            if !override_instance.values.is_empty() {
+                debug!(
+                    "Override {} applying {} field modification(s) to account {}",
+                    override_instance.id,
+                    override_instance.values.len(),
+                    account_pubkey
+                );
+
+                // Get the account from the SVM
+                let Some(account) = self.inner.get_account(&account_pubkey) else {
+                    warn!(
+                        "Account {} not found in SVM for override {}, skipping modifications",
+                        account_pubkey, override_instance.id
+                    );
+                    continue;
+                };
+
+                // Get the account owner (program ID)
+                let owner_program_id = account.owner();
+
+                // Look up the IDL for the owner program
+                let Some(idl_versions) = self.registered_idls.get(owner_program_id) else {
+                    warn!(
+                        "No IDL registered for program {} (owner of account {}), skipping override {}",
+                        owner_program_id, account_pubkey, override_instance.id
+                    );
+                    continue;
+                };
+
+                // Get the latest IDL version
+                let Some(versioned_idl) = idl_versions.peek() else {
+                    warn!(
+                        "IDL versions empty for program {}, skipping override {}",
+                        owner_program_id, override_instance.id
+                    );
+                    continue;
+                };
+
+                let idl = &versioned_idl.1;
+
+                // Get account data
+                let account_data = account.data();
+
+                // Use get_forged_account_data to apply the overrides
+                let new_account_data = match self.get_forged_account_data(
+                    &account_pubkey,
+                    account_data,
+                    idl,
+                    &override_instance.values,
+                ) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        warn!(
+                            "Failed to forge account data for {} (override {}): {}",
+                            account_pubkey, override_instance.id, e
+                        );
+                        continue;
+                    }
+                };
+
+                // Create a new account with modified data
+                let modified_account = Account {
+                    lamports: account.lamports(),
+                    data: new_account_data,
+                    owner: *account.owner(),
+                    executable: account.executable(),
+                    rent_epoch: account.rent_epoch(),
+                };
+
+                // Update the account in the SVM
+                if let Err(e) = self.inner.set_account(account_pubkey, modified_account) {
+                    warn!(
+                        "Failed to set modified account {} in SVM: {}",
+                        account_pubkey, e
+                    );
+                } else {
+                    debug!(
+                        "Successfully applied {} override(s) to account {} (override {})",
+                        override_instance.values.len(),
+                        account_pubkey,
+                        override_instance.id
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Forges account data by applying overrides to existing account data
+    ///
+    /// This function:
+    /// 1. Validates account data size (must be at least 8 bytes for discriminator)
+    /// 2. Splits discriminator and serialized data
+    /// 3. Finds the account type in the IDL using the discriminator
+    /// 4. Deserializes the account data
+    /// 5. Applies field overrides using dot notation
+    /// 6. Re-serializes the modified data
+    /// 7. Reconstructs the account data with the original discriminator
+    ///
+    /// # Arguments
+    /// * `account_pubkey` - The account address (for error messages)
+    /// * `account_data` - The original account data bytes
+    /// * `idl` - The IDL for the account's program
+    /// * `overrides` - Map of field paths to new values
+    ///
+    /// # Returns
+    /// The forged account data as bytes, or an error
+    pub fn get_forged_account_data(
+        &self,
+        account_pubkey: &Pubkey,
+        account_data: &[u8],
+        idl: &Idl,
+        overrides: &HashMap<String, serde_json::Value>,
+    ) -> SurfpoolResult<Vec<u8>> {
+        // Validate account data size
+        if account_data.len() < 8 {
+            return Err(SurfpoolError::invalid_account_data(
+                account_pubkey,
+                "Account data too small to be an Anchor account (need at least 8 bytes for discriminator)",
+                Some("Data length too small"),
+            ));
+        }
+
+        // Split discriminator and data
+        let discriminator = &account_data[..8];
+        let serialized_data = &account_data[8..];
+
+        // Find the account type using the discriminator
+        let account_def = idl
+            .accounts
+            .iter()
+            .find(|acc| acc.discriminator.eq(discriminator))
+            .ok_or_else(|| {
+                SurfpoolError::internal(format!(
+                    "Account with discriminator '{:?}' not found in IDL",
+                    discriminator
+                ))
+            })?;
+
+        // Find the corresponding type definition
+        let account_type = idl
+            .types
+            .iter()
+            .find(|t| t.name == account_def.name)
+            .ok_or_else(|| {
+                SurfpoolError::internal(format!(
+                    "Type definition for account '{}' not found in IDL",
+                    account_def.name
+                ))
+            })?;
+
+        // Set up generics for parsing
+        let empty_vec = vec![];
+        let idl_type_def_generics = idl
+            .types
+            .iter()
+            .find(|t| t.name == account_type.name)
+            .map(|t| &t.generics);
+
+        // Deserialize the account data using proper Borsh deserialization
+        // Use the version that returns leftover bytes to preserve any trailing padding
+        let (mut parsed_value, leftover_bytes) =
+            parse_bytes_to_value_with_expected_idl_type_def_ty_with_leftover_bytes(
+                serialized_data,
+                &account_type.ty,
+                &idl.types,
+                &vec![],
+                idl_type_def_generics.unwrap_or(&empty_vec),
+            )
+            .map_err(|e| {
+                SurfpoolError::deserialize_error(
+                    "account data",
+                    format!("Failed to deserialize account data using Borsh: {}", e),
+                )
+            })?;
+
+        // Apply overrides to the decoded value
+        for (path, value) in overrides {
+            apply_override_to_decoded_account(&mut parsed_value, path, value)?;
+        }
+
+        // Construct an IdlType::Defined that references the account type
+        // This is needed because borsh_encode_value_to_idl_type expects IdlType, not IdlTypeDefTy
+        use anchor_lang_idl::types::{IdlGenericArg, IdlType};
+        let defined_type = IdlType::Defined {
+            name: account_type.name.clone(),
+            generics: account_type
+                .generics
+                .iter()
+                .map(|_| IdlGenericArg::Type { ty: IdlType::String })
+                .collect(),
+        };
+
+        // Re-encode the value using Borsh
+        let re_encoded_data = borsh_encode_value_to_idl_type(
+            &parsed_value,
+            &defined_type,
+            &idl.types,
+            None,
+        )
+        .map_err(|e| {
+            SurfpoolError::internal(format!("Failed to re-encode account data using Borsh: {}", e))
+        })?;
+
+        // Reconstruct the account data with discriminator and preserve any trailing bytes
+        let mut new_account_data =
+            Vec::with_capacity(8 + re_encoded_data.len() + leftover_bytes.len());
+        new_account_data.extend_from_slice(discriminator);
+        new_account_data.extend_from_slice(&re_encoded_data);
+        new_account_data.extend_from_slice(leftover_bytes);
+
+        Ok(new_account_data)
     }
 
     /// Subscribes for updates on a transaction signature for a given subscription type.
@@ -1949,6 +2363,45 @@ impl SurfnetSvm {
             fixtures.insert(pubkey.to_string(), account_snapshot);
         }
         fixtures
+    }
+
+    /// Registers a scenario for execution by scheduling its overrides
+    ///
+    /// The `slot` parameter is the base slot from which relative override slot heights are calculated.
+    /// If not provided, uses the current slot.
+    pub fn register_scenario(
+        &mut self,
+        scenario: surfpool_types::Scenario,
+        slot: Option<Slot>,
+    ) -> SurfpoolResult<()> {
+        // Use provided slot or current slot as the base for relative slot heights
+        let base_slot = slot.unwrap_or(self.latest_epoch_info.absolute_slot);
+
+        info!(
+            "Registering scenario: {} ({}) with {} overrides at base slot {}",
+            scenario.name,
+            scenario.id,
+            scenario.overrides.len(),
+            base_slot
+        );
+
+        // Schedule overrides by adding base slot to their scenario-relative slots
+        for override_instance in scenario.overrides {
+            let scenario_relative_slot = override_instance.scenario_relative_slot;
+            let absolute_slot = base_slot + scenario_relative_slot;
+
+            debug!(
+                "Scheduling override at absolute slot {} (base {} + relative {})",
+                absolute_slot, base_slot, scenario_relative_slot
+            );
+
+            self.scheduled_overrides
+                .entry(absolute_slot)
+                .or_insert_with(Vec::new)
+                .push(override_instance);
+        }
+
+        Ok(())
     }
 }
 

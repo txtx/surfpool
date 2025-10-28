@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use log::debug;
 use surfpool_types::{OverrideTemplate, YamlOverrideTemplateCollection};
 
 pub const PYTH_V2_IDL_CONTENT: &str = include_str!("./protocols/pyth/v2/idl.json");
@@ -10,13 +9,15 @@ pub const PYTH_V2_OVERRIDES_CONTENT: &str = include_str!("./protocols/pyth/v2/ov
 #[derive(Clone, Debug, Default)]
 pub struct TemplateRegistry {
     /// Map of template ID to template
-    templates: BTreeMap<String, OverrideTemplate>,
+    pub templates: BTreeMap<String, OverrideTemplate>,
 }
 
 impl TemplateRegistry {
     /// Create a new template registry
     pub fn new() -> Self {
-        Self::default()
+        let mut default = Self::default();
+        default.load_pyth_overrides();
+        default
     }
 
     pub fn load_pyth_overrides(&mut self) {
@@ -38,7 +39,6 @@ impl TemplateRegistry {
         for template in templates {
             let template_id = template.id.clone();
             self.templates.insert(template_id.clone(), template);
-            debug!("  Registered template: {}", template_id);
         }
     }
 

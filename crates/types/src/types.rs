@@ -481,6 +481,7 @@ pub enum SimnetCommand {
     SlotBackward(Option<Hash>),
     CommandClock(Option<(Hash, String)>, ClockCommand),
     UpdateInternalClock(Option<(Hash, String)>, Clock),
+    UpdateInternalClockWithConfirmation(Option<(Hash, String)>, Clock, Sender<EpochInfo>),
     UpdateBlockProductionMode(BlockProductionMode),
     ProcessTransaction(
         Option<(Hash, String)>,
@@ -498,6 +499,8 @@ pub enum SimnetCommand {
 #[derive(Debug)]
 pub enum ClockCommand {
     Pause,
+    /// Pause with confirmation - sends epoch info back when actually paused
+    PauseWithConfirmation(Sender<EpochInfo>),
     Resume,
     Toggle,
     UpdateSlotInterval(u64),

@@ -94,8 +94,8 @@ pub struct OverrideInstance {
     pub template_id: String,
     /// Values for the template properties (flat key-value map with dot notation, e.g., "price_message.price_value")
     pub values: HashMap<String, serde_json::Value>,
-    /// Slot height when this override should be applied
-    pub slot_height: Slot,
+    /// Relative slot when this override should be applied (relative to scenario registration slot)
+    pub scenario_relative_slot: Slot,
     /// Optional label for this instance
     pub label: Option<String>,
     /// Whether this override is enabled
@@ -109,12 +109,12 @@ pub struct OverrideInstance {
 }
 
 impl OverrideInstance {
-    pub fn new(template_id: String, slot_height: Slot, account: AccountAddress) -> Self {
+    pub fn new(template_id: String, scenario_relative_slot: Slot, account: AccountAddress) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             template_id,
             values: HashMap::new(),
-            slot_height,
+            scenario_relative_slot,
             label: None,
             enabled: true,
             fetch_before_use: false,
@@ -162,8 +162,8 @@ impl Scenario {
 
     pub fn add_override(&mut self, override_instance: OverrideInstance) {
         self.overrides.push(override_instance);
-        // Sort by slot height for efficient lookup
-        self.overrides.sort_by_key(|o| o.slot_height);
+        // Sort by slot for efficient lookup
+        self.overrides.sort_by_key(|o| o.scenario_relative_slot);
     }
 
     pub fn remove_override(&mut self, override_id: &str) {
@@ -173,7 +173,7 @@ impl Scenario {
     pub fn get_overrides_for_slot(&self, slot: Slot) -> Vec<&OverrideInstance> {
         self.overrides
             .iter()
-            .filter(|o| o.enabled && o.slot_height == slot)
+            .filter(|o| o.enabled && o.scenario_relative_slot == slot)
             .collect()
     }
 }

@@ -462,7 +462,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             SimnetEvent::SystemClockUpdated(clock) => {
                                 app.clock = clock.clone();
                             }
-                            SimnetEvent::ClockUpdate(ClockCommand::Pause) => {
+                            SimnetEvent::ClockUpdate(ClockCommand::PauseWithConfirmation(_)) => {
                                 app.paused = true;
                             }
                             SimnetEvent::ClockUpdate(ClockCommand::Resume) => {

@@ -2615,7 +2615,12 @@ mod tests {
         }
 
         // confirm a block to move transactions to confirmed status
-        setup.context.svm_locker.confirm_current_block().unwrap();
+        setup
+            .context
+            .svm_locker
+            .confirm_current_block(&None)
+            .await
+            .unwrap();
         let res = setup
             .rpc
             .get_signature_statuses(
@@ -3363,7 +3368,12 @@ mod tests {
                 )
                 .unwrap();
 
-            setup.context.svm_locker.confirm_current_block().unwrap();
+            setup
+                .context
+                .svm_locker
+                .confirm_current_block(&None)
+                .await
+                .unwrap();
         }
 
         // send two transactions that include a compute budget instruction
@@ -3403,7 +3413,12 @@ mod tests {
                 .await
                 .join()
                 .unwrap();
-            setup.context.svm_locker.confirm_current_block().unwrap();
+            setup
+                .context
+                .svm_locker
+                .confirm_current_block(&None)
+                .await
+                .unwrap();
         }
 
         // sending the get_recent_prioritization_fees request with an account

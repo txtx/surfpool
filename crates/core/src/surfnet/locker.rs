@@ -123,39 +123,6 @@ pub type SurfpoolContextualizedResult<T> = SurfpoolResult<SvmAccessContext<T>>;
 ///
 /// # Returns
 /// Result indicating success or error
-fn apply_override_to_json(
-    json: &mut serde_json::Value,
-    path: &str,
-    value: &serde_json::Value,
-) -> SurfpoolResult<()> {
-    let parts: Vec<&str> = path.split('.').collect();
-
-    if parts.is_empty() {
-        return Err(SurfpoolError::internal("Empty path provided for override"));
-    }
-
-    // Navigate to the parent of the target field
-    let mut current = json;
-    for part in &parts[..parts.len() - 1] {
-        current = current.get_mut(part).ok_or_else(|| {
-            SurfpoolError::internal(format!("Path segment '{}' not found in JSON", part))
-        })?;
-    }
-
-    // Set the final field
-    let final_key = parts[parts.len() - 1];
-    match current {
-        serde_json::Value::Object(map) => {
-            map.insert(final_key.to_string(), value.clone());
-            Ok(())
-        }
-        _ => Err(SurfpoolError::internal(format!(
-            "Cannot set field '{}' - parent is not an object",
-            final_key
-        ))),
-    }
-}
-
 pub struct SurfnetSvmLocker(pub Arc<RwLock<SurfnetSvm>>);
 
 impl Clone for SurfnetSvmLocker {
@@ -909,7 +876,6 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolResult<KeyedProfileResult> {
         let signature = transaction.signatures[0];
 
-        // Can we avoid this write?
         let latest_absolute_slot = self.with_svm_writer(|svm_writer| {
             let latest_absolute_slot = svm_writer.get_latest_absolute_slot();
             svm_writer.notify_signature_subscribers(
@@ -949,7 +915,6 @@ impl SurfnetSvmLocker {
             .await?
             .inner;
 
-        // I don't think this code is required
         // We also need the pubkeys of the ALTs to be pulled from the remote, so we'll do a fetch for them
         let alt_account_updates = self
             .get_multiple_accounts(
@@ -1174,46 +1139,12 @@ impl SurfnetSvmLocker {
                 )
                 .await?;
 
-            eprintln!(
-                "DEBUG: pre_execution_capture keys = {:?}",
-                profile_result
-                    .pre_execution_capture
-                    .keys()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-            );
-            eprintln!(
-                "DEBUG: post_execution_capture keys = {:?}",
-                profile_result
-                    .post_execution_capture
-                    .keys()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-            );
-
             profile_result
                 .pre_execution_capture
                 .retain(|pubkey, _| ix_required_accounts.contains(pubkey));
             profile_result
                 .post_execution_capture
                 .retain(|pubkey, _| ix_required_accounts.contains(pubkey));
-
-            eprintln!(
-                "DEBUG: After retain - pre keys = {:?}",
-                profile_result
-                    .pre_execution_capture
-                    .keys()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-            );
-            eprintln!(
-                "DEBUG: After retain - post keys = {:?}",
-                profile_result
-                    .post_execution_capture
-                    .keys()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-            );
 
             profile_result.compute_units_consumed = profile_result
                 .compute_units_consumed
@@ -1749,6 +1680,15 @@ impl SurfnetSvmLocker {
 
     pub fn get_streamed_accounts(&self) -> HashMap<Pubkey, bool> {
         self.with_svm_reader(|svm_reader| svm_reader.streamed_accounts.clone())
+    }
+
+    /// Registers a scenario for execution
+    pub fn register_scenario(
+        &self,
+        scenario: surfpool_types::Scenario,
+        slot: Option<Slot>,
+    ) -> SurfpoolResult<()> {
+        self.with_svm_writer(move |svm_writer| svm_writer.register_scenario(scenario, slot))
     }
 }
 
@@ -2339,6 +2279,18 @@ impl SurfnetSvmLocker {
     ///
     /// # Returns
     /// The modified account data bytes with discriminator
+    /// Forges account data by applying overrides to existing account data
+    ///
+    /// This delegates to the SurfnetSvm implementation.
+    ///
+    /// # Arguments
+    /// * `account_pubkey` - The account address (for error messages)
+    /// * `account_data` - The original account data bytes
+    /// * `idl` - The IDL for the account's program
+    /// * `overrides` - Map of field paths to new values
+    ///
+    /// # Returns
+    /// The forged account data as bytes, or an error
     pub fn get_forged_account_data(
         &self,
         account_pubkey: &Pubkey,
@@ -2346,62 +2298,9 @@ impl SurfnetSvmLocker {
         idl: &Idl,
         overrides: &HashMap<String, serde_json::Value>,
     ) -> SurfpoolResult<Vec<u8>> {
-        // Step 1: Validate account data size
-        if account_data.len() < 8 {
-            return Err(SurfpoolError::invalid_account_data(
-                account_pubkey,
-                "Account data too small to be an Anchor account (need at least 8 bytes for discriminator)",
-                Some("Data length too small"),
-            ));
-        }
-
-        // Step 3: Split discriminator and data
-        let discriminator = &account_data[..8];
-        let serialized_data = &account_data[8..];
-
-        // Step 4: Find the account type using the discriminator
-        let _account_def = idl
-            .accounts
-            .iter()
-            .find(|acc| acc.discriminator.eq(discriminator))
-            .ok_or_else(|| {
-                SurfpoolError::internal(format!(
-                    "Account with discriminator '{:?}' not found in IDL",
-                    discriminator
-                ))
-            })?;
-
-        // Step 5: Deserialize the account data to JSON
-        // For now, we'll use a simple approach: deserialize as raw JSON
-        let mut account_json: serde_json::Value = serde_json::from_slice(serialized_data)
-            .map_err(|e| {
-                SurfpoolError::deserialize_error(
-                    "account data",
-                    format!(
-                        "Failed to deserialize account data as JSON: {}. \
-                        Note: This is a simplified implementation that expects JSON-serialized data. \
-                        For Anchor accounts, proper Borsh deserialization should be implemented.",
-                        e
-                    )
-                )
-            })?;
-
-        // Step 6: Apply overrides using dot notation
-        for (path, value) in overrides {
-            apply_override_to_json(&mut account_json, path, value)?;
-        }
-
-        // Step 7: Re-serialize the modified data
-        let modified_data = serde_json::to_vec(&account_json).map_err(|e| {
-            SurfpoolError::internal(format!("Failed to serialize modified account data: {}", e))
-        })?;
-
-        // Step 8: Reconstruct the account data with discriminator
-        let mut new_account_data = Vec::with_capacity(8 + modified_data.len());
-        new_account_data.extend_from_slice(discriminator);
-        new_account_data.extend_from_slice(&modified_data);
-
-        Ok(new_account_data)
+        self.with_svm_reader(|svm_reader| {
+            svm_reader.get_forged_account_data(account_pubkey, account_data, idl, overrides)
+        })
     }
 }
 /// Program account related functions
@@ -2802,7 +2701,7 @@ impl SurfnetSvmLocker {
         simnet_command_tx: Sender<SimnetCommand>,
         config: TimeTravelConfig,
     ) -> SurfpoolResult<EpochInfo> {
-        let (mut epoch_info, slot_time, updated_at) = self.with_svm_reader(|svm_reader| {
+        let (epoch_info, slot_time, updated_at) = self.with_svm_reader(|svm_reader| {
             (
                 svm_reader.latest_epoch_info.clone(),
                 svm_reader.slot_time,
@@ -2818,17 +2717,30 @@ impl SurfnetSvmLocker {
             .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap())
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
-        epoch_info.slot_index = clock_update.slot;
-        epoch_info.epoch = clock_update.epoch;
-        epoch_info.absolute_slot =
-            clock_update.slot + clock_update.epoch * epoch_info.slots_in_epoch;
-        let _ = simnet_command_tx.send(SimnetCommand::UpdateInternalClock(key, clock_update));
+
+        // Create a channel for confirmation
+        let (response_tx, response_rx) = crossbeam_channel::bounded(1);
+
+        // Send the command with confirmation
+        let _ = simnet_command_tx.send(SimnetCommand::UpdateInternalClockWithConfirmation(
+            key,
+            clock_update,
+            response_tx,
+        ));
+
+        // Wait for confirmation with timeout
+        let updated_epoch_info = response_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|e| {
+                SurfpoolError::internal(format!("Failed to confirm clock update: {}", e))
+            })?;
+
         let _ = self.simnet_events_tx().send(SimnetEvent::info(format!(
             "Time travel to {} successful (epoch {} / slot {})",
-            formated_time, epoch_info.epoch, epoch_info.absolute_slot
+            formated_time, updated_epoch_info.epoch, updated_epoch_info.absolute_slot
         )));
 
-        Ok(epoch_info)
+        Ok(updated_epoch_info)
     }
 
     /// Retrieves the latest absolute slot from the underlying SVM.
@@ -2869,8 +2781,17 @@ impl SurfnetSvmLocker {
     }
 
     /// Confirms the current block on the underlying SVM, returning `Ok(())` or an error.
-    pub fn confirm_current_block(&self) -> SurfpoolResult<()> {
-        self.with_svm_writer(|svm_writer| svm_writer.confirm_current_block())
+    pub async fn confirm_current_block(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+    ) -> SurfpoolResult<()> {
+        // First, confirm the block synchronously
+        self.with_svm_writer(|svm_writer| svm_writer.confirm_current_block())?;
+
+        // Then, materialize any scheduled overrides for the new slot
+        // TODO: Pass remote client when available for fetch_before_use support
+        let mut svm_writer = self.0.write().await;
+        svm_writer.materialize_overrides(remote_ctx).await
     }
 
     /// Subscribes for signature updates (confirmed/finalized) and returns a receiver of events.
@@ -3052,7 +2973,10 @@ mod tests {
     use solana_account_decoder::UiAccountEncoding;
 
     use super::*;
-    use crate::{scenarios::registry::PYTH_V2_IDL_CONTENT, surfnet::SurfnetSvm};
+    use crate::{
+        scenarios::registry::PYTH_V2_IDL_CONTENT,
+        surfnet::{SurfnetSvm, svm::apply_override_to_decoded_account},
+    };
 
     #[test]
     fn test_get_forged_account_data_with_pyth_fixture() {
@@ -3536,29 +3460,57 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_override_to_json() {
-        let mut json = serde_json::json!({
-            "price_message": {
-                "price": 100,
-                "publish_time": 1234567890
-            },
-            "expo": -8
-        });
+    fn test_apply_override_to_decoded_account() {
+        use txtx_addon_kit::{indexmap::IndexMap, types::types::Value};
+
+        // Create a txtx Value object
+        let mut price_message_obj = IndexMap::new();
+        price_message_obj.insert("price".to_string(), Value::Integer(100));
+        price_message_obj.insert("publish_time".to_string(), Value::Integer(1234567890));
+
+        let mut decoded_value = IndexMap::new();
+        decoded_value.insert(
+            "price_message".to_string(),
+            Value::Object(price_message_obj),
+        );
+        decoded_value.insert("expo".to_string(), Value::Integer(-8));
+
+        let mut decoded_value = Value::Object(decoded_value);
 
         // Test simple override
-        let result = apply_override_to_json(&mut json, "expo", &serde_json::json!(-6));
+        let result =
+            apply_override_to_decoded_account(&mut decoded_value, "expo", &serde_json::json!(-6));
         assert!(result.is_ok());
-        assert_eq!(json["expo"], -6);
+        match &decoded_value {
+            Value::Object(map) => {
+                assert_eq!(map.get("expo"), Some(&Value::Integer(-6)));
+            }
+            _ => panic!("Expected Object"),
+        }
 
         // Test nested override
-        let result =
-            apply_override_to_json(&mut json, "price_message.price", &serde_json::json!(200));
+        let result = apply_override_to_decoded_account(
+            &mut decoded_value,
+            "price_message.price",
+            &serde_json::json!(200),
+        );
         assert!(result.is_ok());
-        assert_eq!(json["price_message"]["price"], 200);
+        match &decoded_value {
+            Value::Object(map) => match map.get("price_message") {
+                Some(Value::Object(price_msg)) => {
+                    assert_eq!(price_msg.get("price"), Some(&Value::Integer(200)));
+                }
+                _ => panic!("Expected price_message to be Object"),
+            },
+            _ => panic!("Expected Object"),
+        }
 
         // Test invalid path
-        let result =
-            apply_override_to_json(&mut json, "nonexistent.field", &serde_json::json!(999));
+        let result = apply_override_to_decoded_account(
+            &mut decoded_value,
+            "nonexistent.field",
+            &serde_json::json!(999),
+        );
         assert!(result.is_err());
     }
 }
