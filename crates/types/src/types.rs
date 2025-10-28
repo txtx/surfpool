@@ -492,6 +492,7 @@ pub enum SimnetCommand {
     StartRunbookExecution(String),
     CompleteRunbookExecution(String, Option<Vec<String>>),
     FetchRemoteAccounts(Vec<Pubkey>, String),
+    AirdropProcessed,
 }
 
 #[derive(Debug)]

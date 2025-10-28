@@ -85,9 +85,7 @@ pub type AccountOwner = Pubkey;
 use solana_sysvar::recent_blockhashes::MAX_ENTRIES;
 
 #[allow(deprecated)]
-pub const MAX_RECENT_BLOCKHASHES_INTERNAL: usize = MAX_ENTRIES;
-pub const MAX_RECENT_BLOCKHASHES_EXTERNAL: usize = 500;
-pub const MAX_BLOCKHASH_TIME: usize = 30 * 1000;
+pub const MAX_RECENT_BLOCKHASHES_STANDARD: usize = MAX_ENTRIES;
 
 pub fn get_txtx_value_json_converters() -> Vec<AddonJsonConverter<'static>> {
     vec![
@@ -390,6 +388,18 @@ impl SurfnetSvm {
                     HashSet::from([*pubkey]),
                 ),
             );
+            self.notify_signature_subscribers(
+                SignatureSubscriptionType::processed(),
+                tx.get_signature(),
+                slot,
+                None,
+            );
+            self.notify_logs_subscribers(
+                tx.get_signature(),
+                None,
+                tx_result.logs.clone(),
+                CommitmentLevel::Processed,
+            );
             self.transactions_queued_for_confirmation
                 .push_back((tx, status_tx.clone(), None));
             let account = self.get_account(pubkey).unwrap();
@@ -456,7 +466,7 @@ impl SurfnetSvm {
         let recent_blockhashes_backup = self.inner.get_sysvar::<RecentBlockhashes>();
         let num_blockhashes_expected = recent_blockhashes_backup
             .len()
-            .min(MAX_RECENT_BLOCKHASHES_INTERNAL);
+            .min(MAX_RECENT_BLOCKHASHES_STANDARD);
         // Invalidate the current block hash.
         // LiteSVM bug / feature: calling this method empties `sysvar::<RecentBlockhashes>()`
         self.inner.expire_blockhash();
@@ -478,7 +488,7 @@ impl SurfnetSvm {
 
         // Append the previous blockhashes, ignoring the first one
         for (index, entry) in recent_blockhashes_backup.iter().enumerate() {
-            if recent_blockhashes.len() >= MAX_RECENT_BLOCKHASHES_INTERNAL {
+            if recent_blockhashes.len() >= MAX_RECENT_BLOCKHASHES_STANDARD {
                 break;
             }
             recent_blockhashes.push(IterItem(
@@ -498,13 +508,6 @@ impl SurfnetSvm {
         );
         self.inner.set_sysvar(&SlotHashes::new(&slot_hashes));
 
-        let now = Utc::now().timestamp_millis();
-        self.recent_blockhashes
-            .push_front((new_synthetic_blockhash, now));
-        self.recent_blockhashes.retain_mut(|(_, timestamp)| {
-            now.saturating_sub(*timestamp) <= MAX_BLOCKHASH_TIME as i64
-        });
-
         BlockIdentifier::new(
             self.chain_tip.index + 1,
             new_synthetic_blockhash_str.as_str(),
@@ -519,9 +522,11 @@ impl SurfnetSvm {
     /// # Returns
     /// `true` if the blockhash is recent, `false` otherwise.
     pub fn check_blockhash_is_recent(&self, recent_blockhash: &Hash) -> bool {
-        self.recent_blockhashes
+        #[allow(deprecated)]
+        self.inner
+            .get_sysvar::<solana_sysvar::recent_blockhashes::RecentBlockhashes>()
             .iter()
-            .any(|(h, _)| h.hash() == recent_blockhash)
+            .any(|entry| entry.blockhash == *recent_blockhash)
     }
 
     /// Sets an account in the local SVM state and notifies listeners.

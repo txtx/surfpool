@@ -856,7 +856,9 @@ impl Rpc for SurfpoolWsRpc {
                                 let _ = sink.notify(Ok(RpcResponse {
                                     context: RpcResponseContext::new(tx.slot),
                                     value: RpcSignatureResult::ProcessedSignature(
-                                        ProcessedSignatureResult { err: None },
+                                        ProcessedSignatureResult {
+                                            err: tx.err.map(|e| e.into()),
+                                        },
                                     ),
                                 }));
                             }
