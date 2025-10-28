@@ -236,6 +236,46 @@ pub trait SurfnetCheatcodes {
         destination_program_id: String,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
 
+    /// A "cheat code" method for developers to take ownership of core NFTs and collections.
+    ///
+    /// This method allows developers to change the ownership of a core NFT or collection by changing `owner` and `update_authority` fields, respectively.
+    ///
+    /// ## Parameters
+    /// - `pubkey`: The public key of the account to be updated, as a base-58 encoded string.
+    /// - `new_owner`: The public key of the new owner/authority, as a base-58 encoded string.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the account update was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_stealCore",
+    ///   "params": ["account_pubkey", "new_owner_pubkey"]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # See Also
+    /// - `setAccount`, `setTokenAccount`
+    #[rpc(meta, name = "surfnet_stealCore")]
+    fn steal_core(
+        &self,
+        meta: Self::Metadata,
+        pubkey: String,
+        new_owner: String,
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
+
     /// Estimates the compute units that a given transaction will consume.
     ///
     /// This method simulates the transaction without committing its state changes
@@ -1297,6 +1337,115 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 context: RpcResponseContext::new(slot),
                 value: (),
             })
+        })
+    }
+
+    fn steal_core(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        new_owner_str: String,
+    ) -> BoxFuture<Result<RpcResponse<()>>> {
+        let pubkey = match verify_pubkey(&pubkey_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+        let new_owner = match verify_pubkey(&new_owner_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            // Fetch the account. It must exist either locally or in the remote.
+            let SvmAccessContext {
+                slot,
+                inner: account_result_to_update,
+                ..
+            } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
+
+            match account_result_to_update {
+                // error if the account did not exist
+                GetAccountResult::None(_) => {
+                    return Err(SurfpoolError::account_not_found(pubkey).into());
+                }
+                // error if it is a program or a token account
+                GetAccountResult::FoundProgramAccount(_, _) => {
+                    return Err(SurfpoolError::invalid_account_type(
+                        pubkey,
+                        Some("The account is a program account!"),
+                    )
+                    .into());
+                }
+                GetAccountResult::FoundTokenAccount(_, _) => {
+                    return Err(SurfpoolError::invalid_account_type(
+                        pubkey,
+                        Some("The account is a token account!"),
+                    )
+                    .into());
+                }
+                GetAccountResult::FoundAccount(_pubkey, mut account, _update) => {
+                    // I don't want to drag dependencies or add a lot of code so I'll process the data here
+                    // DATA:
+                    // [0]: Key
+                    // [1-33] the owner / the authority
+                    // [33-...] rest of the header + plugin information
+                    let data = &mut account.data;
+                    if data.len() < 33 {
+                        return Err(SurfpoolError::invalid_account_data(
+                            pubkey,
+                            data,
+                            Some("The data does not look like a core NFT or a core collection"),
+                        )
+                        .into());
+                    }
+
+                    // Log information, and detect if the account is a core NFT or collection
+                    // I'm not going to deserialize the entire thing as this is extremely cumbersome
+                    // I also don't check that the account is owned by the metplex core program
+                    // Since this is a dev tool I think have few restrictions is a plus
+                    match data[0] {
+                        1 => {
+                            let _ = svm_locker
+                                .simnet_events_tx()
+                                .send(SimnetEvent::info(format!("Account {pubkey} is a core NFT")));
+                        }
+                        5 => {
+                            let _ = svm_locker
+                                .simnet_events_tx()
+                                .send(SimnetEvent::info(format!(
+                                    "Account {pubkey} is a core collection"
+                                )));
+                        }
+                        _ => {
+                            return Err(SurfpoolError::invalid_account_data(
+                                pubkey,
+                                data,
+                                Some("The data does not look like a core NFT or a core collection"),
+                            )
+                            .into());
+                        }
+                    };
+
+                    // change the data related to ownership. leave remaining data untouched
+                    data[1..33].copy_from_slice(new_owner.as_array());
+                    svm_locker.write_account_update(GetAccountResult::FoundAccount(
+                        pubkey, account, true,
+                    ));
+
+                    Ok(RpcResponse {
+                        context: RpcResponseContext::new(slot),
+                        value: (),
+                    })
+                }
+            }
         })
     }
 
