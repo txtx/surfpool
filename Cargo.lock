@@ -12075,6 +12075,7 @@ dependencies = [
  "agave-feature-set",
  "agave-geyser-plugin-interface",
  "agave-reserved-account-keys",
+ "anchor-lang-idl",
  "base64 0.22.1",
  "bincode",
  "blake3",
@@ -12147,6 +12148,7 @@ dependencies = [
  "test-case",
  "tokio",
  "txtx-addon-kit",
+ "txtx-addon-network-svm",
  "txtx-addon-network-svm-types",
  "uuid",
 ]
@@ -13052,9 +13054,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.3.15"
+version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2f683a2c9f5cd9e4ff30cacf8fdf52a83bed90232c17ece10f11cf200956134"
+checksum = "e956b4c0ed49913bb4a08b3e6062a68f9aa71dab66c06e6f3abe88c9878fcb9d"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -13096,9 +13098,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.3.14"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "991c5b1f0484b8fdd21b0c1db68638c5ee3fc0c4f6318a5dcbed7ca66a0cd659"
+checksum = "30eaa1527896106eea3fce87bf1aac932c31c45ff94b544c0eabbec2f63ebd01"
 dependencies = [
  "anchor-lang-idl",
  "borsh 1.5.7",
