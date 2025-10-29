@@ -14,6 +14,7 @@ pub mod error;
 pub mod helpers;
 pub mod rpc;
 pub mod runloops;
+pub mod scenarios;
 pub mod surfnet;
 pub mod types;
 

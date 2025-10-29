@@ -180,7 +180,10 @@ pub async fn handle_start_local_surfnet_command(
     // Non blocking check for new versions
     #[cfg(feature = "version_check")]
     {
-        let local_version = env!("CARGO_PKG_VERSION");
+        let mut local_version = env!("CARGO_PKG_VERSION");
+        if cmd.ci {
+            local_version = format!("{}-ci", local_version);
+        }
         let response = txtx_gql::kit::reqwest::get(format!(
             "{}/api/versions?v=/{}",
             super::DEFAULT_CLOUD_URL,
@@ -237,13 +240,14 @@ async fn start_service(
     } else {
         DisplayedUrl::Studio(sanitized_config)
     };
+    let include_debug_logs = cmd.log_level.to_lowercase().eq("debug");
 
     // Start frontend - kept on main thread
     if cmd.daemon || cmd.no_tui {
         log_events(
             simnet_events_rx,
             subgraph_events_rx,
-            cmd.debug,
+            include_debug_logs,
             deploy_progress_rx,
             simnet_commands_tx,
             runloop_terminator.unwrap(),
@@ -252,7 +256,7 @@ async fn start_service(
         tui::simnet::start_app(
             simnet_events_rx,
             simnet_commands_tx,
-            cmd.debug,
+            include_debug_logs,
             deploy_progress_rx,
             displayed_url,
             breaker,
@@ -317,11 +321,7 @@ fn log_events(
                     SimnetEvent::EpochInfoUpdate(_) => {
                         info!("{}", event.epoch_info_update_msg());
                     }
-                    SimnetEvent::SystemClockUpdated(_) => {
-                        if include_debug_logs {
-                            info!("{}", event.clock_update_msg());
-                        }
-                    }
+                    SimnetEvent::SystemClockUpdated(_) => {}
                     SimnetEvent::ClockUpdate(_) => {}
                     SimnetEvent::ErrorLog(_dt, log) => {
                         error!("{}", log);
@@ -330,9 +330,7 @@ fn log_events(
                         info!("{}", log);
                     }
                     SimnetEvent::DebugLog(_dt, log) => {
-                        if include_debug_logs {
-                            debug!("{}", log);
-                        }
+                        debug!("{}", log);
                     }
                     SimnetEvent::WarnLog(_dt, log) => {
                         warn!("{}", log);
@@ -396,9 +394,7 @@ fn log_events(
                         info!("{}", log);
                     }
                     SubgraphEvent::DebugLog(_dt, log) => {
-                        if include_debug_logs {
-                            info!("{}", log);
-                        }
+                        debug!("{}", log);
                     }
                     SubgraphEvent::WarnLog(_dt, log) => {
                         warn!("{}", log);

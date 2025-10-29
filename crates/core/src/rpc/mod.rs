@@ -9,7 +9,7 @@ use jsonrpc_core::{
 };
 use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
-use surfpool_types::{SimnetCommand, types::RpcConfig};
+use surfpool_types::{SimnetCommand, SimnetEvent, types::RpcConfig};
 
 use crate::{
     PluginManagerCommand,
@@ -214,6 +214,22 @@ impl SurfpoolWebsocketMeta {
             runloop_context,
             session,
         }
+    }
+
+    pub fn log_debug(&self, msg: &str) {
+        let _ = self
+            .runloop_context
+            .svm_locker
+            .simnet_events_tx()
+            .send(SimnetEvent::debug(msg));
+    }
+
+    pub fn log_warn(&self, msg: &str) {
+        let _ = self
+            .runloop_context
+            .svm_locker
+            .simnet_events_tx()
+            .send(SimnetEvent::warn(msg));
     }
 }
 

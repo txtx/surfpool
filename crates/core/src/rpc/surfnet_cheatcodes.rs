@@ -14,9 +14,9 @@ use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    AccountSnapshot, ClockCommand, ExportSnapshotConfig, GetSurfnetInfoResponse, Idl,
-    ResetAccountConfig, RpcProfileResultConfig, SimnetCommand, SimnetEvent, StreamAccountConfig,
-    UiKeyedProfileResult,
+    AccountSnapshot, ClockCommand, ExportSnapshotConfig, GetStreamedAccountsResponse,
+    GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcProfileResultConfig, Scenario,
+    SimnetCommand, SimnetEvent, StreamAccountConfig, UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -883,6 +883,47 @@ pub trait SurfnetCheatcodes {
         config: Option<StreamAccountConfig>,
     ) -> Result<RpcResponse<()>>;
 
+    /// A cheat code to retrieve the streamed accounts.
+    /// When a transaction is processed, the accounts that are accessed are downloaded from the datasource and cached in the SVM.
+    /// With this method, you can simulate the streaming of accounts by providing a pubkey.
+    ///
+    /// ## Parameters
+    ///
+    /// ## Returns
+    /// An `RpcResponse<()>` indicating whether the account stream registration was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_getStreamedAccounts",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 123456789,
+    ///       "apiVersion": "2.3.8"
+    ///     },
+    ///     "value": [
+    ///       "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa"
+    ///     ]
+    ///    },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_getStreamedAccounts")]
+    fn get_streamed_accounts(
+        &self,
+        meta: Self::Metadata,
+    ) -> Result<RpcResponse<GetStreamedAccountsResponse>>;
+
     /// A cheat code to get Surfnet network information.
     ///
     /// ## Returns
@@ -923,6 +964,116 @@ pub trait SurfnetCheatcodes {
     #[rpc(meta, name = "surfnet_getSurfnetInfo")]
     fn get_surfnet_info(&self, meta: Self::Metadata)
     -> Result<RpcResponse<GetSurfnetInfoResponse>>;
+
+    /// A cheat code to register a scenario with account overrides.
+    ///
+    /// ## Parameters
+    /// - `scenario`: The Scenario object containing:
+    ///   - `id`: Unique identifier for the scenario
+    ///   - `name`: Human-readable name
+    ///   - `description`: Description of the scenario
+    ///   - `overrides`: Array of OverrideInstance objects, each containing:
+    ///     - `id`: Unique identifier for this override instance
+    ///     - `templateId`: Reference to the override template
+    ///     - `values`: HashMap of field paths to override values
+    ///     - `scenarioRelativeSlot`: The relative slot offset (from base slot) when this override should be applied
+    ///     - `label`: Optional label for this override
+    ///     - `enabled`: Whether this override is active
+    ///     - `fetchBeforeUse`: If true, fetch fresh account data just before transaction execution (useful for price feeds, oracle updates, and dynamic balances)
+    ///     - `account`: Account address (either `{ "pubkey": "..." }` or `{ "pda": { "programId": "...", "seeds": [...] } }`)
+    ///   - `tags`: Array of tags for categorization
+    /// - `slot` (optional): The base slot from which relative slot offsets are calculated. If omitted, uses the current slot.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the Scenario registration was successful.
+    ///
+    /// ## Example Request (with slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_registerScenario",
+    ///   "params": [
+    ///     {
+    ///       "id": "scenario-1",
+    ///       "name": "Price Feed Override",
+    ///       "description": "Override Pyth BTC/USD price at specific slots",
+    ///       "overrides": [
+    ///         {
+    ///           "id": "override-1",
+    ///           "templateId": "pyth_btcusd",
+    ///           "values": {
+    ///             "price_message.price_value": 67500,
+    ///             "price_message.conf": 100,
+    ///             "price_message.expo": -8
+    ///           },
+    ///           "scenarioRelativeSlot": 100,
+    ///           "label": "Set BTC price to $67,500",
+    ///           "enabled": true,
+    ///           "fetchBeforeUse": false,
+    ///           "account": {
+    ///             "pubkey": "H6ARHf6YXhGYeQfUzQNGk6rDNnLBQKrenN712K4QJNYH"
+    ///           }
+    ///         }
+    ///       ],
+    ///       "tags": ["defi", "price-feed"]
+    ///     },
+    ///     355684457
+    ///   ]
+    /// }
+    /// ```
+    /// ## Example Request (without slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_registerScenario",
+    ///   "params": [
+    ///     {
+    ///       "id": "scenario-1",
+    ///       "name": "Price Feed Override",
+    ///       "description": "Override Pyth BTC/USD price",
+    ///       "overrides": [
+    ///         {
+    ///           "id": "override-1",
+    ///           "templateId": "pyth_btcusd",
+    ///           "values": {
+    ///             "price_message.price_value": 67500
+    ///           },
+    ///           "scenarioRelativeSlot": 100,
+    ///           "label": "Set BTC price",
+    ///           "enabled": true,
+    ///           "fetchBeforeUse": true,
+    ///           "account": {
+    ///             "pubkey": "H6ARHf6YXhGYeQfUzQNGk6rDNnLBQKrenN712K4QJNYH"
+    ///           }
+    ///         }
+    ///       ],
+    ///       "tags": []
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "context": {
+    ///     "slot": 355684457,
+    ///     "apiVersion": "2.2.2"
+    ///   },
+    ///   "value": null,
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_registerScenario")]
+    fn register_scenario(
+        &self,
+        meta: Self::Metadata,
+        scenario: Scenario,
+        slot: Option<Slot>,
+    ) -> Result<RpcResponse<()>>;
 }
 
 #[derive(Clone)]
@@ -1407,9 +1558,24 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         let key = meta.as_ref().map(|ctx| ctx.id.clone()).unwrap_or_default();
         let surfnet_command_tx: crossbeam_channel::Sender<SimnetCommand> =
             meta.get_surfnet_command_tx()?;
-        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(key, ClockCommand::Pause));
-        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
-            .map_err(Into::into)
+
+        // Create a channel to receive confirmation
+        let (response_tx, response_rx) = crossbeam_channel::bounded(1);
+
+        // Send pause command with confirmation
+        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(
+            key,
+            ClockCommand::PauseWithConfirmation(response_tx),
+        ));
+
+        // Wait for confirmation with timeout
+        response_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|e| jsonrpc_core::Error {
+                code: jsonrpc_core::ErrorCode::InternalError,
+                message: format!("Failed to confirm clock pause: {}", e),
+                data: None,
+            })
     }
 
     fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo> {
@@ -1479,6 +1645,22 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         })
     }
 
+    fn get_streamed_accounts(
+        &self,
+        meta: Self::Metadata,
+    ) -> Result<RpcResponse<GetStreamedAccountsResponse>> {
+        let svm_locker = meta.get_svm_locker()?;
+
+        let value = svm_locker.with_svm_reader(|svm_reader| {
+            GetStreamedAccountsResponse::new(&svm_reader.streamed_accounts)
+        });
+
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value,
+        })
+    }
+
     fn get_surfnet_info(
         &self,
         meta: Self::Metadata,
@@ -1502,6 +1684,20 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: snapshot,
+        })
+    }
+
+    fn register_scenario(
+        &self,
+        meta: Self::Metadata,
+        scenario: Scenario,
+        slot: Option<Slot>,
+    ) -> Result<RpcResponse<()>> {
+        let svm_locker = meta.get_svm_locker()?;
+        svm_locker.register_scenario(scenario, slot)?;
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: (),
         })
     }
 }
@@ -1622,7 +1818,7 @@ mod tests {
         );
 
         // Amount of tokens to mint (100 tokens with 2 decimal places)
-        let amount = 100_00;
+        let amount = 10_000;
 
         // Create mint_to instruction to mint tokens to the source token account
         let mint_to_instruction = mint_to(
@@ -1681,7 +1877,7 @@ mod tests {
                     .instruction_profiles
                     .as_ref()
                     .unwrap()
-                    .get(0)
+                    .first()
                     .expect("instruction profile should exist");
                 assert!(
                     ix_profile.error_message.is_none(),
@@ -2175,7 +2371,7 @@ mod tests {
                 .instruction_profiles
                 .as_ref()
                 .unwrap()
-                .get(0)
+                .first()
                 .expect("instruction profile should exist");
             assert!(
                 ix_profile.error_message.is_none(),

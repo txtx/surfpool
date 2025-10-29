@@ -44,6 +44,7 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }                                  # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = { workspace = true }
+serde_yaml = "0.9"
 solana-account = { workspace = true }
 solana-account-decoder = { workspace = true }
 solana-address-lookup-table-interface = { workspace = true }
@@ -70,7 +71,7 @@ solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-runtime = { workspace = true }
 solana-sdk-ids = { workspace = true }
-solana-signature = { workspace = true, features = ["rand"]}
+solana-signature = { workspace = true, features = ["rand"] }
 solana-signer = { workspace = true }
 solana-slot-hashes = { workspace = true }
 solana-system-interface = { workspace = true }
@@ -88,8 +89,11 @@ uuid = { workspace = true }
 surfpool-subgraph = { workspace = true, optional = true }
 surfpool-types = { workspace = true }
 
+anchor-lang-idl = { workspace = true }
 txtx-addon-kit = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }
+txtx-addon-network-svm = { workspace = true }
+
 
 [dev-dependencies]
 test-case = { workspace = true }

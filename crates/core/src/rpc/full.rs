@@ -1557,7 +1557,7 @@ impl Full for SurfpoolFullRpc {
 
         let (status_update_tx, status_update_rx) = crossbeam_channel::bounded(1);
         ctx.simnet_commands_tx
-            .send(SimnetCommand::TransactionReceived(
+            .send(SimnetCommand::ProcessTransaction(
                 ctx.id,
                 unsanitized_tx,
                 status_update_tx,
@@ -2493,7 +2493,7 @@ mod tests {
             .unwrap();
         loop {
             match mempool_rx.recv() {
-                Ok(SimnetCommand::TransactionReceived(_, tx, status_tx, _)) => {
+                Ok(SimnetCommand::ProcessTransaction(_, tx, status_tx, _)) => {
                     let mut writer = setup.context.svm_locker.0.write().await;
                     let slot = writer.get_latest_absolute_slot();
                     writer.transactions_queued_for_confirmation.push_back((
@@ -2615,7 +2615,12 @@ mod tests {
         }
 
         // confirm a block to move transactions to confirmed status
-        setup.context.svm_locker.confirm_current_block().unwrap();
+        setup
+            .context
+            .svm_locker
+            .confirm_current_block(&None)
+            .await
+            .unwrap();
         let res = setup
             .rpc
             .get_signature_statuses(
@@ -3363,7 +3368,12 @@ mod tests {
                 )
                 .unwrap();
 
-            setup.context.svm_locker.confirm_current_block().unwrap();
+            setup
+                .context
+                .svm_locker
+                .confirm_current_block(&None)
+                .await
+                .unwrap();
         }
 
         // send two transactions that include a compute budget instruction
@@ -3403,7 +3413,12 @@ mod tests {
                 .await
                 .join()
                 .unwrap();
-            setup.context.svm_locker.confirm_current_block().unwrap();
+            setup
+                .context
+                .svm_locker
+                .confirm_current_block(&None)
+                .await
+                .unwrap();
         }
 
         // sending the get_recent_prioritization_fees request with an account

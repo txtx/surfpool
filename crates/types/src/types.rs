@@ -481,8 +481,9 @@ pub enum SimnetCommand {
     SlotBackward(Option<Hash>),
     CommandClock(Option<(Hash, String)>, ClockCommand),
     UpdateInternalClock(Option<(Hash, String)>, Clock),
+    UpdateInternalClockWithConfirmation(Option<(Hash, String)>, Clock, Sender<EpochInfo>),
     UpdateBlockProductionMode(BlockProductionMode),
-    TransactionReceived(
+    ProcessTransaction(
         Option<(Hash, String)>,
         VersionedTransaction,
         Sender<TransactionStatusEvent>,
@@ -498,6 +499,8 @@ pub enum SimnetCommand {
 #[derive(Debug)]
 pub enum ClockCommand {
     Pause,
+    /// Pause with confirmation - sends epoch info back when actually paused
+    PauseWithConfirmation(Sender<EpochInfo>),
     Resume,
     Toggle,
     UpdateSlotInterval(u64),
@@ -1037,12 +1040,37 @@ impl Default for StreamAccountConfig {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StreamedAccountInfo {
+    pub pubkey: String,
+    pub include_owned_accounts: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetSurfnetInfoResponse {
     runbook_executions: Vec<RunbookExecutionStatusReport>,
 }
 impl GetSurfnetInfoResponse {
     pub fn new(runbook_executions: Vec<RunbookExecutionStatusReport>) -> Self {
         Self { runbook_executions }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetStreamedAccountsResponse {
+    accounts: Vec<StreamedAccountInfo>,
+}
+impl GetStreamedAccountsResponse {
+    pub fn new(streamed_accounts: &HashMap<Pubkey, bool>) -> Self {
+        let mut accounts = vec![];
+        for (pubkey, include_owned_accounts) in streamed_accounts {
+            accounts.push(StreamedAccountInfo {
+                pubkey: pubkey.to_string(),
+                include_owned_accounts: *include_owned_accounts,
+            });
+        }
+        Self { accounts }
     }
 }
 

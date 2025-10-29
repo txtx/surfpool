@@ -428,6 +428,9 @@ async fn test_add_alt_entries_fetching() {
             Ok(SimnetEvent::ClockUpdate(_)) => {
                 // do nothing
             }
+            Ok(SimnetEvent::SystemClockUpdated(_)) => {
+                // do nothing - clock ticks from time travel or normal progression
+            }
             other => println!("Unexpected event: {:?}", other),
         }
 
@@ -2780,7 +2783,7 @@ async fn test_profile_transaction_versioned_message() {
         .airdrop(&payer.pubkey(), 2 * lamports_to_send)
         .unwrap();
 
-    svm_locker.confirm_current_block().unwrap();
+    svm_locker.confirm_current_block(&None).await.unwrap();
 
     // Create a transfer instruction
     let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
@@ -2851,7 +2854,10 @@ async fn test_get_local_signatures_without_limit() {
         .airdrop(&payer.pubkey(), lamports_to_send * 2)
         .unwrap();
 
-    svm_locker_for_context.confirm_current_block().unwrap();
+    svm_locker_for_context
+        .confirm_current_block(&None)
+        .await
+        .unwrap();
 
     let create_account_instruction = system_instruction::create_account(
         &payer.pubkey(),
@@ -2880,7 +2886,10 @@ async fn test_get_local_signatures_without_limit() {
         .await
         .unwrap();
     // Confirm the block after creating the account
-    svm_locker_for_context.confirm_current_block().unwrap();
+    svm_locker_for_context
+        .confirm_current_block(&None)
+        .await
+        .unwrap();
 
     // Now create the transfer transaction
     let instruction = transfer(&payer.pubkey(), &recipient.pubkey(), lamports_to_send);
@@ -2898,7 +2907,10 @@ async fn test_get_local_signatures_without_limit() {
         .unwrap();
 
     // Confirm the current block to create a block with the transaction signature
-    svm_locker_for_context.confirm_current_block().unwrap();
+    svm_locker_for_context
+        .confirm_current_block(&None)
+        .await
+        .unwrap();
 
     let get_local_signatures_response: JsonRpcResult<RpcResponse<Vec<RpcLogsResponse>>> =
         rpc_server
@@ -2941,7 +2953,10 @@ async fn test_get_local_signatures_with_limit() {
         .airdrop(&payer.pubkey(), lamports_to_send * 10)
         .unwrap();
 
-    svm_locker_for_context.confirm_current_block().unwrap();
+    svm_locker_for_context
+        .confirm_current_block(&None)
+        .await
+        .unwrap();
 
     // Get the initial number of signatures to establish a baseline
     let initial_signatures_response: JsonRpcResult<RpcResponse<Vec<RpcLogsResponse>>> = rpc_server
@@ -2981,7 +2996,10 @@ async fn test_get_local_signatures_with_limit() {
         transaction_signatures.push(tx.signatures[0]);
 
         // Confirm the current block to create a new block with this transaction
-        svm_locker_for_context.confirm_current_block().unwrap();
+        svm_locker_for_context
+            .confirm_current_block(&None)
+            .await
+            .unwrap();
     }
 
     // Test with different limit values
@@ -3109,7 +3127,7 @@ fn boot_simnet(
 #[test]
 fn test_time_travel_resume_paused_clock() {
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_locker, simnet_cmd_tx, _) = boot_simnet(BlockProductionMode::Clock, Some(20));
+    let (svm_locker, simnet_cmd_tx, _) = boot_simnet(BlockProductionMode::Clock, Some(100));
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
@@ -3219,17 +3237,11 @@ fn test_time_travel_absolute_timestamp() {
     let target_timestamp = svm_locker.0.blocking_read().updated_at + seven_days;
 
     // Test time travel to absolute timestamp
+    // Note: time_travel now uses confirmation mechanism, so it waits internally
     let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
         Some(runloop_context.clone()),
         Some(TimeTravelConfig::AbsoluteTimestamp(target_timestamp)),
     );
-    loop {
-        if let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
-            simnet_events_rx.recv_timeout(Duration::from_millis(5000))
-        {
-            break;
-        }
-    }
 
     assert!(
         time_travel_response.is_ok(),
@@ -3299,17 +3311,11 @@ fn test_time_travel_absolute_slot() {
     let target_slot = initial_epoch_info.absolute_slot + 1000000; // A future slot number
 
     // Test time travel to absolute slot
+    // Note: time_travel now uses confirmation mechanism, so it waits internally
     let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
         Some(runloop_context.clone()),
         Some(TimeTravelConfig::AbsoluteSlot(target_slot)),
     );
-    loop {
-        if let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
-            simnet_events_rx.recv_timeout(Duration::from_millis(5000))
-        {
-            break;
-        }
-    }
 
     assert!(
         time_travel_response.is_ok(),
@@ -3377,17 +3383,11 @@ fn test_time_travel_absolute_epoch() {
     let target_epoch = initial_epoch_info.epoch + 100; // A future epoch number
 
     // Test time travel to absolute epoch
+    // Note: time_travel now uses confirmation mechanism, so it waits internally
     let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
         Some(runloop_context.clone()),
         Some(TimeTravelConfig::AbsoluteEpoch(target_epoch)),
     );
-    loop {
-        if let Ok(SimnetEvent::SystemClockUpdated(_clock_updated)) =
-            simnet_events_rx.recv_timeout(Duration::from_millis(5000))
-        {
-            break;
-        }
-    }
 
     assert!(
         time_travel_response.is_ok(),
@@ -3889,8 +3889,8 @@ fn test_reset_account_cascade() {
     svm_locker.reset_account(owned, false).unwrap();
 }
 
-#[test]
-fn test_reset_streamed_account() {
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reset_streamed_account() {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
     let p1 = Keypair::new();
@@ -3898,13 +3898,13 @@ fn test_reset_streamed_account() {
     svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap(); // account is created in the SVM
     println!("Airdropped SOL to p1");
 
-    let _ = svm_locker.confirm_current_block();
+    let _ = svm_locker.confirm_current_block(&None).await;
     // Account still exists
     assert!(!svm_locker.get_account_local(&p1.pubkey()).inner.is_none());
 
     svm_locker.stream_account(p1.pubkey(), false).unwrap();
 
-    let _ = svm_locker.confirm_current_block();
+    let _ = svm_locker.confirm_current_block(&None).await;
     // Account is cleaned up as soon as the block is processed
     assert!(
         svm_locker.get_account_local(&p1.pubkey()).inner.is_none(),
@@ -3912,8 +3912,8 @@ fn test_reset_streamed_account() {
     );
 }
 
-#[test]
-fn test_reset_streamed_account_cascade() {
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reset_streamed_account_cascade() {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
@@ -3950,13 +3950,13 @@ fn test_reset_streamed_account_cascade() {
     assert!(!svm_locker.get_account_local(&owner).inner.is_none());
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
-    let _ = svm_locker.confirm_current_block();
+    let _ = svm_locker.confirm_current_block(&None).await;
     // Accounts still exists
     assert!(!svm_locker.get_account_local(&owner).inner.is_none());
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
     svm_locker.stream_account(owner, true).unwrap();
-    let _ = svm_locker.confirm_current_block();
+    let _ = svm_locker.confirm_current_block(&None).await;
 
     // Owner is deleted, owned account is deleted
     assert!(svm_locker.get_account_local(&owner).inner.is_none());

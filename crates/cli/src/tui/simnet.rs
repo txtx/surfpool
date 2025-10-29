@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Datelike, Local};
 use crossbeam::channel::{Select, Sender, unbounded};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -40,6 +40,38 @@ const SURFPOOL_LINK: &str = "Need help? https://docs.surfpool.run/tui";
 
 const ITEM_HEIGHT: usize = 1;
 
+/// Theme variants for the TUI
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Theme {
+    Classic,
+    Halloween,
+}
+
+impl Theme {
+    /// Detect the current theme based on the date
+    fn detect() -> Self {
+        let now = Local::now();
+        if now.month() == 10 && now.day() == 31 {
+            Theme::Halloween
+        } else {
+            Theme::Classic
+        }
+    }
+
+    /// Get the color palette for this theme
+    fn palette(&self) -> &'static tailwind::Palette {
+        match self {
+            Theme::Classic => &palette::tailwind::EMERALD,
+            Theme::Halloween => &palette::tailwind::ORANGE,
+        }
+    }
+
+    /// Get the slot symbol for this theme
+    fn slot_symbol(&self) -> &'static str {
+        "● "
+    }
+}
+
 // Terminal detection constants
 const MACOS_TERMINAL: &str = "Apple_Terminal";
 /// XTerm-based terminals
@@ -50,7 +82,7 @@ const SUPPORTS_256_COLOR_INDICATOR: &str = "256";
 const SUPPORTS_TRUECOLOR_INDICATOR: &str = "24bit";
 /// Legacy VT100 terminal type - basic 16-color support only
 const LEGACY_VT100_TERMINAL: &str = "vt100";
-/// ANSI terminal type - basic 16-color support only  
+/// ANSI terminal type - basic 16-color support only
 const LEGACY_ANSI_TERMINAL: &str = "ansi";
 
 /// Terminal detection and color capability analysis
@@ -242,6 +274,7 @@ struct App {
     paused: bool,
     blink_state: bool,
     last_blink: Instant,
+    theme: Theme,
 }
 
 impl App {
@@ -253,7 +286,8 @@ impl App {
         displayed_url: DisplayedUrl,
         breaker: Option<Keypair>,
     ) -> App {
-        let palette = palette::tailwind::EMERALD;
+        let theme = Theme::detect();
+        let palette = theme.palette();
 
         let mut events = vec![];
         let (rpc_url, ws_url, datasource) = match &displayed_url {
@@ -282,7 +316,7 @@ impl App {
         App {
             state: TableState::default().with_offset(0),
             scroll_state: ScrollbarState::new(0),
-            colors: ColorTheme::new(&palette),
+            colors: ColorTheme::new(palette),
             simnet_events_rx,
             simnet_commands_tx,
             clock: Clock::default(),
@@ -304,6 +338,7 @@ impl App {
             paused: false,
             blink_state: false,
             last_blink: Instant::now(),
+            theme,
         }
     }
 
@@ -461,15 +496,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             }
                             SimnetEvent::SystemClockUpdated(clock) => {
                                 app.clock = clock.clone();
-                                if app.include_debug_logs {
-                                    new_events.push((
-                                        EventType::Debug,
-                                        Local::now(),
-                                        event.clock_update_msg(),
-                                    ));
-                                }
                             }
-                            SimnetEvent::ClockUpdate(ClockCommand::Pause) => {
+                            SimnetEvent::ClockUpdate(ClockCommand::PauseWithConfirmation(_)) => {
                                 app.paused = true;
                             }
                             SimnetEvent::ClockUpdate(ClockCommand::Resume) => {
@@ -753,7 +781,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     render_footer(f, app, rects[2].inner(Margin::new(2, 1)));
 }
 
-fn title_block(title: &str, alignment: Alignment) -> Block {
+fn title_block<'a>(title: &'a str, alignment: Alignment) -> Block<'a> {
     let title = Line::from(title).alignment(alignment);
     Block::new().borders(Borders::NONE).title(title)
 }
@@ -889,6 +917,8 @@ fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
     let total_chars = line_len * 3;
     let cursor = app.slot() % total_chars;
 
+    let symbol = app.theme.slot_symbol();
+
     let mut lines = Vec::new();
     for chunk in (0..total_chars).collect::<Vec<_>>().chunks(line_len) {
         let mut spans = Vec::new();
@@ -902,7 +932,7 @@ fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
             } else {
                 app.colors.dark_gray
             };
-            spans.push(Span::styled("● ", color));
+            spans.push(Span::styled(symbol, color));
         }
         lines.push(Line::from(spans));
     }

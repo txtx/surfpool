@@ -195,10 +195,57 @@ pub async fn start_block_production_runloop(
                                 svm_writer.slot_time = updated_slot_time;
                             });
                         }
-                        let _ = clock_command_tx.send(update);
+
+                        // Handle PauseWithConfirmation specially
+                        if let ClockCommand::PauseWithConfirmation(response_tx) = update {
+                            // Get current slot and slot_time before pausing
+                            let (current_slot, slot_time) = svm_locker.with_svm_reader(|svm_reader| {
+                                (svm_reader.latest_epoch_info.absolute_slot, svm_reader.slot_time)
+                            });
+
+                            // Send Pause to clock runloop
+                            let _ = clock_command_tx.send(ClockCommand::Pause);
+
+                            // Give the clock time to process the pause command
+                            tokio::time::sleep(tokio::time::Duration::from_millis(slot_time / 2)).await;
+
+                            // Loop and check if the slot has stopped advancing
+                            let max_attempts = 10;
+                            let mut attempts = 0;
+                            loop {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(slot_time)).await;
+
+                                let new_slot = svm_locker.with_svm_reader(|svm_reader| {
+                                    svm_reader.latest_epoch_info.absolute_slot
+                                });
+
+                                // If slot hasn't changed, clock has stopped
+                                if new_slot == current_slot || attempts >= max_attempts {
+                                    break;
+                                }
+
+                                attempts += 1;
+                            }
+
+                            // Read epoch info after clock has stopped
+                            let epoch_info = svm_locker.with_svm_reader(|svm_reader| {
+                                svm_reader.latest_epoch_info.clone()
+                            });
+                            // Send response
+                            let _ = response_tx.send(epoch_info);
+                        } else {
+                            let _ = clock_command_tx.send(update);
+                        }
                         continue
                     }
                     SimnetCommand::UpdateInternalClock(_, clock) => {
+                        // Confirm the current block to materialize any scheduled overrides for this slot
+                        if let Err(e) = svm_locker.confirm_current_block(&remote_client_with_commitment).await {
+                            let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!(
+                                "Failed to confirm block after time travel: {}", e
+                            )));
+                        }
+
                         svm_locker.with_svm_writer(|svm_writer| {
                             svm_writer.inner.set_sysvar(&clock);
                             svm_writer.updated_at = clock.unix_timestamp as u64 * 1_000;
@@ -210,11 +257,34 @@ pub async fn start_block_production_runloop(
                             let _ = svm_writer.simnet_events_tx.send(SimnetEvent::SystemClockUpdated(clock));
                         });
                     }
+                    SimnetCommand::UpdateInternalClockWithConfirmation(_, clock, response_tx) => {
+                        // Confirm the current block to materialize any scheduled overrides for this slot
+                        if let Err(e) = svm_locker.confirm_current_block(&remote_client_with_commitment).await {
+                            let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!(
+                                "Failed to confirm block after time travel: {}", e
+                            )));
+                        }
+
+                        let epoch_info = svm_locker.with_svm_writer(|svm_writer| {
+                            svm_writer.inner.set_sysvar(&clock);
+                            svm_writer.updated_at = clock.unix_timestamp as u64 * 1_000;
+                            svm_writer.latest_epoch_info.absolute_slot = clock.slot;
+                            svm_writer.latest_epoch_info.epoch = clock.epoch;
+                            svm_writer.latest_epoch_info.slot_index = clock.slot;
+                            svm_writer.latest_epoch_info.epoch = clock.epoch;
+                            svm_writer.latest_epoch_info.absolute_slot = clock.slot + clock.epoch * svm_writer.latest_epoch_info.slots_in_epoch;
+                            let _ = svm_writer.simnet_events_tx.send(SimnetEvent::SystemClockUpdated(clock));
+                            svm_writer.latest_epoch_info.clone()
+                        });
+
+                        // Send confirmation back
+                        let _ = response_tx.send(epoch_info);
+                    }
                     SimnetCommand::UpdateBlockProductionMode(update) => {
                         block_production_mode = update;
                         continue
                     }
-                    SimnetCommand::TransactionReceived(_key, transaction, status_tx, skip_preflight) => {
+                    SimnetCommand::ProcessTransaction(_key, transaction, status_tx, skip_preflight) => {
                        if let Err(e) = svm_locker.process_transaction(&remote_client_with_commitment, transaction, status_tx, skip_preflight, sigverify).await {
                             let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!("Failed to process transaction: {}", e)));
                        }
@@ -256,7 +326,9 @@ pub async fn start_block_production_runloop(
 
         {
             if do_produce_block {
-                svm_locker.confirm_current_block()?;
+                svm_locker
+                    .confirm_current_block(&remote_client_with_commitment)
+                    .await?;
             }
         }
     }
@@ -299,6 +371,15 @@ pub fn start_clock_runloop(
                 }
                 Ok(ClockCommand::UpdateSlotInterval(updated_slot_time)) => {
                     slot_time = updated_slot_time;
+                }
+                Ok(ClockCommand::PauseWithConfirmation(_)) => {
+                    // This should be handled in the block production runloop, not here
+                    // If it reaches here, just treat it as a regular Pause
+                    enabled = false;
+                    if let Some(ref simnet_events_tx) = simnet_events_tx {
+                        let _ =
+                            simnet_events_tx.send(SimnetEvent::ClockUpdate(ClockCommand::Pause));
+                    }
                 }
                 Err(_e) => {}
             }
