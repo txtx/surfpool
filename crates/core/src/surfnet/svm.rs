@@ -60,7 +60,10 @@ use surfpool_types::{
         ComputeUnitsEstimationResult, KeyedProfileResult, UiKeyedProfileResult, UuidOrSignature,
     },
 };
-use txtx_addon_kit::{indexmap::IndexMap, types::types::{AddonJsonConverter, Value}};
+use txtx_addon_kit::{
+    indexmap::IndexMap,
+    types::types::{AddonJsonConverter, Value},
+};
 use txtx_addon_network_svm::codec::idl::borsh_encode_value_to_idl_type;
 use txtx_addon_network_svm_types::subgraph::idl::{
     parse_bytes_to_value_with_expected_idl_type_def_ty,
@@ -102,7 +105,10 @@ pub fn apply_override_to_decoded_account(
         match current {
             Value::Object(map) => {
                 current = map.get_mut(&part.to_string()).ok_or_else(|| {
-                    SurfpoolError::internal(format!("Path segment '{}' not found in decoded account", part))
+                    SurfpoolError::internal(format!(
+                        "Path segment '{}' not found in decoded account",
+                        part
+                    ))
                 })?;
             }
             _ => {
@@ -143,13 +149,15 @@ fn json_to_txtx_value(json: &serde_json::Value) -> SurfpoolResult<Value> {
             } else if let Some(f) = n.as_f64() {
                 Ok(Value::Float(f))
             } else {
-                Err(SurfpoolError::internal(format!("Unable to convert number: {}", n)))
+                Err(SurfpoolError::internal(format!(
+                    "Unable to convert number: {}",
+                    n
+                )))
             }
         }
         serde_json::Value::String(s) => Ok(Value::String(s.clone())),
         serde_json::Value::Array(arr) => {
-            let txtx_arr: Result<Vec<Value>, _> =
-                arr.iter().map(json_to_txtx_value).collect();
+            let txtx_arr: Result<Vec<Value>, _> = arr.iter().map(json_to_txtx_value).collect();
             Ok(Value::Array(Box::new(txtx_arr?)))
         }
         serde_json::Value::Object(obj) => {
@@ -1608,20 +1616,21 @@ impl SurfnetSvm {
             generics: account_type
                 .generics
                 .iter()
-                .map(|_| IdlGenericArg::Type { ty: IdlType::String })
+                .map(|_| IdlGenericArg::Type {
+                    ty: IdlType::String,
+                })
                 .collect(),
         };
 
         // Re-encode the value using Borsh
-        let re_encoded_data = borsh_encode_value_to_idl_type(
-            &parsed_value,
-            &defined_type,
-            &idl.types,
-            None,
-        )
-        .map_err(|e| {
-            SurfpoolError::internal(format!("Failed to re-encode account data using Borsh: {}", e))
-        })?;
+        let re_encoded_data =
+            borsh_encode_value_to_idl_type(&parsed_value, &defined_type, &idl.types, None)
+                .map_err(|e| {
+                    SurfpoolError::internal(format!(
+                        "Failed to re-encode account data using Borsh: {}",
+                        e
+                    ))
+                })?;
 
         // Reconstruct the account data with discriminator and preserve any trailing bytes
         let mut new_account_data =
