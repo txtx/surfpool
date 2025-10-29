@@ -180,7 +180,7 @@ pub async fn handle_start_local_surfnet_command(
     // Non blocking check for new versions
     #[cfg(feature = "version_check")]
     {
-        let mut local_version = env!("CARGO_PKG_VERSION");
+        let mut local_version = env!("CARGO_PKG_VERSION").to_string();
         if cmd.ci {
             local_version = format!("{}-ci", local_version);
         }
