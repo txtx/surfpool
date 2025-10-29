@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use diesel::prelude::*;
 use juniper::{DefaultScalarValue, Executor, FieldError, Value, graphql_value};
-use surfpool_db::diesel::sql_types::Nullable;
 use surfpool_db::{
     diesel::{
         self, ExpressionMethods, QueryDsl, RunQueryDsl,
@@ -11,7 +10,7 @@ use surfpool_db::{
         r2d2::{ConnectionManager, Pool},
         result::DatabaseErrorKind,
         sql_query,
-        sql_types::{Bool, Integer, Text, Untyped},
+        sql_types::{Bool, Integer, Nullable, Text, Untyped},
     },
     diesel_dynamic_schema::{
         DynamicSelectClause,
