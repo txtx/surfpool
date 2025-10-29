@@ -1371,12 +1371,11 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 ..
             } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
 
+            // treat different cases separately for better error messages
             match account_result_to_update {
-                // error if the account did not exist
                 GetAccountResult::None(_) => {
                     return Err(SurfpoolError::account_not_found(pubkey).into());
                 }
-                // error if it is a program or a token account
                 GetAccountResult::FoundProgramAccount(_, _) => {
                     return Err(SurfpoolError::invalid_account_type(
                         pubkey,
@@ -1395,8 +1394,8 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                     // I don't want to drag dependencies or add a lot of code so I'll process the data here
                     // DATA:
                     // [0]: Key
-                    // [1-33] the owner / the authority
-                    // [33-...] rest of the header + plugin information
+                    // [1-33]: the owner / the authority
+                    // [33-...]: rest of the header + plugin information
                     let data = &mut account.data;
                     if data.len() < 33 {
                         return Err(SurfpoolError::invalid_account_data(
@@ -1410,7 +1409,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                     // Log information, and detect if the account is a core NFT or collection
                     // I'm not going to deserialize the entire thing as this is extremely cumbersome
                     // I also don't check that the account is owned by the metplex core program
-                    // Since this is a dev tool I think have few restrictions is a plus
+                    // Since this is a dev tool I think having few restrictions is a plus
                     match data[0] {
                         1 => {
                             let _ = svm_locker
