@@ -10,7 +10,7 @@ use surfpool_db::{
         r2d2::{ConnectionManager, Pool},
         result::DatabaseErrorKind,
         sql_query,
-        sql_types::{Bool, Integer, Text, Untyped},
+        sql_types::{Bool, Integer, Nullable, Text, Untyped},
     },
     diesel_dynamic_schema::{
         DynamicSelectClause,
@@ -18,7 +18,7 @@ use surfpool_db::{
         table,
     },
 };
-use txtx_addon_kit::types::types::Type;
+use txtx_addon_kit::{indexmap::IndexMap, types::types::Type};
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
 
@@ -78,7 +78,13 @@ pub fn fetch_dynamic_entries_from_postres(
     pg_conn: &mut diesel::pg::PgConnection,
     metadata: &CollectionMetadata,
     executor: Option<&Executor<DataloaderContext>>,
-) -> Result<(Vec<String>, Vec<DynamicRow<NamedField<DynamicValue>>>), FieldError> {
+) -> Result<
+    (
+        Vec<String>,
+        Vec<DynamicRow<NamedField<Option<DynamicValue>>>>,
+    ),
+    FieldError,
+> {
     let mut select = DynamicSelectClause::new();
     let dynamic_table = table(metadata.table_name.as_str());
     let (filters_specs, fetched_fields) = extract_graphql_features(executor);
@@ -91,7 +97,7 @@ pub fn fetch_dynamic_entries_from_postres(
     for (field, predicate, value) in filters_specs {
         match value {
             DefaultScalarValue::String(s) => {
-                let col = dynamic_table.column::<Text, _>(field);
+                let col = dynamic_table.column::<Nullable<Text>, _>(field);
                 query = match predicate {
                     "equals" => query.filter(col.eq(s)),
                     "not" => query.filter(col.ne(s)),
@@ -108,7 +114,7 @@ pub fn fetch_dynamic_entries_from_postres(
                 };
             }
             DefaultScalarValue::Int(i) => {
-                let col = dynamic_table.column::<Integer, _>(field);
+                let col = dynamic_table.column::<Nullable<Integer>, _>(field);
                 query = match predicate {
                     "equals" => query.filter(col.eq(*i)),
                     "not" => query.filter(col.ne(*i)),
@@ -125,7 +131,7 @@ pub fn fetch_dynamic_entries_from_postres(
                 };
             }
             DefaultScalarValue::Boolean(b) => {
-                let col = dynamic_table.column::<Bool, _>(field);
+                let col = dynamic_table.column::<Nullable<Bool>, _>(field);
                 query = match predicate {
                     "equals" => query.filter(col.eq(*b)),
                     "not" => query.filter(col.ne(*b)),
@@ -147,7 +153,7 @@ pub fn fetch_dynamic_entries_from_postres(
     }
 
     let fetched_data = query
-        .load::<DynamicRow<NamedField<DynamicValue>>>(&mut *pg_conn)
+        .load::<DynamicRow<NamedField<Option<DynamicValue>>>>(&mut *pg_conn)
         .map_err(|err| {
             FieldError::new(
                 format!("Internal error: unable to fetch data"),
@@ -164,7 +170,13 @@ pub fn fetch_dynamic_entries_from_sqlite(
     sqlite_conn: &mut diesel::sqlite::SqliteConnection,
     metadata: &CollectionMetadata,
     executor: Option<&Executor<DataloaderContext>>,
-) -> Result<(Vec<String>, Vec<DynamicRow<NamedField<DynamicValue>>>), FieldError> {
+) -> Result<
+    (
+        Vec<String>,
+        Vec<DynamicRow<NamedField<Option<DynamicValue>>>>,
+    ),
+    FieldError,
+> {
     // Isolate filters
 
     let mut select = DynamicSelectClause::new();
@@ -180,7 +192,7 @@ pub fn fetch_dynamic_entries_from_sqlite(
     for (field, predicate, value) in filters_specs {
         match value {
             DefaultScalarValue::String(s) => {
-                let col = dynamic_table.column::<Text, _>(field);
+                let col = dynamic_table.column::<Nullable<Text>, _>(field);
                 query = match predicate {
                     "equals" => query.filter(col.eq(s)),
                     "not" => query.filter(col.ne(s)),
@@ -197,7 +209,7 @@ pub fn fetch_dynamic_entries_from_sqlite(
                 };
             }
             DefaultScalarValue::Int(i) => {
-                let col = dynamic_table.column::<Integer, _>(field);
+                let col = dynamic_table.column::<Nullable<Integer>, _>(field);
                 query = match predicate {
                     "equals" => query.filter(col.eq(*i)),
                     "not" => query.filter(col.ne(*i)),
@@ -214,7 +226,7 @@ pub fn fetch_dynamic_entries_from_sqlite(
                 };
             }
             DefaultScalarValue::Boolean(b) => {
-                let col = dynamic_table.column::<Bool, _>(field);
+                let col = dynamic_table.column::<Nullable<Bool>, _>(field);
                 query = match predicate {
                     "equals" => query.filter(col.eq(*b)),
                     "not" => query.filter(col.ne(*b)),
@@ -236,7 +248,7 @@ pub fn fetch_dynamic_entries_from_sqlite(
     }
 
     let fetched_data = query
-        .load::<DynamicRow<NamedField<DynamicValue>>>(&mut *sqlite_conn)
+        .load::<DynamicRow<NamedField<Option<DynamicValue>>>>(&mut *sqlite_conn)
         .map_err(|err| {
             FieldError::new(
                 "Internal error: unable to fetch data".to_string(),
@@ -267,11 +279,53 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             }
         }?;
 
-        let mut results = Vec::new();
+        let mut results: Vec<CollectionEntry> = Vec::new();
         for row in fetched_data {
-            let mut values = HashMap::new();
+            let mut values: HashMap<String, Value> = HashMap::new();
             for (i, field) in fetch_fields.iter().enumerate() {
-                values.insert(field.clone(), row[i].value.0.clone()); // FIXME
+                let value = row[i].value.as_ref();
+
+                let value = match value {
+                    Some(dynamic_value) => match &dynamic_value.0 {
+                        Value::Null => Value::Null,
+                        Value::Scalar(s) => match s {
+                            DefaultScalarValue::String(s) => {
+                                fn string_to_value(s: &String) -> Value {
+                                    // Try to parse as IndexMap
+                                    let obj: Option<IndexMap<String, String>> =
+                                        serde_json::from_str(s).ok();
+                                    if let Some(o) = obj {
+                                        return Value::object(juniper::Object::from_iter(
+                                            o.into_iter().map(|(k, v)| (k, string_to_value(&v))),
+                                        ));
+                                    }
+
+                                    let list: Option<Vec<String>> = serde_json::from_str(s).ok();
+                                    if let Some(l) = list {
+                                        return Value::list(
+                                            l.into_iter().map(|v| string_to_value(&v)).collect(),
+                                        );
+                                    }
+
+                                    let v: DefaultScalarValue = serde_json::from_str(s)
+                                        .unwrap_or_else(|_| DefaultScalarValue::String(s.clone()));
+                                    Value::Scalar(v)
+                                }
+                                string_to_value(s)
+                            }
+                            rest => Value::scalar(rest.clone()),
+                        },
+                        Value::List(_) => {
+                            unreachable!("Data fetched from db should not be list")
+                        }
+                        Value::Object(_) => {
+                            unreachable!("Data fetched from db should not be object")
+                        }
+                    },
+                    None => Value::Null,
+                };
+
+                values.insert(field.clone(), value); // FIXME
             }
             results.push(CollectionEntry(CollectionEntryData {
                 id: Uuid::new_v4(),
@@ -367,13 +421,51 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             for field in &metadata.fields {
                 let col = field.data.display_name.as_str();
                 if let Some(val) = entry.values.get(col) {
-                    let val_str = match val {
-                        juniper::Value::Scalar(DefaultScalarValue::String(value)) => {
-                            format!("'{}'", value)
+                    fn value_to_string(val: &Value, in_obj: bool) -> Result<String, String> {
+                        match val {
+                            Value::Null => Ok("NULL".to_string()),
+                            Value::Scalar(s) => match s {
+                                DefaultScalarValue::String(s) => Ok(if in_obj {
+                                    s.to_string()
+                                } else {
+                                    format!("'{}'", s)
+                                }),
+                                rest => Ok(rest.to_string()),
+                            },
+                            Value::Object(obj) => {
+                                let map = obj
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        value_to_string(v, true).map(|vs| (k.clone(), vs))
+                                    })
+                                    .collect::<Result<IndexMap<_, _>, _>>()?;
+                                let json_str = serde_json::to_string(&map).map_err(|e| {
+                                    format!("Failed to serialize object to JSON: {e}")
+                                })?;
+                                Ok(if in_obj {
+                                    json_str
+                                } else {
+                                    format!("'{}'", json_str)
+                                })
+                            }
+                            Value::List(list) => {
+                                let list = list
+                                    .iter()
+                                    .map(|v| value_to_string(v, true))
+                                    .collect::<Result<Vec<_>, _>>()?;
+                                let json_str = serde_json::to_string(&list).map_err(|e| {
+                                    format!("Failed to serialize list to JSON: {e}")
+                                })?;
+                                Ok(if in_obj {
+                                    json_str
+                                } else {
+                                    format!("'{}'", json_str)
+                                })
+                            }
                         }
-                        juniper::Value::Scalar(value) => value.to_string(),
-                        _ => unimplemented!(),
-                    };
+                    }
+
+                    let val_str = format!("{}", value_to_string(val, false)?);
                     values.push(val_str);
                     columns.push(format!("\"{}\"", col));
                 }
