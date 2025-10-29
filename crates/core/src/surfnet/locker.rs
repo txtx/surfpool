@@ -2785,12 +2785,10 @@ impl SurfnetSvmLocker {
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
     ) -> SurfpoolResult<()> {
-        // First, confirm the block synchronously
-        self.with_svm_writer(|svm_writer| svm_writer.confirm_current_block())?;
-
-        // Then, materialize any scheduled overrides for the new slot
-        // TODO: Pass remote client when available for fetch_before_use support
+        // Acquire write lock once and do both operations atomically
+        // This prevents lock contention and potential deadlocks from mixing blocking and async locks
         let mut svm_writer = self.0.write().await;
+        svm_writer.confirm_current_block()?;
         svm_writer.materialize_overrides(remote_ctx).await
     }
 

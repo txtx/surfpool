@@ -206,6 +206,9 @@ pub async fn start_block_production_runloop(
                             // Send Pause to clock runloop
                             let _ = clock_command_tx.send(ClockCommand::Pause);
 
+                            // Give the clock time to process the pause command
+                            tokio::time::sleep(tokio::time::Duration::from_millis(slot_time / 2)).await;
+
                             // Loop and check if the slot has stopped advancing
                             let max_attempts = 10;
                             let mut attempts = 0;
