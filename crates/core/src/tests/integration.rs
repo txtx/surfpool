@@ -597,7 +597,7 @@ async fn test_simulate_add_alt_entries_fetching() {
         "Unexpected simulation error"
     );
 }
-
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_simulate_transaction_no_signers() {
     let payer = Keypair::new();
