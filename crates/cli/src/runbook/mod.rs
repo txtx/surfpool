@@ -60,6 +60,7 @@ pub fn get_json_converters() -> Vec<AddonJsonConverter<'static>> {
 pub fn get_available_addons() -> Vec<Box<dyn Addon>> {
     vec![Box::new(StdAddon::new()), Box::new(SvmNetworkAddon::new())]
 }
+
 pub fn get_addon_by_namespace(namespace: &str) -> Option<Box<dyn Addon>> {
     get_available_addons()
         .into_iter()

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
@@ -10,10 +12,11 @@ use solana_program_option::COption;
 use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
-use spl_associated_token_account::get_associated_token_address_with_program_id;
+use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    ClockCommand, GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcProfileResultConfig,
-    SimnetCommand, SimnetEvent, UiKeyedProfileResult,
+    AccountSnapshot, ClockCommand, ExportSnapshotConfig, GetStreamedAccountsResponse,
+    GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcProfileResultConfig, Scenario,
+    SimnetCommand, SimnetEvent, StreamAccountConfig, UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -137,7 +140,6 @@ pub trait SurfnetCheatcodes {
     /// and rent epoch of a given account.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `pubkey`: The public key of the account to be updated, as a base-58 encoded string.
     /// - `update`: The `AccountUpdate` struct containing the fields to update the account.
     ///
@@ -183,7 +185,6 @@ pub trait SurfnetCheatcodes {
     /// including the token amount, delegate, state, delegated amount, and close authority.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `owner`: The base-58 encoded public key of the token account's owner.
     /// - `mint`: The base-58 encoded public key of the token mint (e.g., the token type).
     /// - `update`: The `TokenAccountUpdate` struct containing the fields to update the token account.
@@ -242,7 +243,6 @@ pub trait SurfnetCheatcodes {
     /// potential errors.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request.
     /// - `transaction_data`: A base64 encoded string of the `VersionedTransaction`.
     /// - `tag`: An optional tag for the transaction.
     /// - `encoding`: An optional encoding for returned account data.
@@ -271,7 +271,6 @@ pub trait SurfnetCheatcodes {
     /// Retrieves all profiling results for a given tag.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request.
     /// - `tag`: The tag to retrieve profiling results for.
     ///
     /// ## Returns
@@ -291,10 +290,9 @@ pub trait SurfnetCheatcodes {
     /// by the `getSupply` RPC method.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `update`: The `SupplyUpdate` struct containing the optional fields to update:
     ///   - `total`: Optional total supply in lamports
-    ///   - `circulating`: Optional circulating supply in lamports  
+    ///   - `circulating`: Optional circulating supply in lamports
     ///   - `non_circulating`: Optional non-circulating supply in lamports
     ///   - `non_circulating_accounts`: Optional list of non-circulating account addresses
     ///
@@ -344,7 +342,6 @@ pub trait SurfnetCheatcodes {
     /// This method allows developers to directly patch the upgrade authority of a program's ProgramData account.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `program_id`: The base-58 encoded public key of the program.
     /// - `new_authority`: The base-58 encoded public key of the new authority. If omitted, the program will have no upgrade authority.
     ///
@@ -383,7 +380,6 @@ pub trait SurfnetCheatcodes {
     /// A cheat code to get the transaction profile for a given signature or UUID.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `signature_or_uuid`: The transaction signature (as a base-58 string) or a UUID (as a string) for which to retrieve the profile.
     ///
     /// ## Returns
@@ -424,7 +420,6 @@ pub trait SurfnetCheatcodes {
     /// A cheat code to register an IDL for a given program in memory.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `idl`: The full IDL object to be registered in memory. The `address` field should match the program's public key.
     /// - `slot` (optional): The slot at which to register the IDL. If omitted, uses the latest slot.
     ///
@@ -522,7 +517,6 @@ pub trait SurfnetCheatcodes {
     /// A cheat code to get the registered IDL for a given program ID.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `program_id`: The base-58 encoded public key of the program whose IDL is being requested.
     /// - `slot` (optional): The slot at which to query the IDL. If omitted, uses the latest slot.
     ///
@@ -717,7 +711,6 @@ pub trait SurfnetCheatcodes {
     /// A cheat code to reset an account on the local network.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
     /// - `pubkey_str`: The base-58 encoded public key of the account to reset.
     /// - `config`: A `ResetAccountConfig` specifying how to reset the account. If omitted, the account will be reset without cascading to owned accounts.
     ///
@@ -730,7 +723,7 @@ pub trait SurfnetCheatcodes {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
     ///   "method": "surfnet_resetAccount",
-    ///   "params": [ "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa", { "recursive": true } ]
+    ///   "params": [ "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa", { "includeOwnedAccounts": true } ]
     /// }
     /// ```
     ///
@@ -756,10 +749,182 @@ pub trait SurfnetCheatcodes {
         config: Option<ResetAccountConfig>,
     ) -> Result<RpcResponse<()>>;
 
-    /// A cheat code to get Surfnet network information.
+    /// A cheat code to reset a network.
+    ///
+    /// ## Returns
+    /// An `RpcResponse<()>` indicating whether the network reset was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_resetNetwork",    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 123456789,
+    ///       "apiVersion": "2.3.8"
+    ///     },
+    ///     "value": null    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+
+    #[rpc(meta, name = "surfnet_resetNetwork")]
+    fn reset_network(&self, meta: Self::Metadata) -> Result<RpcResponse<()>>;
+
+    /// A cheat code to export a snapshot of all accounts in the Surfnet SVM.
+    ///
+    /// This method retrieves the current state of all accounts stored in the Surfnet Virtual Machine (SVM)
+    /// and returns them as a mapping of account public keys to their respective account snapshots.
     ///
     /// ## Parameters
-    /// - `meta`: Metadata passed with the request, such as the client's request context.
+    /// - `config`: An optional `ExportSnapshotConfig` to customize the export behavior. The config fields are:
+    ///     - `includeParsedAccounts`: If true, includes parsed account data in the snapshot.
+    ///     - `filter`: An optional filter config to limit which accounts are included in the snapshot. Fields include:
+    ///         - `includeProgramAccounts`: A boolean indicating whether to include program accounts.
+    ///         - `includeAccounts`: A list of specific account public keys to include.
+    ///         - `excludeAccounts`: A list of specific account public keys to exclude.
+    ///
+    ///
+    /// ## Returns
+    /// An `RpcResponse<BTreeMap<String, AccountSnapshot>>` containing the exported account snapshots.
+    ///
+    /// The keys of the map are the base-58 encoded public keys of the accounts,
+    /// and the values are the corresponding `AccountSnapshot` objects.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_exportSnapshot"
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa": {
+    ///       "lamports": 1000000,
+    ///       "owner": "11111111111111111111111111111111",
+    ///       "executable": false,
+    ///       "rent_epoch": 0,
+    ///       "data": "base64_encoded_data_string"
+    ///     },
+    ///     "AnotherAccountPubkeyBase58": {
+    ///       "lamports": 500000,
+    ///       "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    ///       "executable": false,
+    ///       "rent_epoch": 0,
+    ///       "data": "base64_encoded_data_string"
+    ///     }
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    #[rpc(meta, name = "surfnet_exportSnapshot")]
+    fn export_snapshot(
+        &self,
+        meta: Self::Metadata,
+        config: Option<ExportSnapshotConfig>,
+    ) -> Result<RpcResponse<BTreeMap<String, AccountSnapshot>>>;
+
+    /// A cheat code to simulate account streaming.
+    /// When a transaction is processed, the accounts that are accessed are downloaded from the datasource and cached in the SVM.
+    /// With this method, you can simulate the streaming of accounts by providing a pubkey.
+    ///
+    /// ## Parameters
+    /// - `pubkey_str`: The base-58 encoded public key of the account to stream.
+    /// - `config`: A `StreamAccountConfig` specifying how to stream the account. If omitted, the account will be streamed without cascading to owned accounts.
+    ///
+    /// ## Returns
+    /// An `RpcResponse<()>` indicating whether the account stream registration was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_streamAccount",
+    ///   "params": [ "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa", { "includeOwnedAccounts": true } ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 123456789,
+    ///       "apiVersion": "2.3.8"
+    ///     },
+    ///     "value": null
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_streamAccount")]
+    fn stream_account(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        config: Option<StreamAccountConfig>,
+    ) -> Result<RpcResponse<()>>;
+
+    /// A cheat code to retrieve the streamed accounts.
+    /// When a transaction is processed, the accounts that are accessed are downloaded from the datasource and cached in the SVM.
+    /// With this method, you can simulate the streaming of accounts by providing a pubkey.
+    ///
+    /// ## Parameters
+    ///
+    /// ## Returns
+    /// An `RpcResponse<()>` indicating whether the account stream registration was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_getStreamedAccounts",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 123456789,
+    ///       "apiVersion": "2.3.8"
+    ///     },
+    ///     "value": [
+    ///       "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa"
+    ///     ]
+    ///    },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_getStreamedAccounts")]
+    fn get_streamed_accounts(
+        &self,
+        meta: Self::Metadata,
+    ) -> Result<RpcResponse<GetStreamedAccountsResponse>>;
+
+    /// A cheat code to get Surfnet network information.
     ///
     /// ## Returns
     /// A `RpcResponse<GetSurfnetInfoResponse>` containing the Surfnet network information.
@@ -799,6 +964,116 @@ pub trait SurfnetCheatcodes {
     #[rpc(meta, name = "surfnet_getSurfnetInfo")]
     fn get_surfnet_info(&self, meta: Self::Metadata)
     -> Result<RpcResponse<GetSurfnetInfoResponse>>;
+
+    /// A cheat code to register a scenario with account overrides.
+    ///
+    /// ## Parameters
+    /// - `scenario`: The Scenario object containing:
+    ///   - `id`: Unique identifier for the scenario
+    ///   - `name`: Human-readable name
+    ///   - `description`: Description of the scenario
+    ///   - `overrides`: Array of OverrideInstance objects, each containing:
+    ///     - `id`: Unique identifier for this override instance
+    ///     - `templateId`: Reference to the override template
+    ///     - `values`: HashMap of field paths to override values
+    ///     - `scenarioRelativeSlot`: The relative slot offset (from base slot) when this override should be applied
+    ///     - `label`: Optional label for this override
+    ///     - `enabled`: Whether this override is active
+    ///     - `fetchBeforeUse`: If true, fetch fresh account data just before transaction execution (useful for price feeds, oracle updates, and dynamic balances)
+    ///     - `account`: Account address (either `{ "pubkey": "..." }` or `{ "pda": { "programId": "...", "seeds": [...] } }`)
+    ///   - `tags`: Array of tags for categorization
+    /// - `slot` (optional): The base slot from which relative slot offsets are calculated. If omitted, uses the current slot.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the Scenario registration was successful.
+    ///
+    /// ## Example Request (with slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_registerScenario",
+    ///   "params": [
+    ///     {
+    ///       "id": "scenario-1",
+    ///       "name": "Price Feed Override",
+    ///       "description": "Override Pyth BTC/USD price at specific slots",
+    ///       "overrides": [
+    ///         {
+    ///           "id": "override-1",
+    ///           "templateId": "pyth_btcusd",
+    ///           "values": {
+    ///             "price_message.price_value": 67500,
+    ///             "price_message.conf": 100,
+    ///             "price_message.expo": -8
+    ///           },
+    ///           "scenarioRelativeSlot": 100,
+    ///           "label": "Set BTC price to $67,500",
+    ///           "enabled": true,
+    ///           "fetchBeforeUse": false,
+    ///           "account": {
+    ///             "pubkey": "H6ARHf6YXhGYeQfUzQNGk6rDNnLBQKrenN712K4QJNYH"
+    ///           }
+    ///         }
+    ///       ],
+    ///       "tags": ["defi", "price-feed"]
+    ///     },
+    ///     355684457
+    ///   ]
+    /// }
+    /// ```
+    /// ## Example Request (without slot)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_registerScenario",
+    ///   "params": [
+    ///     {
+    ///       "id": "scenario-1",
+    ///       "name": "Price Feed Override",
+    ///       "description": "Override Pyth BTC/USD price",
+    ///       "overrides": [
+    ///         {
+    ///           "id": "override-1",
+    ///           "templateId": "pyth_btcusd",
+    ///           "values": {
+    ///             "price_message.price_value": 67500
+    ///           },
+    ///           "scenarioRelativeSlot": 100,
+    ///           "label": "Set BTC price",
+    ///           "enabled": true,
+    ///           "fetchBeforeUse": true,
+    ///           "account": {
+    ///             "pubkey": "H6ARHf6YXhGYeQfUzQNGk6rDNnLBQKrenN712K4QJNYH"
+    ///           }
+    ///         }
+    ///       ],
+    ///       "tags": []
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "context": {
+    ///     "slot": 355684457,
+    ///     "apiVersion": "2.2.2"
+    ///   },
+    ///   "value": null,
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_registerScenario")]
+    fn register_scenario(
+        &self,
+        meta: Self::Metadata,
+        scenario: Scenario,
+        slot: Option<Slot>,
+    ) -> Result<RpcResponse<()>>;
 }
 
 #[derive(Clone)]
@@ -895,7 +1170,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 Ok(res) => res,
                 Err(e) => return e.into(),
             },
-            None => spl_token::id(),
+            None => spl_token_interface::id(),
         };
 
         let associated_token_account =
@@ -1266,7 +1541,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             .into_iter()
             .map(|(signature, _slot, err, logs)| RpcLogsResponse {
                 signature,
-                err,
+                err: err.map(|e| e.into()),
                 logs,
             })
             .collect();
@@ -1283,9 +1558,24 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         let key = meta.as_ref().map(|ctx| ctx.id.clone()).unwrap_or_default();
         let surfnet_command_tx: crossbeam_channel::Sender<SimnetCommand> =
             meta.get_surfnet_command_tx()?;
-        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(key, ClockCommand::Pause));
-        meta.with_svm_reader(|svm_reader| svm_reader.latest_epoch_info.clone())
-            .map_err(Into::into)
+
+        // Create a channel to receive confirmation
+        let (response_tx, response_rx) = crossbeam_channel::bounded(1);
+
+        // Send pause command with confirmation
+        let _ = surfnet_command_tx.send(SimnetCommand::CommandClock(
+            key,
+            ClockCommand::PauseWithConfirmation(response_tx),
+        ));
+
+        // Wait for confirmation with timeout
+        response_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|e| jsonrpc_core::Error {
+                code: jsonrpc_core::ErrorCode::InternalError,
+                message: format!("Failed to confirm clock pause: {}", e),
+                data: None,
+            })
     }
 
     fn resume_clock(&self, meta: Self::Metadata) -> Result<EpochInfo> {
@@ -1320,10 +1610,54 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
     ) -> Result<RpcResponse<()>> {
         let svm_locker = meta.get_svm_locker()?;
         let pubkey = verify_pubkey(&pubkey)?;
-        svm_locker.reset_account(pubkey, config.unwrap_or_default())?;
+        let config = config.unwrap_or_default();
+        let include_owned_accounts = config.include_owned_accounts.unwrap_or_default();
+        svm_locker.reset_account(pubkey, include_owned_accounts)?;
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: (),
+        })
+    }
+
+    fn reset_network(&self, meta: Self::Metadata) -> Result<RpcResponse<()>> {
+        let svm_locker = meta.get_svm_locker()?;
+        svm_locker.reset_network()?;
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: (),
+        })
+    }
+
+    fn stream_account(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        config: Option<StreamAccountConfig>,
+    ) -> Result<RpcResponse<()>> {
+        let svm_locker = meta.get_svm_locker()?;
+        let pubkey = verify_pubkey(&pubkey_str)?;
+        let config = config.unwrap_or_default();
+        let include_owned_accounts = config.include_owned_accounts.unwrap_or_default();
+        svm_locker.stream_account(pubkey, include_owned_accounts)?;
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: (),
+        })
+    }
+
+    fn get_streamed_accounts(
+        &self,
+        meta: Self::Metadata,
+    ) -> Result<RpcResponse<GetStreamedAccountsResponse>> {
+        let svm_locker = meta.get_svm_locker()?;
+
+        let value = svm_locker.with_svm_reader(|svm_reader| {
+            GetStreamedAccountsResponse::new(&svm_reader.streamed_accounts)
+        });
+
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value,
         })
     }
 
@@ -1338,6 +1672,34 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             value: GetSurfnetInfoResponse::new(runbook_executions),
         })
     }
+
+    fn export_snapshot(
+        &self,
+        meta: Self::Metadata,
+        config: Option<ExportSnapshotConfig>,
+    ) -> Result<RpcResponse<BTreeMap<String, AccountSnapshot>>> {
+        let config = config.unwrap_or_default();
+        let svm_locker = meta.get_svm_locker()?;
+        let snapshot = svm_locker.export_snapshot(config);
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: snapshot,
+        })
+    }
+
+    fn register_scenario(
+        &self,
+        meta: Self::Metadata,
+        scenario: Scenario,
+        slot: Option<Slot>,
+    ) -> Result<RpcResponse<()>> {
+        let svm_locker = meta.get_svm_locker()?;
+        svm_locker.register_scenario(scenario, slot)?;
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: (),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1347,15 +1709,19 @@ mod tests {
     };
     use solana_keypair::Keypair;
     use solana_program_pack::Pack;
+    use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_system_interface::instruction::create_account;
     use solana_transaction::Transaction;
-    use spl_associated_token_account::{
-        get_associated_token_address_with_program_id, instruction::create_associated_token_account,
+    use spl_associated_token_account_interface::{
+        address::get_associated_token_address_with_program_id,
+        instruction::create_associated_token_account,
     };
-    use spl_token::state::Mint;
-    use spl_token_2022::instruction::{initialize_mint2, mint_to, transfer_checked};
-    use surfpool_types::{RpcProfileDepth, UiAccountChange, UiAccountProfileState};
+    use spl_token_2022_interface::instruction::{initialize_mint2, mint_to, transfer_checked};
+    use spl_token_interface::state::Mint;
+    use surfpool_types::{
+        ExportSnapshotFilter, RpcProfileDepth, UiAccountChange, UiAccountProfileState,
+    };
 
     use super::*;
     use crate::{rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc, tests::helpers::TestSetup};
@@ -1404,16 +1770,16 @@ mod tests {
 
         // Instruction to create new account for mint (token 2022 program)
         let create_account_instruction = create_account(
-            &payer.pubkey(),       // payer
-            &mint.pubkey(),        // new account (mint)
-            mint_rent,             // lamports
-            mint_space as u64,     // space
-            &spl_token_2022::id(), // program id
+            &payer.pubkey(),                 // payer
+            &mint.pubkey(),                  // new account (mint)
+            mint_rent,                       // lamports
+            mint_space as u64,               // space
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Instruction to initialize mint account data
         let initialize_mint_instruction = initialize_mint2(
-            &spl_token_2022::id(),
+            &spl_token_2022_interface::id(),
             &mint.pubkey(),        // mint
             &payer.pubkey(),       // mint authority
             Some(&payer.pubkey()), // freeze authority
@@ -1423,40 +1789,40 @@ mod tests {
 
         // Calculate the associated token account address for fee_payer
         let source_ata = get_associated_token_address_with_program_id(
-            &owner.pubkey(),       // owner
-            &mint.pubkey(),        // mint
-            &spl_token_2022::id(), // program_id
+            &owner.pubkey(),                 // owner
+            &mint.pubkey(),                  // mint
+            &spl_token_2022_interface::id(), // program_id
         );
 
         // Instruction to create associated token account for fee_payer
         let create_source_ata_instruction = create_associated_token_account(
-            &payer.pubkey(),       // funding address
-            &owner.pubkey(),       // wallet address
-            &mint.pubkey(),        // mint address
-            &spl_token_2022::id(), // program id
+            &payer.pubkey(),                 // funding address
+            &owner.pubkey(),                 // wallet address
+            &mint.pubkey(),                  // mint address
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Calculate the associated token account address for recipient
         let destination_ata = get_associated_token_address_with_program_id(
-            &recipient.pubkey(),   // owner
-            &mint.pubkey(),        // mint
-            &spl_token_2022::id(), // program_id
+            &recipient.pubkey(),             // owner
+            &mint.pubkey(),                  // mint
+            &spl_token_2022_interface::id(), // program_id
         );
 
         // Instruction to create associated token account for recipient
         let create_destination_ata_instruction = create_associated_token_account(
-            &payer.pubkey(),       // funding address
-            &recipient.pubkey(),   // wallet address
-            &mint.pubkey(),        // mint address
-            &spl_token_2022::id(), // program id
+            &payer.pubkey(),                 // funding address
+            &recipient.pubkey(),             // wallet address
+            &mint.pubkey(),                  // mint address
+            &spl_token_2022_interface::id(), // program id
         );
 
         // Amount of tokens to mint (100 tokens with 2 decimal places)
-        let amount = 100_00;
+        let amount = 10_000;
 
         // Create mint_to instruction to mint tokens to the source token account
         let mint_to_instruction = mint_to(
-            &spl_token_2022::id(),
+            &spl_token_2022_interface::id(),
             &mint.pubkey(),     // mint
             &source_ata,        // destination
             &payer.pubkey(),    // authority
@@ -1511,7 +1877,7 @@ mod tests {
                     .instruction_profiles
                     .as_ref()
                     .unwrap()
-                    .get(0)
+                    .first()
                     .expect("instruction profile should exist");
                 assert!(
                     ix_profile.error_message.is_none(),
@@ -1556,7 +1922,7 @@ mod tests {
                         );
                         assert_eq!(
                             mint_account.owner,
-                            spl_token_2022::id().to_string(),
+                            spl_token_2022_interface::id().to_string(),
                             "Mint account should be owned by the SPL Token program"
                         );
                         // initialized account data should be empty bytes
@@ -1607,7 +1973,7 @@ mod tests {
                         );
                         assert_eq!(
                             after.owner,
-                            spl_token_2022::id().to_string(),
+                            spl_token_2022_interface::id().to_string(),
                             "Mint account should be owned by the SPL Token program"
                         );
                         // initialized account data should be empty bytes
@@ -1701,7 +2067,7 @@ mod tests {
                         );
                         assert_eq!(
                             new.owner,
-                            spl_token_2022::id().to_string(),
+                            spl_token_2022_interface::id().to_string(),
                             "Source ATA should be owned by the SPL Token program"
                         );
 
@@ -1810,7 +2176,7 @@ mod tests {
                         );
                         assert_eq!(
                             new.owner,
-                            spl_token_2022::id().to_string(),
+                            spl_token_2022_interface::id().to_string(),
                             "Source ATA should be owned by the SPL Token program"
                         );
                         match &new.data {
@@ -1943,7 +2309,7 @@ mod tests {
 
         // Create transfer_checked instruction to send tokens from source to destination
         let transfer_instruction = transfer_checked(
-            &spl_token_2022::id(),               // program id
+            &spl_token_2022_interface::id(),     // program id
             &source_ata,                         // source
             &mint.pubkey(),                      // mint
             &destination_ata,                    // destination
@@ -2005,7 +2371,7 @@ mod tests {
                 .instruction_profiles
                 .as_ref()
                 .unwrap()
-                .get(0)
+                .first()
                 .expect("instruction profile should exist");
             assert!(
                 ix_profile.error_message.is_none(),
@@ -2053,7 +2419,7 @@ mod tests {
                 panic!("Expected mint account state to be Readonly");
             };
             let UiAccountProfileState::Readonly = account_states
-                .swap_remove(&spl_token_2022::ID)
+                .swap_remove(&spl_token_2022_interface::ID)
                 .expect("account state should be present")
             else {
                 panic!("Expected account state to be Readonly");
@@ -2159,5 +2525,271 @@ mod tests {
                 account_states
             );
         }
+    }
+
+    fn set_account(client: &TestSetup<SurfnetCheatcodesRpc>, pubkey: &Pubkey, account: &Account) {
+        client
+            .context
+            .svm_locker
+            .with_svm_writer(|svm| svm.inner.set_account(*pubkey, account.clone()))
+            .expect("Failed to set account");
+    }
+
+    fn verify_snapshot_account(
+        snapshot: &BTreeMap<String, AccountSnapshot>,
+        expected_account_pubkey: &Pubkey,
+        expected_account: &Account,
+    ) {
+        let account = snapshot
+            .get(&expected_account_pubkey.to_string())
+            .unwrap_or_else(|| {
+                panic!(
+                    "Account fixture not found for pubkey {}",
+                    expected_account_pubkey
+                )
+            });
+        assert_eq!(expected_account.lamports, account.lamports);
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD.encode(&expected_account.data),
+            account.data
+        );
+        assert_eq!(expected_account.owner.to_string(), account.owner);
+        assert_eq!(expected_account.executable, account.executable);
+        assert_eq!(expected_account.rent_epoch, account.rent_epoch);
+    }
+
+    #[test]
+    fn test_export_snapshot() {
+        let client = TestSetup::new(SurfnetCheatcodesRpc);
+
+        let pubkey1 = Pubkey::new_unique();
+        let account1 = Account {
+            lamports: 1_000_000,
+            data: vec![1, 2, 3, 4],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        set_account(&client, &pubkey1, &account1);
+
+        let pubkey2 = Pubkey::new_unique();
+        let account2 = Account {
+            lamports: 2_000_000,
+            data: vec![5, 6, 7, 8, 9],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        set_account(&client, &pubkey2, &account2);
+
+        let snapshot = client
+            .rpc
+            .export_snapshot(Some(client.context.clone()), None)
+            .expect("Failed to export snapshot")
+            .value;
+
+        verify_snapshot_account(&snapshot, &pubkey1, &account1);
+        verify_snapshot_account(&snapshot, &pubkey2, &account2);
+    }
+
+    #[test]
+    fn test_export_snapshot_json_parsed() {
+        let client = TestSetup::new(SurfnetCheatcodesRpc);
+
+        let pubkey1 = Pubkey::new_unique();
+        println!("Pubkey1: {}", pubkey1);
+        let account1 = Account {
+            lamports: 1_000_000,
+            data: vec![1, 2, 3, 4],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        set_account(&client, &pubkey1, &account1);
+
+        let mint_pubkey = Pubkey::new_unique();
+        println!("Mint Pubkey: {}", mint_pubkey);
+        let mint_authority = Pubkey::new_unique();
+
+        let mut mint_data = [0u8; Mint::LEN];
+        let mint = Mint {
+            mint_authority: COption::Some(mint_authority),
+            supply: 1000,
+            decimals: 6,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        };
+        mint.pack_into_slice(&mut mint_data);
+
+        let mint_account = Account {
+            lamports: 1_000_000,
+            data: mint_data.to_vec(),
+            owner: spl_token_interface::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        set_account(&client, &mint_pubkey, &mint_account);
+
+        let snapshot = client
+            .rpc
+            .export_snapshot(
+                Some(client.context.clone()),
+                Some(ExportSnapshotConfig {
+                    include_parsed_accounts: Some(true),
+                    filter: None,
+                }),
+            )
+            .expect("Failed to export snapshot")
+            .value;
+
+        verify_snapshot_account(&snapshot, &pubkey1, &account1);
+        let actual_account1 = snapshot
+            .get(&pubkey1.to_string())
+            .expect("Account fixture not found");
+        assert!(
+            actual_account1.parsed_data.is_none(),
+            "Account1 should not have parsed data"
+        );
+
+        verify_snapshot_account(&snapshot, &mint_pubkey, &mint_account);
+        let mint_snapshot = snapshot
+            .get(&mint_pubkey.to_string())
+            .expect("Mint account snapshot not found");
+        let parsed = mint_snapshot
+            .parsed_data
+            .as_ref()
+            .expect("Parsed data should be present");
+
+        assert_eq!(parsed.program, "spl-token");
+        assert_eq!(parsed.space, Mint::LEN as u64);
+
+        let parsed_info = parsed
+            .parsed
+            .as_object()
+            .expect("Parsed data should be an object");
+        let info = parsed_info
+            .get("info")
+            .expect("Parsed data should have info field")
+            .as_object()
+            .expect("Info field should be an object");
+        assert_eq!(
+            info.get("mintAuthority")
+                .and_then(|v| v.as_str())
+                .expect("mintAuthority should be a string"),
+            mint_authority.to_string()
+        );
+    }
+
+    #[test]
+    fn test_export_snapshot_filtering() {
+        let system_account_pubkey = Pubkey::new_unique();
+        println!("System Account Pubkey: {}", system_account_pubkey);
+        let excluded_system_account_pubkey = Pubkey::new_unique();
+        println!(
+            "Excluded System Account Pubkey: {}",
+            excluded_system_account_pubkey
+        );
+        let program_account_pubkey = Pubkey::new_unique();
+        println!("Program Account Pubkey: {}", program_account_pubkey);
+        let included_program_account_pubkey = Pubkey::new_unique();
+        println!(
+            "Included Program Account Pubkey: {}",
+            included_program_account_pubkey
+        );
+
+        let client = TestSetup::new(SurfnetCheatcodesRpc);
+
+        let system_account = Account {
+            lamports: 1_000_000,
+            data: vec![1, 2, 3, 4],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        set_account(&client, &system_account_pubkey, &system_account);
+        set_account(&client, &excluded_system_account_pubkey, &system_account);
+
+        let program_account = Account {
+            lamports: 2_000_000,
+            data: vec![5, 6, 7, 8, 9],
+            owner: solana_sdk_ids::bpf_loader_upgradeable::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        set_account(&client, &program_account_pubkey, &program_account);
+        set_account(&client, &included_program_account_pubkey, &program_account);
+
+        let snapshot = client
+            .rpc
+            .export_snapshot(Some(client.context.clone()), None)
+            .expect("Failed to export snapshot")
+            .value;
+        assert!(
+            !snapshot.contains_key(&program_account_pubkey.to_string()),
+            "Program account should be excluded by default"
+        );
+        assert!(
+            !snapshot.contains_key(&included_program_account_pubkey.to_string()),
+            "Program account should be excluded by default"
+        );
+        let snapshot = client
+            .rpc
+            .export_snapshot(
+                Some(client.context.clone()),
+                Some(ExportSnapshotConfig {
+                    filter: Some(ExportSnapshotFilter {
+                        include_accounts: Some(vec![included_program_account_pubkey.to_string()]),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+            )
+            .expect("Failed to export snapshot")
+            .value;
+        assert!(
+            !snapshot.contains_key(&program_account_pubkey.to_string()),
+            "Program account should be excluded by default"
+        );
+        assert!(
+            snapshot.contains_key(&included_program_account_pubkey.to_string()),
+            "Program account should be included when explicitly listed"
+        );
+
+        let snapshot = client
+            .rpc
+            .export_snapshot(
+                Some(client.context.clone()),
+                Some(ExportSnapshotConfig {
+                    filter: Some(ExportSnapshotFilter {
+                        include_program_accounts: Some(true),
+                        exclude_accounts: Some(vec![excluded_system_account_pubkey.to_string()]),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+            )
+            .expect("Failed to export snapshot")
+            .value;
+
+        assert!(
+            snapshot.contains_key(&program_account_pubkey.to_string()),
+            "Program account should be included when filter is set"
+        );
+        assert!(
+            snapshot.contains_key(&included_program_account_pubkey.to_string()),
+            "Included program account should be present"
+        );
+        assert!(
+            snapshot.contains_key(&system_account_pubkey.to_string()),
+            "System account should be present"
+        );
+        assert!(
+            !snapshot.contains_key(&excluded_system_account_pubkey.to_string()),
+            "Excluded system account should not be present"
+        );
     }
 }

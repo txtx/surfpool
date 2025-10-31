@@ -29,7 +29,7 @@ use solana_transaction_status::{
     parse_accounts::{parse_legacy_message_accounts, parse_v0_message_accounts},
     parse_ui_inner_instructions,
 };
-use spl_token_2022::extension::StateWithExtensions;
+use spl_token_2022_interface::extension::StateWithExtensions;
 use txtx_addon_kit::indexmap::IndexMap;
 
 use crate::{
@@ -410,8 +410,8 @@ fn parse_ui_transaction_status_meta_with_account_keys(
 ) -> UiTransactionStatusMeta {
     let account_keys = AccountKeys::new(static_keys, Some(&meta.loaded_addresses));
     UiTransactionStatusMeta {
-        err: meta.status.clone().err(),
-        status: meta.status,
+        err: meta.status.clone().map_err(Into::into).err(),
+        status: meta.status.map_err(Into::into),
         fee: meta.fee,
         pre_balances: meta.pre_balances,
         post_balances: meta.post_balances,
@@ -442,10 +442,11 @@ fn parse_ui_transaction_status_meta_with_account_keys(
     }
 }
 
+// FIXME: use native transform from the solana official crate
 fn parse_ui_transaction_status_meta(meta: TransactionStatusMeta) -> UiTransactionStatusMeta {
     UiTransactionStatusMeta {
-        err: meta.status.clone().err(),
-        status: meta.status,
+        err: meta.status.clone().map_err(Into::into).err(),
+        status: meta.status.map_err(Into::into),
         fee: meta.fee,
         pre_balances: meta.pre_balances,
         post_balances: meta.post_balances,
@@ -477,8 +478,8 @@ fn build_simple_ui_transaction_status_meta(
     show_rewards: bool,
 ) -> UiTransactionStatusMeta {
     UiTransactionStatusMeta {
-        err: meta.status.clone().err(),
-        status: meta.status,
+        err: meta.status.clone().map_err(Into::into).err(),
+        status: meta.status.map_err(Into::into),
         fee: meta.fee,
         pre_balances: meta.pre_balances,
         post_balances: meta.post_balances,
@@ -564,25 +565,25 @@ impl<T> RemoteRpcResult<T> {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TokenAccount {
-    SplToken2022(spl_token_2022::state::Account),
-    SplToken(spl_token::state::Account),
+    SplToken2022(spl_token_2022_interface::state::Account),
+    SplToken(spl_token_interface::state::Account),
 }
 
 impl TokenAccount {
     pub fn token_program_id(&self) -> Pubkey {
         match self {
-            Self::SplToken2022(_) => spl_token_2022::id(),
-            Self::SplToken(_) => spl_token::id(),
+            Self::SplToken2022(_) => spl_token_2022_interface::id(),
+            Self::SplToken(_) => spl_token_interface::id(),
         }
     }
 
     pub fn unpack(bytes: &[u8]) -> SurfpoolResult<Self> {
-        if let Ok(account) = spl_token_2022::state::Account::unpack(bytes) {
+        if let Ok(account) = spl_token_2022_interface::state::Account::unpack(bytes) {
             Ok(Self::SplToken2022(account))
-        } else if let Ok(account) = spl_token::state::Account::unpack(bytes) {
+        } else if let Ok(account) = spl_token_interface::state::Account::unpack(bytes) {
             Ok(Self::SplToken(account))
         } else if let Ok(account) =
-            StateWithExtensions::<spl_token_2022::state::Account>::unpack(bytes)
+            StateWithExtensions::<spl_token_2022_interface::state::Account>::unpack(bytes)
         {
             Ok(Self::SplToken2022(account.base))
         } else {
@@ -591,18 +592,18 @@ impl TokenAccount {
     }
 
     pub fn new(token_program_id: &Pubkey, owner: Pubkey, mint: Pubkey) -> Self {
-        if token_program_id == &spl_token_2022::id() {
-            Self::SplToken2022(spl_token_2022::state::Account {
+        if token_program_id == &spl_token_2022_interface::id() {
+            Self::SplToken2022(spl_token_2022_interface::state::Account {
                 mint,
                 owner,
-                state: spl_token_2022::state::AccountState::Initialized,
+                state: spl_token_2022_interface::state::AccountState::Initialized,
                 ..Default::default()
             })
         } else {
-            Self::SplToken(spl_token::state::Account {
+            Self::SplToken(spl_token_interface::state::Account {
                 mint,
                 owner,
-                state: spl_token::state::AccountState::Initialized,
+                state: spl_token_interface::state::AccountState::Initialized,
                 ..Default::default()
             })
         }
@@ -611,12 +612,12 @@ impl TokenAccount {
     pub fn pack_into_vec(&self) -> Vec<u8> {
         match self {
             Self::SplToken2022(account) => {
-                let mut dst = [0u8; spl_token_2022::state::Account::LEN];
+                let mut dst = [0u8; spl_token_2022_interface::state::Account::LEN];
                 account.pack_into_slice(&mut dst);
                 dst.to_vec()
             }
             Self::SplToken(account) => {
-                let mut dst = [0u8; spl_token::state::Account::LEN];
+                let mut dst = [0u8; spl_token_interface::state::Account::LEN];
                 account.pack_into_slice(&mut dst);
                 dst.to_vec()
             }
@@ -680,10 +681,10 @@ impl TokenAccount {
     }
 
     pub fn get_packed_len_for_token_program_id(token_program_id: &Pubkey) -> usize {
-        if *token_program_id == spl_token::id() {
-            spl_token::state::Account::get_packed_len()
+        if *token_program_id == spl_token_interface::id() {
+            spl_token_interface::state::Account::get_packed_len()
         } else {
-            spl_token_2022::state::Account::get_packed_len()
+            spl_token_2022_interface::state::Account::get_packed_len()
         }
     }
 
@@ -691,9 +692,9 @@ impl TokenAccount {
         match self {
             Self::SplToken2022(account) => {
                 account.state = match state {
-                    "uninitialized" => spl_token_2022::state::AccountState::Uninitialized,
-                    "frozen" => spl_token_2022::state::AccountState::Frozen,
-                    "initialized" => spl_token_2022::state::AccountState::Initialized,
+                    "uninitialized" => spl_token_2022_interface::state::AccountState::Uninitialized,
+                    "frozen" => spl_token_2022_interface::state::AccountState::Frozen,
+                    "initialized" => spl_token_2022_interface::state::AccountState::Initialized,
                     _ => {
                         return Err(SurfpoolError::invalid_token_account_state(state));
                     }
@@ -701,9 +702,9 @@ impl TokenAccount {
             }
             Self::SplToken(account) => {
                 account.state = match state {
-                    "uninitialized" => spl_token::state::AccountState::Uninitialized,
-                    "frozen" => spl_token::state::AccountState::Frozen,
-                    "initialized" => spl_token::state::AccountState::Initialized,
+                    "uninitialized" => spl_token_interface::state::AccountState::Uninitialized,
+                    "frozen" => spl_token_interface::state::AccountState::Frozen,
+                    "initialized" => spl_token_interface::state::AccountState::Initialized,
                     _ => {
                         return Err(SurfpoolError::invalid_token_account_state(state));
                     }
@@ -716,17 +717,19 @@ impl TokenAccount {
 
 #[derive(Debug, Clone)]
 pub enum MintAccount {
-    SplToken2022(spl_token_2022::state::Mint),
-    SplToken(spl_token::state::Mint),
+    SplToken2022(spl_token_2022_interface::state::Mint),
+    SplToken(spl_token_interface::state::Mint),
 }
 
 impl MintAccount {
     pub fn unpack(bytes: &[u8]) -> SurfpoolResult<Self> {
-        if let Ok(mint) = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(bytes) {
+        if let Ok(mint) =
+            StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(bytes)
+        {
             Ok(Self::SplToken2022(mint.base))
-        } else if let Ok(mint) = spl_token_2022::state::Mint::unpack(bytes) {
+        } else if let Ok(mint) = spl_token_2022_interface::state::Mint::unpack(bytes) {
             Ok(Self::SplToken2022(mint))
-        } else if let Ok(mint) = spl_token::state::Mint::unpack(bytes) {
+        } else if let Ok(mint) = spl_token_interface::state::Mint::unpack(bytes) {
             Ok(Self::SplToken(mint))
         } else {
             Err(SurfpoolError::unpack_mint_account())
@@ -965,6 +968,7 @@ impl TransactionLoadedAddresses {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SyntheticBlockhash(Hash);
 impl SyntheticBlockhash {
     pub const PREFIX: &str = "SURFNETxSAFEHASHx";

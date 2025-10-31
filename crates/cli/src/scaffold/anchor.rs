@@ -1,18 +1,27 @@
 #![allow(dead_code)]
 
-use std::{collections::BTreeMap, str::FromStr};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
+use txtx_addon_network_svm::templates::{AccountDirEntry, AccountEntry};
 use txtx_core::kit::helpers::fs::FileLocation;
 use url::Url;
 
 use super::ProgramMetadata;
-use crate::types::Framework;
+use crate::{
+    scaffold::{GenesisEntry, ProgramFrameworkData},
+    types::Framework,
+};
 
 pub fn try_get_programs_from_project(
     base_location: FileLocation,
-) -> Result<Option<(Framework, Vec<ProgramMetadata>)>, String> {
+    test_suite_paths: &Vec<String>,
+) -> Result<Option<ProgramFrameworkData>, String> {
     let mut manifest_location = base_location.clone();
     manifest_location.append_path("Anchor.toml")?;
     if manifest_location.exists() {
@@ -30,8 +39,104 @@ pub fn try_get_programs_from_project(
                 programs.push(ProgramMetadata::new(program_name, &deployment.idl));
             }
         }
+        let mut genesis_entries = manifest
+            .test
+            .as_ref()
+            .and_then(|test| test.genesis.as_ref())
+            .cloned()
+            .unwrap_or_default();
 
-        Ok(Some((Framework::Anchor, programs)))
+        let mut accounts: Vec<AccountEntry> = vec![];
+
+        let mut accounts_dirs = manifest
+            .test
+            .as_ref()
+            .and_then(|test| test.validator.as_ref())
+            .and_then(|validator| validator.account_dir.as_ref())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut clones = manifest
+            .test
+            .as_ref()
+            .and_then(|test| test.validator.as_ref())
+            .and_then(|validator| validator.clone.as_ref())
+            .map(|clones| {
+                clones
+                    .iter()
+                    .map(|c| c.address.clone())
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default();
+
+        if let Some(test_configs) = TestConfig::discover_test_toml(
+            test_suite_paths.iter().map(|s| PathBuf::from(s)).collect(),
+        )
+        .map_err(|e| {
+            format!(
+                "failed to discover Test.toml files in workspace: {}",
+                e.to_string()
+            )
+        })? {
+            for (_, config) in test_configs.test_suite_configs.iter() {
+                if let Some(test_config) = config.test.as_ref() {
+                    if let Some(genesis) = test_config.genesis.as_ref() {
+                        genesis_entries.extend(genesis.clone());
+                    }
+                    if let Some(validator) = test_config.validator.as_ref() {
+                        if let Some(accounts_cfg) = validator.account.as_ref() {
+                            for account in accounts_cfg {
+                                if !accounts.iter().any(|a| a.filename == account.filename) {
+                                    accounts.push(account.clone());
+                                }
+                            }
+                        }
+                        if let Some(accounts_dirs_cfg) = validator.account_dir.as_ref() {
+                            for account_dir in accounts_dirs_cfg {
+                                if !accounts_dirs
+                                    .iter()
+                                    .any(|a| a.directory == account_dir.directory)
+                                {
+                                    accounts_dirs.push(account_dir.clone());
+                                }
+                            }
+                        }
+                        if let Some(clone_cfg) = validator.clone.as_ref() {
+                            for clone_entry in clone_cfg {
+                                if !clones.iter().any(|c| c == &clone_entry.address) {
+                                    clones.push(clone_entry.address.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Some(ProgramFrameworkData::new(
+            Framework::Anchor,
+            programs,
+            if genesis_entries.is_empty() {
+                None
+            } else {
+                Some(genesis_entries)
+            },
+            if accounts.is_empty() {
+                None
+            } else {
+                Some(accounts)
+            },
+            if accounts_dirs.is_empty() {
+                None
+            } else {
+                Some(accounts_dirs)
+            },
+            if clones.is_empty() {
+                None
+            } else {
+                Some(clones)
+            },
+        )))
     } else {
         Ok(None)
     }
@@ -46,6 +151,7 @@ pub struct AnchorManifest {
     pub programs: ProgramsConfig,
     pub scripts: ScriptsConfig,
     pub workspace: WorkspaceConfig,
+    pub test: Option<TestValidatorConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +163,7 @@ pub struct AnchorManifestFile {
     // provider: Provider,
     workspace: Option<WorkspaceConfig>,
     scripts: Option<ScriptsConfig>,
+    test: Option<TestValidatorConfig>,
 }
 
 impl AnchorManifest {
@@ -72,6 +179,7 @@ impl AnchorManifest {
                 .programs
                 .map_or(Ok(BTreeMap::new()), |p| deser_programs(p, base_location))?,
             workspace: cfg.workspace.unwrap_or_default(),
+            test: cfg.test,
         })
     }
 }
@@ -119,6 +227,178 @@ impl Default for RegistryConfig {
         Self {
             url: "https://api.apr.dev".to_string(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestTomlFile {
+    pub extends: Option<Vec<String>>,
+    pub test: Option<TestValidatorConfig>,
+    pub scripts: Option<ScriptsConfig>,
+}
+
+impl TestTomlFile {
+    fn from_path(path: impl AsRef<Path>) -> Result<Self, anyhow::Error> {
+        let s = std::fs::read_to_string(&path)?;
+        let parsed_toml: Self = toml::from_str(&s)?;
+        let mut current_toml = TestTomlFile {
+            extends: None,
+            test: None,
+            scripts: None,
+        };
+        if let Some(bases) = &parsed_toml.extends {
+            for base in bases {
+                let mut canonical_base = base.clone();
+                canonical_base = canonicalize_filepath_from_origin(&canonical_base, &path)?;
+                current_toml.merge(TestTomlFile::from_path(&canonical_base)?);
+            }
+        }
+        current_toml.merge(parsed_toml);
+
+        if let Some(test) = &mut current_toml.test {
+            if let Some(genesis_programs) = &mut test.genesis {
+                for entry in genesis_programs {
+                    entry.program = canonicalize_filepath_from_origin(&entry.program, &path)?;
+                }
+            }
+            if let Some(validator) = &mut test.validator {
+                if let Some(accounts) = &mut validator.account {
+                    for entry in accounts {
+                        entry.filename = canonicalize_filepath_from_origin(&entry.filename, &path)?;
+                    }
+                }
+            }
+        }
+        Ok(current_toml)
+    }
+}
+
+impl From<TestTomlFile> for TestToml {
+    fn from(value: TestTomlFile) -> Self {
+        Self {
+            test: value.test,
+            scripts: value.scripts.unwrap_or_default(),
+        }
+    }
+}
+
+impl TestTomlFile {
+    fn merge(&mut self, other: Self) {
+        let mut my_scripts = self.scripts.take();
+        match &mut my_scripts {
+            None => my_scripts = other.scripts,
+            Some(my_scripts) => {
+                if let Some(other_scripts) = other.scripts {
+                    for (name, script) in other_scripts {
+                        my_scripts.insert(name, script);
+                    }
+                }
+            }
+        }
+
+        let mut my_test = self.test.take();
+        match &mut my_test {
+            Some(my_test) => {
+                if let Some(other_test) = other.test {
+                    if let Some(other_genesis) = other_test.genesis {
+                        match &mut my_test.genesis {
+                            Some(my_genesis) => {
+                                for other_entry in other_genesis {
+                                    match my_genesis
+                                        .iter()
+                                        .position(|g| *g.address == other_entry.address)
+                                    {
+                                        None => my_genesis.push(other_entry),
+                                        Some(i) => my_genesis[i] = other_entry,
+                                    }
+                                }
+                            }
+                            None => my_test.genesis = Some(other_genesis),
+                        }
+                    }
+                    let mut my_validator = my_test.validator.take();
+                    match &mut my_validator {
+                        None => my_validator = other_test.validator,
+                        Some(my_validator) => {
+                            if let Some(other_validator) = other_test.validator {
+                                my_validator.merge(other_validator)
+                            }
+                        }
+                    }
+
+                    my_test.validator = my_validator;
+                }
+            }
+            None => my_test = other.test,
+        };
+
+        // Instantiating a new Self object here ensures that
+        // this function will fail to compile if new fields get added
+        // to Self. This is useful as a reminder if they also require merging
+        *self = Self {
+            test: my_test,
+            scripts: my_scripts,
+            extends: self.extends.take(),
+        };
+    }
+}
+
+fn canonicalize_filepath_from_origin(
+    file_path: impl AsRef<Path>,
+    origin: impl AsRef<Path>,
+) -> Result<String> {
+    use anyhow::Context;
+    let previous_dir = std::env::current_dir()?;
+    std::env::set_current_dir(origin.as_ref().parent().unwrap())?;
+    let result = std::fs::canonicalize(&file_path)
+        .with_context(|| {
+            format!(
+                "Error reading (possibly relative) path: {}. If relative, this is the path that was used as the current path: {}",
+                &file_path.as_ref().display(),
+                &origin.as_ref().display()
+            )
+        })?
+        .display()
+        .to_string();
+    std::env::set_current_dir(previous_dir)?;
+    Ok(result)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestToml {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test: Option<TestValidatorConfig>,
+    pub scripts: ScriptsConfig,
+}
+impl TestToml {
+    pub fn from_path(p: impl AsRef<Path>) -> Result<Self> {
+        TestTomlFile::from_path(&p).map(Into::into).map_err(|e| {
+            anyhow!(
+                "Unable to read Test.toml at {}: {}",
+                p.as_ref().display(),
+                e
+            )
+        })
+    }
+}
+#[derive(Debug, Clone)]
+pub struct TestConfig {
+    pub test_suite_configs: HashMap<PathBuf, TestToml>,
+}
+
+impl TestConfig {
+    pub fn discover_test_toml(test_paths: Vec<PathBuf>) -> Result<Option<Self>> {
+        let mut test_suite_configs = HashMap::new();
+
+        for path in test_paths.into_iter() {
+            let test_toml = TestToml::from_path(path.clone())?;
+            test_suite_configs.insert(path, test_toml);
+        }
+
+        Ok(match test_suite_configs.is_empty() {
+            true => None,
+            false => Some(Self { test_suite_configs }),
+        })
     }
 }
 
@@ -239,6 +519,91 @@ pub struct WorkspaceConfig {
     pub exclude: Vec<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub types: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestValidatorConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub genesis: Option<Vec<GenesisEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validator: Option<ValidatorConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloneEntry {
+    // Base58 pubkey string.
+    pub address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<Vec<AccountEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_dir: Option<Vec<AccountDirEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clone: Option<Vec<CloneEntry>>,
+}
+
+impl ValidatorConfig {
+    fn merge(&mut self, other: Self) {
+        *self = Self {
+            account: match self.account.take() {
+                None => other.account,
+                Some(mut entries) => match other.account {
+                    None => Some(entries),
+                    Some(other_entries) => {
+                        for other_entry in other_entries {
+                            match entries
+                                .iter()
+                                .position(|my_entry| *my_entry.address == other_entry.address)
+                            {
+                                None => entries.push(other_entry),
+                                Some(i) => entries[i] = other_entry,
+                            };
+                        }
+                        Some(entries)
+                    }
+                },
+            },
+            account_dir: match self.account_dir.take() {
+                None => other.account_dir,
+                Some(mut entries) => match other.account_dir {
+                    None => Some(entries),
+                    Some(other_entries) => {
+                        for other_entry in other_entries {
+                            match entries
+                                .iter()
+                                .position(|my_entry| *my_entry.directory == other_entry.directory)
+                            {
+                                None => entries.push(other_entry),
+                                Some(i) => entries[i] = other_entry,
+                            };
+                        }
+                        Some(entries)
+                    }
+                },
+            },
+            clone: match self.clone.take() {
+                None => other.clone,
+                Some(mut entries) => match other.clone {
+                    None => Some(entries),
+                    Some(other_entries) => {
+                        for other_entry in other_entries {
+                            match entries
+                                .iter()
+                                .position(|my_entry| *my_entry.address == other_entry.address)
+                            {
+                                None => entries.push(other_entry),
+                                Some(i) => entries[i] = other_entry,
+                            };
+                        }
+                        Some(entries)
+                    }
+                },
+            },
+        };
+    }
 }
 
 fn deser_programs(

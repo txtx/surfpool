@@ -1,0 +1,37 @@
+protocol: Pyth
+version: v2
+account_type: PriceUpdateV2
+idl_file_path: pyth_price_store.json
+
+tags:
+  - oracle
+  - price-feed
+  - defi
+
+templates:
+  - id: pyth-btc-usd-v2
+    name: Override BTC/USD Price Feed
+    description: Override Pyth BTC/USD price feed with custom price data
+    idl_account_name: PriceUpdateV2
+    properties: ["price_message.price", "price_message.publish_time"]
+    address:
+      type: pubkey
+      value: 4cSM2e6rvbGQUFiJbqytoVMi5GgghSMr8LwVrT9VPSPo
+
+  - id: pyth-eth-btc-v2
+    name: Override ETH/BTC Price Feed
+    description: Override Pyth ETH/BTC price feed with custom price data
+    idl_account_name: PriceUpdateV2
+    properties: ["price_message.price", "price_message.publish_time"]
+    address:
+      type: pubkey
+      value: 5JwbqPPMNpzE2jVAdobWo6m5gkhsDhRdGBo3FYbSfmaK
+
+  - id: pyth-eth-usd-v2
+    name: Override ETH/USD Price Feed
+    description: Override Pyth ETH/USD price feed with custom price data
+    idl_account_name: PriceUpdateV2
+    properties: ["price_message.price", "price_message.publish_time"]
+    address:
+      type: pubkey
+      value: 42amVS4KgzR9rA28tkVYqVXjq9Qa8dcZQMbH5EYFX6XC

@@ -36,7 +36,10 @@ use super::{Context, ExecuteRunbook, StartSimnet};
 use crate::{
     http::start_subgraph_and_explorer_server,
     runbook::{execute_in_memory_runbook, execute_on_disk_runbook, handle_log_event},
-    scaffold::{detect_program_frameworks, scaffold_iac_layout, scaffold_in_memory_iac},
+    scaffold::{
+        ProgramFrameworkData, detect_program_frameworks, scaffold_iac_layout,
+        scaffold_in_memory_iac,
+    },
     tui::{self, simnet::DisplayedUrl},
 };
 
@@ -79,9 +82,16 @@ pub async fn handle_start_local_surfnet_command(
     let config = cmd.surfpool_config(airdrop_addresses);
 
     let studio_binding_address = config.studio.get_studio_base_url();
-    let rpc_url = format!("http://{}", config.rpc.get_rpc_base_url());
-    let ws_url = format!("ws://{}", config.rpc.get_ws_base_url());
-    let studio_url = format!("http://{}", studio_binding_address);
+
+    // Allow overriding public-facing URLs via environment variables
+    // This is useful when running behind a reverse proxy (e.g., Caddy, nginx)
+    let rpc_url = std::env::var("SURFPOOL_PUBLIC_RPC_URL")
+        .unwrap_or_else(|_| format!("http://{}", config.rpc.get_rpc_base_url()));
+    let ws_url = std::env::var("SURFPOOL_PUBLIC_WS_URL")
+        .unwrap_or_else(|_| format!("ws://{}", config.rpc.get_ws_base_url()));
+    let studio_url = std::env::var("SURFPOOL_PUBLIC_STUDIO_URL")
+        .unwrap_or_else(|_| format!("http://{}", studio_binding_address));
+
     let graphql_query_route_url = format!("{}/workspace/v1/graphql", studio_url);
     let rpc_datasource_url = config.simnets[0].get_sanitized_datasource_url();
 
@@ -103,6 +113,7 @@ pub async fn handle_start_local_surfnet_command(
         subgraph_events_tx.clone(),
         subgraph_commands_rx,
         ctx,
+        !cmd.no_studio,
     )
     .await
     {
@@ -153,9 +164,10 @@ pub async fn handle_start_local_surfnet_command(
         let _ = simnet_events_tx.send(event);
     }
 
+    let simnet_commands_tx_copy = simnet_commands_tx.clone();
     let mut deploy_progress_rx = vec![];
     if !cmd.no_deploy {
-        match write_and_execute_iac(&cmd, &simnet_events_tx).await {
+        match write_and_execute_iac(&cmd, &simnet_events_tx, &simnet_commands_tx_copy).await {
             Ok(rx) => deploy_progress_rx.push(rx),
             Err(e) => {
                 let _ = simnet_events_tx.send(SimnetEvent::warn(format!(
@@ -168,7 +180,10 @@ pub async fn handle_start_local_surfnet_command(
     // Non blocking check for new versions
     #[cfg(feature = "version_check")]
     {
-        let local_version = env!("CARGO_PKG_VERSION");
+        let mut local_version = env!("CARGO_PKG_VERSION").to_string();
+        if cmd.ci {
+            local_version = format!("{}-ci", local_version);
+        }
         let response = txtx_gql::kit::reqwest::get(format!(
             "{}/api/versions?v=/{}",
             super::DEFAULT_CLOUD_URL,
@@ -225,13 +240,14 @@ async fn start_service(
     } else {
         DisplayedUrl::Studio(sanitized_config)
     };
+    let include_debug_logs = cmd.log_level.to_lowercase().eq("debug");
 
     // Start frontend - kept on main thread
     if cmd.daemon || cmd.no_tui {
         log_events(
             simnet_events_rx,
             subgraph_events_rx,
-            cmd.debug,
+            include_debug_logs,
             deploy_progress_rx,
             simnet_commands_tx,
             runloop_terminator.unwrap(),
@@ -240,7 +256,7 @@ async fn start_service(
         tui::simnet::start_app(
             simnet_events_rx,
             simnet_commands_tx,
-            cmd.debug,
+            include_debug_logs,
             deploy_progress_rx,
             displayed_url,
             breaker,
@@ -305,11 +321,7 @@ fn log_events(
                     SimnetEvent::EpochInfoUpdate(_) => {
                         info!("{}", event.epoch_info_update_msg());
                     }
-                    SimnetEvent::SystemClockUpdated(_) => {
-                        if include_debug_logs {
-                            info!("{}", event.clock_update_msg());
-                        }
-                    }
+                    SimnetEvent::SystemClockUpdated(_) => {}
                     SimnetEvent::ClockUpdate(_) => {}
                     SimnetEvent::ErrorLog(_dt, log) => {
                         error!("{}", log);
@@ -318,9 +330,7 @@ fn log_events(
                         info!("{}", log);
                     }
                     SimnetEvent::DebugLog(_dt, log) => {
-                        if include_debug_logs {
-                            debug!("{}", log);
-                        }
+                        debug!("{}", log);
                     }
                     SimnetEvent::WarnLog(_dt, log) => {
                         warn!("{}", log);
@@ -384,9 +394,7 @@ fn log_events(
                         info!("{}", log);
                     }
                     SubgraphEvent::DebugLog(_dt, log) => {
-                        if include_debug_logs {
-                            info!("{}", log);
-                        }
+                        debug!("{}", log);
                     }
                     SubgraphEvent::WarnLog(_dt, log) => {
                         warn!("{}", log);
@@ -424,21 +432,45 @@ fn log_events(
 async fn write_and_execute_iac(
     cmd: &StartSimnet,
     simnet_events_tx: &Sender<SimnetEvent>,
+    simnet_commands_tx: &Sender<SimnetCommand>,
 ) -> Result<Receiver<BlockEvent>, String> {
     // Are we in a project directory?
-    let deployment = detect_program_frameworks(&cmd.manifest_path)
+    let deployment = detect_program_frameworks(&cmd.manifest_path, &cmd.anchor_test_config_paths)
         .await
         .map_err(|e| format!("Failed to detect project framework: {}", e))?;
 
     let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-    if let Some((framework, programs)) = deployment {
+    if let Some(ProgramFrameworkData {
+        framework,
+        programs,
+        genesis_accounts,
+        accounts,
+        accounts_dir,
+        clones,
+    }) = deployment
+    {
+        if let Some(clones) = clones.as_ref() {
+            if !clones.is_empty() {
+                let _ = simnet_commands_tx.try_send(SimnetCommand::FetchRemoteAccounts(
+                    clones
+                        .iter()
+                        .map(|c| {
+                            c.parse()
+                                .map_err(|e| format!("Failed to parse clone address {}: {}", c, e))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                    cmd.datasource_rpc_url(),
+                ));
+            }
+        }
+
         // Is infrastructure-as-code (IaC) already setup?
         let base_location =
             FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
         let mut txtx_manifest_location = base_location.clone();
         txtx_manifest_location.append_path("txtx.yml")?;
         let txtx_manifest_exists = txtx_manifest_location.exists();
-        let do_write_scaffold = !cmd.autopilot && !txtx_manifest_exists;
+        let do_write_scaffold = !cmd.anchor_compat && !txtx_manifest_exists;
         if do_write_scaffold {
             // Scaffold IaC
             scaffold_iac_layout(
@@ -452,12 +484,18 @@ async fn write_and_execute_iac(
         // If there were existing on-disk runbooks, we'll execute those instead of in-memory ones
         // If there were no existing runbooks and the user requested autopilot, we'll generate and execute in-memory runbooks
         // If there were no existing runbooks and the user did not request autopilot, we'll generate and execute on-disk runbooks
-        let do_execute_in_memory_runbooks = cmd.autopilot && !txtx_manifest_exists;
+        let do_execute_in_memory_runbooks = cmd.anchor_compat && !txtx_manifest_exists;
 
         let mut on_disk_runbook_data = None;
         let mut in_memory_runbook_data = None;
         if do_execute_in_memory_runbooks {
-            in_memory_runbook_data = Some(scaffold_in_memory_iac(&framework, &programs)?);
+            in_memory_runbook_data = Some(scaffold_in_memory_iac(
+                &framework,
+                &programs,
+                &genesis_accounts,
+                &accounts,
+                &accounts_dir,
+            )?);
         } else {
             let runbooks_ids_to_execute = cmd.runbooks.clone();
             on_disk_runbook_data = Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));

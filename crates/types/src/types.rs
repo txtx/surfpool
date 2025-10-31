@@ -12,7 +12,7 @@ use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Visitor};
 use serde_with::{BytesOrString, serde_as};
 use solana_account::Account;
-use solana_account_decoder_client_types::{UiAccount, UiAccountEncoding};
+use solana_account_decoder_client_types::{ParsedAccount, UiAccount, UiAccountEncoding};
 use solana_clock::{Clock, Epoch, Slot};
 use solana_epoch_info::EpochInfo;
 use solana_message::inner_instruction::InnerInstructionsList;
@@ -58,6 +58,32 @@ pub enum BlockProductionMode {
     Clock,
     Transaction,
     Manual,
+}
+
+impl fmt::Display for BlockProductionMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BlockProductionMode::Clock => write!(f, "clock"),
+            BlockProductionMode::Transaction => write!(f, "transaction"),
+            BlockProductionMode::Manual => write!(f, "manual"),
+        }
+    }
+}
+
+impl FromStr for BlockProductionMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "clock" => Ok(BlockProductionMode::Clock),
+            "transaction" => Ok(BlockProductionMode::Transaction),
+            "manual" => Ok(BlockProductionMode::Manual),
+            _ => Err(format!(
+                "Invalid block production mode: {}. Valid values are: clock, transaction, manual",
+                s
+            )),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -455,8 +481,9 @@ pub enum SimnetCommand {
     SlotBackward(Option<Hash>),
     CommandClock(Option<(Hash, String)>, ClockCommand),
     UpdateInternalClock(Option<(Hash, String)>, Clock),
+    UpdateInternalClockWithConfirmation(Option<(Hash, String)>, Clock, Sender<EpochInfo>),
     UpdateBlockProductionMode(BlockProductionMode),
-    TransactionReceived(
+    ProcessTransaction(
         Option<(Hash, String)>,
         VersionedTransaction,
         Sender<TransactionStatusEvent>,
@@ -465,11 +492,15 @@ pub enum SimnetCommand {
     Terminate(Option<(Hash, String)>),
     StartRunbookExecution(String),
     CompleteRunbookExecution(String, Option<Vec<String>>),
+    FetchRemoteAccounts(Vec<Pubkey>, String),
+    AirdropProcessed,
 }
 
 #[derive(Debug)]
 pub enum ClockCommand {
     Pause,
+    /// Pause with confirmation - sends epoch info back when actually paused
+    PauseWithConfirmation(Sender<EpochInfo>),
     Resume,
     Toggle,
     UpdateSlotInterval(u64),
@@ -890,6 +921,10 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
         self.map.len()
     }
 
+    pub fn clear(&mut self) {
+        self.map.clear();
+    }
+
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
@@ -929,17 +964,85 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSnapshot {
+    pub lamports: u64,
+    pub owner: String,
+    pub executable: bool,
+    pub rent_epoch: u64,
+    /// Base64 encoded data
+    pub data: String,
+    /// Parsed account data if available
+    pub parsed_data: Option<ParsedAccount>,
+}
+
+impl AccountSnapshot {
+    pub fn new(
+        lamports: u64,
+        owner: String,
+        executable: bool,
+        rent_epoch: u64,
+        data: String,
+        parsed_data: Option<ParsedAccount>,
+    ) -> Self {
+        Self {
+            lamports,
+            owner,
+            executable,
+            rent_epoch,
+            data,
+            parsed_data,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSnapshotConfig {
+    pub include_parsed_accounts: Option<bool>,
+    pub filter: Option<ExportSnapshotFilter>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSnapshotFilter {
+    pub include_program_accounts: Option<bool>,
+    pub include_accounts: Option<Vec<String>>,
+    pub exclude_accounts: Option<Vec<String>>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ResetAccountConfig {
-    pub recursive: Option<bool>,
+    pub include_owned_accounts: Option<bool>,
 }
 
 impl Default for ResetAccountConfig {
     fn default() -> Self {
         Self {
-            recursive: Some(false),
+            include_owned_accounts: Some(false),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StreamAccountConfig {
+    pub include_owned_accounts: Option<bool>,
+}
+
+impl Default for StreamAccountConfig {
+    fn default() -> Self {
+        Self {
+            include_owned_accounts: Some(false),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamedAccountInfo {
+    pub pubkey: String,
+    pub include_owned_accounts: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -950,6 +1053,24 @@ pub struct GetSurfnetInfoResponse {
 impl GetSurfnetInfoResponse {
     pub fn new(runbook_executions: Vec<RunbookExecutionStatusReport>) -> Self {
         Self { runbook_executions }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetStreamedAccountsResponse {
+    accounts: Vec<StreamedAccountInfo>,
+}
+impl GetStreamedAccountsResponse {
+    pub fn new(streamed_accounts: &HashMap<Pubkey, bool>) -> Self {
+        let mut accounts = vec![];
+        for (pubkey, include_owned_accounts) in streamed_accounts {
+            accounts.push(StreamedAccountInfo {
+                pubkey: pubkey.to_string(),
+                include_owned_accounts: *include_owned_accounts,
+            });
+        }
+        Self { accounts }
     }
 }
 

@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, RwLock, atomic},
 };
 
+use crossbeam_channel::TryRecvError;
 use jsonrpc_core::{Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_pubsub::{
@@ -576,6 +577,88 @@ pub trait Rpc {
         meta: Option<Self::Metadata>,
         subscription: SubscriptionId,
     ) -> Result<bool>;
+
+    #[pubsub(subscription = "rootNotification", subscribe, name = "rootSubscribe")]
+    fn root_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<RpcResponse<()>>);
+
+    #[pubsub(
+        subscription = "rootNotification",
+        unsubscribe,
+        name = "rootUnsubscribe"
+    )]
+    fn root_unsubscribe(
+        &self,
+        meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool>;
+
+    #[pubsub(
+        subscription = "programNotification",
+        subscribe,
+        name = "programSubscribe"
+    )]
+    fn program_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<RpcResponse<()>>);
+
+    #[pubsub(
+        subscription = "programNotification",
+        unsubscribe,
+        name = "ProgramUnsubscribe"
+    )]
+    fn program_unsubscribe(
+        &self,
+        meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool>;
+
+    #[pubsub(
+        subscription = "slotsUpdatesNotification",
+        subscribe,
+        name = "slotsUpdatesSubscribe"
+    )]
+    fn slots_updates_subscribe(
+        &self,
+        meta: Self::Metadata,
+        subscriber: Subscriber<RpcResponse<()>>,
+    );
+
+    #[pubsub(
+        subscription = "slotsUpdatesNotification",
+        unsubscribe,
+        name = "slotsUpdatesUnsubscribe"
+    )]
+    fn slots_updates_unsubscribe(
+        &self,
+        meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool>;
+
+    #[pubsub(subscription = "blockNotification", subscribe, name = "blockSubscribe")]
+    fn block_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<RpcResponse<()>>);
+
+    #[pubsub(
+        subscription = "blockNotification",
+        unsubscribe,
+        name = "blockUnsubscribe"
+    )]
+    fn block_unsubscribe(
+        &self,
+        meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool>;
+
+    #[pubsub(subscription = "voteNotification", subscribe, name = "voteSubscribe")]
+    fn vote_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<RpcResponse<()>>);
+
+    #[pubsub(
+        subscription = "voteNotification",
+        unsubscribe,
+        name = "voteUnsubscribe"
+    )]
+    fn vote_unsubscribe(
+        &self,
+        meta: Option<Self::Metadata>,
+        subscription: SubscriptionId,
+    ) -> Result<bool>;
 }
 
 /// WebSocket RPC server implementation for Surfpool.
@@ -651,6 +734,10 @@ impl Rpc for SurfpoolWsRpc {
         signature_str: String,
         config: Option<RpcSignatureSubscribeConfig>,
     ) {
+        let _ = meta
+            .as_ref()
+            .map(|m| m.log_debug("Websocket 'signature_subscribe' connection established"));
+
         let signature = match Signature::from_str(&signature_str) {
             Ok(sig) => sig,
             Err(_) => {
@@ -745,8 +832,20 @@ impl Rpc for SurfpoolWsRpc {
                         Some(TransactionConfirmationStatus::Processed),
                     )
                     | (
+                        &SignatureSubscriptionType::Commitment(CommitmentLevel::Processed),
+                        Some(TransactionConfirmationStatus::Confirmed),
+                    )
+                    | (
+                        &SignatureSubscriptionType::Commitment(CommitmentLevel::Processed),
+                        Some(TransactionConfirmationStatus::Finalized),
+                    )
+                    | (
                         &SignatureSubscriptionType::Commitment(CommitmentLevel::Confirmed),
                         Some(TransactionConfirmationStatus::Confirmed),
+                    )
+                    | (
+                        &SignatureSubscriptionType::Commitment(CommitmentLevel::Confirmed),
+                        Some(TransactionConfirmationStatus::Finalized),
                     )
                     | (
                         &SignatureSubscriptionType::Commitment(CommitmentLevel::Finalized),
@@ -757,7 +856,9 @@ impl Rpc for SurfpoolWsRpc {
                                 let _ = sink.notify(Ok(RpcResponse {
                                     context: RpcResponseContext::new(tx.slot),
                                     value: RpcSignatureResult::ProcessedSignature(
-                                        ProcessedSignatureResult { err: None },
+                                        ProcessedSignatureResult {
+                                            err: tx.err.map(|e| e.into()),
+                                        },
                                     ),
                                 }));
                             }
@@ -773,17 +874,33 @@ impl Rpc for SurfpoolWsRpc {
                 svm_locker.subscribe_for_signature_updates(&signature, subscription_type.clone());
 
             loop {
-                let Ok((slot, some_err)) = rx.try_recv() else {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                    continue;
+                let (slot, some_err) = match rx.try_recv() {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        match e {
+                            TryRecvError::Empty => {
+                                // no update yet, continue
+                                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                                continue;
+                            }
+                            TryRecvError::Disconnected => {
+                                warn!(
+                                    "Signature subscription channel closed for sub id {:?}",
+                                    sub_id
+                                );
+                                // channel closed, exit loop
+                                break;
+                            }
+                        }
+                    }
                 };
 
-                let Ok(guard) = active.read() else {
+                let Ok(mut guard) = active.write() else {
                     log::error!("Failed to acquire read lock on signature_subscription_map");
                     break;
                 };
 
-                let Some(sink) = guard.get(&sub_id) else {
+                let Some(sink) = guard.remove(&sub_id) else {
                     log::error!("Failed to get sink for subscription ID");
                     break;
                 };
@@ -798,10 +915,14 @@ impl Rpc for SurfpoolWsRpc {
                     SignatureSubscriptionType::Commitment(_) => sink.notify(Ok(RpcResponse {
                         context: RpcResponseContext::new(slot),
                         value: RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
-                            err: some_err,
+                            err: some_err.map(|e| e.into()),
                         }),
                     })),
                 };
+
+                if guard.is_empty() {
+                    break;
+                }
 
                 if let Err(e) = res {
                     log::error!("Failed to notify client about account update: {e}");
@@ -872,6 +993,10 @@ impl Rpc for SurfpoolWsRpc {
         pubkey_str: String,
         config: Option<RpcAccountSubscribeConfig>,
     ) {
+        let _ = meta
+            .as_ref()
+            .map(|m| m.log_debug("Websocket 'account_subscribe' connection established"));
+
         let pubkey = match Pubkey::from_str(&pubkey_str) {
             Ok(pk) => pk,
             Err(_) => {
@@ -1002,6 +1127,10 @@ impl Rpc for SurfpoolWsRpc {
     }
 
     fn slot_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<SlotInfo>) {
+        let _ = meta
+            .as_ref()
+            .map(|m| m.log_debug("Websocket 'slot_subscribe' connection established"));
+
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
         let sink = match subscriber.assign_id(sub_id.clone()) {
@@ -1097,6 +1226,10 @@ impl Rpc for SurfpoolWsRpc {
         mentions: Option<RpcTransactionLogsFilter>,
         commitment: Option<CommitmentConfig>,
     ) {
+        let _ = meta
+            .as_ref()
+            .map(|m| m.log_debug("Websocket 'logs_subscribe' connection established"));
+
         let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
         let sub_id = SubscriptionId::Number(id as u64);
         let sink = match subscriber.assign_id(sub_id.clone()) {
@@ -1188,6 +1321,80 @@ impl Rpc for SurfpoolWsRpc {
                 data: None,
             });
         };
+        Ok(true)
+    }
+
+    fn root_subscribe(&self, meta: Self::Metadata, _subscriber: Subscriber<RpcResponse<()>>) {
+        let _ = meta
+            .as_ref()
+            .map(|m| m.log_warn("Websocket method 'root_subscribe' is uninmplemented"));
+    }
+
+    fn root_unsubscribe(
+        &self,
+        _meta: Option<Self::Metadata>,
+        _subscription: SubscriptionId,
+    ) -> Result<bool> {
+        Ok(true)
+    }
+
+    fn program_subscribe(&self, meta: Self::Metadata, _subscriber: Subscriber<RpcResponse<()>>) {
+        let _ = meta
+            .as_ref()
+            .map(|m| m.log_warn("Websocket method 'program_subscribe' is uninmplemented"));
+    }
+
+    fn program_unsubscribe(
+        &self,
+        _meta: Option<Self::Metadata>,
+        _subscription: SubscriptionId,
+    ) -> Result<bool> {
+        Ok(true)
+    }
+
+    fn slots_updates_subscribe(
+        &self,
+        meta: Self::Metadata,
+        _subscriber: Subscriber<RpcResponse<()>>,
+    ) {
+        let _ = meta
+            .as_ref()
+            .map(|m| m.log_warn("Websocket method 'slots_updates_subscribe' is uninmplemented"));
+    }
+
+    fn slots_updates_unsubscribe(
+        &self,
+        _meta: Option<Self::Metadata>,
+        _subscription: SubscriptionId,
+    ) -> Result<bool> {
+        Ok(true)
+    }
+
+    fn block_subscribe(&self, meta: Self::Metadata, _subscriber: Subscriber<RpcResponse<()>>) {
+        let _ = meta
+            .as_ref()
+            .map(|m| m.log_warn("Websocket method 'block_subscribe' is uninmplemented"));
+    }
+
+    fn block_unsubscribe(
+        &self,
+        _meta: Option<Self::Metadata>,
+        _subscription: SubscriptionId,
+    ) -> Result<bool> {
+        Ok(true)
+    }
+
+    fn vote_subscribe(&self, meta: Self::Metadata, _subscriber: Subscriber<RpcResponse<()>>) {
+        let _ = meta
+            .as_ref()
+            .map(|m| m.log_warn("Websocket method 'vote_subscribe' is uninmplemented"));
+    }
+
+    fn vote_unsubscribe(
+        &self,
+        _meta: Option<Self::Metadata>,
+        _subscription: SubscriptionId,
+    ) -> Result<bool> {
         Ok(true)
     }
 }
