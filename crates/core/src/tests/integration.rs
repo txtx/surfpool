@@ -10,8 +10,7 @@ use jsonrpc_core_client::transports::http;
 use solana_account::Account;
 use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount};
 use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
-use solana_client::rpc_config::RpcSimulateTransactionConfig;
-use solana_client::rpc_response::RpcLogsResponse;
+use solana_client::{rpc_config::RpcSimulateTransactionConfig, rpc_response::RpcLogsResponse};
 use solana_clock::{Clock, Slot};
 use solana_commitment_config::CommitmentConfig;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
@@ -29,7 +28,6 @@ use solana_system_interface::{
     instruction as system_instruction, instruction::transfer, program as system_program,
 };
 use solana_transaction::{Transaction, versioned::VersionedTransaction};
-use std::collections::HashSet;
 use surfpool_types::{
     DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
     SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
