@@ -781,7 +781,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     render_footer(f, app, rects[2].inner(Margin::new(2, 1)));
 }
 
-fn title_block<'a>(title: &'a str, alignment: Alignment) -> Block<'a> {
+fn title_block(title: &str, alignment: Alignment) -> Block<'_> {
     let title = Line::from(title).alignment(alignment);
     Block::new().borders(Borders::NONE).title(title)
 }
