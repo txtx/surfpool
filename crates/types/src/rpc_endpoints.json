@@ -741,6 +741,28 @@
             }
           ],
           "returns": "A `RpcResponse<Vec<ProfileResult>>` containing the profiling results."
+        },
+        {
+          "method": "surfnet_writeProgram",
+          "description": "Writes program data at a specified offset for large program deployments. Supports writing programs of any size by batching data in chunks. Leverages RPC size limits (5MB) instead of transaction size limits.",
+          "params": [
+            {
+              "name": "program_id",
+              "type": "string",
+              "description": "The base-58 encoded public key of the program to write to."
+            },
+            {
+              "name": "data",
+              "type": "string",
+              "description": "Hex-encoded program data chunk to write."
+            },
+            {
+              "name": "offset",
+              "type": "number",
+              "description": "The byte offset at which to write this data chunk."
+            }
+          ],
+          "returns": "A `RpcResponse<()>` indicating whether the write was successful."
         }
       ]
     },
