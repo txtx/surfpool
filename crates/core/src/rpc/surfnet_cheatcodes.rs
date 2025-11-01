@@ -964,6 +964,55 @@ pub trait SurfnetCheatcodes {
     #[rpc(meta, name = "surfnet_getSurfnetInfo")]
     fn get_surfnet_info(&self, meta: Self::Metadata)
     -> Result<RpcResponse<GetSurfnetInfoResponse>>;
+    
+    /// A "cheat code" method for developers to write program data at a specified offset in Surfpool.
+    ///
+    /// This method allows developers to write large Solana programs by sending data in chunks,
+    /// bypassing transaction size limits by using RPC size limits (5MB) instead.
+    ///
+    /// ## Parameters
+    /// - `program_id`: The public key of the program account, as a base-58 encoded string.
+    /// - `data`: Hex-encoded program data chunk to write.
+    /// - `offset`: The byte offset at which to write this data chunk.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the write was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_writeProgram",
+    ///   "params": [
+    ///     "program_pubkey",
+    ///     "deadbeef...",
+    ///     0
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// This method is designed to help developers deploy large programs by writing data incrementally.
+    /// Multiple calls can be made with different offsets to build the complete program.
+    /// The program account and program data account will be created automatically if they don't exist.
+    #[rpc(meta, name = "surfnet_writeProgram")]
+    fn write_program(
+        &self,
+        meta: Self::Metadata,
+        program_id: String,
+        data: String,
+        offset: u64,
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
 
     /// A cheat code to register a scenario with account overrides.
     ///
@@ -1661,45 +1710,292 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         })
     }
 
-    fn get_surfnet_info(
-        &self,
-        meta: Self::Metadata,
-    ) -> Result<RpcResponse<GetSurfnetInfoResponse>> {
-        let svm_locker = meta.get_svm_locker()?;
-        let runbook_executions = svm_locker.runbook_executions();
-        Ok(RpcResponse {
-            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
-            value: GetSurfnetInfoResponse::new(runbook_executions),
-        })
+   fn get_surfnet_info(
+    &self,
+    meta: Self::Metadata,
+) -> Result<RpcResponse<GetSurfnetInfoResponse>> {
+    let svm_locker = meta.get_svm_locker()?;
+    let runbook_executions = svm_locker.runbook_executions();
+    Ok(RpcResponse {
+        context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+        value: GetSurfnetInfoResponse::new(runbook_executions),
+    })
+}
+fn write_program(
+    &self,
+    meta: Self::Metadata,
+    program_id_str: String,
+    data_hex: String,
+    offset: u64,
+) -> BoxFuture<Result<RpcResponse<()>>> {
+    // Validate program_id
+    let program_id = match verify_pubkey(&program_id_str) {
+        Ok(res) => res,
+        Err(e) => return e.into(),
+    };
+
+    // Decode hex data
+    let data = match hex::decode(&data_hex) {
+        Ok(data) => data,
+        Err(e) => {
+            return Box::pin(future::err(Error::invalid_params(format!(
+                "Invalid hex data provided: {}",
+                e
+            ))))
+        }
+    };
+
+    // Validate offset doesn't cause overflow
+    if let Some(end_offset) = offset.checked_add(data.len() as u64) {
+        if end_offset > u64::MAX {
+            return Box::pin(future::err(Error::invalid_params(
+                "Data write would exceed maximum account size",
+            )));
+        }
+    } else {
+        return Box::pin(future::err(Error::invalid_params(
+            "Offset + data length causes integer overflow",
+        )));
     }
 
-    fn export_snapshot(
-        &self,
-        meta: Self::Metadata,
-        config: Option<ExportSnapshotConfig>,
-    ) -> Result<RpcResponse<BTreeMap<String, AccountSnapshot>>> {
-        let config = config.unwrap_or_default();
-        let svm_locker = meta.get_svm_locker()?;
-        let snapshot = svm_locker.export_snapshot(config);
-        Ok(RpcResponse {
-            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
-            value: snapshot,
-        })
-    }
+    let SurfnetRpcContext {
+        svm_locker,
+        remote_ctx,
+    } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+        Ok(res) => res,
+        Err(e) => return e.into(),
+    };
 
-    fn register_scenario(
-        &self,
-        meta: Self::Metadata,
-        scenario: Scenario,
-        slot: Option<Slot>,
-    ) -> Result<RpcResponse<()>> {
-        let svm_locker = meta.get_svm_locker()?;
-        svm_locker.register_scenario(scenario, slot)?;
+    Box::pin(async move {
+        // Calculate program data address
+        let program_data_address = 
+            solana_loader_v3_interface::get_program_data_address(&program_id);
+
+        // Get or create program account
+        let SvmAccessContext {
+            slot,
+            inner: program_account_result,
+            ..
+        } = svm_locker
+            .get_account(
+                &remote_ctx,
+                &program_id,
+                Some(Box::new(move |svm_locker| {
+                    // Create default program account if it doesn't exist
+                    let program_state = 
+                        solana_loader_v3_interface::state::UpgradeableLoaderState::Program {
+                            programdata_address: program_data_address,
+                        };
+                    let program_data = bincode::serialize(&program_state)
+                        .expect("Failed to serialize program state");
+                    let program_lamports = svm_locker.with_svm_reader(|svm_reader| {
+                        svm_reader
+                            .inner
+                            .minimum_balance_for_rent_exemption(program_data.len())
+                    });
+
+                    let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
+                        format!("Creating program account {} with program data address {}", 
+                            program_id, program_data_address)
+                    ));
+
+                    GetAccountResult::FoundAccount(
+                        program_id,
+                        solana_account::Account {
+                            lamports: program_lamports,
+                            data: program_data,
+                            owner: solana_sdk_ids::bpf_loader_upgradeable::id(),
+                            executable: true,
+                            rent_epoch: 0,
+                        },
+                        true,
+                    )
+                })),
+            )
+            .await?;
+
+        // Check if account was created before consuming it
+        let was_program_created = matches!(program_account_result, GetAccountResult::FoundAccount(_, _, true));
+
+        // Ensure we have a valid program account
+        let program_account = program_account_result.map_account()?;
+        
+        // Validate it's owned by the upgradeable loader
+        if program_account.owner != solana_sdk_ids::bpf_loader_upgradeable::id() {
+            return Err(Error::invalid_params(format!(
+                "Account {} is not owned by the BPF Upgradeable Loader",
+                program_id
+            )));
+        }
+
+        // Validate it's an executable program account
+        if !program_account.executable {
+            return Err(Error::invalid_params(format!(
+                "Account {} is not executable",
+                program_id
+            )));
+        }
+
+        // Persist the program account if it was newly created
+        if was_program_created {
+            svm_locker.write_account_update(GetAccountResult::FoundAccount(
+                program_id,
+                program_account.clone(),
+                true,
+            ));
+        }
+
+        // Get or create program data account
+        let SvmAccessContext {
+            inner: program_data_result,
+            ..
+        } = svm_locker
+            .get_account(
+                &remote_ctx,
+                &program_data_address,
+                Some(Box::new(move |svm_locker| {
+                    // Create default program data account if it doesn't exist
+                    let programdata_state = 
+                        solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
+                            slot: svm_locker.get_latest_absolute_slot(),
+                            upgrade_authority_address: Some(system_program::id()),
+                        };
+                    let mut programdata_data = bincode::serialize(&programdata_state)
+                        .expect("Failed to serialize program data state");
+                    
+                    // Add empty program data (will be filled by writes)
+                    programdata_data.extend(vec![0u8; 0]);
+                    
+                    let programdata_lamports = svm_locker.with_svm_reader(|svm_reader| {
+                        svm_reader
+                            .inner
+                            .minimum_balance_for_rent_exemption(programdata_data.len())
+                    });
+
+                    let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
+                        format!("Creating program data account {} for program {}", 
+                            program_data_address, program_id)
+                    ));
+
+                    GetAccountResult::FoundAccount(
+                        program_data_address,
+                        solana_account::Account {
+                            lamports: programdata_lamports,
+                            data: programdata_data,
+                            owner: solana_sdk_ids::bpf_loader_upgradeable::id(),
+                            executable: false,
+                            rent_epoch: 0,
+                        },
+                        true,
+                    )
+                })),
+            )
+            .await?;
+
+        // Get mutable program data account
+        let mut program_data_account = program_data_result.map_account()?;
+
+        // Calculate metadata size
+        let metadata_size = 
+            solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata();
+
+        // Verify program data account has valid state (only if it has enough data)
+        if program_data_account.data.len() >= metadata_size {
+            match bincode::deserialize::<solana_loader_v3_interface::state::UpgradeableLoaderState>(
+                &program_data_account.data[..metadata_size]
+            ) {
+                Ok(solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData { .. }) => {
+                    // Valid - continue
+                }
+                Ok(_) => {
+                    return Err(Error::invalid_params(format!(
+                        "Account {} is not a program data account",
+                        program_data_address
+                    )));
+                }
+                Err(e) => {
+                    return Err(Error::invalid_params(format!(
+                        "Invalid program data account state: {}", e
+                    )));
+                }
+            }
+        }
+        
+        // Calculate absolute offset in account data (metadata + offset)
+        let absolute_offset = metadata_size as u64 + offset;
+        let end_offset = absolute_offset + data.len() as u64;
+
+        // Expand account data if necessary
+        if end_offset > program_data_account.data.len() as u64 {
+            let new_size = end_offset as usize;
+            program_data_account.data.resize(new_size, 0);
+            
+            // Update lamports for rent exemption
+            let new_lamports = svm_locker.with_svm_reader(|svm_reader| {
+                svm_reader
+                    .inner
+                    .minimum_balance_for_rent_exemption(new_size)
+            });
+            program_data_account.lamports = new_lamports;
+
+            let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
+                format!("Expanding program data account to {} bytes", new_size)
+            ));
+        }
+
+        // Write data at the specified offset
+        program_data_account.data[absolute_offset as usize..end_offset as usize]
+            .copy_from_slice(&data);
+
+        // Update the account in SVM
+        svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer.set_account(&program_data_address, program_data_account.clone())?;
+            Ok::<(), SurfpoolError>(())
+        })?;
+
+        let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(
+            format!(
+                "Wrote {} bytes to program {} at offset {}",
+                data.len(),
+                program_id,
+                offset
+            )
+        ));
+
         Ok(RpcResponse {
-            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            context: RpcResponseContext::new(slot),
             value: (),
         })
-    }
+    })
+}
+
+fn export_snapshot(
+    &self,
+    meta: Self::Metadata,
+    config: Option<ExportSnapshotConfig>,
+) -> Result<RpcResponse<BTreeMap<String, AccountSnapshot>>> {
+    let config = config.unwrap_or_default();
+    let svm_locker = meta.get_svm_locker()?;
+    let snapshot = svm_locker.export_snapshot(config);
+    Ok(RpcResponse {
+        context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+        value: snapshot,
+    })
+}
+
+fn register_scenario(
+    &self,
+    meta: Self::Metadata,
+    scenario: Scenario,
+    slot: Option<Slot>,
+) -> Result<RpcResponse<()>> {
+    let svm_locker = meta.get_svm_locker()?;
+    svm_locker.register_scenario(scenario, slot)?;
+    Ok(RpcResponse {
+        context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+        value: (),
+    })
+}
 }
 
 #[cfg(test)]
@@ -2792,4 +3088,698 @@ mod tests {
             "Excluded system account should not be present"
         );
     }
+    #[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_creates_accounts_automatically() {
+    // Test that both program and program data accounts are created if they don't exist
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    // Verify accounts don't exist initially
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    
+    let program_account_before = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_id.pubkey())
+    });
+    assert!(program_account_before.is_none(), "Program account should not exist initially");
+    
+    // Write some data
+    let program_data = vec![0xDE, 0xAD, 0xBE, 0xEF];
+    let result = client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&program_data),
+            0,
+        )
+        .await;
+    
+    assert!(result.is_ok(), "Failed to write program: {:?}", result.err());
+    
+    // Verify program account was created
+    let program_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_id.pubkey())
+    });
+    assert!(program_account.is_some(), "Program account should be created");
+    
+    let program_account = program_account.unwrap();
+    assert_eq!(program_account.owner, solana_sdk_ids::bpf_loader_upgradeable::id());
+    assert!(program_account.executable, "Program account should be executable");
+    
+    // Verify program data account was created
+    let program_data_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address)
+    });
+    assert!(program_data_account.is_some(), "Program data account should be created");
+    
+    let program_data_account = program_data_account.unwrap();
+    assert_eq!(program_data_account.owner, solana_sdk_ids::bpf_loader_upgradeable::id());
+    assert!(!program_data_account.executable, "Program data account should not be executable");
+    
+    println!("✅ Both accounts created successfully");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_single_chunk_small() {
+    // Test writing a small program in a single write
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let program_data = vec![0x01, 0x02, 0x03, 0x04, 0x05];
+    let data_hex = hex::encode(&program_data);
+    
+    let result = client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            data_hex,
+            0,
+        )
+        .await;
+    
+    assert!(result.is_ok(), "Failed to write program: {:?}", result.err());
+    
+    // Verify the data was written correctly
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    let metadata_size = 
+        solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata();
+    let written_data = &account.data[metadata_size..metadata_size + program_data.len()];
+    assert_eq!(written_data, &program_data, "Written data should match input");
+    
+    println!("✅ Small program written correctly");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_single_chunk_large() {
+    // Test writing a large program (1MB) in a single write
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let program_data = vec![0xAB; 1024 * 1024]; // 1 MB
+    let data_hex = hex::encode(&program_data);
+    
+    let result = client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            data_hex,
+            0,
+        )
+        .await;
+    
+    assert!(result.is_ok(), "Failed to write large program: {:?}", result.err());
+    
+    // Verify the data was written
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    let metadata_size = 
+        solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata();
+    assert_eq!(
+        account.data.len(), 
+        metadata_size + program_data.len(),
+        "Account should have correct size"
+    );
+    
+    println!("✅ Large program (1MB) written successfully");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_multiple_sequential_chunks() {
+    // Test writing a program in multiple sequential chunks
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let chunks = vec![
+        (vec![0x01; 1024], 0),      // First 1KB at offset 0
+        (vec![0x02; 1024], 1024),   // Second 1KB at offset 1024
+        (vec![0x03; 1024], 2048),   // Third 1KB at offset 2048
+        (vec![0x04; 512], 3072),    // Last 512 bytes at offset 3072
+    ];
+    
+    for (i, (chunk_data, offset)) in chunks.iter().enumerate() {
+        let result = client
+            .rpc
+            .write_program(
+                Some(client.context.clone()),
+                program_id.pubkey().to_string(),
+                hex::encode(chunk_data),
+                *offset,
+            )
+            .await;
+        
+        assert!(
+            result.is_ok(), 
+            "Failed to write chunk {} at offset {}: {:?}", 
+            i, offset, result.err()
+        );
+    }
+    
+    // Verify all chunks were written correctly
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    let metadata_size = 
+        solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata();
+    
+    // Verify each chunk
+    for (chunk_data, offset) in chunks {
+        let start = metadata_size + offset as usize;
+        let end = start + chunk_data.len();
+        let written = &account.data[start..end];
+        assert_eq!(written, &chunk_data[..], "Chunk at offset {} should match", offset);
+    }
+    
+    println!("✅ Multiple sequential chunks written correctly");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_non_sequential_chunks() {
+    // Test writing chunks out of order (backwards)
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let chunks = vec![
+        (vec![0x03; 512], 2048),    // Write third chunk first
+        (vec![0x01; 1024], 0),      // Write first chunk second
+        (vec![0x02; 1024], 1024),   // Write second chunk last
+    ];
+    
+    for (chunk_data, offset) in chunks.iter() {
+        let result = client
+            .rpc
+            .write_program(
+                Some(client.context.clone()),
+                program_id.pubkey().to_string(),
+                hex::encode(chunk_data),
+                *offset,
+            )
+            .await;
+        
+        assert!(result.is_ok(), "Failed at offset {}: {:?}", offset, result.err());
+    }
+    
+    // Verify data integrity
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    let metadata_size = 
+        solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata();
+    
+    // Check first chunk
+    assert_eq!(&account.data[metadata_size..metadata_size + 1024], &vec![0x01; 1024][..]);
+    // Check second chunk
+    assert_eq!(&account.data[metadata_size + 1024..metadata_size + 2048], &vec![0x02; 1024][..]);
+    // Check third chunk
+    assert_eq!(&account.data[metadata_size + 2048..metadata_size + 2560], &vec![0x03; 512][..]);
+    
+    println!("✅ Non-sequential chunks written correctly");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_overlapping_writes() {
+    // Test that overlapping writes correctly overwrite previous data
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    // Write initial data
+    let initial_data = vec![0xFF; 1024];
+    client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&initial_data),
+            0,
+        )
+        .await
+        .unwrap();
+    
+    // Overwrite middle section
+    let overwrite_data = vec![0xAA; 512];
+    client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&overwrite_data),
+            256, // Start in the middle
+        )
+        .await
+        .unwrap();
+    
+    // Verify the result
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    let metadata_size = 
+        solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata();
+    
+    // First 256 bytes should be 0xFF
+    assert_eq!(&account.data[metadata_size..metadata_size + 256], &vec![0xFF; 256][..]);
+    // Middle 512 bytes should be 0xAA
+    assert_eq!(&account.data[metadata_size + 256..metadata_size + 768], &vec![0xAA; 512][..]);
+    // Last 256 bytes should be 0xFF
+    assert_eq!(&account.data[metadata_size + 768..metadata_size + 1024], &vec![0xFF; 256][..]);
+    
+    println!("✅ Overlapping writes handled correctly");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_zero_offset() {
+    // Test writing at offset 0 (should write immediately after metadata)
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let data = vec![0x42; 128];
+    let result = client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&data),
+            0,
+        )
+        .await;
+    
+    assert!(result.is_ok());
+    
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    let metadata_size = 
+        solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata();
+    assert_eq!(&account.data[metadata_size..metadata_size + 128], &data[..]);
+    
+    println!("✅ Write at offset 0 works correctly");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_large_offset() {
+    // Test writing at a large offset (account should expand)
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let large_offset = 1024 * 1024; // 1 MB offset
+    let data = vec![0x99; 256];
+    
+    let result = client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&data),
+            large_offset,
+        )
+        .await;
+    
+    assert!(result.is_ok(), "Should handle large offset");
+    
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    let metadata_size = 
+        solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata();
+    let expected_size = metadata_size + large_offset as usize + data.len();
+    assert_eq!(account.data.len(), expected_size, "Account should expand to fit data");
+    
+    // Verify data at the large offset
+    let start = metadata_size + large_offset as usize;
+    assert_eq!(&account.data[start..start + 256], &data[..]);
+    
+    println!("✅ Large offset handled with account expansion");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_empty_data() {
+    // Test writing empty data (should succeed but not write anything)
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let result = client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&[]),
+            0,
+        )
+        .await;
+    
+    assert!(result.is_ok(), "Should handle empty data");
+    
+    println!("✅ Empty data handled correctly");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_single_byte() {
+    // Test writing a single byte
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let data = vec![0x42];
+    let result = client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&data),
+            0,
+        )
+        .await;
+    
+    assert!(result.is_ok());
+    
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    let metadata_size = 
+        solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata();
+    assert_eq!(account.data[metadata_size], 0x42);
+    
+    println!("✅ Single byte write works");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_invalid_program_id() {
+    // Test with invalid program ID
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    
+    let result = client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            "not_a_valid_pubkey".to_string(),
+            "deadbeef".to_string(),
+            0,
+        )
+        .await;
+    
+    assert!(result.is_err(), "Should fail with invalid program ID");
+    assert!(
+        result.unwrap_err().to_string().contains("Invalid pubkey"),
+        "Error should mention invalid pubkey"
+    );
+    
+    println!("✅ Invalid program ID rejected");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_invalid_hex_data() {
+    // Test with invalid hex encoding
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let invalid_hex_strings = vec![
+        "not_hex_at_all",
+        "GHIJKLMN",
+        "0x123", // odd length
+        "12 34", // contains space
+    ];
+    
+    for invalid_hex in invalid_hex_strings {
+        let result = client
+            .rpc
+            .write_program(
+                Some(client.context.clone()),
+                program_id.pubkey().to_string(),
+                invalid_hex.to_string(),
+                0,
+            )
+            .await;
+        
+        assert!(result.is_err(), "Should fail with invalid hex: {}", invalid_hex);
+        assert!(
+            result.unwrap_err().to_string().contains("Invalid hex"),
+            "Error should mention invalid hex"
+        );
+    }
+    
+    println!("✅ Invalid hex data rejected");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_rent_exemption() {
+    // Test that rent exemption is maintained when account expands
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    // Write initial small data
+    let small_data = vec![0x01; 128];
+    client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&small_data),
+            0,
+        )
+        .await
+        .unwrap();
+    
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    
+    let initial_lamports = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap().lamports
+    });
+    
+    // Write at large offset to expand account
+    let large_data = vec![0x02; 1024];
+    client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&large_data),
+            10240, // Large offset
+        )
+        .await
+        .unwrap();
+    
+    let final_lamports = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap().lamports
+    });
+    
+    assert!(
+        final_lamports > initial_lamports,
+        "Lamports should increase to maintain rent exemption"
+    );
+    
+    // Verify rent exemption
+    let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    let required_lamports = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.minimum_balance_for_rent_exemption(account.data.len())
+    });
+    
+    assert_eq!(
+        account.lamports, required_lamports,
+        "Account should have exact rent-exempt lamports"
+    );
+    
+    println!("✅ Rent exemption maintained during expansion");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_account_ownership() {
+    // Test that created accounts have correct ownership
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let data = vec![0xAB; 64];
+    client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&data),
+            0,
+        )
+        .await
+        .unwrap();
+    
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    
+    // Check program account ownership
+    let program_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_id.pubkey()).unwrap()
+    });
+    assert_eq!(
+        program_account.owner,
+        solana_sdk_ids::bpf_loader_upgradeable::id(),
+        "Program account should be owned by upgradeable loader"
+    );
+    assert!(program_account.executable, "Program account should be executable");
+    
+    // Check program data account ownership
+    let program_data_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    assert_eq!(
+        program_data_account.owner,
+        solana_sdk_ids::bpf_loader_upgradeable::id(),
+        "Program data account should be owned by upgradeable loader"
+    );
+    assert!(!program_data_account.executable, "Program data account should not be executable");
+    
+    println!("✅ Account ownership is correct");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_metadata_preservation() {
+    // Test that program data account metadata is preserved across writes
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    // First write
+    client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&vec![0x01; 128]),
+            0,
+        )
+        .await
+        .unwrap();
+    
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    
+    // Get initial metadata
+    let initial_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    let metadata_size = 
+        solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata();
+    let initial_metadata = initial_account.data[..metadata_size].to_vec();
+    
+    // Second write (should preserve metadata)
+    client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&vec![0x02; 256]),
+            128,
+        )
+        .await
+        .unwrap();
+    
+    // Verify metadata is preserved
+    let final_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    let final_metadata = final_account.data[..metadata_size].to_vec();
+    assert_eq!(initial_metadata, final_metadata, "Metadata should be preserved");
+    
+    println!("✅ Metadata preserved across writes");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_idempotent() {
+    // Test that writing the same data twice produces the same result
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let data = vec![0x55; 512];
+    let offset = 100;
+    
+    // First write
+    client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&data),
+            offset,
+        )
+        .await
+        .unwrap();
+    
+    let program_data_address = 
+        solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+    
+    let first_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    // Second write (same data, same offset)
+    client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&data),
+            offset,
+        )
+        .await
+        .unwrap();
+    
+    let second_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader.inner.get_account(&program_data_address).unwrap()
+    });
+    
+    assert_eq!(first_account.data, second_account.data, "Data should be identical");
+    assert_eq!(first_account.lamports, second_account.lamports, "Lamports should be identical");
+    
+    println!("✅ Writes are idempotent");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_program_context_slot() {
+    // Test that response context contains valid slot
+    let client = TestSetup::new(SurfnetCheatcodesRpc);
+    let program_id = Keypair::new();
+    
+    let result = client
+        .rpc
+        .write_program(
+            Some(client.context.clone()),
+            program_id.pubkey().to_string(),
+            hex::encode(&vec![0x42; 64]),
+            0,
+        )
+        .await
+        .unwrap();
+    
+    assert!(result.context.slot > 0, "Context slot should be valid");
+    
+    println!("✅ Response context is valid");
+}
 }
