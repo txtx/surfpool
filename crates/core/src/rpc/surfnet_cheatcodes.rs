@@ -1746,13 +1746,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         };
 
         // Validate offset doesn't cause overflow
-        if let Some(end_offset) = offset.checked_add(data.len() as u64) {
-            if end_offset > u64::MAX {
-                return Box::pin(future::err(Error::invalid_params(
-                    "Data write would exceed maximum account size",
-                )));
-            }
-        } else {
+        if offset.checked_add(data.len() as u64).is_none() {
             return Box::pin(future::err(Error::invalid_params(
                 "Offset + data length causes integer overflow",
             )));
