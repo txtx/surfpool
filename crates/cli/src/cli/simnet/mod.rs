@@ -502,7 +502,7 @@ async fn write_and_execute_iac(
         };
         let futures = assemble_runbook_execution_futures(
             &progress_tx,
-            &simnet_events_tx,
+            simnet_events_tx,
             &on_disk_runbook_data,
             &in_memory_runbook_data,
         );

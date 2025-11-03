@@ -69,15 +69,10 @@ pub fn try_get_programs_from_project(
             })
             .unwrap_or_default();
 
-        if let Some(test_configs) = TestConfig::discover_test_toml(
-            test_suite_paths.iter().map(|s| PathBuf::from(s)).collect(),
-        )
-        .map_err(|e| {
-            format!(
-                "failed to discover Test.toml files in workspace: {}",
-                e.to_string()
-            )
-        })? {
+        if let Some(test_configs) =
+            TestConfig::discover_test_toml(test_suite_paths.iter().map(PathBuf::from).collect())
+                .map_err(|e| format!("failed to discover Test.toml files in workspace: {}", e))?
+        {
             for (_, config) in test_configs.test_suite_configs.iter() {
                 if let Some(test_config) = config.test.as_ref() {
                     if let Some(genesis) = test_config.genesis.as_ref() {

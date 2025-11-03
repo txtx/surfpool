@@ -159,7 +159,7 @@ pub fn scaffold_in_memory_iac(
             .ok()
             .flatten()
         {
-            deployment_runbook_src.push_str(&subgraph_iac);
+            deployment_runbook_src.push_str(subgraph_iac);
         }
     }
 
