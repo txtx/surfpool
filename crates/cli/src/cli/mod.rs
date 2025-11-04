@@ -543,7 +543,7 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
                 }
             }
 
-            if cmd.log_level.to_ascii_lowercase() != "none" {
+            if !cmd.log_level.eq_ignore_ascii_case("none") {
                 setup_logger(&cmd.log_dir, None, "simnet", &cmd.log_level, cmd.no_tui)?;
             }
 
