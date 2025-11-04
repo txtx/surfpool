@@ -3050,56 +3050,49 @@ impl SurfnetSvmLocker {
             solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata(
             );
 
-        // Verify program data account has valid state (only if it has enough data)
-        let  upgrade_authority_address = 
-        // if program_data_account.data.len()
-        //     >= metadata_size
-        // {
-            match bincode::deserialize::<solana_loader_v3_interface::state::UpgradeableLoaderState>(
-                &program_data_account.data[..metadata_size],
-            ) {
-                Ok(solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
-                    upgrade_authority_address,
-                    ..
-                }) =>  upgrade_authority_address,
-                Ok(_) => {
-                    return Err(SurfpoolError::invalid_program_data_account(
-                        program_data_address,
-                        "Account is not a program data account",
-                    ));
-                }
-                Err(e) => {
-                    return Err(SurfpoolError::invalid_program_data_account(
-                        program_data_address,
-                        format!("Invalid program data account state: {}", e),
-                    ));
-                }
-            };
-        // } else {
-        //     (0, None)
-        // };
+        // Verify program data account has valid state
+        let upgrade_authority_address = match bincode::deserialize::<
+            solana_loader_v3_interface::state::UpgradeableLoaderState,
+        >(&program_data_account.data[..metadata_size])
+        {
+            Ok(solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
+                upgrade_authority_address,
+                ..
+            }) => upgrade_authority_address,
+            Ok(_) => {
+                return Err(SurfpoolError::invalid_program_data_account(
+                    program_data_address,
+                    "Account is not a program data account",
+                ));
+            }
+            Err(e) => {
+                return Err(SurfpoolError::invalid_program_data_account(
+                    program_data_address,
+                    format!("Invalid program data account state: {}", e),
+                ));
+            }
+        };
 
         let new_metadata = if upgrade_authority_address.ne(&authority) {
             let _ = self.simnet_events_tx().send(SimnetEvent::info(format!(
                 "Updating program authority of program {} to {}",
-                program_id, authority.unwrap_or(solana_system_interface::program::id())
+                program_id,
+                authority.unwrap_or(solana_system_interface::program::id())
             )));
             solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
-                slot: slot,
-                upgrade_authority_address: authority.or(Some(solana_system_interface::program::id())),
+                slot,
+                upgrade_authority_address: authority
+                    .or(Some(solana_system_interface::program::id())),
             }
         } else {
             solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
-                slot: slot,
+                slot,
                 upgrade_authority_address,
             }
         };
 
         let metadata_bytes = bincode::serialize(&new_metadata).map_err(|e| {
-            SurfpoolError::internal(format!(
-                "Failed to serialize program data metadata: {}",
-                e
-            ))
+            SurfpoolError::internal(format!("Failed to serialize program data metadata: {}", e))
         })?;
 
         // Calculate absolute offset in account data (metadata + offset)
