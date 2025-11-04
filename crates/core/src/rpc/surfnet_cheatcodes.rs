@@ -974,6 +974,7 @@ pub trait SurfnetCheatcodes {
     /// - `program_id`: The public key of the program account, as a base-58 encoded string.
     /// - `data`: Hex-encoded program data chunk to write.
     /// - `offset`: The byte offset at which to write this data chunk.
+    /// - `authority` (optional): The base-58 encoded public key of the authority allowed to write to the program. If omitted, defaults to the system program.
     ///
     /// ## Returns
     /// A `RpcResponse<()>` indicating whether the write was successful.
@@ -1011,7 +1012,8 @@ pub trait SurfnetCheatcodes {
         meta: Self::Metadata,
         program_id: String,
         data: String,
-        offset: u64,
+        offset: usize,
+        authority: Option<String>,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
 
     /// A cheat code to register a scenario with account overrides.
@@ -1721,17 +1723,28 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             value: GetSurfnetInfoResponse::new(runbook_executions),
         })
     }
+
     fn write_program(
         &self,
         meta: Self::Metadata,
         program_id_str: String,
         data_hex: String,
-        offset: u64,
+        offset: usize,
+        authority: Option<String>,
     ) -> BoxFuture<Result<RpcResponse<()>>> {
         // Validate program_id
         let program_id = match verify_pubkey(&program_id_str) {
             Ok(res) => res,
             Err(e) => return e.into(),
+        };
+
+        let authority = if let Some(ref authority_str) = authority {
+            match verify_pubkey(authority_str) {
+                Ok(res) => Some(res),
+                Err(e) => return e.into(),
+            }
+        } else {
+            None
         };
 
         // Decode hex data
@@ -1746,7 +1759,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         };
 
         // Validate offset doesn't cause overflow
-        if offset.checked_add(data.len() as u64).is_none() {
+        if offset.checked_add(data.len()).is_none() {
             return Box::pin(future::err(Error::invalid_params(
                 "Offset + data length causes integer overflow",
             )));
@@ -1761,214 +1774,11 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         };
 
         Box::pin(async move {
-            // Calculate program data address
-            let program_data_address =
-                solana_loader_v3_interface::get_program_data_address(&program_id);
+            let slot = svm_locker.get_latest_absolute_slot();
 
-            // Get or create program account
-            let SvmAccessContext {
-                slot,
-                inner: program_account_result,
-                ..
-            } = svm_locker
-                .get_account(
-                    &remote_ctx,
-                    &program_id,
-                    Some(Box::new(move |svm_locker| {
-                        // Create default program account if it doesn't exist
-                        let program_state =
-                            solana_loader_v3_interface::state::UpgradeableLoaderState::Program {
-                                programdata_address: program_data_address,
-                            };
-                        let program_data = bincode::serialize(&program_state)
-                            .expect("Failed to serialize program state");
-                        let program_lamports = svm_locker.with_svm_reader(|svm_reader| {
-                            svm_reader
-                                .inner
-                                .minimum_balance_for_rent_exemption(program_data.len())
-                        });
-
-                        let _ = svm_locker
-                            .simnet_events_tx()
-                            .send(SimnetEvent::info(format!(
-                                "Creating program account {} with program data address {}",
-                                program_id, program_data_address
-                            )));
-
-                        GetAccountResult::FoundAccount(
-                            program_id,
-                            solana_account::Account {
-                                lamports: program_lamports,
-                                data: program_data,
-                                owner: solana_sdk_ids::bpf_loader_upgradeable::id(),
-                                executable: true,
-                                rent_epoch: 0,
-                            },
-                            true,
-                        )
-                    })),
-                )
+            svm_locker
+                .write_program(program_id, authority, offset, &data, &remote_ctx)
                 .await?;
-
-            // Check if account was created before consuming it
-            let was_program_created = matches!(
-                program_account_result,
-                GetAccountResult::FoundAccount(_, _, true)
-            );
-
-            // Ensure we have a valid program account
-            let program_account = program_account_result.map_account()?;
-
-            // Validate it's owned by the upgradeable loader
-            if program_account.owner != solana_sdk_ids::bpf_loader_upgradeable::id() {
-                return Err(Error::invalid_params(format!(
-                    "Account {} is not owned by the BPF Upgradeable Loader",
-                    program_id
-                )));
-            }
-
-            // Validate it's an executable program account
-            if !program_account.executable {
-                return Err(Error::invalid_params(format!(
-                    "Account {} is not executable",
-                    program_id
-                )));
-            }
-
-            // Persist the program account if it was newly created
-            if was_program_created {
-                svm_locker.write_account_update(GetAccountResult::FoundAccount(
-                    program_id,
-                    program_account.clone(),
-                    true,
-                ));
-            }
-
-            // Get or create program data account
-            let SvmAccessContext {
-                inner: program_data_result,
-                ..
-            } = svm_locker
-                .get_account(
-                    &remote_ctx,
-                    &program_data_address,
-                    Some(Box::new(move |svm_locker| {
-                        // Create default program data account if it doesn't exist
-                        let programdata_state= solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
-                            slot: svm_locker.get_latest_absolute_slot(),
-                            upgrade_authority_address: Some(system_program::id()),
-                        };
-                        let mut programdata_data = bincode::serialize(&programdata_state)
-                            .expect("Failed to serialize program data state");
-
-                        // Add empty program data (will be filled by writes)
-                        programdata_data.extend(vec![0u8; 0]);
-
-                        let programdata_lamports = svm_locker.with_svm_reader(|svm_reader| {
-                            svm_reader
-                                .inner
-                                .minimum_balance_for_rent_exemption(programdata_data.len())
-                        });
-
-                        let _ = svm_locker
-                            .simnet_events_tx()
-                            .send(SimnetEvent::info(format!(
-                                "Creating program data account {} for program {}",
-                                program_data_address, program_id
-                            )));
-
-                        GetAccountResult::FoundAccount(
-                            program_data_address,
-                            solana_account::Account {
-                                lamports: programdata_lamports,
-                                data: programdata_data,
-                                owner: solana_sdk_ids::bpf_loader_upgradeable::id(),
-                                executable: false,
-                                rent_epoch: 0,
-                            },
-                            true,
-                        )
-                    })),
-                )
-                .await?;
-
-            // Get mutable program data account
-            let mut program_data_account = program_data_result.map_account()?;
-
-            // Calculate metadata size
-            let metadata_size = solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata();
-
-            // Verify program data account has valid state (only if it has enough data)
-            if program_data_account.data.len() >= metadata_size {
-                match bincode::deserialize::<
-                    solana_loader_v3_interface::state::UpgradeableLoaderState,
-                >(&program_data_account.data[..metadata_size])
-                {
-                    Ok(
-                        solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
-                            ..
-                        },
-                    ) => {
-                        // Valid - continue
-                    }
-                    Ok(_) => {
-                        return Err(Error::invalid_params(format!(
-                            "Account {} is not a program data account",
-                            program_data_address
-                        )));
-                    }
-                    Err(e) => {
-                        return Err(Error::invalid_params(format!(
-                            "Invalid program data account state: {}",
-                            e
-                        )));
-                    }
-                }
-            }
-
-            // Calculate absolute offset in account data (metadata + offset)
-            let absolute_offset = metadata_size as u64 + offset;
-            let end_offset = absolute_offset + data.len() as u64;
-
-            // Expand account data if necessary
-            if end_offset > program_data_account.data.len() as u64 {
-                let new_size = end_offset as usize;
-                program_data_account.data.resize(new_size, 0);
-
-                // Update lamports for rent exemption
-                let new_lamports = svm_locker.with_svm_reader(|svm_reader| {
-                    svm_reader
-                        .inner
-                        .minimum_balance_for_rent_exemption(new_size)
-                });
-                program_data_account.lamports = new_lamports;
-
-                let _ = svm_locker
-                    .simnet_events_tx()
-                    .send(SimnetEvent::info(format!(
-                        "Expanding program data account to {} bytes",
-                        new_size
-                    )));
-            }
-
-            // Write data at the specified offset
-            program_data_account.data[absolute_offset as usize..end_offset as usize]
-                .copy_from_slice(&data);
-
-            // Update the account in SVM
-            svm_locker.with_svm_writer(|svm_writer| {
-                svm_writer.set_account(&program_data_address, program_data_account.clone())?;
-                Ok::<(), SurfpoolError>(())
-            })?;
-
-            let _ = svm_locker
-                .simnet_events_tx()
-                .send(SimnetEvent::info(format!(
-                    "Wrote {} bytes to program {} at offset {}",
-                    data.len(),
-                    program_id,
-                    offset
-                )));
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
@@ -3096,6 +2906,7 @@ mod tests {
             "Excluded system account should not be present"
         );
     }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_creates_accounts_automatically() {
         // Test that both program and program data accounts are created if they don't exist
@@ -3124,6 +2935,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&program_data),
                 0,
+                None,
             )
             .await;
 
@@ -3192,6 +3004,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 data_hex,
                 0,
+                None,
             )
             .await;
 
@@ -3236,6 +3049,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 data_hex,
                 0,
+                None,
             )
             .await;
 
@@ -3285,6 +3099,7 @@ mod tests {
                     program_id.pubkey().to_string(),
                     hex::encode(chunk_data),
                     *offset,
+                    None,
                 )
                 .await;
 
@@ -3344,6 +3159,7 @@ mod tests {
                     program_id.pubkey().to_string(),
                     hex::encode(chunk_data),
                     *offset,
+                    None,
                 )
                 .await;
 
@@ -3400,6 +3216,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&initial_data),
                 0,
+                None,
             )
             .await
             .unwrap();
@@ -3413,6 +3230,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&overwrite_data),
                 256, // Start in the middle
+                None,
             )
             .await
             .unwrap();
@@ -3461,6 +3279,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&data),
                 0,
+                None,
             )
             .await;
 
@@ -3496,6 +3315,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&data),
                 large_offset,
+                None,
             )
             .await;
 
@@ -3537,6 +3357,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&[]),
                 0,
+                None,
             )
             .await;
 
@@ -3559,6 +3380,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&data),
                 0,
+                None,
             )
             .await;
 
@@ -3590,6 +3412,7 @@ mod tests {
                 "not_a_valid_pubkey".to_string(),
                 "deadbeef".to_string(),
                 0,
+                None,
             )
             .await;
 
@@ -3623,6 +3446,7 @@ mod tests {
                     program_id.pubkey().to_string(),
                     invalid_hex.to_string(),
                     0,
+                    None,
                 )
                 .await;
 
@@ -3655,6 +3479,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&small_data),
                 0,
+                None,
             )
             .await
             .unwrap();
@@ -3679,6 +3504,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&large_data),
                 10240, // Large offset
+                None,
             )
             .await
             .unwrap();
@@ -3720,6 +3546,7 @@ mod tests {
         // Test that created accounts have correct ownership
         let client = TestSetup::new(SurfnetCheatcodesRpc);
         let program_id = Keypair::new();
+        let authority = Keypair::new();
 
         let data = vec![0xAB; 64];
         client
@@ -3729,6 +3556,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&data),
                 0,
+                Some(authority.pubkey().to_string()),
             )
             .await
             .unwrap();
@@ -3764,6 +3592,24 @@ mod tests {
             "Program data account should not be executable"
         );
 
+        // Check program authority
+
+        let Ok(solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
+            slot: _,
+            upgrade_authority_address,
+        }) = bincode::deserialize::<solana_loader_v3_interface::state::UpgradeableLoaderState>(
+            &program_data_account.data,
+        )
+        else {
+            panic!("Program data account has incorrect state");
+        };
+
+        assert_eq!(
+            upgrade_authority_address,
+            Some(authority.pubkey()),
+            "Upgrade authority should match"
+        );
+
         println!("✅ Account ownership is correct");
     }
 
@@ -3781,6 +3627,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&vec![0x01; 128]),
                 0,
+                None,
             )
             .await
             .unwrap();
@@ -3806,6 +3653,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&vec![0x02; 256]),
                 128,
+                None,
             )
             .await
             .unwrap();
@@ -3841,6 +3689,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&data),
                 offset,
+                None,
             )
             .await
             .unwrap();
@@ -3860,6 +3709,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&data),
                 offset,
+                None,
             )
             .await
             .unwrap();
@@ -3893,6 +3743,7 @@ mod tests {
                 program_id.pubkey().to_string(),
                 hex::encode(&vec![0x42; 64]),
                 0,
+                None,
             )
             .await
             .unwrap();
