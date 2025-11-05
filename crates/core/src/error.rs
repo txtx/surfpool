@@ -284,6 +284,17 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn invalid_program_data_account<P, D>(program_data_id: P, data: D) -> Self
+    where
+        P: Display,
+        D: Serialize,
+    {
+        let mut error =
+            Error::invalid_params(format!("Invalid program data account {program_data_id}"));
+        error.data = Some(json!(data));
+        Self(error)
+    }
+
     pub fn expected_program_account<P>(program_id: P) -> Self
     where
         P: Display,

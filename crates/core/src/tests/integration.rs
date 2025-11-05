@@ -649,7 +649,9 @@ async fn test_simulate_transaction_no_signers() {
         http::connect::<FullClient>(format!("http://{bind_host}:{bind_port}").as_str())
             .await
             .expect("Failed to connect to Surfpool");
-    full_client.request_airdrop(payer.pubkey().to_string(), 2 * lamports, None);
+    let _ = full_client
+        .request_airdrop(payer.pubkey().to_string(), 2 * lamports, None)
+        .await;
 
     let recent_blockhash = svm_locker
         .get_latest_blockhash(&CommitmentConfig::confirmed())
