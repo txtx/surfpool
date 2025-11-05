@@ -20,7 +20,7 @@ use crate::{
 
 pub fn try_get_programs_from_project(
     base_location: FileLocation,
-    test_suite_paths: &Vec<String>,
+    test_suite_paths: &[String],
 ) -> Result<Option<ProgramFrameworkData>, String> {
     let mut manifest_location = base_location.clone();
     manifest_location.append_path("Anchor.toml")?;

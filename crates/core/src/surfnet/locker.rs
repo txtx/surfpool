@@ -1374,7 +1374,8 @@ impl SurfnetSvmLocker {
                             SimpleAddressLoader::Disabled
                         },
                         &HashSet::new(), // todo: provide reserved account keys
-                    ).ok(),
+                    )
+                    .ok(),
                     Some(transaction.clone()),
                 )
             } else {

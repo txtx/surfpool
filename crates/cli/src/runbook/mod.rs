@@ -190,6 +190,7 @@ pub async fn execute_on_disk_runbook(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_runbook(
     progress_tx: Sender<BlockEvent>,
     simnet_events_tx: crossbeam::channel::Sender<SimnetEvent>,
