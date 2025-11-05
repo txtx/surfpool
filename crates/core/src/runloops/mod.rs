@@ -10,7 +10,7 @@ use std::{
 };
 
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
-    GeyserPlugin, ReplicaTransactionInfoV2, ReplicaTransactionInfoVersions,
+    GeyserPlugin, ReplicaTransactionInfoV3, ReplicaTransactionInfoVersions,
 };
 use chrono::{Local, Utc};
 use crossbeam::select;
@@ -24,6 +24,7 @@ use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
 use jsonrpc_ws_server::{RequestContext, ServerBuilder as WsServerBuilder};
 use libloading::{Library, Symbol};
+use serde::Serialize;
 use solana_commitment_config::CommitmentConfig;
 #[cfg(feature = "geyser_plugin")]
 use solana_geyser_plugin_manager::geyser_plugin_manager::{
@@ -529,13 +530,13 @@ fn start_geyser_runloop(
                     Err(e) => {
                         break format!("Failed to read new transaction to send to Geyser plugin: {e}");
                     },
-                    Ok(GeyserEvent::NotifyTransaction(transaction_with_status_meta, sanitized_transaction)) => {
+                    Ok(GeyserEvent::NotifyTransaction(transaction_with_status_meta, versioned_transaction)) => {
 
                         if !indexing_enabled {
                             continue;
                         }
 
-                        let transaction = match sanitized_transaction {
+                        let transaction = match versioned_transaction {
                             Some(tx) => tx,
                             None => {
                                 let _ = simnet_events_tx.send(SimnetEvent::warn("Unable to index sanitized transaction".to_string()));
@@ -543,23 +544,24 @@ fn start_geyser_runloop(
                             }
                         };
 
-                        let transaction_replica = ReplicaTransactionInfoV2 {
-                            signature: transaction.signature(),
+                        let transaction_replica = ReplicaTransactionInfoV3 {
+                            signature: &transaction.signatures[0],
                             is_vote: false,
                             transaction: &transaction,
                             transaction_status_meta: &transaction_with_status_meta.meta,
-                            index: 0
+                            index: 0,
+                            message_hash: &transaction.message.hash(),
                         };
 
                         for plugin in surfpool_plugin_manager.iter() {
-                            if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), transaction_with_status_meta.slot) {
+                            if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_3(&transaction_replica), transaction_with_status_meta.slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
                             };
                         }
 
                         #[cfg(feature = "geyser_plugin")]
                         for plugin in plugin_manager.plugins.iter() {
-                            if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_2(&transaction_replica), transaction_with_status_meta.slot) {
+                            if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_3(&transaction_replica), transaction_with_status_meta.slot) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
                             };
                         }

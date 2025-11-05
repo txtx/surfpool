@@ -1362,21 +1362,24 @@ impl SurfnetSvmLocker {
                 .map(|p| svm_writer.inner.get_account(p))
                 .collect::<Vec<Option<Account>>>();
 
-            let sanitized_transaction = if do_propagate {
-                SanitizedTransaction::try_create(
-                    transaction.clone(),
-                    transaction.message.hash(),
-                    Some(false),
-                    if let Some(loaded_addresses) = &loaded_addresses {
-                        SimpleAddressLoader::Enabled(loaded_addresses.clone())
-                    } else {
-                        SimpleAddressLoader::Disabled
-                    },
-                    &HashSet::new(), // todo: provide reserved account keys
+            let (sanitized_transaction, versioned_transaction) = if do_propagate {
+                (
+                    SanitizedTransaction::try_create(
+                        transaction.clone(),
+                        transaction.message.hash(),
+                        Some(false),
+                        if let Some(loaded_addresses) = &loaded_addresses {
+                            SimpleAddressLoader::Enabled(loaded_addresses.clone())
+                        } else {
+                            SimpleAddressLoader::Disabled
+                        },
+                        &HashSet::new(), // todo: provide reserved account keys
+                    )
+                    .ok(),
+                    Some(transaction.clone()),
                 )
-                .ok()
             } else {
-                None
+                (None, None)
             };
 
             let mut mutated_account_pubkeys = HashSet::new();
@@ -1472,7 +1475,7 @@ impl SurfnetSvmLocker {
                     .geyser_events_tx
                     .send(GeyserEvent::NotifyTransaction(
                         transaction_with_status_meta,
-                        sanitized_transaction,
+                        versioned_transaction,
                     ));
 
                 svm_writer.transactions_queued_for_confirmation.push_back((

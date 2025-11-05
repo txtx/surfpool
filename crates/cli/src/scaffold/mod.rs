@@ -70,7 +70,7 @@ impl ProgramFrameworkData {
 
 pub async fn detect_program_frameworks(
     manifest_path: &str,
-    test_paths: &Vec<String>,
+    test_paths: &[String],
 ) -> Result<Option<ProgramFrameworkData>, String> {
     let manifest_location = FileLocation::from_path_string(manifest_path)?;
     let base_dir = manifest_location.get_parent_location()?;
@@ -130,7 +130,7 @@ impl ProgramMetadata {
 
 pub fn scaffold_in_memory_iac(
     framework: &Framework,
-    programs: &Vec<ProgramMetadata>,
+    programs: &[ProgramMetadata],
     genesis_accounts: &Option<Vec<GenesisEntry>>,
     accounts: &Option<Vec<AccountEntry>>,
     accounts_dir: &Option<Vec<AccountDirEntry>>,
@@ -196,7 +196,7 @@ pub fn scaffold_in_memory_iac(
 
 pub fn scaffold_iac_layout(
     framework: &Framework,
-    programs: &Vec<ProgramMetadata>,
+    programs: &[ProgramMetadata],
     base_location: &FileLocation,
     auto_generate_runbooks: bool,
 ) -> Result<(), String> {
@@ -215,7 +215,7 @@ pub fn scaffold_iac_layout(
     };
 
     let selected_programs = match auto_generate_runbooks {
-        true => programs.clone(),
+        true => programs,
         false => {
             let selection = MultiSelect::with_theme(&theme)
                 .with_prompt("Select the programs to deploy (all by default):")
@@ -228,7 +228,7 @@ pub fn scaffold_iac_layout(
                 .interact()
                 .map_err(|e| format!("unable to select programs to deploy: {e}"))?;
 
-            selection
+            &selection
                 .iter()
                 .map(|i| programs[*i].clone())
                 .collect::<Vec<_>>()
