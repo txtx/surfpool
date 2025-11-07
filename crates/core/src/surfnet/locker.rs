@@ -30,7 +30,7 @@ use solana_client::{
         RpcLogsResponse, RpcTokenAccountBalance,
     },
 };
-use solana_clock::{Clock, Slot};
+use solana_clock::{Clock, Slot, UnixTimestamp};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
@@ -737,7 +737,7 @@ impl SurfnetSvmLocker {
             let block_time = svm_reader
                 .blocks
                 .get(&slot)
-                .map(|b| b.block_time)
+                .map(|b| (b.block_time / 1_000) as UnixTimestamp)
                 .unwrap_or(0);
             let encoded = transaction_with_status_meta.encode(
                 config.encoding.unwrap_or(UiTransactionEncoding::JsonParsed),

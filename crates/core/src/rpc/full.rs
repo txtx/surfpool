@@ -1821,7 +1821,7 @@ impl Full for SurfpoolFullRpc {
                 svm_reader
                     .blocks
                     .get(&slot)
-                    .map(|block| (block.block_time / 1000) as UnixTimestamp)
+                    .map(|block| (block.block_time / 1_000) as UnixTimestamp)
             });
             Ok(block_time)
         })
