@@ -9,6 +9,15 @@ tags:
   - defi
 
 templates:
+  - id: pyth-sol-usd-v2
+    name: Override SOL/USD Price Feed
+    description: Override Pyth SOL/USD price feed with custom price data
+    idl_account_name: PriceUpdateV2
+    properties: ["price_message.price", "price_message.publish_time"]
+    address:
+      type: pubkey
+      value: 7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE
+
   - id: pyth-btc-usd-v2
     name: Override BTC/USD Price Feed
     description: Override Pyth BTC/USD price feed with custom price data
