@@ -8,9 +8,9 @@ assignees: ''
 
 ---
 
-*Protocol Name*:
+**Protocol Name**:
 
-#  If you have an IDL, that makes supporting the protocol much easier for us. Please provide it here
+<!-- If you have an IDL, that makes supporting the protocol much easier for us. Please provide it here -->
 
 <details>
 <summary>Protocol IDL</summary>
