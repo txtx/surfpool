@@ -11,7 +11,7 @@ use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use solana_transaction::sanitized::SanitizedTransaction;
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, TransactionStatus};
 use svm::SurfnetSvm;
@@ -32,7 +32,7 @@ pub type AccountFactory = Box<dyn Fn(SurfnetSvmLocker) -> GetAccountResult + Sen
 
 #[allow(clippy::large_enum_variant)]
 pub enum GeyserEvent {
-    NotifyTransaction(TransactionWithStatusMeta, Option<SanitizedTransaction>),
+    NotifyTransaction(TransactionWithStatusMeta, Option<VersionedTransaction>),
     UpdateAccount(GeyserAccountUpdate),
     // todo: add more events
 }

@@ -30,7 +30,7 @@ use solana_client::{
         RpcLogsResponse, RpcTokenAccountBalance,
     },
 };
-use solana_clock::{Clock, Slot};
+use solana_clock::{Clock, Slot, UnixTimestamp};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
@@ -737,7 +737,7 @@ impl SurfnetSvmLocker {
             let block_time = svm_reader
                 .blocks
                 .get(&slot)
-                .map(|b| b.block_time)
+                .map(|b| (b.block_time / 1_000) as UnixTimestamp)
                 .unwrap_or(0);
             let encoded = transaction_with_status_meta.encode(
                 config.encoding.unwrap_or(UiTransactionEncoding::JsonParsed),
@@ -1362,21 +1362,24 @@ impl SurfnetSvmLocker {
                 .map(|p| svm_writer.inner.get_account(p))
                 .collect::<Vec<Option<Account>>>();
 
-            let sanitized_transaction = if do_propagate {
-                SanitizedTransaction::try_create(
-                    transaction.clone(),
-                    transaction.message.hash(),
-                    Some(false),
-                    if let Some(loaded_addresses) = &loaded_addresses {
-                        SimpleAddressLoader::Enabled(loaded_addresses.clone())
-                    } else {
-                        SimpleAddressLoader::Disabled
-                    },
-                    &HashSet::new(), // todo: provide reserved account keys
+            let (sanitized_transaction, versioned_transaction) = if do_propagate {
+                (
+                    SanitizedTransaction::try_create(
+                        transaction.clone(),
+                        transaction.message.hash(),
+                        Some(false),
+                        if let Some(loaded_addresses) = &loaded_addresses {
+                            SimpleAddressLoader::Enabled(loaded_addresses.clone())
+                        } else {
+                            SimpleAddressLoader::Disabled
+                        },
+                        &HashSet::new(), // todo: provide reserved account keys
+                    )
+                    .ok(),
+                    Some(transaction.clone()),
                 )
-                .ok()
             } else {
-                None
+                (None, None)
             };
 
             let mut mutated_account_pubkeys = HashSet::new();
@@ -1472,7 +1475,7 @@ impl SurfnetSvmLocker {
                     .geyser_events_tx
                     .send(GeyserEvent::NotifyTransaction(
                         transaction_with_status_meta,
-                        sanitized_transaction,
+                        versioned_transaction,
                     ));
 
                 svm_writer.transactions_queued_for_confirmation.push_back((
@@ -2860,6 +2863,283 @@ impl SurfnetSvmLocker {
         config: ExportSnapshotConfig,
     ) -> BTreeMap<String, AccountSnapshot> {
         self.with_svm_reader(|svm_reader| svm_reader.export_snapshot(config))
+    }
+}
+
+/// Helpers for writing program accounts
+impl SurfnetSvmLocker {
+    pub async fn write_program(
+        &self,
+        program_id: Pubkey,
+        authority: Option<Pubkey>,
+        offset: usize,
+        data: &[u8],
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+    ) -> SurfpoolResult<()> {
+        let program_data_address = get_program_data_address(&program_id);
+
+        let _ = self
+            .get_or_create_program_account(program_id, program_data_address, remote_ctx)
+            .await?;
+
+        // Get or create program data account
+        let _ = self
+            .write_program_data_account_with_offset(
+                program_id,
+                authority,
+                program_data_address,
+                offset,
+                data,
+                remote_ctx,
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_or_create_program_account(
+        &self,
+        program_id: Pubkey,
+        program_data_address: Pubkey,
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+    ) -> SurfpoolResult<Account> {
+        // Get program account
+        let SvmAccessContext {
+            inner: program_account_result,
+            ..
+        } = self
+            .get_account(
+                remote_ctx,
+                &program_id,
+                Some(Box::new(move |svm_locker| {
+                    // Create default program account if it doesn't exist
+                    let program_state =
+                        solana_loader_v3_interface::state::UpgradeableLoaderState::Program {
+                            programdata_address: program_data_address,
+                        };
+                    let program_data = bincode::serialize(&program_state)
+                        .expect("Failed to serialize program state");
+                    let program_lamports = svm_locker.with_svm_reader(|svm_reader| {
+                        svm_reader
+                            .inner
+                            .minimum_balance_for_rent_exemption(program_data.len())
+                    });
+
+                    let _ = svm_locker
+                        .simnet_events_tx()
+                        .send(SimnetEvent::info(format!(
+                            "Creating program account {} with program data address {}",
+                            program_id, program_data_address
+                        )));
+
+                    GetAccountResult::FoundAccount(
+                        program_id,
+                        solana_account::Account {
+                            lamports: program_lamports,
+                            data: program_data,
+                            owner: solana_sdk_ids::bpf_loader_upgradeable::id(),
+                            executable: true,
+                            rent_epoch: 0,
+                        },
+                        true,
+                    )
+                })),
+            )
+            .await?;
+
+        // Check if account was created before consuming it
+        let was_program_created = matches!(
+            program_account_result,
+            GetAccountResult::FoundAccount(_, _, true)
+        );
+
+        // Ensure we have a valid program account
+        let program_account = program_account_result.map_account()?;
+
+        // Validate it's owned by the upgradeable loader
+        if program_account.owner != solana_sdk_ids::bpf_loader_upgradeable::id() {
+            return Err(SurfpoolError::invalid_program_account(
+                &program_id,
+                "Account not owned by the BPF Upgradeable Loader",
+            ));
+        }
+
+        // Validate it's an executable program account
+        if !program_account.executable {
+            return Err(SurfpoolError::invalid_program_account(
+                &program_id,
+                "Account not executable",
+            ));
+        }
+
+        // Persist the program account if it was newly created
+        if was_program_created {
+            self.write_account_update(GetAccountResult::FoundAccount(
+                program_id,
+                program_account.clone(),
+                true,
+            ));
+        }
+        Ok(program_account)
+    }
+
+    pub async fn write_program_data_account_with_offset(
+        &self,
+        program_id: Pubkey,
+        authority: Option<Pubkey>,
+        program_data_address: Pubkey,
+        offset: usize,
+        data: &[u8],
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+    ) -> SurfpoolResult<Account> {
+        // Get or create program data account
+        let SvmAccessContext {
+            inner: program_data_result,
+            slot,
+            ..
+        } = self
+            .get_account(
+                &remote_ctx,
+                &program_data_address,
+                Some(Box::new(move |svm_locker| {
+                    // Create default program data account if it doesn't exist
+                    let programdata_state =
+                        solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
+                            slot: svm_locker.get_latest_absolute_slot(),
+                            // TODO: currently litesvm breaks if you don't provide an authority,
+                            // but once that's fixed we should remove the default to system program
+                            upgrade_authority_address: authority
+                                .or(Some(solana_system_interface::program::id())),
+                        };
+                    let mut programdata_data = bincode::serialize(&programdata_state)
+                        .expect("Failed to serialize program data state");
+
+                    // Add empty program data (will be filled by writes)
+                    programdata_data.extend(vec![0u8; 0]);
+
+                    let programdata_lamports = svm_locker.with_svm_reader(|svm_reader| {
+                        svm_reader
+                            .inner
+                            .minimum_balance_for_rent_exemption(programdata_data.len())
+                    });
+
+                    let _ = svm_locker
+                        .simnet_events_tx()
+                        .send(SimnetEvent::info(format!(
+                            "Creating program data account {} for program {}",
+                            program_data_address, program_id
+                        )));
+
+                    GetAccountResult::FoundAccount(
+                        program_data_address,
+                        solana_account::Account {
+                            lamports: programdata_lamports,
+                            data: programdata_data,
+                            owner: solana_sdk_ids::bpf_loader_upgradeable::id(),
+                            executable: false,
+                            rent_epoch: 0,
+                        },
+                        true,
+                    )
+                })),
+            )
+            .await?;
+
+        // Get mutable program data account
+        let mut program_data_account = program_data_result.map_account()?;
+
+        // Calculate metadata size
+        let metadata_size =
+            solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata(
+            );
+
+        // Verify program data account has valid state
+        let upgrade_authority_address = match bincode::deserialize::<
+            solana_loader_v3_interface::state::UpgradeableLoaderState,
+        >(&program_data_account.data[..metadata_size])
+        {
+            Ok(solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
+                upgrade_authority_address,
+                ..
+            }) => upgrade_authority_address,
+            Ok(_) => {
+                return Err(SurfpoolError::invalid_program_data_account(
+                    program_data_address,
+                    "Account is not a program data account",
+                ));
+            }
+            Err(e) => {
+                return Err(SurfpoolError::invalid_program_data_account(
+                    program_data_address,
+                    format!("Invalid program data account state: {}", e),
+                ));
+            }
+        };
+
+        let new_metadata = if upgrade_authority_address.ne(&authority) {
+            let _ = self.simnet_events_tx().send(SimnetEvent::info(format!(
+                "Updating program authority of program {} to {}",
+                program_id,
+                authority.unwrap_or(solana_system_interface::program::id())
+            )));
+            solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
+                slot,
+                upgrade_authority_address: authority
+                    .or(Some(solana_system_interface::program::id())),
+            }
+        } else {
+            solana_loader_v3_interface::state::UpgradeableLoaderState::ProgramData {
+                slot,
+                upgrade_authority_address,
+            }
+        };
+
+        let metadata_bytes = bincode::serialize(&new_metadata).map_err(|e| {
+            SurfpoolError::internal(format!("Failed to serialize program data metadata: {}", e))
+        })?;
+
+        // Calculate absolute offset in account data (metadata + offset)
+        let absolute_offset = metadata_size + offset;
+        let end_offset = absolute_offset + data.len();
+
+        // Expand account data if necessary
+        if end_offset > program_data_account.data.len() {
+            let new_size = end_offset;
+            program_data_account.data.resize(new_size, 0);
+
+            // Update lamports for rent exemption
+            let new_lamports = self.with_svm_reader(|svm_reader| {
+                svm_reader
+                    .inner
+                    .minimum_balance_for_rent_exemption(new_size)
+            });
+            program_data_account.lamports = new_lamports;
+
+            let _ = self.simnet_events_tx().send(SimnetEvent::info(format!(
+                "Expanding program data account to {} bytes",
+                new_size
+            )));
+        }
+
+        // Write the metadata
+        program_data_account.data[..metadata_size].copy_from_slice(&metadata_bytes);
+        // Write data at the specified offset
+        program_data_account.data[absolute_offset..end_offset].copy_from_slice(&data);
+
+        // Update the account in SVM
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.set_account(&program_data_address, program_data_account.clone())?;
+            Ok::<(), SurfpoolError>(())
+        })?;
+
+        let _ = self.simnet_events_tx().send(SimnetEvent::info(format!(
+            "Wrote {} bytes to program {} at offset {}",
+            data.len(),
+            program_id,
+            offset
+        )));
+
+        Ok(program_data_account)
     }
 }
 

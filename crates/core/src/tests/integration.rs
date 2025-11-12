@@ -10,14 +10,15 @@ use jsonrpc_core_client::transports::http;
 use solana_account::Account;
 use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount};
 use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
-use solana_client::rpc_response::RpcLogsResponse;
+use solana_client::{rpc_config::RpcSimulateTransactionConfig, rpc_response::RpcLogsResponse};
 use solana_clock::{Clock, Slot};
+use solana_commitment_config::CommitmentConfig;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
-    AddressLookupTableAccount, Message, VersionedMessage,
+    AddressLookupTableAccount, LegacyMessage, Message, VersionedMessage, legacy,
     v0::{self},
 };
 use solana_pubkey::Pubkey;
@@ -568,7 +569,117 @@ async fn test_simulate_add_alt_entries_fetching() {
     };
     let data = bs58::encode(encoded).into_string();
 
-    let simulation_res = full_client.simulate_transaction(data, None).await.unwrap();
+    let simulation_res = full_client
+        .simulate_transaction(data.clone(), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        simulation_res.value.err, None,
+        "Unexpected simulation error"
+    );
+    let simulation_res2 = full_client
+        .simulate_transaction(
+            data,
+            Some(RpcSimulateTransactionConfig {
+                sig_verify: false,
+                replace_recent_blockhash: false,
+                commitment: Some(CommitmentConfig::confirmed()),
+                encoding: None,
+                accounts: None,
+                min_context_slot: None,
+                inner_instructions: false,
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        simulation_res2.value.err, None,
+        "Unexpected simulation error"
+    );
+}
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_simulate_transaction_no_signers() {
+    let payer = Keypair::new();
+    let pk = payer.pubkey();
+    let lamports = LAMPORTS_PER_SOL;
+
+    let bind_host = "127.0.0.1";
+    let bind_port = get_free_port().unwrap();
+    let airdrop_token_amount = LAMPORTS_PER_SOL;
+    let config = SurfpoolConfig {
+        simnets: vec![SimnetConfig {
+            slot_time: 1,
+            airdrop_addresses: vec![pk], // just one
+            airdrop_token_amount,
+            ..SimnetConfig::default()
+        }],
+        rpc: RpcConfig {
+            bind_host: bind_host.to_string(),
+            bind_port,
+            ..Default::default()
+        },
+        ..SurfpoolConfig::default()
+    };
+
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
+
+    let moved_svm_locker = svm_locker.clone();
+    let _handle = hiro_system_kit::thread_named("test").spawn(move || {
+        let future = start_local_surfnet_runloop(
+            SurfnetSvmLocker(moved_svm_locker),
+            config,
+            subgraph_commands_tx,
+            simnet_commands_tx,
+            simnet_commands_rx,
+            geyser_events_rx,
+        );
+        if let Err(e) = hiro_system_kit::nestable_block_on(future) {
+            panic!("{e:?}");
+        }
+    });
+    let svm_locker = SurfnetSvmLocker(svm_locker);
+
+    wait_for_ready_and_connected(&simnet_events_rx);
+
+    let full_client =
+        http::connect::<FullClient>(format!("http://{bind_host}:{bind_port}").as_str())
+            .await
+            .expect("Failed to connect to Surfpool");
+    let _ = full_client
+        .request_airdrop(payer.pubkey().to_string(), 2 * lamports, None)
+        .await;
+
+    let recent_blockhash = svm_locker
+        .get_latest_blockhash(&CommitmentConfig::confirmed())
+        .unwrap();
+    //build_legacy_transaction
+    let mut msg = legacy::Message::new(
+        &[system_instruction::transfer(&payer.pubkey(), &pk, lamports)],
+        Some(&payer.pubkey()),
+    );
+    msg.recent_blockhash = recent_blockhash;
+    let tx = Transaction::new_unsigned(msg);
+
+    let simulation_res = full_client
+        .simulate_transaction(
+            bs58::encode(bincode::serialize(&tx).unwrap()).into_string(),
+            Some(RpcSimulateTransactionConfig {
+                sig_verify: false,
+                replace_recent_blockhash: false,
+                commitment: Some(CommitmentConfig::finalized()),
+                encoding: None,
+                accounts: None,
+                min_context_slot: None,
+                inner_instructions: false,
+            }),
+        )
+        .await
+        .unwrap();
+
     assert_eq!(
         simulation_res.value.err, None,
         "Unexpected simulation error"

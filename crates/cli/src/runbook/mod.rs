@@ -190,6 +190,7 @@ pub async fn execute_on_disk_runbook(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_runbook(
     progress_tx: Sender<BlockEvent>,
     simnet_events_tx: crossbeam::channel::Sender<SimnetEvent>,
@@ -207,8 +208,8 @@ pub async fn execute_runbook(
 
     let authorization_context = manifest
         .location
-        .map(|l| AuthorizationContext::new(l))
-        .unwrap_or_else(|| AuthorizationContext::empty());
+        .map(AuthorizationContext::new)
+        .unwrap_or_else(AuthorizationContext::empty);
 
     if do_setup_logger {
         setup_logger(
@@ -454,9 +455,9 @@ pub async fn configure_supervised_execution(
             while let Ok(msg) = supervisor_events_rx.recv() {
                 match msg {
                     txtx_supervisor_ui::SupervisorEvents::Started(network_binding) => {
-                        let _ = moved_simnet_events_tx.send(SimnetEvent::info(format!(
-                            "Starting the supervisor web console",
-                        )));
+                        let _ = moved_simnet_events_tx.send(SimnetEvent::info(
+                            "Starting the supervisor web console".to_string(),
+                        ));
                         let _ = moved_simnet_events_tx
                             .send(SimnetEvent::info(format!("http://{}", network_binding)));
                     }
