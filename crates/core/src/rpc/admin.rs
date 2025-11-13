@@ -8,7 +8,7 @@ use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_client::{rpc_config::RpcAccountIndex, rpc_custom_error::RpcCustomError};
 use solana_pubkey::Pubkey;
-use surfpool_types::SimnetCommand;
+use surfpool_types::{SimnetCommand, SimnetEvent};
 use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
@@ -804,9 +804,13 @@ impl AdminRpc for SurfpoolAdminRpc {
         };
 
         Box::pin(async move {
-            result
-                .map(|_| ())  // Convert Ok(String) to Ok(())
-                .map_err(|e| jsonrpc_core::Error::invalid_params(&e))
+            match result {
+                Ok(_endpoint_url) => {
+                    // Subgraph plugin logs its own detailed messages on load
+                    Ok(())
+                }
+                Err(e) => Err(jsonrpc_core::Error::invalid_params(&e))
+            }
         })
     }
 
@@ -823,6 +827,7 @@ impl AdminRpc for SurfpoolAdminRpc {
             return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
         };
 
+        let simnet_events_tx = ctx.svm_locker.simnet_events_tx();
         let (tx, rx) = crossbeam_channel::bounded(1);
         let _ = ctx
             .plugin_manager_commands_tx
@@ -833,7 +838,16 @@ impl AdminRpc for SurfpoolAdminRpc {
         };
 
         Box::pin(async move {
-            result.map_err(|e| jsonrpc_core::Error::invalid_params(&e))
+            match result {
+                Ok(()) => {
+                    let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Plugin {} unloaded",
+                        uuid
+                    )));
+                    Ok(())
+                }
+                Err(e) => Err(jsonrpc_core::Error::invalid_params(&e))
+            }
         })
     }
 
@@ -854,9 +868,9 @@ impl AdminRpc for SurfpoolAdminRpc {
         let Ok(endpoint_url) = rx.recv_timeout(Duration::from_secs(10)) else {
             return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
         };
-        // Return a JSON string containing both UUID and endpoint URL
-        let response = format!(r#"{{"uuid": "{}", "endpoint": "{}"}}"#, uuid, endpoint_url);
-        Box::pin(async move { Ok(response) })
+
+        // Return only the endpoint URL (subgraph plugin logs its own detailed messages)
+        Box::pin(async move { Ok(endpoint_url) })
     }
 
     fn list_plugins(&self, _meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>> {
