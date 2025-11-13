@@ -13,14 +13,18 @@ use rmcp::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use set_token_account::{SeededAccount, SetAccountSuccess, SetTokenAccountsResponse};
 use start_surfnet::StartSurfnetResponse;
+use surfpool_types::YamlOverrideTemplateCollection;
 
 use crate::helpers::find_next_available_surfnet_port;
 
 mod set_token_account;
 mod start_surfnet;
+
+pub const PYTH_V2_OVERRIDES_CONTENT: &str =
+    include_str!("../../../core/src/scenarios/protocols/pyth/v2/overrides.yaml");
 
 #[derive(Debug, Clone)]
 pub struct Surfpool {
@@ -170,6 +174,21 @@ impl SurfnetRpcCallResponse {
     pub fn error(message: String) -> Self {
         Self {
             success: None,
+            error: Some(message),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct RegisterScenarioResponse {
+    pub error: Option<String>,
+}
+impl RegisterScenarioResponse {
+    pub fn success() -> Self {
+        Self { error: None }
+    }
+    pub fn error(message: String) -> Self {
+        Self {
             error: Some(message),
         }
     }
@@ -334,9 +353,15 @@ impl Surfpool {
     /// Calls any RPC method on a running surfnet instance.
     /// This generic method allows calling any of the available surfnet cheatcode RPC methods.
     /// The LLM will interpret user requests and determine which method to call with appropriate parameters.
-    #[tool(
-        description = "Calls any RPC method on a running surfnet instance. This is a generic method that can invoke any surfnet RPC method. The LLM should interpret user requests and determine the appropriate method and parameters to call. To retrieve the list of RPC endpoints available check the resource str:///rpc_endpoints"
-    )]
+    #[tool(description = r#"
+        Calls any RPC method on a running surfnet instance. 
+        This is a generic method that can invoke any surfnet RPC method. 
+        The LLM should interpret user requests and determine the appropriate method and parameters to call. To retrieve the list of RPC endpoints available check the resource str:///rpc_endpoints
+        
+        IMPORTANT: 
+        - If a user asks to create a scenario, DO NOT USE this method. Instead, use the dedicated `register_scenario` tool.
+        - There is NO RPC method called `surfnet_getOverrideTemplates`. Override templates are ONLY available via the MCP resource str:///override_templates (use read_resource, not this RPC tool).
+        "#)]
     pub fn call_surfnet_rpc(
         &self,
         #[tool(param)]
@@ -417,6 +442,203 @@ impl Surfpool {
 
         Json(SurfnetRpcCallResponse::success(method, result))
     }
+
+    #[tool(description = r#"
+        This tool creates a scenario that overrides account data on a running surfnet instance.
+        It will pass the provided parameters to another service that handles the `surfnet_registerScenario` RPC method.
+
+        CRITICAL PREREQUISITE: You MUST use read_resource to fetch str:///override_templates BEFORE calling this tool. 
+        If read_resource is not available, use the tool `get_override_templates` to get the override templates.
+        This resource contains all available override templates, their field paths (for the `values` map), and account addresses.
+        DO NOT attempt to call any RPC method to get templates - they are ONLY available via the MCP resource system.
+        
+        The first argument should be the port of the running surfnet instance (e.g., 8899, 18899, 28899, etc.).
+        The second argument should be the parameters to pass to the `surfnet_registerScenario` RPC method. This should be a JSON object containing:
+         - `scenario`: The Scenario object containing:
+           - `id`: Unique identifier for the scenario
+           - `name`: Human-readable name
+           - `description`: Description of the scenario
+           - `overrides`: Array of OverrideInstance objects, each containing:
+             - `id`: Unique identifier for this override instance
+             - `templateId`: Reference to the override template
+             - `values`: HashMap of field paths to override values (flat key-value map with dot notation, e.g., "price_message.price_value")
+             - `scenarioRelativeSlot`: The relative slot offset (from base slot) when this override should be applied
+             - `label`: Optional label for this override
+             - `enabled`: Whether this override is active
+             - `fetchBeforeUse`: If true, fetch fresh account data just before transaction execution (useful for price feeds, oracle updates, and dynamic balances)
+             - `account`: Account address (either `{ "pubkey": "..." }` or `{ "pda": { "programId": "...", "seeds": [...] } }`)
+           - `tags`: Array of tags for categorization
+         - `slot` (optional): The base slot from which relative slot offsets are calculated. If omitted, uses the current slot.
+
+        REMINDER: Valid keys for the scenario's override's values field and the account addresses MUST come from str:///override_templates.
+        You MUST fetch this resource using read_resource before constructing the scenario parameters.
+
+        For example, if the str:///override_templates resource returns:
+        ```json
+        {
+            "pyth_v2": {
+                "protocol": "Pyth",
+                "version": "v2",
+                "idl_file_path": "pyth_price_store.json",
+                "tags": [
+                    "oracle",
+                    "price-feed",
+                    "defi"
+                ],
+                "templates": [
+                    {
+                        "id": "pyth-sol-usd-v2",
+                        "name": "Override SOL/USD Price Feed",
+                        "description": "Override Pyth SOL/USD price feed with custom price data",
+                        "idl_account_name": "PriceUpdateV2",
+                        "properties": [
+                            "price_message.price",
+                            "price_message.publish_time"
+                        ],
+                        "address": {
+                            "type": "pubkey",
+                            "value": "7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE"
+                        }
+                    }
+                ]
+            }
+        }
+        ```
+
+        And the user asks to create a scenario that sets the SOL/USD price to $150.00, the `params` to pass to this method would be:
+        ```json
+        {
+            "id": "scenario-001",
+            "name": "Set SOL/USD Price to $150",
+            "description": "A scenario that sets the SOL/USD price feed to $150.00 at slot 5000",
+            "overrides": [
+                {
+                    "id": "override-001",
+                    "templateId": "pyth-sol-usd-v2",
+                    "values": {
+                        "price_message.price": 150000000, // Pyth price is in 10^-6 format
+                        "price_message.publish_time": 1625247600 // Example publish time
+                    },
+                    "scenarioRelativeSlot": 1,
+                    "label": "Set SOL/USD to $150",
+                    "enabled": true,
+                    "fetchBeforeUse": false,
+                    "account": {
+                        "pubkey": "7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE"
+                    }
+                }
+            ],
+            "tags": ["test", "price-feed"]
+        }
+        ```
+
+        "#)]
+    pub fn register_scenario(
+        &self,
+        #[tool(param)]
+        #[schemars(
+            description = r#"The parameters to pass to the `surfnet_registerScenario` RPC method. This should contain a `Scenario` object containing a list of `OverrideInstance`s.
+            Example:
+                ```json
+                [
+                    {
+                        "id": "scenario-001",
+                        "name": "Set SOL/USD Price to $150",
+                        "description": "A scenario that sets the SOL/USD price feed to $150.00 at slot 5000",
+                        "overrides": [
+                            {
+                                "id": "override-001",
+                                "templateId": "pyth-sol-usd-v2",
+                                "values": {
+                                    "price_message.price": 150000000, // Pyth price is in 10^-6 format
+                                    "price_message.publish_time": 1625247600 // Example publish time
+                                },
+                                "scenarioRelativeSlot": 1,
+                                "label": "Set SOL/USD to $150",
+                                "enabled": true,
+                                "fetchBeforeUse": false,
+                                "account": {
+                                    "pubkey": "7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE"
+                                }
+                            }
+                        ],
+                        "tags": ["test", "price-feed"]
+                    }
+                ]
+                ```
+            "#
+        )]
+        params: Vec<serde_json::Value>,
+    ) -> Json<RegisterScenarioResponse> {
+        let load_scenarios_endpoint = format!("http://127.0.0.1:{}/v1/scenarios", 18488);
+        // let params: Vec<Value> = params.into_iter().map(Into::into).collect();
+        let payload = serde_json::json!(params);
+
+        // Make the RPC request to the surfnet RPC endpoint
+        let client = reqwest::blocking::Client::new();
+        let response = match client
+            .post(&load_scenarios_endpoint)
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+        {
+            Ok(resp) => resp,
+            Err(e) => {
+                return Json(RegisterScenarioResponse::error(format!(
+                    "Failed to load scenarios at {}: {}",
+                    load_scenarios_endpoint, e
+                )));
+            }
+        };
+
+        let response_text = match response.text() {
+            Ok(text) => text,
+            Err(e) => {
+                return Json(RegisterScenarioResponse::error(format!(
+                    "Failed to read response text: {}",
+                    e
+                )));
+            }
+        };
+
+        let rpc_response: serde_json::Value = match serde_json::from_str(&response_text) {
+            Ok(json) => json,
+            Err(e) => {
+                return Json(RegisterScenarioResponse::error(format!(
+                    "Failed to parse JSON response: {}. Response: {}",
+                    e, response_text
+                )));
+            }
+        };
+
+        if let Some(error) = rpc_response.get("error") {
+            return Json(RegisterScenarioResponse::error(format!(
+                "RPC error: {}",
+                error
+            )));
+        }
+
+        // Extract the result
+        let result = rpc_response
+            .get("result")
+            .unwrap_or(&serde_json::Value::Null)
+            .clone();
+
+        Json(RegisterScenarioResponse::success())
+    }
+
+    #[tool(
+        description = "Fetches the override templates resource (equivalent to str:///override_templates)."
+    )]
+    pub fn get_override_templates(&self) -> Json<serde_json::Value> {
+        let pyth_v2_json_value =
+            serde_yaml::from_str::<YamlOverrideTemplateCollection>(PYTH_V2_OVERRIDES_CONTENT)
+                .expect("Expected Pyth overrides file to be deserializable");
+
+        Json(json!({
+            "pyth_v2": pyth_v2_json_value,
+        }))
+    }
 }
 
 #[tool(tool_box)]
@@ -441,14 +663,22 @@ impl ServerHandler for Surfpool {
         _: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
         Ok(ListResourcesResult {
-            resources: vec![RawResource {
-                uri: "str:///rpc_endpoints".to_string(),
-                name: "List of available RPC endpoints".to_string(),
-                description: Some("A json file containing all the RPC methods and the parameters available for being able to handle any RPC call with the tool call_surfnet_rpc".to_string()),
-                mime_type: Some("application/json".to_string()),
-                size: None,
-            }
-            .no_annotation()],
+            resources: vec![
+                RawResource {
+                    uri: "str:///rpc_endpoints".to_string(),
+                    name: "List of available RPC endpoints".to_string(),
+                    description: Some("A json file containing all the RPC methods and the parameters available for being able to handle any RPC call with the tool call_surfnet_rpc".to_string()),
+                    mime_type: Some("application/json".to_string()),
+                    size: None,
+                }.no_annotation(),
+                RawResource {
+                    uri: "str:///override_templates".to_string(),
+                    name: "List of override templates".to_string(),
+                    description: Some("A json file containing all the override templates available for scenario registration with account overrides".to_string()),
+                    mime_type: Some("application/json".to_string()),
+                    size: None,
+                }.no_annotation()
+            ],
             next_cursor: None,
         })
     }
@@ -465,6 +695,23 @@ impl ServerHandler for Surfpool {
                         uri,
                         mime_type: Some("application/json".to_string()),
                         text: rpc_endpoints.to_string(),
+                    }],
+                })
+            }
+            "str:///override_templates" => {
+                let pyth_v2_json_value = serde_yaml::from_str::<YamlOverrideTemplateCollection>(
+                    PYTH_V2_OVERRIDES_CONTENT,
+                )
+                .expect("Expected Pyth overrides file to be deserializable");
+                let joined_value = json!({
+                    "pyth_v2": pyth_v2_json_value,
+                });
+
+                Ok(ReadResourceResult {
+                    contents: vec![ResourceContents::TextResourceContents {
+                        uri,
+                        mime_type: Some("application/json".to_string()),
+                        text: joined_value.to_string(),
                     }],
                 })
             }
