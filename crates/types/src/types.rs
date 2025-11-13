@@ -342,6 +342,7 @@ pub mod profile_state_map {
 pub enum SubgraphCommand {
     CreateCollection(Uuid, SubgraphRequest, Sender<String>),
     ObserveCollection(Receiver<DataIndexingCommand>),
+    DestroyCollection(Uuid),
     Shutdown,
 }
 

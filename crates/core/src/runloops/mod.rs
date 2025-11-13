@@ -519,7 +519,6 @@ fn start_geyser_runloop(
             surfpool_plugin_manager.push(plugin);
             plugin_uuid_map.insert(uuid, plugin_index);
 
-            let _ = simnet_events_tx.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
             Ok(format!("http://localhost:8899/subgraph/{}", uuid))  // Return endpoint URL
         };
 
@@ -537,6 +536,9 @@ fn start_geyser_runloop(
             if plugin_index >= surfpool_plugin_manager.len() {
                 return Err(format!("Plugin index {} out of bounds", plugin_index));
             }
+
+            // Notify subgraph subsystem to destroy the collection
+            let _ = subgraph_commands_tx.send(SubgraphCommand::DestroyCollection(uuid));
 
             // Call on_unload before removing
             surfpool_plugin_manager[plugin_index].on_unload();
@@ -557,7 +559,6 @@ fn start_geyser_runloop(
                 *indexing_enabled = false;
             }
 
-            let _ = simnet_events_tx.send(SimnetEvent::info(format!("Plugin {} unloaded", uuid)));
             Ok(())
         };
 
