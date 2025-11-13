@@ -1,6 +1,9 @@
 #![allow(unused_imports, unused_variables)]
 use std::{
-    collections::HashMap, error::Error as StdError, sync::RwLock, thread::JoinHandle,
+    collections::HashMap,
+    error::Error as StdError,
+    sync::{Arc, RwLock},
+    thread::JoinHandle,
     time::Duration,
 };
 
@@ -9,7 +12,7 @@ use actix_web::{
     App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
     dev::ServerHandle,
     http::header::{self},
-    middleware,
+    middleware, post,
     web::{self, Data, route},
 };
 use convert_case::{Case, Casing};
@@ -19,6 +22,7 @@ use juniper_graphql_ws::ConnectionConfig;
 use log::{debug, error, info, trace, warn};
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
+use serde::{Deserialize, Serialize};
 use surfpool_core::scenarios::TemplateRegistry;
 use surfpool_gql::{
     DynamicSchema,
@@ -68,6 +72,7 @@ pub async fn start_subgraph_and_explorer_server(
 
     // Initialize template registry and load templates
     let template_registry_wrapped = Data::new(RwLock::new(TemplateRegistry::new()));
+    let loaded_scenarios = Data::new(RwLock::new(LoadedScenarios::new()));
 
     let subgraph_handle = start_subgraph_runloop(
         subgraph_events_tx,
@@ -86,6 +91,7 @@ pub async fn start_subgraph_and_explorer_server(
             .app_data(config_wrapped.clone())
             .app_data(collections_metadata_lookup_wrapped.clone())
             .app_data(template_registry_wrapped.clone())
+            .app_data(loaded_scenarios.clone())
             .wrap(
                 Cors::default()
                     .allow_any_origin()
@@ -100,6 +106,8 @@ pub async fn start_subgraph_and_explorer_server(
             .service(get_config)
             .service(get_indexers)
             .service(get_scenario_templates)
+            .service(post_scenarios)
+            .service(get_scenarios)
             .service(
                 web::scope("/workspace")
                     .route("/v1/indexers", web::post().to(post_graphql))
@@ -109,6 +117,7 @@ pub async fn start_subgraph_and_explorer_server(
             );
 
         if enable_studio {
+            app = app.app_data(Arc::new(RwLock::new(LoadedScenarios::new())));
             app = app.service(serve_studio_static_files);
         }
 
@@ -185,6 +194,53 @@ async fn get_scenario_templates(
     let templates: Vec<&OverrideTemplate> = registry.all();
     let response = serde_json::to_string(&templates)
         .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to serialize templates"))?;
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/json")
+        .body(response))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoadedScenarios {
+    pub scenarios: Vec<serde_json::Value>,
+}
+impl LoadedScenarios {
+    pub fn new() -> Self {
+        Self {
+            scenarios: Vec::new(),
+        }
+    }
+}
+
+#[post("/v1/scenarios")]
+async fn post_scenarios(
+    req: HttpRequest,
+    payload: web::Payload,
+    data: Data<RwLock<LoadedScenarios>>,
+) -> Result<HttpResponse, Error> {
+    let scenario = serde_json::from_slice::<serde_json::Value>(
+        &payload
+            .to_bytes()
+            .await
+            .map_err(|_| actix_web::error::ErrorBadRequest("Failed to read request payload"))?,
+    )
+    .map_err(|_| actix_web::error::ErrorBadRequest("Failed to parse JSON"))?;
+
+    let mut loaded_scenarios = data
+        .write()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to acquire write lock"))?;
+    loaded_scenarios.scenarios.push(scenario);
+    Ok(HttpResponse::Ok().body("Scenario loaded"))
+}
+
+#[actix_web::get("/v1/scenarios")]
+async fn get_scenarios(data: Data<RwLock<LoadedScenarios>>) -> Result<HttpResponse, Error> {
+    let loaded_scenarios = data
+        .read()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to acquire read lock"))?;
+    let response = serde_json::to_string(&loaded_scenarios.scenarios).map_err(|_| {
+        actix_web::error::ErrorInternalServerError("Failed to serialize loaded scenarios")
+    })?;
 
     Ok(HttpResponse::Ok()
         .content_type("application/json")

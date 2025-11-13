@@ -12013,7 +12013,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "surfpool-cli"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -12070,7 +12070,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-core"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "agave-feature-set",
  "agave-geyser-plugin-interface",
@@ -12155,7 +12155,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-db"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "diesel",
  "diesel-dynamic-schema",
@@ -12168,7 +12168,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-gql"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -12189,7 +12189,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-mcp"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "bs58",
  "crossbeam-channel",
@@ -12198,6 +12198,7 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "serde_yaml",
  "solana-keypair",
  "solana-pubkey 3.0.0",
  "solana-signer",
@@ -12233,7 +12234,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-subgraph"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "ipc-channel",
@@ -12248,7 +12249,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-types"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "anchor-lang-idl",
  "blake3",
@@ -13054,9 +13055,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e956b4c0ed49913bb4a08b3e6062a68f9aa71dab66c06e6f3abe88c9878fcb9d"
+checksum = "23a089a07536356a6ae82e87c0269497008043950939ea2743b9d97b0d3615e4"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -13065,6 +13066,7 @@ dependencies = [
  "convert_case 0.6.0",
  "kaigan",
  "lazy_static",
+ "log 0.4.28",
  "serde",
  "serde_derive",
  "serde_json",
@@ -13098,9 +13100,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm-types"
-version = "0.3.15"
+version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30eaa1527896106eea3fce87bf1aac932c31c45ff94b544c0eabbec2f63ebd01"
+checksum = "0df4bf99587f0513d9af93899afcbd99a43e7826dc9d568a6f2646fca7493575"
 dependencies = [
  "anchor-lang-idl",
  "borsh 1.5.7",
