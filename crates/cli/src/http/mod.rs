@@ -401,7 +401,7 @@ fn start_subgraph_runloop(
                         },
                         Err(_e) => {
                             // Observer channel closed (plugin was likely unloaded)
-                            // Simply remove this observer from the vector
+                            // Remove observer in that case
                             observers.remove(i - 1);
                             continue;
                         }

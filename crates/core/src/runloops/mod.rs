@@ -537,24 +537,24 @@ fn start_geyser_runloop(
                 return Err(format!("Plugin index {} out of bounds", plugin_index));
             }
 
-            // Notify subgraph subsystem to destroy the collection
+            // Destroy database/schema for this collection
             let _ = subgraph_commands_tx.send(SubgraphCommand::DestroyCollection(uuid));
 
-            // Call on_unload before removing
+            // Unload the plugin
             surfpool_plugin_manager[plugin_index].on_unload();
 
-            // Remove the plugin from the list
+            // Remove from tracking structures
             surfpool_plugin_manager.remove(plugin_index);
             plugin_uuid_map.remove(&uuid);
 
-            // Update all UUIDs that had indices after the removed one
+            // Adjust indices after removal
             for (_, idx) in plugin_uuid_map.iter_mut() {
                 if *idx > plugin_index {
                     *idx -= 1;
                 }
             }
 
-            // Check if we should disable indexing
+            // Disable indexing if no plugins remain
             if surfpool_plugin_manager.is_empty() {
                 *indexing_enabled = false;
             }

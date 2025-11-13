@@ -1,4 +1,4 @@
-use convert_case::{Case, Casing};
+nexuse convert_case::{Case, Casing};
 use juniper::{
     DefaultScalarValue, FieldError, FromInputValue, GraphQLType, GraphQLValue, InputValue,
     Registry,
