@@ -323,6 +323,32 @@ fn start_subgraph_runloop(
                             SubgraphCommand::ObserveCollection(subgraph_observer_rx) => {
                                 observers.push(subgraph_observer_rx);
                             }
+                            SubgraphCommand::DestroyCollection(uuid) => {
+                                let err_ctx = "Failed to destroy subgraph collection";
+
+                                // Remove from cached metadata
+                                cached_metadata.remove(&uuid);
+
+                                // Unregister from database pool
+                                let gql_context = gql_context.write().map_err(|_| {
+                                    format!(
+                                        "{err_ctx}: Failed to acquire write lock on gql context"
+                                    )
+                                })?;
+                                if let Err(e) = gql_context.pool.unregister_collection(&uuid) {
+                                    error!("{}: {}", err_ctx, e);
+                                }
+
+                                // Remove from metadata lookup and update schema
+                                let mut gql_schema = gql_schema.write().map_err(|_| {
+                                    format!("{err_ctx}: Failed to acquire write lock on gql schema")
+                                })?;
+                                let mut lookup = collections_metadata_lookup.write().map_err(|_| {
+                                    format!("{err_ctx}: Failed to acquire write lock on collections metadata lookup")
+                                })?;
+                                lookup.remove_collection(&uuid);
+                                gql_schema.replace(new_dynamic_schema(lookup.clone()));
+                            }
                             SubgraphCommand::Shutdown => {
                                 let _ = subgraph_events_tx.send(SubgraphEvent::Shutdown);
                             }
@@ -355,7 +381,11 @@ fn start_subgraph_runloop(
                                     }
                                 };
 
-                                let metadata = cached_metadata.get(&uuid).unwrap();
+                                // Check if metadata still exists (collection might have been destroyed)
+                                let Some(metadata) = cached_metadata.get(&uuid) else {
+                                    // Collection was destroyed, skip processing this entry
+                                    continue;
+                                };
 
                                 if let Err(e) = gql_context
                                     .pool
@@ -370,7 +400,10 @@ fn start_subgraph_runloop(
                             DataIndexingCommand::ProcessCollection(_uuid) => {}
                         },
                         Err(_e) => {
-                            std::process::exit(1);
+                            // Observer channel closed (plugin was likely unloaded)
+                            // Remove observer in that case
+                            observers.remove(i - 1);
+                            continue;
                         }
                     },
                 }

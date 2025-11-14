@@ -17,6 +17,7 @@ use surfpool_db::{
         dynamic_value::{Any, DynamicRow, NamedField},
         table,
     },
+    schema::collections,
 };
 use txtx_addon_kit::{indexmap::IndexMap, types::types::Type};
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
@@ -396,6 +397,37 @@ impl Dataloader for Pool<ConnectionManager<DatabaseConnection>> {
             }
             Err(e) => Err(format!("Failed to update entries table: {}", e)),
         }?;
+
+        Ok(())
+    }
+
+    fn unregister_collection(
+        &self,
+        uuid: &Uuid,
+    ) -> Result<(), String> {
+        let mut conn = self.get().map_err(|e| format!("Unable to connect to db: {}", e))?;
+
+        let uuid_str = uuid.to_string();
+
+        // Query the table name
+        let table_name: Option<String> = collections::table
+            .filter(collections::id.eq(&uuid_str))
+            .select(collections::table_name)
+            .first(&mut *conn)
+            .ok();
+
+        // Drop the table if it exists
+        if let Some(table_name) = table_name {
+            let drop_sql = format!("DROP TABLE IF EXISTS {}", table_name);
+            if let Err(e) = sql_query(&drop_sql).execute(&mut *conn) {
+                eprintln!("Warning: Failed to drop entries table {}: {}", table_name, e);
+            }
+        }
+
+        // Delete the collection record
+        diesel::delete(collections::table.filter(collections::id.eq(&uuid_str)))
+            .execute(&mut *conn)
+            .map_err(|e| format!("Failed to delete collection record: {}", e))?;
 
         Ok(())
     }

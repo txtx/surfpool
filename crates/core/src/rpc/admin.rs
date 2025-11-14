@@ -8,7 +8,7 @@ use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_client::{rpc_config::RpcAccountIndex, rpc_custom_error::RpcCustomError};
 use solana_pubkey::Pubkey;
-use surfpool_types::SimnetCommand;
+use surfpool_types::{SimnetCommand, SimnetEvent};
 use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
@@ -770,15 +770,99 @@ impl AdminRpc for SurfpoolAdminRpc {
 
     fn reload_plugin(
         &self,
-        _meta: Self::Metadata,
-        _name: String,
-        _config_file: String,
+        meta: Self::Metadata,
+        name: String,
+        config_file: String,
     ) -> BoxFuture<Result<()>> {
-        not_implemented_err_async("reload_plugin")
+        // Parse the UUID from the name parameter
+        let uuid = match Uuid::parse_str(&name) {
+            Ok(uuid) => uuid,
+            Err(e) => {
+                return Box::pin(async move {
+                    Err(jsonrpc_core::Error::invalid_params(format!(
+                        "Invalid UUID: {}",
+                        e
+                    )))
+                });
+            }
+        };
+
+        // Parse the new configuration
+        let config = match serde_json::from_str::<PluginConfig>(&config_file)
+            .map_err(|e| format!("failed to deserialize plugin config: {e}"))
+        {
+            Ok(config) => config,
+            Err(e) => return Box::pin(async move { Err(jsonrpc_core::Error::invalid_params(&e)) }),
+        };
+
+        let Some(ctx) = meta else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        let simnet_events_tx = ctx.svm_locker.simnet_events_tx();
+        let _ = simnet_events_tx.try_send(SimnetEvent::info(format!(
+            "Reloading plugin with UUID - {}",
+            uuid
+        )));
+
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let _ = ctx
+            .plugin_manager_commands_tx
+            .send(PluginManagerCommand::ReloadPlugin(uuid, config, tx));
+
+        let Ok(_endpoint_url) = rx.recv_timeout(Duration::from_secs(10)) else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        Box::pin(async move {
+            let _ = simnet_events_tx.try_send(SimnetEvent::info(format!(
+                "Reloaded plugin with UUID - {}",
+                uuid
+            )));
+            Ok(())
+        })
     }
 
-    fn unload_plugin(&self, _meta: Self::Metadata, _name: String) -> BoxFuture<Result<()>> {
-        not_implemented_err_async("unload_plugin")
+    fn unload_plugin(&self, meta: Self::Metadata, name: String) -> BoxFuture<Result<()>> {
+        // Parse the UUID from the name parameter
+        let uuid = match Uuid::parse_str(&name) {
+            Ok(uuid) => uuid,
+            Err(e) => {
+                return Box::pin(async move {
+                    Err(jsonrpc_core::Error::invalid_params(format!(
+                        "Invalid UUID: {}",
+                        e
+                    )))
+                });
+            }
+        };
+
+        let Some(ctx) = meta else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        let simnet_events_tx = ctx.svm_locker.simnet_events_tx();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let _ = ctx
+            .plugin_manager_commands_tx
+            .send(PluginManagerCommand::UnloadPlugin(uuid, tx));
+
+        let Ok(result) = rx.recv_timeout(Duration::from_secs(10)) else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        Box::pin(async move {
+            match result {
+                Ok(()) => {
+                    let _ = simnet_events_tx.try_send(SimnetEvent::info(format!(
+                        "Unloaded plugin with UUID - {}",
+                        uuid
+                    )));
+                    Ok(())
+                }
+                Err(e) => Err(jsonrpc_core::Error::invalid_params(&e)),
+            }
+        })
     }
 
     fn load_plugin(&self, meta: Self::Metadata, config_file: String) -> BoxFuture<Result<String>> {
@@ -794,10 +878,19 @@ impl AdminRpc for SurfpoolAdminRpc {
         let _ = ctx
             .plugin_manager_commands_tx
             .send(PluginManagerCommand::LoadConfig(uuid, config, tx));
-
         let Ok(endpoint_url) = rx.recv_timeout(Duration::from_secs(10)) else {
             return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
         };
+
+        let _ = ctx
+            .svm_locker
+            .simnet_events_tx()
+            .try_send(SimnetEvent::info(format!(
+                "Loaded plugin with UUID - {}",
+                uuid
+            )));
+
+        // Return only the endpoint URL
         Box::pin(async move { Ok(endpoint_url) })
     }
 

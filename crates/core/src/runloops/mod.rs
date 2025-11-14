@@ -418,6 +418,10 @@ fn start_geyser_runloop(
 
         let mut surfpool_plugin_manager: Vec<Box<dyn GeyserPlugin>> = vec![];
 
+        // Map between each plugin's UUID to its position (index) in the surfpool_plugin_manager Vec.
+        // Allows for easier reload/unload
+        let mut plugin_uuid_map: HashMap<crate::Uuid, usize> = HashMap::new();
+
         #[cfg(feature = "geyser_plugin")]
         for plugin_config_path in plugin_config_paths.into_iter() {
             let plugin_manifest_location = FileLocation::from_path(plugin_config_path);
@@ -471,6 +475,94 @@ fn start_geyser_runloop(
 
         let ipc_router = RouterProxy::new();
 
+        // Helper function to load a subgraph plugin
+        #[cfg(feature = "subgraph")]
+        let load_subgraph_plugin = |uuid: uuid::Uuid,
+                                      config: txtx_addon_network_svm_types::subgraph::PluginConfig,
+                                      notifier: crossbeam_channel::Sender<String>,
+                                      surfpool_plugin_manager: &mut Vec<Box<dyn GeyserPlugin>>,
+                                      plugin_uuid_map: &mut HashMap<uuid::Uuid, usize>,
+                                      indexing_enabled: &mut bool|
+         -> Result<(), String> {
+            let _ = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(
+                uuid,
+                config.data.clone(),
+                notifier,
+            ));
+            let mut plugin = SurfpoolSubgraphPlugin::default();
+
+            let (server, ipc_token) =
+                IpcOneShotServer::<IpcReceiver<DataIndexingCommand>>::new()
+                    .expect("Failed to create IPC one-shot server.");
+            let subgraph_plugin_config = SubgraphPluginConfig {
+                uuid,
+                ipc_token,
+                subgraph_request: config.data.clone(),
+            };
+
+            let config_file = serde_json::to_string(&subgraph_plugin_config)
+                .map_err(|e| format!("Failed to serialize subgraph plugin config: {:?}", e))?;
+
+            plugin
+                .on_load(&config_file, false)
+                .map_err(|e| format!("Failed to load Geyser plugin: {:?}", e))?;
+
+            if let Ok((_, rx)) = server.accept() {
+                let subgraph_rx = ipc_router
+                    .route_ipc_receiver_to_new_crossbeam_receiver::<DataIndexingCommand>(rx);
+                let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveCollection(subgraph_rx));
+            };
+
+            *indexing_enabled = true;
+
+            let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
+            let plugin_index = surfpool_plugin_manager.len();
+            surfpool_plugin_manager.push(plugin);
+            plugin_uuid_map.insert(uuid, plugin_index);
+
+            Ok(())
+        };
+
+        // Helper function to unload a plugin by UUID
+        #[cfg(feature = "subgraph")]
+        let unload_plugin_by_uuid = |uuid: uuid::Uuid,
+                                       surfpool_plugin_manager: &mut Vec<Box<dyn GeyserPlugin>>,
+                                       plugin_uuid_map: &mut HashMap<uuid::Uuid, usize>,
+                                       indexing_enabled: &mut bool|
+         -> Result<(), String> {
+            let plugin_index = *plugin_uuid_map
+                .get(&uuid)
+                .ok_or_else(|| format!("Plugin {} not found", uuid))?;
+
+            if plugin_index >= surfpool_plugin_manager.len() {
+                return Err(format!("Plugin index {} out of bounds", plugin_index));
+            }
+
+            // Destroy database/schema for this collection
+            let _ = subgraph_commands_tx.send(SubgraphCommand::DestroyCollection(uuid));
+
+            // Unload the plugin
+            surfpool_plugin_manager[plugin_index].on_unload();
+
+            // Remove from tracking structures
+            surfpool_plugin_manager.remove(plugin_index);
+            plugin_uuid_map.remove(&uuid);
+
+            // Adjust indices after removal
+            for (_, idx) in plugin_uuid_map.iter_mut() {
+                if *idx > plugin_index {
+                    *idx -= 1;
+                }
+            }
+
+            // Disable indexing if no plugins remain
+            if surfpool_plugin_manager.is_empty() {
+                *indexing_enabled = false;
+            }
+
+            Ok(())
+        };
+
         let err = loop {
             use agave_geyser_plugin_interface::geyser_plugin_interface::{ReplicaAccountInfoV3, ReplicaAccountInfoVersions};
 
@@ -487,37 +579,37 @@ fn start_geyser_runloop(
                                 }
                                 #[cfg(feature = "subgraph")]
                                 PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
-                                    let _ = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(uuid, config.data.clone(), notifier));
-                                    let mut plugin = SurfpoolSubgraphPlugin::default();
+                                    if let Err(e) = load_subgraph_plugin(uuid, config, notifier, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
+                                        let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to load plugin: {}", e)));
+                                    }
+                                }
+                                #[cfg(not(feature = "subgraph"))]
+                                PluginManagerCommand::UnloadPlugin(_, _) => {
+                                    continue;
+                                }
+                                #[cfg(feature = "subgraph")]
+                                PluginManagerCommand::UnloadPlugin(uuid, notifier) => {
+                                    let result = unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled);
+                                    let _ = notifier.send(result);
+                                }
+                                #[cfg(not(feature = "subgraph"))]
+                                PluginManagerCommand::ReloadPlugin(_, _, _) => {
+                                    continue;
+                                }
+                                #[cfg(feature = "subgraph")]
+                                PluginManagerCommand::ReloadPlugin(uuid, config, notifier) => {
+                                    // Unload the old plugin
+                                    if let Err(e) = unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
+                                        let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to unload plugin during reload: {}", e)));
+                                        continue;
+                                    }
 
-                                    let (server, ipc_token) = IpcOneShotServer::<IpcReceiver<DataIndexingCommand>>::new().expect("Failed to create IPC one-shot server.");
-                                    let subgraph_plugin_config = SubgraphPluginConfig {
-                                        uuid,
-                                        ipc_token,
-                                        subgraph_request: config.data.clone()
-                                    };
+                                    let _ = simnet_events_tx.try_send(SimnetEvent::info(format!("Unloaded plugin with UUID - {}", uuid)));
 
-                                    let config_file = match serde_json::to_string(&subgraph_plugin_config) {
-                                        Ok(c) => c,
-                                        Err(e) => {
-                                            let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to serialize subgraph plugin config: {:?}", e)));
-                                            continue;
-                                        }
-                                    };
-
-                                    if let Err(e) = plugin.on_load(&config_file, false) {
-                                        let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to load Geyser plugin: {:?}", e)));
-                                    };
-                                    if let Ok((_, rx)) = server.accept() {
-                                        let subgraph_rx = ipc_router.route_ipc_receiver_to_new_crossbeam_receiver::<DataIndexingCommand>(rx);
-                                        let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveCollection(subgraph_rx));
-                                    };
-
-                                    indexing_enabled = true;
-
-                                    let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
-                                    surfpool_plugin_manager.push(plugin);
-                                    let _ = simnet_events_tx.send(SimnetEvent::PluginLoaded("surfpool-subgraph".into()));
+                                    // Load the new plugin with the same UUID
+                                    if let Err(e) = load_subgraph_plugin(uuid, config, notifier, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
+                                        let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to reload plugin: {}", e)));
+                                    }
                                 }
                             }
                         },
