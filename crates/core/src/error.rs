@@ -336,6 +336,20 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn invalid_account_type<P, M>(pubkey: P, message: Option<M>) -> Self
+    where
+        P: Display,
+        M: Display,
+    {
+        let base_msg = format!("invalid account type {pubkey}");
+        let full_msg = if let Some(msg) = message {
+            format!("{base_msg}: {msg}")
+        } else {
+            base_msg
+        };
+        Self(Error::invalid_params(full_msg))
+    }
+
     pub fn invalid_account_owner<P, M>(pubkey: P, message: Option<M>) -> Self
     where
         P: Display,
