@@ -483,7 +483,7 @@ fn start_geyser_runloop(
                                       surfpool_plugin_manager: &mut Vec<Box<dyn GeyserPlugin>>,
                                       plugin_uuid_map: &mut HashMap<uuid::Uuid, usize>,
                                       indexing_enabled: &mut bool|
-         -> Result<String, String> {
+         -> Result<(), String> {
             let _ = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(
                 uuid,
                 config.data.clone(),
@@ -520,7 +520,7 @@ fn start_geyser_runloop(
             surfpool_plugin_manager.push(plugin);
             plugin_uuid_map.insert(uuid, plugin_index);
 
-            Ok(format!("http://localhost:8899/subgraph/{}", uuid))  // Return endpoint URL
+            Ok(())
         };
 
         // Helper function to unload a plugin by UUID
