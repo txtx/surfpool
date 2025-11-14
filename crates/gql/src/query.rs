@@ -67,10 +67,7 @@ pub trait Dataloader {
         request: &SubgraphRequest,
         worker_id: &Uuid,
     ) -> Result<(), String>;
-    fn unregister_collection(
-        &self,
-        uuid: &Uuid,
-    ) -> Result<(), String>;
+    fn unregister_collection(&self, uuid: &Uuid) -> Result<(), String>;
     fn insert_entries_into_collection(
         &self,
         entries: Vec<CollectionEntryData>,
