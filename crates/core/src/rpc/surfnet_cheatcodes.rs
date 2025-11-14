@@ -792,6 +792,9 @@ pub trait SurfnetCheatcodes {
     ///         - `includeProgramAccounts`: A boolean indicating whether to include program accounts.
     ///         - `includeAccounts`: A list of specific account public keys to include.
     ///         - `excludeAccounts`: A list of specific account public keys to exclude.
+    ///     - `scope`: An optional scope to limit the accounts included in the snapshot. Options include:
+    ///         - `network`: Includes all accounts in the network.
+    ///         - `preTransaction`: Only includes accounts touched by the given transaction.
     ///
     ///
     /// ## Returns
@@ -1834,7 +1837,8 @@ mod tests {
     use spl_token_2022_interface::instruction::{initialize_mint2, mint_to, transfer_checked};
     use spl_token_interface::state::Mint;
     use surfpool_types::{
-        ExportSnapshotFilter, RpcProfileDepth, UiAccountChange, UiAccountProfileState,
+        ExportSnapshotFilter, ExportSnapshotScope, RpcProfileDepth, UiAccountChange,
+        UiAccountProfileState,
     };
 
     use super::*;
@@ -2755,6 +2759,7 @@ mod tests {
                 Some(ExportSnapshotConfig {
                     include_parsed_accounts: Some(true),
                     filter: None,
+                    scope: ExportSnapshotScope::Network,
                 }),
             )
             .expect("Failed to export snapshot")
@@ -2795,6 +2800,140 @@ mod tests {
                 .and_then(|v| v.as_str())
                 .expect("mintAuthority should be a string"),
             mint_authority.to_string()
+        );
+    }
+
+    #[test]
+    fn test_export_snapshot_pre_transaction() {
+        use std::collections::HashMap;
+
+        use solana_signature::Signature;
+        use surfpool_types::{ProfileResult, types::KeyedProfileResult};
+
+        let client = TestSetup::new(SurfnetCheatcodesRpc);
+
+        // Create several accounts in the network
+        let account1_pubkey = Pubkey::new_unique();
+        let account1 = Account {
+            lamports: 1_000_000,
+            data: vec![1, 2, 3, 4],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        set_account(&client, &account1_pubkey, &account1);
+
+        let account2_pubkey = Pubkey::new_unique();
+        let account2 = Account {
+            lamports: 2_000_000,
+            data: vec![5, 6, 7, 8],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        set_account(&client, &account2_pubkey, &account2);
+
+        let account3_pubkey = Pubkey::new_unique();
+        let account3 = Account {
+            lamports: 3_000_000,
+            data: vec![9, 10, 11, 12],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        set_account(&client, &account3_pubkey, &account3);
+
+        // Create a mock transaction profile that only touches account1 and account2
+        let signature = Signature::new_unique();
+        let mut pre_execution_capture = BTreeMap::new();
+        pre_execution_capture.insert(account1_pubkey, Some(account1.clone()));
+        pre_execution_capture.insert(account2_pubkey, Some(account2.clone()));
+
+        let mut post_execution_capture = BTreeMap::new();
+        let mut modified_account1 = account1.clone();
+        modified_account1.lamports = 500_000;
+        post_execution_capture.insert(account1_pubkey, Some(modified_account1.clone()));
+        let mut modified_account2 = account2.clone();
+        modified_account2.lamports = 2_500_000;
+        post_execution_capture.insert(account2_pubkey, Some(modified_account2.clone()));
+
+        let profile = ProfileResult {
+            pre_execution_capture,
+            post_execution_capture,
+            compute_units_consumed: 1000,
+            log_messages: None,
+            error_message: None,
+        };
+
+        let keyed_profile = KeyedProfileResult::new(
+            1,
+            UuidOrSignature::Signature(signature),
+            None,
+            profile,
+            HashMap::new(),
+        );
+
+        // Insert the profile into executed_transaction_profiles
+        client.context.svm_locker.with_svm_writer(|svm| {
+            svm.executed_transaction_profiles
+                .insert(signature, keyed_profile);
+        });
+
+        // Export snapshot with PreTransaction scope
+        let snapshot = client
+            .rpc
+            .export_snapshot(
+                Some(client.context.clone()),
+                Some(ExportSnapshotConfig {
+                    include_parsed_accounts: Some(false),
+                    filter: None,
+                    scope: ExportSnapshotScope::PreTransaction(signature.to_string()),
+                }),
+            )
+            .expect("Failed to export snapshot")
+            .value;
+
+        // Verify that only account1 and account2 are in the snapshot
+        assert!(
+            snapshot.contains_key(&account1_pubkey.to_string()),
+            "Snapshot should contain account1 (touched by transaction)"
+        );
+        assert!(
+            snapshot.contains_key(&account2_pubkey.to_string()),
+            "Snapshot should contain account2 (touched by transaction)"
+        );
+        assert!(
+            !snapshot.contains_key(&account3_pubkey.to_string()),
+            "Snapshot should NOT contain account3 (not touched by transaction)"
+        );
+
+        // Verify the accounts have the PRE-EXECUTION state (original values, not modified)
+        verify_snapshot_account(&snapshot, &account1_pubkey, &account1);
+        verify_snapshot_account(&snapshot, &account2_pubkey, &account2);
+
+        // Double-check that we're NOT getting the post-execution values
+        let snapshot_account1 = snapshot
+            .get(&account1_pubkey.to_string())
+            .expect("Account1 should be in snapshot");
+        assert_eq!(
+            snapshot_account1.lamports, 1_000_000,
+            "Account1 should have pre-execution lamports (1M), not post-execution (500K)"
+        );
+
+        let snapshot_account2 = snapshot
+            .get(&account2_pubkey.to_string())
+            .expect("Account2 should be in snapshot");
+        assert_eq!(
+            snapshot_account2.lamports, 2_000_000,
+            "Account2 should have pre-execution lamports (2M), not post-execution (2.5M)"
+        );
+
+        // Verify account count
+        // Note: The snapshot may contain more accounts if system accounts are included
+        // but we verify that at least our touched accounts are there and untouched ones are not
+        println!(
+            "Snapshot contains {} accounts (expected at least 2)",
+            snapshot.len()
         );
     }
 

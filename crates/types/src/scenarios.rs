@@ -11,12 +11,15 @@ use crate::Idl;
 // ========================================
 
 /// Defines how an account address should be determined
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[doc = "Defines how an account address should be determined"]
 pub enum AccountAddress {
     /// A specific public key
+    #[doc = "A specific public key"]
     Pubkey(String),
     /// A Program Derived Address with seeds
+    #[doc = "A Program Derived Address with seeds"]
     Pda {
         program_id: String,
         seeds: Vec<PdaSeed>,
@@ -24,12 +27,13 @@ pub enum AccountAddress {
 }
 
 /// Seeds used for PDA derivation
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[doc = "Seeds used for PDA derivation"]
 pub enum PdaSeed {
+    Pubkey(String),
     String(String),
     Bytes(Vec<u8>),
-    Pubkey(String),
     /// Reference to a property value
     PropertyRef(String),
 }
@@ -85,26 +89,33 @@ impl OverrideTemplate {
 }
 
 /// A concrete instance of an override template with specific values
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct OverrideInstance {
     /// Unique identifier for this instance
+    #[doc = "Unique identifier for the scenario"]
     pub id: String,
     /// Reference to the template being used
+    #[doc = "Reference to the template being used"]
     pub template_id: String,
     /// Values for the template properties (flat key-value map with dot notation, e.g., "price_message.price_value")
+    #[doc = "Values for the template properties (flat key-value map with dot notation, e.g., 'price_message.price_value')"]
     pub values: HashMap<String, serde_json::Value>,
     /// Relative slot when this override should be applied (relative to scenario registration slot)
+    #[doc = "Relative slot when this override should be applied (relative to scenario registration slot)"]
     pub scenario_relative_slot: Slot,
     /// Optional label for this instance
+    #[doc = "Optional label for this instance"]
     pub label: Option<String>,
     /// Whether this override is enabled
+    #[doc = "Whether this override is enabled"]
     pub enabled: bool,
     /// Whether to fetch fresh account data just before transaction execution
-    /// Useful for time-sensitive data like price feeds, oracle updates, and dynamic balances
+    #[doc = "Whether to fetch fresh account data just before transaction execution"]
     #[serde(default)]
     pub fetch_before_use: bool,
     /// Account address to override
+    #[doc = "Account address to override"]
     pub account: AccountAddress,
 }
 
@@ -134,18 +145,23 @@ impl OverrideInstance {
 }
 
 /// A scenario containing a timeline of overrides
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Scenario {
     /// Unique identifier for the scenario
+    #[doc = "Unique identifier for the scenario"]
     pub id: String,
     /// Human-readable name
+    #[doc = "Human-readable name"]
     pub name: String,
     /// Description of this scenario
+    #[doc = "Description of this scenario"]
     pub description: String,
     /// List of override instances in this scenario
+    #[doc = "List of override instances in this scenario"]
     pub overrides: Vec<OverrideInstance>,
     /// Tags for categorization
+    #[doc = "Tags for categorization"]
     pub tags: Vec<String>,
 }
 

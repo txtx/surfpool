@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.11.2"
+version = "0.12.0"
 edition = "2024"
 description = "Surfpool is where developers start their Solana journey."
 license = "Apache-2.0"
@@ -96,6 +96,8 @@ ratatui = { version = "0.29.0", features = [
 reqwest = { version = "0.12.23", default-features = false }
 rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "ff71a526156e6c9409c450f71eccd6aced9bc339", package = "rmcp" }
 rust-embed = "8.2.0"
+schemars = { version = "0.8.22" }
+schemars_derive = { version = "0.8.22" }
 serde = { version = "1.0.226", default-features = false }
 serde_derive = { version = "1.0.226", default-features = false } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = { version = "1.0.135", default-features = false }
@@ -160,8 +162,8 @@ surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
 
 txtx-addon-kit = "0.4.10"
-txtx-addon-network-svm = { version = "0.3.16" }
-txtx-addon-network-svm-types = { version = "0.3.15" }
+txtx-addon-network-svm = { version = "0.3.17" }
+txtx-addon-network-svm-types = { version = "0.3.16" }
 txtx-cloud = { version = "0.1.13", features = [
     "clap",
     "toml",
