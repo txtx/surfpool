@@ -777,9 +777,14 @@ impl AdminRpc for SurfpoolAdminRpc {
         // Parse the UUID from the name parameter
         let uuid = match Uuid::parse_str(&name) {
             Ok(uuid) => uuid,
-            Err(e) => return Box::pin(async move {
-                Err(jsonrpc_core::Error::invalid_params(format!("Invalid UUID: {}", e)))
-            }),
+            Err(e) => {
+                return Box::pin(async move {
+                    Err(jsonrpc_core::Error::invalid_params(format!(
+                        "Invalid UUID: {}",
+                        e
+                    )))
+                });
+            }
         };
 
         // Parse the new configuration
@@ -795,7 +800,10 @@ impl AdminRpc for SurfpoolAdminRpc {
         };
 
         let simnet_events_tx = ctx.svm_locker.simnet_events_tx();
-        let _ = simnet_events_tx.try_send(SimnetEvent::info(format!("Reloading plugin with UUID - {}", uuid)));
+        let _ = simnet_events_tx.try_send(SimnetEvent::info(format!(
+            "Reloading plugin with UUID - {}",
+            uuid
+        )));
 
         let (tx, rx) = crossbeam_channel::bounded(1);
         let _ = ctx
@@ -807,7 +815,10 @@ impl AdminRpc for SurfpoolAdminRpc {
         };
 
         Box::pin(async move {
-            let _ = simnet_events_tx.try_send(SimnetEvent::info(format!("Reloaded plugin with UUID - {}", uuid)));
+            let _ = simnet_events_tx.try_send(SimnetEvent::info(format!(
+                "Reloaded plugin with UUID - {}",
+                uuid
+            )));
             Ok(())
         })
     }
@@ -816,9 +827,14 @@ impl AdminRpc for SurfpoolAdminRpc {
         // Parse the UUID from the name parameter
         let uuid = match Uuid::parse_str(&name) {
             Ok(uuid) => uuid,
-            Err(e) => return Box::pin(async move {
-                Err(jsonrpc_core::Error::invalid_params(format!("Invalid UUID: {}", e)))
-            }),
+            Err(e) => {
+                return Box::pin(async move {
+                    Err(jsonrpc_core::Error::invalid_params(format!(
+                        "Invalid UUID: {}",
+                        e
+                    )))
+                });
+            }
         };
 
         let Some(ctx) = meta else {
@@ -838,10 +854,13 @@ impl AdminRpc for SurfpoolAdminRpc {
         Box::pin(async move {
             match result {
                 Ok(()) => {
-                    let _ = simnet_events_tx.try_send(SimnetEvent::info(format!("Unloaded plugin with UUID - {}", uuid)));
+                    let _ = simnet_events_tx.try_send(SimnetEvent::info(format!(
+                        "Unloaded plugin with UUID - {}",
+                        uuid
+                    )));
                     Ok(())
                 }
-                Err(e) => Err(jsonrpc_core::Error::invalid_params(&e))
+                Err(e) => Err(jsonrpc_core::Error::invalid_params(&e)),
             }
         })
     }
@@ -862,6 +881,14 @@ impl AdminRpc for SurfpoolAdminRpc {
         let Ok(endpoint_url) = rx.recv_timeout(Duration::from_secs(10)) else {
             return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
         };
+
+        let _ = ctx
+            .svm_locker
+            .simnet_events_tx()
+            .try_send(SimnetEvent::info(format!(
+                "Loaded plugin with UUID - {}",
+                uuid
+            )));
 
         // Return only the endpoint URL
         Box::pin(async move { Ok(endpoint_url) })
