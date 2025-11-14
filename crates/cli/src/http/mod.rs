@@ -317,8 +317,8 @@ fn start_subgraph_runloop(
                                 lookup.add_collection(metadata);
                                 gql_schema.replace(new_dynamic_schema(lookup.clone()));
 
-                                let console_url = format!("{}/accounts", config.studio_url.clone());
-                                let _ = sender.send(console_url);
+                                let endpoint_url = format!("http://localhost:8899/subgraph/{}", uuid);
+                                let _ = sender.send(endpoint_url);
                             }
                             SubgraphCommand::ObserveCollection(subgraph_observer_rx) => {
                                 observers.push(subgraph_observer_rx);

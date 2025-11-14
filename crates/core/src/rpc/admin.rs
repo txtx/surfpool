@@ -794,23 +794,21 @@ impl AdminRpc for SurfpoolAdminRpc {
             return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
         };
 
+        let simnet_events_tx = ctx.svm_locker.simnet_events_tx();
+        let _ = simnet_events_tx.try_send(SimnetEvent::info(format!("Reloading plugin with UUID - {}", uuid)));
+
         let (tx, rx) = crossbeam_channel::bounded(1);
         let _ = ctx
             .plugin_manager_commands_tx
             .send(PluginManagerCommand::ReloadPlugin(uuid, config, tx));
 
-        let Ok(result) = rx.recv_timeout(Duration::from_secs(10)) else {
+        let Ok(_endpoint_url) = rx.recv_timeout(Duration::from_secs(10)) else {
             return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
         };
 
         Box::pin(async move {
-            match result {
-                Ok(_endpoint_url) => {
-                    // Subgraph plugin logs its own detailed messages on load
-                    Ok(())
-                }
-                Err(e) => Err(jsonrpc_core::Error::invalid_params(&e))
-            }
+            let _ = simnet_events_tx.try_send(SimnetEvent::info(format!("Reloaded plugin with UUID - {}", uuid)));
+            Ok(())
         })
     }
 
@@ -840,10 +838,7 @@ impl AdminRpc for SurfpoolAdminRpc {
         Box::pin(async move {
             match result {
                 Ok(()) => {
-                    let _ = simnet_events_tx.send(SimnetEvent::info(format!(
-                        "Plugin {} unloaded",
-                        uuid
-                    )));
+                    let _ = simnet_events_tx.try_send(SimnetEvent::info(format!("Unloaded plugin with UUID - {}", uuid)));
                     Ok(())
                 }
                 Err(e) => Err(jsonrpc_core::Error::invalid_params(&e))
@@ -864,12 +859,11 @@ impl AdminRpc for SurfpoolAdminRpc {
         let _ = ctx
             .plugin_manager_commands_tx
             .send(PluginManagerCommand::LoadConfig(uuid, config, tx));
-
         let Ok(endpoint_url) = rx.recv_timeout(Duration::from_secs(10)) else {
             return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
         };
 
-        // Return only the endpoint URL (subgraph plugin logs its own detailed messages)
+        // Return only the endpoint URL
         Box::pin(async move { Ok(endpoint_url) })
     }
 

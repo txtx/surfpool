@@ -56,7 +56,7 @@ pub async fn start_local_surfnet(
 pub enum PluginManagerCommand {
     LoadConfig(Uuid, PluginConfig, Sender<String>),
     UnloadPlugin(Uuid, Sender<Result<(), String>>),
-    ReloadPlugin(Uuid, PluginConfig, Sender<Result<String, String>>),
+    ReloadPlugin(Uuid, PluginConfig, Sender<String>),
 }
 
 #[cfg(test)]

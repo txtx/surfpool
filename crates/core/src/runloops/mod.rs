@@ -479,6 +479,7 @@ fn start_geyser_runloop(
         #[cfg(feature = "subgraph")]
         let load_subgraph_plugin = |uuid: uuid::Uuid,
                                       config: txtx_addon_network_svm_types::subgraph::PluginConfig,
+                                      notifier: crossbeam_channel::Sender<String>,
                                       surfpool_plugin_manager: &mut Vec<Box<dyn GeyserPlugin>>,
                                       plugin_uuid_map: &mut HashMap<uuid::Uuid, usize>,
                                       indexing_enabled: &mut bool|
@@ -486,7 +487,7 @@ fn start_geyser_runloop(
             let _ = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(
                 uuid,
                 config.data.clone(),
-                crossbeam_channel::bounded(0).0,  // Temporary sender, will be replaced
+                notifier,
             ));
             let mut plugin = SurfpoolSubgraphPlugin::default();
 
@@ -578,13 +579,8 @@ fn start_geyser_runloop(
                                 }
                                 #[cfg(feature = "subgraph")]
                                 PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
-                                    match load_subgraph_plugin(uuid, config, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
-                                        Ok(endpoint_url) => {
-                                            let _ = notifier.send(endpoint_url);
-                                        }
-                                        Err(e) => {
-                                            let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to load plugin: {}", e)));
-                                        }
+                                    if let Err(e) = load_subgraph_plugin(uuid, config, notifier, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
+                                        let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to load plugin: {}", e)));
                                     }
                                 }
                                 #[cfg(not(feature = "subgraph"))]
@@ -602,21 +598,17 @@ fn start_geyser_runloop(
                                 }
                                 #[cfg(feature = "subgraph")]
                                 PluginManagerCommand::ReloadPlugin(uuid, config, notifier) => {
-                                    // First, unload the old plugin
+                                    // Unload the old plugin
                                     if let Err(e) = unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
-                                        let _ = notifier.send(Err(e));
+                                        let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to unload plugin during reload: {}", e)));
                                         continue;
                                     }
 
-                                    // Then, load the new plugin with the same UUID
-                                    match load_subgraph_plugin(uuid, config, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
-                                        Ok(endpoint_url) => {
-                                            let _ = notifier.send(Ok(endpoint_url));
-                                            let _ = simnet_events_tx.send(SimnetEvent::info(format!("Plugin {} reloaded", uuid)));
-                                        }
-                                        Err(e) => {
-                                            let _ = notifier.send(Err(e));
-                                        }
+                                    let _ = simnet_events_tx.try_send(SimnetEvent::info(format!("Unloaded plugin with UUID - {}", uuid)));
+
+                                    // Load the new plugin with the same UUID
+                                    if let Err(e) = load_subgraph_plugin(uuid, config, notifier, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
+                                        let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to reload plugin: {}", e)));
                                     }
                                 }
                             }
