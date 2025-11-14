@@ -1002,6 +1002,15 @@ impl AccountSnapshot {
 pub struct ExportSnapshotConfig {
     pub include_parsed_accounts: Option<bool>,
     pub filter: Option<ExportSnapshotFilter>,
+    pub scope: ExportSnapshotScope,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportSnapshotScope {
+    #[default]
+    Network,
+    PreTransaction(String),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -1377,5 +1386,49 @@ mod tests {
         let get: Vec<_> = profiling_map.iter().map(|(k, v)| (*k, *v)).collect();
         println!("Profiling map: {:?}", get);
         assert_eq!(get, vec![("b", 4), ("c", 3), ("d", 4), ("e", 5)]);
+    }
+
+    #[test]
+    fn test_export_snapshot_scope_serialization() {
+        // Test Network variant
+        let network_config = ExportSnapshotConfig {
+            include_parsed_accounts: None,
+            filter: None,
+            scope: ExportSnapshotScope::Network,
+        };
+        let network_json = serde_json::to_value(&network_config).unwrap();
+        println!(
+            "Network config: {}",
+            serde_json::to_string_pretty(&network_json).unwrap()
+        );
+        assert_eq!(network_json["scope"], json!("network"));
+
+        // Test PreTransaction variant
+        let pre_tx_config = ExportSnapshotConfig {
+            include_parsed_accounts: None,
+            filter: None,
+            scope: ExportSnapshotScope::PreTransaction("5signature123".to_string()),
+        };
+        let pre_tx_json = serde_json::to_value(&pre_tx_config).unwrap();
+        println!(
+            "PreTransaction config: {}",
+            serde_json::to_string_pretty(&pre_tx_json).unwrap()
+        );
+        assert_eq!(
+            pre_tx_json["scope"],
+            json!({"preTransaction": "5signature123"})
+        );
+
+        // Test deserialization
+        let deserialized_network: ExportSnapshotConfig =
+            serde_json::from_value(network_json).unwrap();
+        assert_eq!(deserialized_network.scope, ExportSnapshotScope::Network);
+
+        let deserialized_pre_tx: ExportSnapshotConfig =
+            serde_json::from_value(pre_tx_json).unwrap();
+        assert_eq!(
+            deserialized_pre_tx.scope,
+            ExportSnapshotScope::PreTransaction("5signature123".to_string())
+        );
     }
 }

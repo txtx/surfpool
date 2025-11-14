@@ -52,10 +52,10 @@ use spl_token_2022_interface::extension::{
 };
 use surfpool_types::{
     AccountChange, AccountProfileState, AccountSnapshot, DEFAULT_PROFILING_MAP_CAPACITY,
-    DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, FifoMap, Idl, OverrideInstance, ProfileResult,
-    RpcProfileDepth, RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetEvent,
-    TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
-    UiProfileResult, VersionedIdl,
+    DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, ExportSnapshotScope, FifoMap, Idl,
+    OverrideInstance, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
+    RunbookExecutionStatusReport, SimnetEvent, TransactionConfirmationStatus,
+    TransactionStatusEvent, UiAccountChange, UiAccountProfileState, UiProfileResult, VersionedIdl,
     types::{
         ComputeUnitsEstimationResult, KeyedProfileResult, UiKeyedProfileResult, UuidOrSignature,
     },
@@ -2323,16 +2323,17 @@ impl SurfnetSvm {
                 || pubkey == &solana_sdk_ids::bpf_loader_deprecated::id()
                 || pubkey == &solana_sdk_ids::bpf_loader_upgradeable::id()
         }
-        for (pubkey, account_shared_data) in self.iter_accounts() {
+
+        // Helper function to process an account and add it to fixtures
+        let mut process_account = |pubkey: &Pubkey, account: &Account| {
             let is_include_account = include_accounts.iter().any(|k| k.eq(&pubkey.to_string()));
             let is_exclude_account = exclude_accounts.iter().any(|k| k.eq(&pubkey.to_string()));
-            let is_program_account = is_program_account(account_shared_data.owner());
+            let is_program_account = is_program_account(&account.owner);
             if is_exclude_account
                 || ((is_program_account && !include_program_accounts) && !is_include_account)
             {
-                continue;
+                return;
             }
-            let account = Account::from(account_shared_data.clone());
 
             // For token accounts, we need to provide the mint additional data
             let additional_data = if account.owner == spl_token_interface::id()
@@ -2350,7 +2351,7 @@ impl SurfnetSvm {
             };
 
             let ui_account =
-                self.encode_ui_account(pubkey, &account, encoding, additional_data, None);
+                self.encode_ui_account(pubkey, account, encoding, additional_data, None);
 
             let (base64, parsed_data) = match ui_account.data {
                 UiAccountData::Json(parsed_account) => {
@@ -2370,7 +2371,39 @@ impl SurfnetSvm {
             );
 
             fixtures.insert(pubkey.to_string(), account_snapshot);
+        };
+
+        match &config.scope {
+            ExportSnapshotScope::Network => {
+                // Export all network accounts (current behavior)
+                for (pubkey, account_shared_data) in self.iter_accounts() {
+                    let account = Account::from(account_shared_data.clone());
+                    process_account(&pubkey, &account);
+                }
+            }
+            ExportSnapshotScope::PreTransaction(signature_str) => {
+                // Export accounts from a specific transaction's pre-execution state
+                if let Ok(signature) = Signature::from_str(signature_str) {
+                    if let Some(profile) = self.executed_transaction_profiles.get(&signature) {
+                        // Collect accounts from pre-execution capture only
+                        // This gives us the account state BEFORE the transaction executed
+                        for (pubkey, account_opt) in
+                            &profile.transaction_profile.pre_execution_capture
+                        {
+                            if let Some(account) = account_opt {
+                                process_account(pubkey, account);
+                            }
+                        }
+
+                        // Also collect readonly account states (these don't change)
+                        for (pubkey, account) in &profile.readonly_account_states {
+                            process_account(pubkey, account);
+                        }
+                    }
+                }
+            }
         }
+
         fixtures
     }
 
