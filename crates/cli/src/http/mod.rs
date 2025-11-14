@@ -33,8 +33,8 @@ use surfpool_gql::{
 };
 use surfpool_studio_ui::serve_studio_static_files;
 use surfpool_types::{
-    DataIndexingCommand, OverrideTemplate, SanitizedConfig, SubgraphCommand, SubgraphEvent,
-    SurfpoolConfig,
+    DataIndexingCommand, OverrideTemplate, SanitizedConfig, Scenario, SubgraphCommand,
+    SubgraphEvent, SurfpoolConfig,
 };
 use txtx_core::kit::types::types::Value;
 use txtx_gql::kit::uuid::Uuid;
@@ -95,9 +95,8 @@ pub async fn start_subgraph_and_explorer_server(
             .wrap(
                 Cors::default()
                     .allow_any_origin()
-                    .allowed_methods(vec!["POST", "GET", "OPTIONS", "DELETE"])
-                    .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
-                    .allowed_header(header::CONTENT_TYPE)
+                    .allow_any_method()
+                    .allow_any_header()
                     .supports_credentials()
                     .max_age(3600),
             )
@@ -108,6 +107,8 @@ pub async fn start_subgraph_and_explorer_server(
             .service(get_scenario_templates)
             .service(post_scenarios)
             .service(get_scenarios)
+            .service(delete_scenario)
+            .service(patch_scenario)
             .service(
                 web::scope("/workspace")
                     .route("/v1/indexers", web::post().to(post_graphql))
@@ -202,7 +203,7 @@ async fn get_scenario_templates(
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LoadedScenarios {
-    pub scenarios: Vec<serde_json::Value>,
+    pub scenarios: Vec<Scenario>,
 }
 impl LoadedScenarios {
     pub fn new() -> Self {
@@ -215,22 +216,19 @@ impl LoadedScenarios {
 #[post("/v1/scenarios")]
 async fn post_scenarios(
     req: HttpRequest,
-    payload: web::Payload,
+    scenario: web::Json<Scenario>,
     data: Data<RwLock<LoadedScenarios>>,
 ) -> Result<HttpResponse, Error> {
-    let scenario = serde_json::from_slice::<serde_json::Value>(
-        &payload
-            .to_bytes()
-            .await
-            .map_err(|_| actix_web::error::ErrorBadRequest("Failed to read request payload"))?,
-    )
-    .map_err(|_| actix_web::error::ErrorBadRequest("Failed to parse JSON"))?;
-
     let mut loaded_scenarios = data
         .write()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to acquire write lock"))?;
-    loaded_scenarios.scenarios.push(scenario);
-    Ok(HttpResponse::Ok().body("Scenario loaded"))
+    let scenario_data = scenario.into_inner();
+    let scenario_id = scenario_data.id.clone();
+    loaded_scenarios.scenarios.push(scenario_data);
+    let response = serde_json::json!({"id": scenario_id});
+    Ok(HttpResponse::Ok()
+        .content_type("application/json")
+        .body(response.to_string()))
 }
 
 #[actix_web::get("/v1/scenarios")]
@@ -245,6 +243,62 @@ async fn get_scenarios(data: Data<RwLock<LoadedScenarios>>) -> Result<HttpRespon
     Ok(HttpResponse::Ok()
         .content_type("application/json")
         .body(response))
+}
+
+#[actix_web::delete("/v1/scenarios/{id}")]
+async fn delete_scenario(
+    path: web::Path<String>,
+    data: Data<RwLock<LoadedScenarios>>,
+) -> Result<HttpResponse, Error> {
+    let scenario_id = path.into_inner();
+    let mut loaded_scenarios = data
+        .write()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to acquire write lock"))?;
+
+    let initial_len = loaded_scenarios.scenarios.len();
+    loaded_scenarios.scenarios.retain(|s| s.id != scenario_id);
+
+    if loaded_scenarios.scenarios.len() == initial_len {
+        return Ok(
+            HttpResponse::NotFound().body(format!("Scenario with id '{}' not found", scenario_id))
+        );
+    }
+
+    Ok(HttpResponse::Ok().body(format!("Scenario '{}' deleted", scenario_id)))
+}
+
+#[actix_web::patch("/v1/scenarios/{id}")]
+async fn patch_scenario(
+    path: web::Path<String>,
+    scenario: web::Json<Scenario>,
+    data: Data<RwLock<LoadedScenarios>>,
+) -> Result<HttpResponse, Error> {
+    let scenario_id = path.into_inner();
+    let mut loaded_scenarios = data
+        .write()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to acquire write lock"))?;
+
+    let scenario_index = loaded_scenarios
+        .scenarios
+        .iter()
+        .position(|s| s.id == scenario_id);
+
+    match scenario_index {
+        Some(index) => {
+            loaded_scenarios.scenarios[index] = scenario.into_inner();
+            let response = serde_json::json!({"id": scenario_id});
+            Ok(HttpResponse::Ok()
+                .content_type("application/json")
+                .body(response.to_string()))
+        }
+        None => {
+            loaded_scenarios.scenarios.push(scenario.into_inner());
+            let response = serde_json::json!({"id": scenario_id});
+            Ok(HttpResponse::Ok()
+                .content_type("application/json")
+                .body(response.to_string()))
+        }
+    }
 }
 
 #[allow(dead_code)]

@@ -12256,6 +12256,8 @@ dependencies = [
  "chrono",
  "crossbeam-channel",
  "once_cell",
+ "schemars 0.8.22",
+ "schemars_derive",
  "serde",
  "serde_json",
  "serde_with",

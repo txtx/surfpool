@@ -18,6 +18,8 @@ blake3 = { workspace = true }
 chrono = { workspace = true }
 crossbeam-channel = { workspace = true }
 once_cell = { workspace = true }
+schemars = { workspace = true }
+schemars_derive = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true, features = ["alloc", "macros"] }
