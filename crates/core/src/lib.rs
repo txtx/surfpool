@@ -52,12 +52,18 @@ pub async fn start_local_surfnet(
     .await
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginInfo {
+    pub plugin_name: String,
+    pub uuid: String,
+}
+
 #[derive(Debug)]
 pub enum PluginManagerCommand {
     LoadConfig(Uuid, PluginConfig, Sender<String>),
     UnloadPlugin(Uuid, Sender<Result<(), String>>),
     ReloadPlugin(Uuid, PluginConfig, Sender<String>),
-    ListPlugins(Sender<Vec<String>>),
+    ListPlugins(Sender<Vec<PluginInfo>>),
 }
 
 #[cfg(test)]

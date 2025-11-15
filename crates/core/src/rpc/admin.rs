@@ -12,8 +12,8 @@ use surfpool_types::{SimnetCommand, SimnetEvent};
 use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
-use super::{RunloopContext, not_implemented_err, not_implemented_err_async};
-use crate::PluginManagerCommand;
+use super::{RunloopContext, not_implemented_err};
+use crate::{PluginInfo, PluginManagerCommand};
 
 #[rpc]
 pub trait AdminRpc {
@@ -130,7 +130,9 @@ pub trait AdminRpc {
     /// loaded into the runtime. It can be useful for debugging or operational monitoring.
     ///
     /// ## Returns
-    /// - `Vec<String>` — A list of plugin names currently active in the system.
+    /// - `Vec<PluginInfo>` — A list of plugin information objects, each containing:
+    ///   - `plugin_name`: The name of the plugin (e.g., "surfpool-subgraph")
+    ///   - `uuid`: The unique identifier of the plugin instance
     ///
     /// ## Example Request (JSON-RPC)
     /// ```json
@@ -146,7 +148,12 @@ pub trait AdminRpc {
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
-    ///   "result": ["tx_filter", "custom_logger"],
+    ///   "result": [
+    ///     {
+    ///       "plugin_name": "surfpool-subgraph",
+    ///       "uuid": "550e8400-e29b-41d4-a716-446655440000"
+    ///     }
+    ///   ],
     ///   "id": 103
     /// }
     /// ```
@@ -155,7 +162,7 @@ pub trait AdminRpc {
     /// - Only plugins that have been successfully loaded will appear in this list.
     /// - This method is read-only and safe to call frequently.
     #[rpc(meta, name = "listPlugins")]
-    fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>>;
+    fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<PluginInfo>>>;
 
     /// Returns the address of the RPC server.
     ///
@@ -894,7 +901,7 @@ impl AdminRpc for SurfpoolAdminRpc {
         Box::pin(async move { Ok(endpoint_url) })
     }
 
-    fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>> {
+    fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<PluginInfo>>> {
         let Some(ctx) = meta else {
             return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
         };
