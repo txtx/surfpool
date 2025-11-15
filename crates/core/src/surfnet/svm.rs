@@ -271,6 +271,9 @@ pub struct SurfnetSvm {
     pub streamed_accounts: HashMap<Pubkey, bool>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
     pub scheduled_overrides: HashMap<Slot, Vec<OverrideInstance>>,
+    /// Tracks accounts that have been explicitly closed by the user.
+    /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
+    pub closed_accounts: HashSet<Pubkey>,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -364,6 +367,7 @@ impl SurfnetSvm {
             streamed_accounts: HashMap::new(),
             recent_blockhashes: VecDeque::new(),
             scheduled_overrides: HashMap::new(),
+            closed_accounts: HashSet::new(),
         };
 
         // Generate the initial synthetic blockhash
