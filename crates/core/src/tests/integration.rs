@@ -721,6 +721,7 @@ async fn test_surfnet_estimate_compute_units() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_addr: None,
     };
 
     // Test with None tag
@@ -1008,6 +1009,7 @@ async fn test_get_transaction_profile() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_addr: None,
     };
 
     // Test 1: Profile a transaction with a tag and retrieve by UUID
@@ -1203,6 +1205,7 @@ fn test_register_and_get_idl_without_slot() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_addr: None,
     };
 
     // Test 1: Register IDL without slot
@@ -1254,6 +1257,7 @@ fn test_register_and_get_idl_with_slot() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_addr: None,
     };
 
     // Test 1: Register IDL with slot
@@ -1330,6 +1334,7 @@ async fn test_register_and_get_same_idl_with_different_slots() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_addr: None,
     };
 
     // Step 1: Register IDL v1 at slot_1
@@ -2955,6 +2960,7 @@ async fn test_get_local_signatures_without_limit() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_addr: None,
     };
 
     let payer = Keypair::new();
@@ -3054,6 +3060,7 @@ async fn test_get_local_signatures_with_limit() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_addr: None,
     };
 
     let payer = Keypair::new();
@@ -3247,6 +3254,7 @@ fn test_time_travel_resume_paused_clock() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_addr: None,
     };
 
     // Get initial epoch info
@@ -3321,6 +3329,7 @@ fn test_time_travel_absolute_timestamp() {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_addr: None,
     };
 
     let clock = Clock {
@@ -3399,6 +3408,7 @@ fn test_time_travel_absolute_slot() {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_addr: None,
     };
 
     let clock = Clock {
@@ -3471,6 +3481,7 @@ fn test_time_travel_absolute_epoch() {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_addr: None,
     };
 
     let clock = Clock {

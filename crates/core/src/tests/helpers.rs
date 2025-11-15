@@ -67,6 +67,7 @@ where
                 id: None,
                 svm_locker: SurfnetSvmLocker::new(surfnet_svm),
                 remote_rpc_client: None,
+                rpc_addr: None,
             },
             rpc,
         }
