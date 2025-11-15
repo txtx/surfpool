@@ -611,6 +611,15 @@ fn start_geyser_runloop(
                                         let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to reload plugin: {}", e)));
                                     }
                                 }
+                                #[cfg(not(feature = "subgraph"))]
+                                PluginManagerCommand::ListPlugins(_) => {
+                                    continue;
+                                }
+                                #[cfg(feature = "subgraph")]
+                                PluginManagerCommand::ListPlugins(notifier) => {
+                                    let plugin_list: Vec<String> = plugin_uuid_map.keys().map(|uuid| uuid.to_string()).collect();
+                                    let _ = notifier.send(plugin_list);
+                                }
                             }
                         },
                         Err(e) => {

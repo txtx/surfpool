@@ -57,6 +57,7 @@ pub enum PluginManagerCommand {
     LoadConfig(Uuid, PluginConfig, Sender<String>),
     UnloadPlugin(Uuid, Sender<Result<(), String>>),
     ReloadPlugin(Uuid, PluginConfig, Sender<String>),
+    ListPlugins(Sender<Vec<String>>),
 }
 
 #[cfg(test)]

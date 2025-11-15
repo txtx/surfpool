@@ -894,8 +894,21 @@ impl AdminRpc for SurfpoolAdminRpc {
         Box::pin(async move { Ok(endpoint_url) })
     }
 
-    fn list_plugins(&self, _meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>> {
-        not_implemented_err_async("list_plugins")
+    fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>> {
+        let Some(ctx) = meta else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let _ = ctx
+            .plugin_manager_commands_tx
+            .send(PluginManagerCommand::ListPlugins(tx));
+
+        let Ok(plugin_list) = rx.recv_timeout(Duration::from_secs(10)) else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        Box::pin(async move { Ok(plugin_list) })
     }
 
     fn rpc_addr(&self, _meta: Self::Metadata) -> Result<Option<SocketAddr>> {
