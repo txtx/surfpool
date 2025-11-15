@@ -189,7 +189,12 @@ impl Middleware<Option<SurfpoolWebsocketMeta>> for SurfpoolWebsocketMiddleware {
         F: FnOnce(Request, Option<SurfpoolWebsocketMeta>) -> X + Send,
         X: Future<Output = Option<Response>> + Send + 'static,
     {
-        let rpc_addr = self.surfpool_middleware.config.get_rpc_base_url().parse::<SocketAddr>().ok();
+        let rpc_addr = self
+            .surfpool_middleware
+            .config
+            .get_rpc_base_url()
+            .parse::<SocketAddr>()
+            .ok();
         let runloop_context = RunloopContext {
             id: None,
             svm_locker: self.surfpool_middleware.surfnet_svm.clone(),
