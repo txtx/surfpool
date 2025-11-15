@@ -18,6 +18,8 @@ pub mod scenarios;
 pub mod surfnet;
 pub mod types;
 
+use std::time::SystemTime;
+
 use crossbeam_channel::{Receiver, Sender};
 pub use jsonrpc_core;
 pub use jsonrpc_http_server;
@@ -57,6 +59,8 @@ pub enum PluginManagerCommand {
     LoadConfig(Uuid, PluginConfig, Sender<String>),
     UnloadPlugin(Uuid, Sender<Result<(), String>>),
     ReloadPlugin(Uuid, PluginConfig, Sender<String>),
+    SetLogFilter(String, Sender<Result<(), String>>),
+    GetStartTime(Sender<Result<SystemTime, String>>)
 }
 
 #[cfg(test)]

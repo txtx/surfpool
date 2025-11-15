@@ -226,8 +226,8 @@ pub trait AdminRpc {
     /// - The `filter` parameter should be consistent with the logging framework used by the system.
     /// - Valid filter values might include common log levels such as `trace`, `debug`, `info`, `warn`, `error`, or other custom filters.
     /// - This method allows dynamic control of the log output, so it should be used cautiously in production environments.
-    #[rpc(name = "setLogFilter")]
-    fn set_log_filter(&self, filter: String) -> Result<()>;
+    #[rpc(name = "setLogFilter", meta)]
+    fn set_log_filter(&self, meta: Self::Metadata, filter: String) -> Result<()>;
 
     /// Returns the system start time.
     ///
@@ -902,12 +902,68 @@ impl AdminRpc for SurfpoolAdminRpc {
         not_implemented_err("rpc_addr")
     }
 
-    fn set_log_filter(&self, _filter: String) -> Result<()> {
-        not_implemented_err("set_log_filter")
+    fn set_log_filter(&self, meta: Self::Metadata, filter: String) -> Result<()> {
+        let ctx = meta.unwrap();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+
+        let msg = format!("Log filter set to: {}", filter);
+        let _ = ctx
+            .plugin_manager_commands_tx
+            .send(PluginManagerCommand::SetLogFilter(filter, tx));
+
+        let simnet_events_tx = ctx.svm_locker.simnet_events_tx();
+
+        let Ok(result) = rx.recv_timeout(Duration::from_secs(10)) else {
+            return Err(jsonrpc_core::Error::internal_error());
+        };
+
+        match result {
+            Ok(_) => {
+                let _ = simnet_events_tx.try_send(SimnetEvent::info(msg));
+                Ok(())
+            }
+            Err(e) => {
+                let _ = simnet_events_tx
+                    .try_send(SimnetEvent::error(format!(
+                        "Failed to set log filter: {}",
+                        e
+                    )))
+                    .ok();
+                Err(jsonrpc_core::Error::internal_error())
+            }
+        }
     }
 
-    fn start_time(&self, _meta: Self::Metadata) -> Result<SystemTime> {
-        not_implemented_err("start_time")
+    fn start_time(&self, meta: Self::Metadata) -> Result<SystemTime> {
+        let ctx = meta.unwrap();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+
+        let _ = ctx
+            .plugin_manager_commands_tx
+            .send(PluginManagerCommand::GetStartTime(tx));
+
+        let Ok(result) = rx.recv_timeout(Duration::from_secs(10)) else {
+            return Err(jsonrpc_core::Error::internal_error());
+        };
+
+        let simnet_events_tx = ctx.svm_locker.simnet_events_tx();
+
+        match result {
+            Ok(start_time) => {
+                let _ = simnet_events_tx
+                    .try_send(SimnetEvent::info(format!("Start time: {:?}", start_time)));
+                Ok(start_time)
+            }
+            Err(e) => {
+                let _ = simnet_events_tx
+                    .try_send(SimnetEvent::error(format!(
+                        "Failed to get start time: {}",
+                        e
+                    )))
+                    .ok();
+                Err(jsonrpc_core::Error::internal_error())
+            }
+        }
     }
 
     fn add_authorized_voter(&self, _meta: Self::Metadata, _keypair_file: String) -> Result<()> {
