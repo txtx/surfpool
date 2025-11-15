@@ -1,4 +1,4 @@
-use std::{future::Future, sync::Arc};
+use std::{future::Future, net::SocketAddr, sync::Arc};
 
 use blake3::Hash;
 use crossbeam_channel::Sender;
@@ -47,6 +47,7 @@ pub struct RunloopContext {
     pub simnet_commands_tx: Sender<SimnetCommand>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub remote_rpc_client: Option<SurfnetRemoteClient>,
+    pub rpc_addr: Option<SocketAddr>,
 }
 
 pub struct SurfnetRpcContext<T> {
@@ -146,12 +147,14 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
         F: FnOnce(Request, Option<RunloopContext>) -> X + Send,
         X: Future<Output = Option<Response>> + Send + 'static,
     {
+        let rpc_addr = self.config.get_rpc_base_url().parse::<SocketAddr>().ok();
         let meta = Some(RunloopContext {
             id: None,
             svm_locker: self.surfnet_svm.clone(),
             simnet_commands_tx: self.simnet_commands_tx.clone(),
             plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
             remote_rpc_client: self.remote_rpc_client.clone(),
+            rpc_addr,
         });
         Either::Left(Box::pin(next(request, meta).map(move |res| res)))
     }
@@ -186,12 +189,14 @@ impl Middleware<Option<SurfpoolWebsocketMeta>> for SurfpoolWebsocketMiddleware {
         F: FnOnce(Request, Option<SurfpoolWebsocketMeta>) -> X + Send,
         X: Future<Output = Option<Response>> + Send + 'static,
     {
+        let rpc_addr = self.surfpool_middleware.config.get_rpc_base_url().parse::<SocketAddr>().ok();
         let runloop_context = RunloopContext {
             id: None,
             svm_locker: self.surfpool_middleware.surfnet_svm.clone(),
             simnet_commands_tx: self.surfpool_middleware.simnet_commands_tx.clone(),
             plugin_manager_commands_tx: self.surfpool_middleware.plugin_manager_commands_tx.clone(),
             remote_rpc_client: self.surfpool_middleware.remote_rpc_client.clone(),
+            rpc_addr,
         };
         let session = meta
             .as_ref()

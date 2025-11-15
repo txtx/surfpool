@@ -918,8 +918,9 @@ impl AdminRpc for SurfpoolAdminRpc {
         Box::pin(async move { Ok(plugin_list) })
     }
 
-    fn rpc_addr(&self, _meta: Self::Metadata) -> Result<Option<SocketAddr>> {
-        not_implemented_err("rpc_addr")
+    fn rpc_addr(&self, meta: Self::Metadata) -> Result<Option<SocketAddr>> {
+        let ctx = meta.ok_or_else(|| jsonrpc_core::Error::internal_error())?;
+        Ok(ctx.rpc_addr)
     }
 
     fn set_log_filter(&self, _filter: String) -> Result<()> {
