@@ -904,7 +904,7 @@ impl AdminRpc for SurfpoolAdminRpc {
 
     fn set_log_filter(&self, meta: Self::Metadata, filter: String) -> Result<()> {
         let ctx = meta.unwrap();
-        let (tx, rx) = crossbeam_channel::bounded(10);
+        let (tx, rx) = crossbeam_channel::bounded(1);
 
         let msg = format!("Log filter set to: {}", filter);
         let _ = ctx
@@ -913,7 +913,9 @@ impl AdminRpc for SurfpoolAdminRpc {
 
         let simnet_events_tx = ctx.svm_locker.simnet_events_tx();
 
-        let result = rx.recv_timeout(Duration::from_secs(10));
+        let Ok(result) = rx.recv_timeout(Duration::from_secs(10)) else {
+            return Err(jsonrpc_core::Error::internal_error());
+        };
 
         match result {
             Ok(_) => {
