@@ -226,8 +226,8 @@ pub trait AdminRpc {
     /// - The `filter` parameter should be consistent with the logging framework used by the system.
     /// - Valid filter values might include common log levels such as `trace`, `debug`, `info`, `warn`, `error`, or other custom filters.
     /// - This method allows dynamic control of the log output, so it should be used cautiously in production environments.
-    #[rpc(name = "setLogFilter")]
-    fn set_log_filter(&self, filter: String) -> Result<()>;
+    #[rpc(name = "setLogFilter", meta)]
+    fn set_log_filter(&self, meta: Self::Metadata, filter: String) -> Result<()>;
 
     /// Returns the system start time.
     ///
@@ -902,8 +902,34 @@ impl AdminRpc for SurfpoolAdminRpc {
         not_implemented_err("rpc_addr")
     }
 
-    fn set_log_filter(&self, _filter: String) -> Result<()> {
-        not_implemented_err("set_log_filter")
+    fn set_log_filter(&self, meta: Self::Metadata, filter: String) -> Result<()> {
+        let ctx = meta.unwrap();
+        let (tx, rx) = crossbeam_channel::bounded(10);
+
+        let msg = format!("Log filter set to: {}", filter);
+        let _ = ctx
+            .plugin_manager_commands_tx
+            .send(PluginManagerCommand::SetLogFilter(filter, tx));
+
+        let simnet_events_tx = ctx.svm_locker.simnet_events_tx();
+
+        let result = rx.recv_timeout(Duration::from_secs(10));
+
+        match result {
+            Ok(_) => {
+                let _ = simnet_events_tx.try_send(SimnetEvent::info(msg));
+                Ok(())
+            }
+            Err(e) => {
+                let _ = simnet_events_tx
+                    .try_send(SimnetEvent::error(format!(
+                        "Failed to set log filter: {}",
+                        e
+                    )))
+                    .ok();
+                Err(jsonrpc_core::Error::internal_error())
+            }
+        }
     }
 
     fn start_time(&self, _meta: Self::Metadata) -> Result<SystemTime> {
