@@ -4,9 +4,10 @@ use std::{
 };
 
 use rmcp::{
+    ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{ErrorData as McpError, *},
-    schemars, tool, tool_handler, tool_router, ServerHandler,
+    schemars, tool, tool_handler, tool_router,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -292,7 +293,11 @@ impl Surfpool {
         Parameters(params): Parameters<SetTokenAccountsParams>,
     ) -> Result<CallToolResult, McpError> {
         let mut results = Vec::new();
-        for CreateTokenAccountForOwnerParams { owner, params: token_params } in params.token_params_with_owner {
+        for CreateTokenAccountForOwnerParams {
+            owner,
+            params: token_params,
+        } in params.token_params_with_owner
+        {
             let owner_seeded_account = SeededAccount::new(owner);
 
             for CreateTokenAccountParams {
@@ -365,7 +370,11 @@ impl Surfpool {
         };
 
         let mut results = Vec::new();
-        for CreateTokenAccountForOwnerParams { owner, params: token_params } in params.token_params_with_owner {
+        for CreateTokenAccountForOwnerParams {
+            owner,
+            params: token_params,
+        } in params.token_params_with_owner
+        {
             let owner_seeded_account = SeededAccount::new(owner);
 
             for CreateTokenAccountParams {
@@ -387,8 +396,8 @@ impl Surfpool {
             }
         }
 
-        let response = StartSurfnetWithTokenAccountsResponse::success(
-            StartSurfnetWithTokenAccountsSuccess {
+        let response =
+            StartSurfnetWithTokenAccountsResponse::success(StartSurfnetWithTokenAccountsSuccess {
                 surfnet_url,
                 surfnet_id,
                 accounts: results
@@ -396,8 +405,7 @@ impl Surfpool {
                     .filter_map(|r| r.success)
                     .flatten()
                     .collect(),
-            },
-        );
+            });
         let json_str = serde_json::to_string(&response).unwrap_or_default();
         Ok(CallToolResult::success(vec![Content::text(json_str)]))
     }
@@ -449,10 +457,8 @@ impl Surfpool {
         let response_text = match http_response.text() {
             Ok(text) => text,
             Err(e) => {
-                let response = SurfnetRpcCallResponse::error(format!(
-                    "Failed to read response text: {}",
-                    e
-                ));
+                let response =
+                    SurfnetRpcCallResponse::error(format!("Failed to read response text: {}", e));
                 let json_str = serde_json::to_string(&response).unwrap_or_default();
                 return Ok(CallToolResult::success(vec![Content::text(json_str)]));
             }
@@ -471,10 +477,7 @@ impl Surfpool {
         };
 
         if let Some(error) = rpc_response.get("error") {
-            let response = SurfnetRpcCallResponse::error(format!(
-                "RPC error: {}",
-                error
-            ));
+            let response = SurfnetRpcCallResponse::error(format!("RPC error: {}", error));
             let json_str = serde_json::to_string(&response).unwrap_or_default();
             return Ok(CallToolResult::success(vec![Content::text(json_str)]));
         }
@@ -554,10 +557,8 @@ impl Surfpool {
         let response_text = match http_response.text() {
             Ok(text) => text,
             Err(e) => {
-                let response = RegisterScenarioResponse::error(format!(
-                    "Failed to read response text: {}",
-                    e
-                ));
+                let response =
+                    RegisterScenarioResponse::error(format!("Failed to read response text: {}", e));
                 let json_str = serde_json::to_string(&response).unwrap_or_default();
                 return Ok(CallToolResult::success(vec![Content::text(json_str)]));
             }
@@ -576,10 +577,7 @@ impl Surfpool {
         };
 
         if let Some(error) = rpc_response.get("error") {
-            let response = RegisterScenarioResponse::error(format!(
-                "RPC error: {}",
-                error
-            ));
+            let response = RegisterScenarioResponse::error(format!("RPC error: {}", error));
             let json_str = serde_json::to_string(&response).unwrap_or_default();
             return Ok(CallToolResult::success(vec![Content::text(json_str)]));
         }
@@ -689,15 +687,14 @@ impl ServerHandler for Surfpool {
                 })?;
 
                 let templates = registry.all();
-                let templates_json = serde_json::to_string(&templates)
-                    .map_err(|_| {
-                        use std::borrow::Cow;
-                        McpError {
-                            code: ErrorCode(-32603),
-                            message: Cow::from("Failed to serialize templates"),
-                            data: None,
-                        }
-                    })?;
+                let templates_json = serde_json::to_string(&templates).map_err(|_| {
+                    use std::borrow::Cow;
+                    McpError {
+                        code: ErrorCode(-32603),
+                        message: Cow::from("Failed to serialize templates"),
+                        data: None,
+                    }
+                })?;
 
                 Ok(ReadResourceResult {
                     contents: vec![ResourceContents::TextResourceContents {
