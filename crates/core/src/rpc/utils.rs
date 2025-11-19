@@ -14,7 +14,7 @@ use solana_client::{
 use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
 use solana_message::{AccountKeys, VersionedMessage};
-use solana_packet::PACKET_DATA_SIZE;
+use solana_perf::packet::QUIC_MAX_STREAM_SIZE;
 use solana_pubkey::{ParsePubkeyError, Pubkey};
 use solana_signature::Signature;
 use solana_transaction_status::{
@@ -118,8 +118,8 @@ fn verify_and_parse_signatures_for_address_params(
     Ok((address, before, until, limit))
 }
 
-const MAX_BASE58_SIZE: usize = 1683; // Golden, bump if PACKET_DATA_SIZE changes
-const MAX_BASE64_SIZE: usize = 1644; // Golden, bump if PACKET_DATA_SIZE changes
+const MAX_BASE58_SIZE: usize = 5594; // Golden, bump if QUIC_MAX_STREAM_SIZE changes
+const MAX_BASE64_SIZE: usize = 5464; // Golden, bump if QUIC_MAX_STREAM_SIZE changes
 pub fn decode_and_deserialize<T>(
     encoded: String,
     encoding: TransactionBinaryEncoding,
@@ -135,7 +135,7 @@ where
                     type_name::<T>(),
                     encoded.len(),
                     MAX_BASE58_SIZE,
-                    PACKET_DATA_SIZE,
+                    QUIC_MAX_STREAM_SIZE,
                 )));
             }
             bs58::decode(encoded)
@@ -149,7 +149,7 @@ where
                     type_name::<T>(),
                     encoded.len(),
                     MAX_BASE64_SIZE,
-                    PACKET_DATA_SIZE,
+                    QUIC_MAX_STREAM_SIZE,
                 )));
             }
             BASE64_STANDARD
@@ -157,16 +157,16 @@ where
                 .map_err(|e| Error::invalid_params(format!("invalid base64 encoding: {e:?}")))?
         }
     };
-    if wire_output.len() > PACKET_DATA_SIZE {
+    if wire_output.len() > QUIC_MAX_STREAM_SIZE {
         return Err(Error::invalid_params(format!(
             "decoded {} too large: {} bytes (max: {} bytes)",
             type_name::<T>(),
             wire_output.len(),
-            PACKET_DATA_SIZE
+            QUIC_MAX_STREAM_SIZE
         )));
     }
     bincode::options()
-        .with_limit(PACKET_DATA_SIZE as u64)
+        .with_limit(QUIC_MAX_STREAM_SIZE as u64)
         .with_fixint_encoding()
         .allow_trailing_bytes()
         .deserialize_from(&wire_output[..])
