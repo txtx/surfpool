@@ -68,7 +68,7 @@ txtx-gql = { workspace = true }
 txtx-supervisor-ui = { workspace = true, optional = true }
 
 [features]
-default = ["cli", "sqlite", "subgraph"]
+default = ["cli", "sqlite"]
 cli = ["clap/derive", "clap_complete", "toml", "ctrlc", "hiro-system-kit/log"]
 supervisor_ui = ["txtx-supervisor-ui/crates_build"]
 explorer = []

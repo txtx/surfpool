@@ -299,14 +299,26 @@ dependencies = [
  "solana-hash 3.0.0",
  "solana-pubkey 3.0.0",
  "solana-sha256-hasher 3.0.0",
- "solana-svm-feature-set",
+ "solana-svm-feature-set 3.0.6",
+]
+
+[[package]]
+name = "agave-feature-set"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "ahash 0.8.12",
+ "solana-epoch-schedule 3.0.0",
+ "solana-hash 3.0.0",
+ "solana-pubkey 3.0.0",
+ "solana-sha256-hasher 3.0.0",
+ "solana-svm-feature-set 3.0.10",
 ]
 
 [[package]]
 name = "agave-geyser-plugin-interface"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a6b8e9eb76eda082b3f7fd8915863d761e999c655da48bce2a18d28cb748daa"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "log 0.4.28",
  "solana-clock 3.0.0",
@@ -319,9 +331,8 @@ dependencies = [
 
 [[package]]
 name = "agave-io-uring"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c335d8f1e1c324851f0aad83e583c76d086c036be984b3af51eeb0a6142d99af"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "io-uring",
  "libc",
@@ -332,17 +343,15 @@ dependencies = [
 
 [[package]]
 name = "agave-low-pass-filter"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8afa37aec7416c292391ef18fb6ce3a0450904737557b0f93bbc92b3559e4d96"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 
 [[package]]
 name = "agave-precompiles"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c10f2547dcb3f20f45e90dbff5b520fbacd52c4231bd2ce1bfb09198b3672530"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "bincode",
  "digest 0.10.7",
  "ed25519-dalek 1.0.1",
@@ -360,20 +369,18 @@ dependencies = [
 
 [[package]]
 name = "agave-reserved-account-keys"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72a81224b65697d8e5a7d3bcc0f7d00107247c47b1769bfc0d1874b2b731ea33"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "solana-pubkey 3.0.0",
  "solana-sdk-ids 3.0.0",
 ]
 
 [[package]]
 name = "agave-syscalls"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b7503e18b67c05bdfae1c20f152e07ad120190810af2e580520f9b000bb4674"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "bincode",
  "libsecp256k1 0.6.0",
@@ -385,7 +392,7 @@ dependencies = [
  "solana-bn254",
  "solana-clock 3.0.0",
  "solana-cpi 3.0.0",
- "solana-curve25519 3.0.6",
+ "solana-curve25519 3.0.10",
  "solana-hash 3.0.0",
  "solana-instruction 3.0.0",
  "solana-keccak-hasher 3.0.0",
@@ -401,26 +408,25 @@ dependencies = [
  "solana-stable-layout 3.0.0",
  "solana-stake-interface 2.0.1",
  "solana-svm-callback",
- "solana-svm-feature-set",
+ "solana-svm-feature-set 3.0.10",
  "solana-svm-log-collector",
  "solana-svm-measure",
  "solana-svm-timings",
  "solana-svm-type-overrides",
  "solana-sysvar 3.0.0",
  "solana-sysvar-id 3.0.0",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
  "thiserror 2.0.16",
 ]
 
 [[package]]
 name = "agave-transaction-view"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4526784d80321a712d4204fa287e726b879174437bf89107c50db3f3cfe20dc6"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "solana-hash 3.0.0",
  "solana-message 3.0.0",
- "solana-packet",
+ "solana-perf 3.0.10",
  "solana-pubkey 3.0.0",
  "solana-sdk-ids 3.0.0",
  "solana-short-vec 3.0.0",
@@ -4530,6 +4536,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kaigan"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66ef246e1f34a252b76ddc38e0da6e282be41ac02f8f3e5eba16dffe7a3fc0d6"
+dependencies = [
+ "borsh 0.10.4",
+ "borsh 1.5.7",
+]
+
+[[package]]
 name = "keccak"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4825,11 +4841,9 @@ checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
 [[package]]
 name = "litesvm"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a22c52e9daf4680aee15e84c877808d94bbd4f3f66cdd32e0ba059d930d581e4"
+source = "git+https://github.com/txtx/litesvm?branch=txtx%2Fincrease-tx-size-v3.0.10#9896c9e6d53f6b0d58f7444ee1a800f4cc679c4e"
 dependencies = [
- "agave-feature-set",
- "agave-precompiles",
+ "agave-feature-set 3.0.10",
  "agave-reserved-account-keys",
  "agave-syscalls",
  "ansi_term",
@@ -4882,7 +4896,7 @@ dependencies = [
  "solana-sysvar 3.0.0",
  "solana-sysvar-id 3.0.0",
  "solana-transaction",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
  "solana-transaction-error 3.0.0",
  "thiserror 2.0.16",
 ]
@@ -4890,8 +4904,7 @@ dependencies = [
 [[package]]
 name = "litesvm-token"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c643347d7f08566efa47559928b163b53fbef1081272ba9e93e8aa9da651111"
+source = "git+https://github.com/txtx/litesvm?branch=txtx%2Fincrease-tx-size-v3.0.10#9896c9e6d53f6b0d58f7444ee1a800f4cc679c4e"
 dependencies = [
  "litesvm",
  "smallvec",
@@ -7573,7 +7586,7 @@ checksum = "0f949fe4edaeaea78c844023bfc1c898e0b1f5a100f8a8d2d0f85d0a7b090258"
 dependencies = [
  "solana-account-info 2.3.0",
  "solana-clock 2.2.2",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
  "solana-sdk-ids 2.2.1",
 ]
@@ -7598,9 +7611,8 @@ dependencies = [
 
 [[package]]
 name = "solana-account-decoder"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc4148b8ca32a5079336424da7f9fbcb114c0e14d847b4ed865d5c22aca75929"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "Inflector",
  "base64 0.22.1",
@@ -7611,7 +7623,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "solana-account 3.1.0",
- "solana-account-decoder-client-types",
+ "solana-account-decoder-client-types 3.0.10",
  "solana-address-lookup-table-interface 3.0.0",
  "solana-clock 3.0.0",
  "solana-config-interface",
@@ -7656,6 +7668,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-account-decoder-client-types"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "base64 0.22.1",
+ "bs58",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "solana-account 3.1.0",
+ "solana-pubkey 3.0.0",
+ "zstd",
+]
+
+[[package]]
 name = "solana-account-info"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7681,9 +7708,8 @@ dependencies = [
 
 [[package]]
 name = "solana-accounts-db"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1a9008e405685379b10da0d47e08b9e5bad0cf364412882d2b05d55515156fb"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "agave-io-uring",
  "ahash 0.8.12",
@@ -7721,12 +7747,12 @@ dependencies = [
  "solana-genesis-config",
  "solana-hash 3.0.0",
  "solana-lattice-hash",
- "solana-measure",
+ "solana-measure 3.0.10",
  "solana-message 3.0.0",
- "solana-metrics",
+ "solana-metrics 3.0.10",
  "solana-nohash-hasher",
  "solana-pubkey 3.0.0",
- "solana-rayon-threadlimit",
+ "solana-rayon-threadlimit 3.0.10",
  "solana-reward-info",
  "solana-sha256-hasher 3.0.0",
  "solana-slot-hashes 3.0.0",
@@ -7735,7 +7761,7 @@ dependencies = [
  "solana-sysvar 3.0.0",
  "solana-time-utils",
  "solana-transaction",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
  "solana-transaction-error 3.0.0",
  "spl-generic-token",
  "static_assertions",
@@ -7777,7 +7803,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "solana-clock 2.2.2",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
  "solana-sdk-ids 2.2.1",
  "solana-slot-hashes 2.2.1",
@@ -7849,7 +7875,7 @@ checksum = "19a3787b8cf9c9fe3dd360800e8b70982b9e5a8af9e11c354b6665dd4a003adc"
 dependencies = [
  "bincode",
  "serde",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
 ]
 
 [[package]]
@@ -7888,9 +7914,8 @@ dependencies = [
 
 [[package]]
 name = "solana-bloom"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76e383109f26cb706de2f4b50d89eb9e0b762959ca18e51351f654772e89903c"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "bv",
  "fnv",
@@ -7937,9 +7962,8 @@ dependencies = [
 
 [[package]]
 name = "solana-bpf-loader-program"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47137cae9215ec32cbfa51b79979cb93686957a84d73b71935f7cfcc864517d0"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "agave-syscalls",
  "bincode",
@@ -7950,25 +7974,24 @@ dependencies = [
  "solana-instruction 3.0.0",
  "solana-loader-v3-interface 6.1.0",
  "solana-loader-v4-interface 3.1.0",
- "solana-packet",
+ "solana-perf 3.0.10",
  "solana-program-entrypoint 3.1.0",
  "solana-program-runtime",
  "solana-pubkey 3.0.0",
  "solana-sbpf",
  "solana-sdk-ids 3.0.0",
- "solana-svm-feature-set",
+ "solana-svm-feature-set 3.0.10",
  "solana-svm-log-collector",
  "solana-svm-measure",
  "solana-svm-type-overrides",
  "solana-system-interface 2.0.0",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
 ]
 
 [[package]]
 name = "solana-bucket-map"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "369a570a82827b6f605ffd4981d77d3dda05cc53177bc5d653cb154aa32f1fc3"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "bv",
  "bytemuck",
@@ -7978,18 +8001,17 @@ dependencies = [
  "num_enum",
  "rand 0.8.5",
  "solana-clock 3.0.0",
- "solana-measure",
+ "solana-measure 3.0.10",
  "solana-pubkey 3.0.0",
  "tempfile",
 ]
 
 [[package]]
 name = "solana-builtins"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f6b9e156a48d4c18779b79ae5ec600f59b6c5ac9de5198137801a5f0a888bd3"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "solana-bpf-loader-program",
  "solana-compute-budget-program",
  "solana-hash 3.0.0",
@@ -8006,11 +8028,10 @@ dependencies = [
 
 [[package]]
 name = "solana-builtins-default-costs"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "553a373e7488c8f0fddc1c3076475126c834e091f92b4921c0ca773517207e8f"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "ahash 0.8.12",
  "log 0.4.28",
  "solana-bpf-loader-program",
@@ -8025,9 +8046,8 @@ dependencies = [
 
 [[package]]
 name = "solana-clap-utils"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c30b0aa3c41ba50301dee474aff8cc0154a74a7f1e96a0604eba7d63bb90dcc"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "chrono",
  "clap 2.34.0",
@@ -8054,9 +8074,8 @@ dependencies = [
 
 [[package]]
 name = "solana-cli-config"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9162e50137dcf68fcbd15e50b1083d846b484cc0eb4e1ceeb4e3860153adc4e3"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "dirs-next",
  "serde",
@@ -8069,9 +8088,8 @@ dependencies = [
 
 [[package]]
 name = "solana-cli-output"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2ca0160aa5adf511eba36db2c6786ca3559b3deba445443332ef6c191692292"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "Inflector",
  "agave-reserved-account-keys",
@@ -8096,7 +8114,7 @@ dependencies = [
  "solana-message 3.0.0",
  "solana-packet",
  "solana-pubkey 3.0.0",
- "solana-rpc-client-api",
+ "solana-rpc-client-api 3.0.10",
  "solana-sdk-ids 3.0.0",
  "solana-signature",
  "solana-stake-interface 2.0.1",
@@ -8104,7 +8122,7 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-error 3.0.0",
  "solana-transaction-status",
- "solana-transaction-status-client-types",
+ "solana-transaction-status-client-types 3.0.10",
  "solana-vote-program",
  "spl-memo-interface",
 ]
@@ -8128,29 +8146,74 @@ dependencies = [
  "solana-account 3.1.0",
  "solana-client-traits",
  "solana-commitment-config",
- "solana-connection-cache",
+ "solana-connection-cache 3.0.6",
  "solana-epoch-info",
  "solana-hash 3.0.0",
  "solana-instruction 3.0.0",
  "solana-keypair",
- "solana-measure",
+ "solana-measure 3.0.6",
  "solana-message 3.0.0",
  "solana-pubkey 3.0.0",
- "solana-pubsub-client",
- "solana-quic-client",
+ "solana-pubsub-client 3.0.6",
+ "solana-quic-client 3.0.6",
  "solana-quic-definitions",
- "solana-rpc-client",
- "solana-rpc-client-api",
- "solana-rpc-client-nonce-utils",
+ "solana-rpc-client 3.0.6",
+ "solana-rpc-client-api 3.0.6",
+ "solana-rpc-client-nonce-utils 3.0.6",
  "solana-signature",
  "solana-signer",
- "solana-streamer",
+ "solana-streamer 3.0.6",
  "solana-time-utils",
- "solana-tpu-client",
+ "solana-tpu-client 3.0.6",
  "solana-transaction",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types",
- "solana-udp-client",
+ "solana-transaction-status-client-types 3.0.6",
+ "solana-udp-client 3.0.6",
+ "thiserror 2.0.16",
+ "tokio",
+]
+
+[[package]]
+name = "solana-client"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "dashmap",
+ "futures 0.3.31",
+ "futures-util",
+ "indexmap 2.11.4",
+ "indicatif",
+ "log 0.4.28",
+ "quinn",
+ "rayon",
+ "solana-account 3.1.0",
+ "solana-client-traits",
+ "solana-commitment-config",
+ "solana-connection-cache 3.0.10",
+ "solana-epoch-info",
+ "solana-hash 3.0.0",
+ "solana-instruction 3.0.0",
+ "solana-keypair",
+ "solana-measure 3.0.10",
+ "solana-message 3.0.0",
+ "solana-pubkey 3.0.0",
+ "solana-pubsub-client 3.0.10",
+ "solana-quic-client 3.0.10",
+ "solana-quic-definitions",
+ "solana-rpc-client 3.0.10",
+ "solana-rpc-client-api 3.0.10",
+ "solana-rpc-client-nonce-utils 3.0.10",
+ "solana-signature",
+ "solana-signer",
+ "solana-streamer 3.0.10",
+ "solana-time-utils",
+ "solana-tpu-client 3.0.10",
+ "solana-transaction",
+ "solana-transaction-error 3.0.0",
+ "solana-transaction-status-client-types 3.0.10",
+ "solana-udp-client 3.0.10",
  "thiserror 2.0.16",
  "tokio",
 ]
@@ -8225,9 +8288,8 @@ dependencies = [
 
 [[package]]
 name = "solana-compute-budget"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5a280896207ff0812e60cd421e4f606f57e7e3d4a1d89ce8c5063ab69b22a62"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "solana-fee-structure",
  "solana-program-runtime",
@@ -8235,18 +8297,17 @@ dependencies = [
 
 [[package]]
 name = "solana-compute-budget-instruction"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f542c69beb51a61818bb19bf8159bc293432c14a8b3f9a408bcbf95526d03104"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "log 0.4.28",
  "solana-borsh 3.0.0",
  "solana-builtins-default-costs",
  "solana-compute-budget",
  "solana-compute-budget-interface",
  "solana-instruction 3.0.0",
- "solana-packet",
+ "solana-perf 3.0.10",
  "solana-pubkey 3.0.0",
  "solana-sdk-ids 3.0.0",
  "solana-svm-transaction",
@@ -8267,9 +8328,8 @@ dependencies = [
 
 [[package]]
 name = "solana-compute-budget-program"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "106edf2d2b5d19b57b1bc6f3addc93dc1f08ca5aaf6c3ffbb22fde803a49da82"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "solana-program-runtime",
 ]
@@ -8306,8 +8366,30 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "solana-keypair",
- "solana-measure",
- "solana-metrics",
+ "solana-measure 3.0.6",
+ "solana-metrics 3.0.6",
+ "solana-time-utils",
+ "solana-transaction-error 3.0.0",
+ "thiserror 2.0.16",
+ "tokio",
+]
+
+[[package]]
+name = "solana-connection-cache"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "crossbeam-channel",
+ "futures-util",
+ "indexmap 2.11.4",
+ "log 0.4.28",
+ "rand 0.8.5",
+ "rayon",
+ "solana-keypair",
+ "solana-measure 3.0.10",
+ "solana-metrics 3.0.10",
  "solana-time-utils",
  "solana-transaction-error 3.0.0",
  "thiserror 2.0.16",
@@ -8316,11 +8398,10 @@ dependencies = [
 
 [[package]]
 name = "solana-cost-model"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d03b50d1f8b09163d5c583e560501c4dd6463ac02642beda9801d51ec61cfd76"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "ahash 0.8.12",
  "log 0.4.28",
  "solana-bincode 3.0.0",
@@ -8331,8 +8412,9 @@ dependencies = [
  "solana-compute-budget-instruction",
  "solana-compute-budget-interface",
  "solana-fee-structure",
- "solana-metrics",
+ "solana-metrics 3.0.10",
  "solana-packet",
+ "solana-perf 3.0.10",
  "solana-pubkey 3.0.0",
  "solana-runtime-transaction",
  "solana-sdk-ids 3.0.0",
@@ -8350,7 +8432,7 @@ checksum = "8dc71126edddc2ba014622fc32d0f5e2e78ec6c5a1e0eb511b85618c09e9ea11"
 dependencies = [
  "solana-account-info 2.3.0",
  "solana-define-syscall 2.3.0",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-program-error 2.2.2",
  "solana-pubkey 2.4.0",
  "solana-stable-layout 2.2.1",
@@ -8386,9 +8468,8 @@ dependencies = [
 
 [[package]]
 name = "solana-curve25519"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "813e74de7617523753addd4d3257154b748a9c013c71905d4f9f90528ae976f9"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "bytemuck",
  "bytemuck_derive",
@@ -8444,9 +8525,8 @@ dependencies = [
 
 [[package]]
 name = "solana-entry"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "671ffede0ed15fbffb02a249cadf73324a2cdb44c58703b9c9df8f788f6228ef"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "bincode",
  "crossbeam-channel",
@@ -8457,11 +8537,11 @@ dependencies = [
  "rayon",
  "serde",
  "solana-hash 3.0.0",
- "solana-measure",
+ "solana-measure 3.0.10",
  "solana-merkle-tree",
- "solana-metrics",
+ "solana-metrics 3.0.10",
  "solana-packet",
- "solana-perf",
+ "solana-perf 3.0.10",
  "solana-runtime-transaction",
  "solana-sha256-hasher 3.0.0",
  "solana-transaction",
@@ -8554,7 +8634,7 @@ dependencies = [
  "solana-address-lookup-table-interface 2.2.2",
  "solana-clock 2.2.2",
  "solana-hash 2.3.0",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-keccak-hasher 2.2.1",
  "solana-message 2.4.0",
  "solana-nonce 2.2.1",
@@ -8566,9 +8646,8 @@ dependencies = [
 
 [[package]]
 name = "solana-faucet"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d5dee50d38e470ed72b4ff1a9ba836910eeac21c1dbb2586cb31e08215974c1"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "bincode",
  "clap 2.34.0",
@@ -8584,14 +8663,14 @@ dependencies = [
  "solana-keypair",
  "solana-logger",
  "solana-message 3.0.0",
- "solana-metrics",
+ "solana-metrics 3.0.10",
  "solana-packet",
  "solana-pubkey 3.0.0",
  "solana-signer",
  "solana-system-interface 2.0.0",
  "solana-system-transaction",
  "solana-transaction",
- "solana-version",
+ "solana-version 3.0.10",
  "spl-memo-interface",
  "thiserror 2.0.16",
  "tokio",
@@ -8608,7 +8687,7 @@ dependencies = [
  "serde_derive",
  "solana-account 2.2.1",
  "solana-account-info 2.3.0",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-program-error 2.2.2",
  "solana-pubkey 2.4.0",
  "solana-rent 2.2.1",
@@ -8637,11 +8716,10 @@ dependencies = [
 
 [[package]]
 name = "solana-fee"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05a591e8cc59cc9d564d86b91ac7bfb8e4bcb219b5e20f393b1706248be9a992"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "solana-fee-structure",
  "solana-svm-transaction",
 ]
@@ -8709,9 +8787,8 @@ dependencies = [
 
 [[package]]
 name = "solana-geyser-plugin-manager"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "950476520df2445c38883479722c239a13dbeddd4e22b64b1f8ad3c3e60ba0e2"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "agave-geyser-plugin-interface",
  "bs58",
@@ -8727,8 +8804,8 @@ dependencies = [
  "solana-entry",
  "solana-hash 3.0.0",
  "solana-ledger",
- "solana-measure",
- "solana-metrics",
+ "solana-measure 3.0.10",
+ "solana-metrics 3.0.10",
  "solana-pubkey 3.0.0",
  "solana-rpc",
  "solana-runtime",
@@ -8741,11 +8818,10 @@ dependencies = [
 
 [[package]]
 name = "solana-gossip"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "576df413e3a929ce8b02bed0b27ce7048cd07a7219629d94aa3912aece570c90"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "agave-low-pass-filter",
  "arrayvec",
  "assert_matches",
@@ -8770,26 +8846,26 @@ dependencies = [
  "solana-account 3.1.0",
  "solana-bloom",
  "solana-clap-utils",
- "solana-client",
+ "solana-client 3.0.10",
  "solana-clock 3.0.0",
  "solana-cluster-type",
- "solana-connection-cache",
+ "solana-connection-cache 3.0.10",
  "solana-entry",
  "solana-epoch-schedule 3.0.0",
  "solana-hash 3.0.0",
  "solana-keypair",
  "solana-ledger",
  "solana-logger",
- "solana-measure",
- "solana-metrics",
+ "solana-measure 3.0.10",
+ "solana-metrics 3.0.10",
  "solana-native-token 3.0.0",
- "solana-net-utils",
+ "solana-net-utils 3.0.10",
  "solana-packet",
- "solana-perf",
+ "solana-perf 3.0.10",
  "solana-pubkey 3.0.0",
  "solana-quic-definitions",
- "solana-rayon-threadlimit",
- "solana-rpc-client",
+ "solana-rayon-threadlimit 3.0.10",
+ "solana-rpc-client 3.0.10",
  "solana-runtime",
  "solana-sanitize 3.0.0",
  "solana-serde-varint 3.0.0",
@@ -8797,11 +8873,11 @@ dependencies = [
  "solana-short-vec 3.0.0",
  "solana-signature",
  "solana-signer",
- "solana-streamer",
+ "solana-streamer 3.0.10",
  "solana-time-utils",
- "solana-tpu-client",
+ "solana-tpu-client 3.0.10",
  "solana-transaction",
- "solana-version",
+ "solana-version 3.0.10",
  "solana-vote",
  "solana-vote-program",
  "static_assertions",
@@ -8884,9 +8960,9 @@ dependencies = [
 
 [[package]]
 name = "solana-instruction"
-version = "2.3.0"
+version = "2.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47298e2ce82876b64f71e9d13a46bc4b9056194e7f9937ad3084385befa50885"
+checksum = "bab5682934bd1f65f8d2c16f21cb532526fcc1a09f796e2cacdb091eee5774ad"
 dependencies = [
  "bincode",
  "borsh 1.5.7",
@@ -8895,6 +8971,7 @@ dependencies = [
  "num-traits",
  "serde",
  "serde_derive",
+ "serde_json",
  "solana-define-syscall 2.3.0",
  "solana-pubkey 2.4.0",
  "wasm-bindgen",
@@ -8934,7 +9011,7 @@ checksum = "e0e85a6fad5c2d0c4f5b91d34b8ca47118fc593af706e523cdbedf846a954f57"
 dependencies = [
  "bitflags 2.9.4",
  "solana-account-info 2.3.0",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-program-error 2.2.2",
  "solana-pubkey 2.4.0",
  "solana-sanitize 2.2.1",
@@ -9030,9 +9107,8 @@ dependencies = [
 
 [[package]]
 name = "solana-lattice-hash"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2120962ab108ff3036b6f5cddec25c0eee575bedbdc7d502dfdeb12b90156949"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -9042,11 +9118,10 @@ dependencies = [
 
 [[package]]
 name = "solana-ledger"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88cba7acada1922890803cda5527f907b3fe020b7fc1f4bf931e2f3a4a905026"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "agave-reserved-account-keys",
  "anyhow",
  "assert_matches",
@@ -9094,17 +9169,17 @@ dependencies = [
  "solana-hash 3.0.0",
  "solana-instruction 3.0.0",
  "solana-keypair",
- "solana-measure",
+ "solana-measure 3.0.10",
  "solana-message 3.0.0",
- "solana-metrics",
+ "solana-metrics 3.0.10",
  "solana-native-token 3.0.0",
- "solana-net-utils",
+ "solana-net-utils 3.0.10",
  "solana-nohash-hasher",
  "solana-packet",
- "solana-perf",
+ "solana-perf 3.0.10",
  "solana-program-runtime",
  "solana-pubkey 3.0.0",
- "solana-rayon-threadlimit",
+ "solana-rayon-threadlimit 3.0.10",
  "solana-runtime",
  "solana-runtime-transaction",
  "solana-seed-derivable",
@@ -9116,7 +9191,7 @@ dependencies = [
  "solana-stake-program",
  "solana-storage-bigtable",
  "solana-storage-proto",
- "solana-streamer",
+ "solana-streamer 3.0.10",
  "solana-svm",
  "solana-svm-timings",
  "solana-svm-transaction",
@@ -9124,7 +9199,7 @@ dependencies = [
  "solana-system-transaction",
  "solana-time-utils",
  "solana-transaction",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
  "solana-transaction-error 3.0.0",
  "solana-transaction-status",
  "solana-vote",
@@ -9149,7 +9224,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_derive",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
  "solana-sdk-ids 2.2.1",
 ]
@@ -9177,7 +9252,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_derive",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
  "solana-sdk-ids 2.2.1",
  "solana-system-interface 1.0.0",
@@ -9207,7 +9282,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_derive",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
  "solana-sdk-ids 2.2.1",
  "solana-system-interface 1.0.0",
@@ -9230,9 +9305,8 @@ dependencies = [
 
 [[package]]
 name = "solana-loader-v4-program"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "278f9fa70169f486c5461a09d8b89f9eb067212bea3d279ab4108740d2e31d8d"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "log 0.4.28",
  "qualifier_attr",
@@ -9243,6 +9317,7 @@ dependencies = [
  "solana-loader-v3-interface 6.1.0",
  "solana-loader-v4-interface 3.1.0",
  "solana-packet",
+ "solana-perf 3.0.10",
  "solana-program-runtime",
  "solana-pubkey 3.0.0",
  "solana-sbpf",
@@ -9250,7 +9325,7 @@ dependencies = [
  "solana-svm-log-collector",
  "solana-svm-measure",
  "solana-svm-type-overrides",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
 ]
 
 [[package]]
@@ -9273,10 +9348,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10cd4adf43d4e09cd8e23aed4a1cd8e8f19fbc9eefc8994df1fac4eaf59936d8"
 
 [[package]]
+name = "solana-measure"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+
+[[package]]
 name = "solana-merkle-tree"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "691ee00f72a9e349c9d338108057a17dc53169839cfcb4ba2d4b3b189b6ba381"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "fast-math",
  "solana-hash 3.0.0",
@@ -9296,7 +9375,7 @@ dependencies = [
  "serde_derive",
  "solana-bincode 2.2.1",
  "solana-hash 2.3.0",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
  "solana-sanitize 2.2.1",
  "solana-sdk-ids 2.2.1",
@@ -9343,6 +9422,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-metrics"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "crossbeam-channel",
+ "gethostname",
+ "log 0.4.28",
+ "reqwest 0.12.23",
+ "solana-cluster-type",
+ "solana-sha256-hasher 3.0.0",
+ "solana-time-utils",
+ "thiserror 2.0.16",
+]
+
+[[package]]
 name = "solana-msg"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9377,6 +9471,26 @@ name = "solana-net-utils"
 version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faac23c0275e96a09df695158afd5421c482296ae8deec2ffd77301d8ab40be2"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "bytes 1.10.1",
+ "itertools 0.12.1",
+ "log 0.4.28",
+ "nix",
+ "rand 0.8.5",
+ "serde",
+ "serde_derive",
+ "socket2 0.6.0",
+ "solana-serde",
+ "tokio",
+ "url 2.5.7",
+]
+
+[[package]]
+name = "solana-net-utils"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "anyhow",
  "bincode",
@@ -9490,10 +9604,41 @@ dependencies = [
  "serde",
  "solana-hash 3.0.0",
  "solana-message 3.0.0",
- "solana-metrics",
+ "solana-metrics 3.0.6",
  "solana-packet",
  "solana-pubkey 3.0.0",
- "solana-rayon-threadlimit",
+ "solana-rayon-threadlimit 3.0.6",
+ "solana-sdk-ids 3.0.0",
+ "solana-short-vec 3.0.0",
+ "solana-signature",
+ "solana-time-utils",
+]
+
+[[package]]
+name = "solana-perf"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "ahash 0.8.12",
+ "bincode",
+ "bv",
+ "bytes 1.10.1",
+ "caps",
+ "curve25519-dalek 4.1.3",
+ "dlopen2",
+ "fnv",
+ "libc",
+ "log 0.4.28",
+ "nix",
+ "rand 0.8.5",
+ "rayon",
+ "serde",
+ "solana-hash 3.0.0",
+ "solana-message 3.0.0",
+ "solana-metrics 3.0.10",
+ "solana-packet",
+ "solana-pubkey 3.0.0",
+ "solana-rayon-threadlimit 3.0.10",
  "solana-sdk-ids 3.0.0",
  "solana-short-vec 3.0.0",
  "solana-signature",
@@ -9502,9 +9647,8 @@ dependencies = [
 
 [[package]]
 name = "solana-poh"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75f7dd346dc291ccbbfbb4ab1a48bdce72ace74d397fcc104bc8b3fb32ccedc4"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "arc-swap",
  "core_affinity",
@@ -9515,8 +9659,8 @@ dependencies = [
  "solana-entry",
  "solana-hash 3.0.0",
  "solana-ledger",
- "solana-measure",
- "solana-metrics",
+ "solana-measure 3.0.10",
+ "solana-metrics 3.0.10",
  "solana-poh-config",
  "solana-pubkey 3.0.0",
  "solana-runtime",
@@ -9537,9 +9681,8 @@ dependencies = [
 
 [[package]]
 name = "solana-poseidon"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e90412f2b4faf59fb9670d6ccaddec06d0b79fbd9dfcc56fbc8569a6f45f2b4"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "ark-bn254",
  "light-poseidon",
@@ -9609,7 +9752,7 @@ dependencies = [
  "solana-feature-gate-interface 2.2.2",
  "solana-fee-calculator 2.2.1",
  "solana-hash 2.3.0",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-instructions-sysvar 2.2.2",
  "solana-keccak-hasher 2.2.1",
  "solana-last-restart-slot 2.2.1",
@@ -9683,7 +9826,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "solana-decode-error",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-msg 2.2.1",
  "solana-pubkey 2.4.0",
 ]
@@ -9747,9 +9890,8 @@ dependencies = [
 
 [[package]]
 name = "solana-program-runtime"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b37667b9cd2c58d1c023fff16d2fbbe60d3dc5b5758e74c31bd1847fdc66b72e"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "base64 0.22.1",
  "bincode",
@@ -9774,7 +9916,7 @@ dependencies = [
  "solana-slot-hashes 3.0.0",
  "solana-stake-interface 2.0.1",
  "solana-svm-callback",
- "solana-svm-feature-set",
+ "solana-svm-feature-set 3.0.10",
  "solana-svm-log-collector",
  "solana-svm-measure",
  "solana-svm-timings",
@@ -9783,7 +9925,7 @@ dependencies = [
  "solana-system-interface 2.0.0",
  "solana-sysvar 3.0.0",
  "solana-sysvar-id 3.0.0",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
 ]
 
 [[package]]
@@ -9836,10 +9978,36 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "solana-account-decoder-client-types",
+ "solana-account-decoder-client-types 3.0.6",
  "solana-clock 3.0.0",
  "solana-pubkey 3.0.0",
- "solana-rpc-client-types",
+ "solana-rpc-client-types 3.0.6",
+ "solana-signature",
+ "thiserror 2.0.16",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite 0.20.1",
+ "tungstenite 0.20.1",
+ "url 2.5.7",
+]
+
+[[package]]
+name = "solana-pubsub-client"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "crossbeam-channel",
+ "futures-util",
+ "http 0.2.12",
+ "log 0.4.28",
+ "semver",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "solana-account-decoder-client-types 3.0.10",
+ "solana-clock 3.0.0",
+ "solana-pubkey 3.0.0",
+ "solana-rpc-client-types 3.0.10",
  "solana-signature",
  "thiserror 2.0.16",
  "tokio",
@@ -9863,17 +10031,46 @@ dependencies = [
  "quinn",
  "quinn-proto",
  "rustls 0.23.32",
- "solana-connection-cache",
+ "solana-connection-cache 3.0.6",
  "solana-keypair",
- "solana-measure",
- "solana-metrics",
- "solana-net-utils",
+ "solana-measure 3.0.6",
+ "solana-metrics 3.0.6",
+ "solana-net-utils 3.0.6",
  "solana-pubkey 3.0.0",
  "solana-quic-definitions",
- "solana-rpc-client-api",
+ "solana-rpc-client-api 3.0.6",
  "solana-signer",
- "solana-streamer",
- "solana-tls-utils",
+ "solana-streamer 3.0.6",
+ "solana-tls-utils 3.0.6",
+ "solana-transaction-error 3.0.0",
+ "thiserror 2.0.16",
+ "tokio",
+]
+
+[[package]]
+name = "solana-quic-client"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "async-lock",
+ "async-trait",
+ "futures 0.3.31",
+ "itertools 0.12.1",
+ "log 0.4.28",
+ "quinn",
+ "quinn-proto",
+ "rustls 0.23.32",
+ "solana-connection-cache 3.0.10",
+ "solana-keypair",
+ "solana-measure 3.0.10",
+ "solana-metrics 3.0.10",
+ "solana-net-utils 3.0.10",
+ "solana-pubkey 3.0.0",
+ "solana-quic-definitions",
+ "solana-rpc-client-api 3.0.10",
+ "solana-signer",
+ "solana-streamer 3.0.10",
+ "solana-tls-utils 3.0.10",
  "solana-transaction-error 3.0.0",
  "thiserror 2.0.16",
  "tokio",
@@ -9899,21 +10096,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-rayon-threadlimit"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "log 0.4.28",
+ "num_cpus",
+]
+
+[[package]]
 name = "solana-record-service-client"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccf8d878040f2ed9ca3dc78781fc902f6d1b2af6d7d917cc7979c9b37ccff3e6"
 dependencies = [
  "borsh 0.10.4",
- "kaigan",
+ "kaigan 0.4.0",
  "solana-program",
 ]
 
 [[package]]
 name = "solana-remote-wallet"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08fc70965adf9147da8c5810db4e0a4934f5917fd5a48dbd7d6acf31672a968d"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "console 0.16.1",
  "dialoguer 0.10.4",
@@ -9971,11 +10176,10 @@ dependencies = [
 
 [[package]]
 name = "solana-rpc"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83066186e6f3f1fb494020b6f32b3d2e807988d624ec45d80173364a9da40844"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "base64 0.22.1",
  "bincode",
  "bs58",
@@ -9999,7 +10203,7 @@ dependencies = [
  "solana-account-decoder",
  "solana-accounts-db",
  "solana-cli-output",
- "solana-client",
+ "solana-client 3.0.10",
  "solana-clock 3.0.0",
  "solana-commitment-config",
  "solana-entry",
@@ -10012,18 +10216,18 @@ dependencies = [
  "solana-hash 3.0.0",
  "solana-keypair",
  "solana-ledger",
- "solana-measure",
+ "solana-measure 3.0.10",
  "solana-message 3.0.0",
- "solana-metrics",
+ "solana-metrics 3.0.10",
  "solana-native-token 3.0.0",
- "solana-perf",
+ "solana-perf 3.0.10",
  "solana-poh",
  "solana-poh-config",
  "solana-program-pack 3.0.0",
  "solana-pubkey 3.0.0",
  "solana-quic-definitions",
- "solana-rayon-threadlimit",
- "solana-rpc-client-api",
+ "solana-rayon-threadlimit 3.0.10",
+ "solana-rpc-client-api 3.0.10",
  "solana-runtime",
  "solana-runtime-transaction",
  "solana-send-transaction-service",
@@ -10032,19 +10236,19 @@ dependencies = [
  "solana-slot-history 3.0.0",
  "solana-stake-program",
  "solana-storage-bigtable",
- "solana-streamer",
+ "solana-streamer 3.0.10",
  "solana-svm",
  "solana-system-interface 2.0.0",
  "solana-system-transaction",
  "solana-sysvar 3.0.0",
  "solana-time-utils",
- "solana-tpu-client",
+ "solana-tpu-client 3.0.10",
  "solana-transaction",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
  "solana-transaction-error 3.0.0",
  "solana-transaction-status",
  "solana-validator-exit",
- "solana-version",
+ "solana-version 3.0.10",
  "solana-vote",
  "solana-vote-program",
  "spl-generic-token",
@@ -10076,7 +10280,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "solana-account 3.1.0",
- "solana-account-decoder-client-types",
+ "solana-account-decoder-client-types 3.0.6",
  "solana-clock 3.0.0",
  "solana-commitment-config",
  "solana-epoch-info",
@@ -10086,12 +10290,51 @@ dependencies = [
  "solana-instruction 3.0.0",
  "solana-message 3.0.0",
  "solana-pubkey 3.0.0",
- "solana-rpc-client-api",
+ "solana-rpc-client-api 3.0.6",
  "solana-signature",
  "solana-transaction",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types",
- "solana-version",
+ "solana-transaction-status-client-types 3.0.6",
+ "solana-version 3.0.6",
+ "solana-vote-interface 3.0.0",
+ "tokio",
+]
+
+[[package]]
+name = "solana-rpc-client"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bincode",
+ "bs58",
+ "futures 0.3.31",
+ "indicatif",
+ "log 0.4.28",
+ "reqwest 0.12.23",
+ "reqwest-middleware",
+ "semver",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "solana-account 3.1.0",
+ "solana-account-decoder-client-types 3.0.10",
+ "solana-clock 3.0.0",
+ "solana-commitment-config",
+ "solana-epoch-info",
+ "solana-epoch-schedule 3.0.0",
+ "solana-feature-gate-interface 3.0.0",
+ "solana-hash 3.0.0",
+ "solana-instruction 3.0.0",
+ "solana-message 3.0.0",
+ "solana-pubkey 3.0.0",
+ "solana-rpc-client-api 3.0.10",
+ "solana-signature",
+ "solana-transaction",
+ "solana-transaction-error 3.0.0",
+ "solana-transaction-status-client-types 3.0.10",
+ "solana-version 3.0.10",
  "solana-vote-interface 3.0.0",
  "tokio",
 ]
@@ -10109,12 +10352,33 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "solana-account-decoder-client-types",
+ "solana-account-decoder-client-types 3.0.6",
  "solana-clock 3.0.0",
- "solana-rpc-client-types",
+ "solana-rpc-client-types 3.0.6",
  "solana-signer",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types",
+ "solana-transaction-status-client-types 3.0.6",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "solana-rpc-client-api"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "anyhow",
+ "jsonrpc-core",
+ "reqwest 0.12.23",
+ "reqwest-middleware",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "solana-account-decoder-client-types 3.0.10",
+ "solana-clock 3.0.0",
+ "solana-rpc-client-types 3.0.10",
+ "solana-signer",
+ "solana-transaction-error 3.0.0",
+ "solana-transaction-status-client-types 3.0.10",
  "thiserror 2.0.16",
 ]
 
@@ -10130,7 +10394,23 @@ dependencies = [
  "solana-message 3.0.0",
  "solana-nonce 3.0.0",
  "solana-pubkey 3.0.0",
- "solana-rpc-client",
+ "solana-rpc-client 3.0.6",
+ "solana-sdk-ids 3.0.0",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "solana-rpc-client-nonce-utils"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "solana-account 3.1.0",
+ "solana-commitment-config",
+ "solana-hash 3.0.0",
+ "solana-message 3.0.0",
+ "solana-nonce 3.0.0",
+ "solana-pubkey 3.0.0",
+ "solana-rpc-client 3.0.10",
  "solana-sdk-ids 3.0.0",
  "thiserror 2.0.16",
 ]
@@ -10148,26 +10428,50 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "solana-account 3.1.0",
- "solana-account-decoder-client-types",
+ "solana-account-decoder-client-types 3.0.6",
  "solana-clock 3.0.0",
  "solana-commitment-config",
  "solana-fee-calculator 3.0.0",
  "solana-inflation",
  "solana-pubkey 3.0.0",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types",
- "solana-version",
+ "solana-transaction-status-client-types 3.0.6",
+ "solana-version 3.0.6",
+ "spl-generic-token",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "solana-rpc-client-types"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "base64 0.22.1",
+ "bs58",
+ "semver",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "solana-account 3.1.0",
+ "solana-account-decoder-client-types 3.0.10",
+ "solana-clock 3.0.0",
+ "solana-commitment-config",
+ "solana-fee-calculator 3.0.0",
+ "solana-inflation",
+ "solana-pubkey 3.0.0",
+ "solana-transaction-error 3.0.0",
+ "solana-transaction-status-client-types 3.0.10",
+ "solana-version 3.0.10",
  "spl-generic-token",
  "thiserror 2.0.16",
 ]
 
 [[package]]
 name = "solana-runtime"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99e9a969516a6d9e95f9f55f33e03a62d0d435d09ddf9342f01ebdfb135b1058"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "agave-precompiles",
  "agave-reserved-account-keys",
  "agave-syscalls",
@@ -10239,20 +10543,20 @@ dependencies = [
  "solana-lattice-hash",
  "solana-loader-v3-interface 6.1.0",
  "solana-loader-v4-interface 3.1.0",
- "solana-measure",
+ "solana-measure 3.0.10",
  "solana-message 3.0.0",
- "solana-metrics",
+ "solana-metrics 3.0.10",
  "solana-native-token 3.0.0",
  "solana-nohash-hasher",
  "solana-nonce 3.0.0",
  "solana-nonce-account",
  "solana-packet",
- "solana-perf",
+ "solana-perf 3.0.10",
  "solana-poh-config",
  "solana-precompile-error",
  "solana-program-runtime",
  "solana-pubkey 3.0.0",
- "solana-rayon-threadlimit",
+ "solana-rayon-threadlimit 3.0.10",
  "solana-rent 3.0.0",
  "solana-reward-info",
  "solana-runtime-transaction",
@@ -10277,11 +10581,11 @@ dependencies = [
  "solana-sysvar-id 3.0.0",
  "solana-time-utils",
  "solana-transaction",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types",
+ "solana-transaction-status-client-types 3.0.10",
  "solana-unified-scheduler-logic",
- "solana-version",
+ "solana-version 3.0.10",
  "solana-vote",
  "solana-vote-interface 3.0.0",
  "solana-vote-program",
@@ -10298,9 +10602,8 @@ dependencies = [
 
 [[package]]
 name = "solana-runtime-transaction"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74a34b024db334e2a00d17e42b6f2dd94c5e9fce1795f3d4eb1b5de21362ef51"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "agave-transaction-view",
  "log 0.4.28",
@@ -10458,21 +10761,20 @@ dependencies = [
 
 [[package]]
 name = "solana-send-transaction-service"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d383a8eaef5ae1557fb2d79b06cc3ec49748276126271dadb7d8c095fcd28d0f"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "async-trait",
  "crossbeam-channel",
  "itertools 0.12.1",
  "log 0.4.28",
- "solana-client",
+ "solana-client 3.0.10",
  "solana-clock 3.0.0",
- "solana-connection-cache",
+ "solana-connection-cache 3.0.10",
  "solana-hash 3.0.0",
  "solana-keypair",
- "solana-measure",
- "solana-metrics",
+ "solana-measure 3.0.10",
+ "solana-metrics 3.0.10",
  "solana-nonce-account",
  "solana-pubkey 3.0.0",
  "solana-quic-definitions",
@@ -10517,7 +10819,7 @@ version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "817a284b63197d2b27afdba829c5ab34231da4a9b4e763466a003c40ca4f535e"
 dependencies = [
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
  "solana-sanitize 2.2.1",
 ]
@@ -10668,7 +10970,7 @@ version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f14f7d02af8f2bc1b5efeeae71bc1c2b7f0f65cd75bcc7d8180f2c762a57f54"
 dependencies = [
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
 ]
 
@@ -10696,7 +10998,7 @@ dependencies = [
  "solana-clock 2.2.2",
  "solana-cpi 2.2.1",
  "solana-decode-error",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-program-error 2.2.2",
  "solana-pubkey 2.4.0",
  "solana-system-interface 1.0.0",
@@ -10724,11 +11026,10 @@ dependencies = [
 
 [[package]]
 name = "solana-stake-program"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4d9984ab7bbdf9bcea650fb31f3e196e54b7a2cef9e376edb5a754ea9743d13"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "bincode",
  "log 0.4.28",
  "solana-account 3.1.0",
@@ -10738,7 +11039,7 @@ dependencies = [
  "solana-genesis-config",
  "solana-instruction 3.0.0",
  "solana-native-token 3.0.0",
- "solana-packet",
+ "solana-perf 3.0.10",
  "solana-program-runtime",
  "solana-pubkey 3.0.0",
  "solana-rent 3.0.0",
@@ -10747,15 +11048,14 @@ dependencies = [
  "solana-svm-log-collector",
  "solana-svm-type-overrides",
  "solana-sysvar 3.0.0",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
  "solana-vote-interface 3.0.0",
 ]
 
 [[package]]
 name = "solana-storage-bigtable"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b432ef6583f7f79ed7b28f610f68f62812652ab7ffb72317d01f7613c2ddf08"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "agave-reserved-account-keys",
  "backoff",
@@ -10778,7 +11078,7 @@ dependencies = [
  "smpl_jwt",
  "solana-clock 3.0.0",
  "solana-message 3.0.0",
- "solana-metrics",
+ "solana-metrics 3.0.10",
  "solana-pubkey 3.0.0",
  "solana-serde",
  "solana-signature",
@@ -10795,9 +11095,8 @@ dependencies = [
 
 [[package]]
 name = "solana-storage-proto"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0ba2a8d133a05b58054fd8e45c034db59378fa69014786283142a43af8f4d4b"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "bincode",
  "bs58",
@@ -10812,7 +11111,7 @@ dependencies = [
  "solana-serde",
  "solana-signature",
  "solana-transaction",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
  "solana-transaction-error 3.0.0",
  "solana-transaction-status",
  "tonic-build",
@@ -10848,19 +11147,67 @@ dependencies = [
  "smallvec",
  "socket2 0.6.0",
  "solana-keypair",
- "solana-measure",
- "solana-metrics",
- "solana-net-utils",
+ "solana-measure 3.0.6",
+ "solana-metrics 3.0.6",
+ "solana-net-utils 3.0.6",
  "solana-packet",
- "solana-perf",
+ "solana-perf 3.0.6",
  "solana-pubkey 3.0.0",
  "solana-quic-definitions",
  "solana-signature",
  "solana-signer",
  "solana-time-utils",
- "solana-tls-utils",
+ "solana-tls-utils 3.0.6",
  "solana-transaction-error 3.0.0",
- "solana-transaction-metrics-tracker",
+ "solana-transaction-metrics-tracker 3.0.6",
+ "thiserror 2.0.16",
+ "tokio",
+ "tokio-util 0.7.16",
+ "x509-parser",
+]
+
+[[package]]
+name = "solana-streamer"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "arc-swap",
+ "async-channel",
+ "bytes 1.10.1",
+ "crossbeam-channel",
+ "dashmap",
+ "futures 0.3.31",
+ "futures-util",
+ "governor",
+ "histogram",
+ "indexmap 2.11.4",
+ "itertools 0.12.1",
+ "libc",
+ "log 0.4.28",
+ "nix",
+ "num_cpus",
+ "pem 1.1.1",
+ "percentage",
+ "quinn",
+ "quinn-proto",
+ "rand 0.8.5",
+ "rustls 0.23.32",
+ "smallvec",
+ "socket2 0.6.0",
+ "solana-keypair",
+ "solana-measure 3.0.10",
+ "solana-metrics 3.0.10",
+ "solana-net-utils 3.0.10",
+ "solana-packet",
+ "solana-perf 3.0.10",
+ "solana-pubkey 3.0.0",
+ "solana-quic-definitions",
+ "solana-signature",
+ "solana-signer",
+ "solana-time-utils",
+ "solana-tls-utils 3.0.10",
+ "solana-transaction-error 3.0.0",
+ "solana-transaction-metrics-tracker 3.0.10",
  "thiserror 2.0.16",
  "tokio",
  "tokio-util 0.7.16",
@@ -10869,9 +11216,8 @@ dependencies = [
 
 [[package]]
 name = "solana-svm"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a57846d43a7dde61f59e1bb8cc10fb32ae5a4ccd39fa941dd1c14d9b197bd6e1"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "ahash 0.8.12",
  "log 0.4.28",
@@ -10897,7 +11243,7 @@ dependencies = [
  "solana-rent 3.0.0",
  "solana-sdk-ids 3.0.0",
  "solana-svm-callback",
- "solana-svm-feature-set",
+ "solana-svm-feature-set 3.0.10",
  "solana-svm-log-collector",
  "solana-svm-measure",
  "solana-svm-timings",
@@ -10905,7 +11251,7 @@ dependencies = [
  "solana-svm-type-overrides",
  "solana-system-interface 2.0.0",
  "solana-sysvar-id 3.0.0",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
  "solana-transaction-error 3.0.0",
  "spl-generic-token",
  "thiserror 2.0.16",
@@ -10913,9 +11259,8 @@ dependencies = [
 
 [[package]]
 name = "solana-svm-callback"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d19100a1464e52d9298fd11da54ca97898553dc28a8e455ce79982b1c8cfd24"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "solana-account 3.1.0",
  "solana-clock 3.0.0",
@@ -10930,25 +11275,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a45cb106d92777438df2af16956ff269b2853337cc08517b4aa08784c061da30"
 
 [[package]]
+name = "solana-svm-feature-set"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+
+[[package]]
 name = "solana-svm-log-collector"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0c21c8d66125a4851495f2b6d541da0a3631833bbb90d423d11ba6ac5de55ff"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "log 0.4.28",
 ]
 
 [[package]]
 name = "solana-svm-measure"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0feb11327517ca2c16b5c48df5733acae7838151b2ce298a630d2a37b426f2e2"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 
 [[package]]
 name = "solana-svm-timings"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20a352d6a8bb10bc421e99e92bcc2c4468b8125506a1c9a220a61f042f0884a6"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "eager",
  "enum-iterator",
@@ -10957,9 +11304,8 @@ dependencies = [
 
 [[package]]
 name = "solana-svm-transaction"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "293c9195ccede64f492d9c7c068656cc0008889bdb915c0e68d5d93f7503c687"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "solana-hash 3.0.0",
  "solana-message 3.0.0",
@@ -10971,9 +11317,8 @@ dependencies = [
 
 [[package]]
 name = "solana-svm-type-overrides"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e941f4f308171b6a85d5eba025eba9730de8cd082fae8bf41113031dec509f8"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "rand 0.8.5",
 ]
@@ -10989,7 +11334,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "solana-decode-error",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
  "wasm-bindgen",
 ]
@@ -11011,9 +11356,8 @@ dependencies = [
 
 [[package]]
 name = "solana-system-program"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b11bfae545bc945012dff84e29a826781862288b20ec11d967709a9acefe194"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "bincode",
  "log 0.4.28",
@@ -11026,6 +11370,7 @@ dependencies = [
  "solana-nonce 3.0.0",
  "solana-nonce-account",
  "solana-packet",
+ "solana-perf 3.0.10",
  "solana-program-runtime",
  "solana-pubkey 3.0.0",
  "solana-sdk-ids 3.0.0",
@@ -11033,7 +11378,7 @@ dependencies = [
  "solana-svm-type-overrides",
  "solana-system-interface 2.0.0",
  "solana-sysvar 3.0.0",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
 ]
 
 [[package]]
@@ -11071,7 +11416,7 @@ dependencies = [
  "solana-epoch-schedule 2.2.1",
  "solana-fee-calculator 2.2.1",
  "solana-hash 2.3.0",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-instructions-sysvar 2.2.2",
  "solana-last-restart-slot 2.2.1",
  "solana-program-entrypoint 2.3.0",
@@ -11160,6 +11505,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-tls-utils"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "rustls 0.23.32",
+ "solana-keypair",
+ "solana-pubkey 3.0.0",
+ "solana-signer",
+ "x509-parser",
+]
+
+[[package]]
 name = "solana-tpu-client"
 version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11175,16 +11532,49 @@ dependencies = [
  "solana-client-traits",
  "solana-clock 3.0.0",
  "solana-commitment-config",
- "solana-connection-cache",
+ "solana-connection-cache 3.0.6",
  "solana-epoch-schedule 3.0.0",
- "solana-measure",
+ "solana-measure 3.0.6",
  "solana-message 3.0.0",
- "solana-net-utils",
+ "solana-net-utils 3.0.6",
  "solana-pubkey 3.0.0",
- "solana-pubsub-client",
+ "solana-pubsub-client 3.0.6",
  "solana-quic-definitions",
- "solana-rpc-client",
- "solana-rpc-client-api",
+ "solana-rpc-client 3.0.6",
+ "solana-rpc-client-api 3.0.6",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction",
+ "solana-transaction-error 3.0.0",
+ "thiserror 2.0.16",
+ "tokio",
+]
+
+[[package]]
+name = "solana-tpu-client"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "futures-util",
+ "indexmap 2.11.4",
+ "indicatif",
+ "log 0.4.28",
+ "rayon",
+ "solana-client-traits",
+ "solana-clock 3.0.0",
+ "solana-commitment-config",
+ "solana-connection-cache 3.0.10",
+ "solana-epoch-schedule 3.0.0",
+ "solana-measure 3.0.10",
+ "solana-message 3.0.0",
+ "solana-net-utils 3.0.10",
+ "solana-pubkey 3.0.0",
+ "solana-pubsub-client 3.0.10",
+ "solana-quic-definitions",
+ "solana-rpc-client 3.0.10",
+ "solana-rpc-client-api 3.0.10",
  "solana-signature",
  "solana-signer",
  "solana-transaction",
@@ -11195,9 +11585,8 @@ dependencies = [
 
 [[package]]
 name = "solana-tpu-client-next"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14a6259a3853d742a9b0b9d4256f072e88b0f9acb69d942e7cfc64a376fa0e43"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "async-trait",
  "log 0.4.28",
@@ -11205,16 +11594,16 @@ dependencies = [
  "quinn",
  "rustls 0.23.32",
  "solana-clock 3.0.0",
- "solana-connection-cache",
+ "solana-connection-cache 3.0.10",
  "solana-keypair",
- "solana-measure",
- "solana-metrics",
+ "solana-measure 3.0.10",
+ "solana-metrics 3.0.10",
  "solana-quic-definitions",
- "solana-rpc-client",
- "solana-streamer",
+ "solana-rpc-client 3.0.10",
+ "solana-streamer 3.0.10",
  "solana-time-utils",
- "solana-tls-utils",
- "solana-tpu-client",
+ "solana-tls-utils 3.0.10",
+ "solana-tpu-client 3.0.10",
  "thiserror 2.0.16",
  "tokio",
  "tokio-util 0.7.16",
@@ -11260,12 +11649,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-transaction-context"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "bincode",
+ "serde",
+ "serde_derive",
+ "solana-account 3.1.0",
+ "solana-instruction 3.0.0",
+ "solana-instructions-sysvar 3.0.0",
+ "solana-pubkey 3.0.0",
+ "solana-rent 3.0.0",
+ "solana-sbpf",
+ "solana-sdk-ids 3.0.0",
+]
+
+[[package]]
 name = "solana-transaction-error"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "222a9dc8fdb61c6088baab34fc3a8b8473a03a7a5fd404ed8dd502fa79b67cb1"
 dependencies = [
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-sanitize 2.2.1",
 ]
 
@@ -11292,16 +11698,30 @@ dependencies = [
  "log 0.4.28",
  "rand 0.8.5",
  "solana-packet",
- "solana-perf",
+ "solana-perf 3.0.6",
+ "solana-short-vec 3.0.0",
+ "solana-signature",
+]
+
+[[package]]
+name = "solana-transaction-metrics-tracker"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "base64 0.22.1",
+ "bincode",
+ "log 0.4.28",
+ "rand 0.8.5",
+ "solana-packet",
+ "solana-perf 3.0.10",
  "solana-short-vec 3.0.0",
  "solana-signature",
 ]
 
 [[package]]
 name = "solana-transaction-status"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "510007171942cc8c42d3772860bdacda446cf2799f3032af14caf8b2cb9ec9b5"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "Inflector",
  "agave-reserved-account-keys",
@@ -11330,7 +11750,7 @@ dependencies = [
  "solana-system-interface 2.0.0",
  "solana-transaction",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types",
+ "solana-transaction-status-client-types 3.0.10",
  "solana-vote-interface 3.0.0",
  "spl-associated-token-account-interface",
  "spl-memo-interface",
@@ -11353,7 +11773,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "solana-account-decoder-client-types",
+ "solana-account-decoder-client-types 3.0.6",
  "solana-commitment-config",
  "solana-instruction 3.0.0",
  "solana-message 3.0.0",
@@ -11361,7 +11781,31 @@ dependencies = [
  "solana-reward-info",
  "solana-signature",
  "solana-transaction",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.6",
+ "solana-transaction-error 3.0.0",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "solana-transaction-status-client-types"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "base64 0.22.1",
+ "bincode",
+ "bs58",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "solana-account-decoder-client-types 3.0.10",
+ "solana-commitment-config",
+ "solana-instruction 3.0.0",
+ "solana-message 3.0.0",
+ "solana-pubkey 3.0.0",
+ "solana-reward-info",
+ "solana-signature",
+ "solana-transaction",
+ "solana-transaction-context 3.0.10",
  "solana-transaction-error 3.0.0",
  "thiserror 2.0.16",
 ]
@@ -11373,10 +11817,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20dc356737f932556041b42cfc0e1700587593b42012d10bc35406def8ed2546"
 dependencies = [
  "async-trait",
- "solana-connection-cache",
+ "solana-connection-cache 3.0.6",
  "solana-keypair",
- "solana-net-utils",
- "solana-streamer",
+ "solana-net-utils 3.0.6",
+ "solana-streamer 3.0.6",
+ "solana-transaction-error 3.0.0",
+ "thiserror 2.0.16",
+ "tokio",
+]
+
+[[package]]
+name = "solana-udp-client"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "async-trait",
+ "solana-connection-cache 3.0.10",
+ "solana-keypair",
+ "solana-net-utils 3.0.10",
+ "solana-streamer 3.0.10",
  "solana-transaction-error 3.0.0",
  "thiserror 2.0.16",
  "tokio",
@@ -11384,9 +11843,8 @@ dependencies = [
 
 [[package]]
 name = "solana-unified-scheduler-logic"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56e589c40983286ba2f76071823779387536b63e14bbb8f00f9cc49f3e2be4d3"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "assert_matches",
  "solana-pubkey 3.0.0",
@@ -11408,7 +11866,21 @@ version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e657494d07daa44808f358034aa47df2e541fc0489de22dc2747764cf3341a5"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.6",
+ "rand 0.8.5",
+ "semver",
+ "serde",
+ "serde_derive",
+ "solana-sanitize 3.0.0",
+ "solana-serde-varint 3.0.0",
+]
+
+[[package]]
+name = "solana-version"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
+dependencies = [
+ "agave-feature-set 3.0.10",
  "rand 0.8.5",
  "semver",
  "serde",
@@ -11419,9 +11891,8 @@ dependencies = [
 
 [[package]]
 name = "solana-vote"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2f3a39b6309caf6c6a334a8a7685705779126cdfc020682d6f15fa2dfc3c9ea"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "itertools 0.12.1",
  "log 0.4.28",
@@ -11459,7 +11930,7 @@ dependencies = [
  "solana-clock 2.2.2",
  "solana-decode-error",
  "solana-hash 2.3.0",
- "solana-instruction 2.3.0",
+ "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
  "solana-rent 2.2.1",
  "solana-sdk-ids 2.2.1",
@@ -11497,11 +11968,10 @@ dependencies = [
 
 [[package]]
 name = "solana-vote-program"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "879f8f49d7266aba25ea3005b7450f09dcef7418336b0f01d6531a62b22e4617"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "bincode",
  "log 0.4.28",
  "num-derive",
@@ -11523,18 +11993,17 @@ dependencies = [
  "solana-signer",
  "solana-slot-hashes 3.0.0",
  "solana-transaction",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
  "solana-vote-interface 3.0.0",
  "thiserror 2.0.16",
 ]
 
 [[package]]
 name = "solana-zk-elgamal-proof-program"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2eab3cefc7a3dc06210c419fdc9da9e19a57f4198a349bfab1c56ae5f5d6278"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "bytemuck",
  "num-derive",
  "num-traits",
@@ -11584,11 +12053,10 @@ dependencies = [
 
 [[package]]
 name = "solana-zk-token-proof-program"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3175e35635af1d7227cba9e99358538d0b69af6c127bc8beb572e51cd44e3c6d"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "bytemuck",
  "num-derive",
  "num-traits",
@@ -11601,9 +12069,8 @@ dependencies = [
 
 [[package]]
 name = "solana-zk-token-sdk"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6210e884d65d9cb1b35000e9be5753c222f732c94a0d351fb33f61605fdfdd4"
+version = "3.0.10"
+source = "git+https://github.com/txtx/solana?branch=txtx%2Fincrease-tx-size-v3.0.10#736e7dfe696040bb8051f76b6f07e5c82aabaa97"
 dependencies = [
  "aes-gcm-siv",
  "base64 0.22.1",
@@ -11620,7 +12087,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "sha3",
- "solana-curve25519 3.0.6",
+ "solana-curve25519 3.0.10",
  "solana-derivation-path",
  "solana-instruction 3.0.0",
  "solana-pubkey 3.0.0",
@@ -12072,7 +12539,7 @@ dependencies = [
 name = "surfpool-core"
 version = "0.12.0"
 dependencies = [
- "agave-feature-set",
+ "agave-feature-set 3.0.10",
  "agave-geyser-plugin-interface",
  "agave-reserved-account-keys",
  "anchor-lang-idl",
@@ -12108,7 +12575,7 @@ dependencies = [
  "solana-account 3.1.0",
  "solana-account-decoder",
  "solana-address-lookup-table-interface 3.0.0",
- "solana-client",
+ "solana-client 3.0.10",
  "solana-clock 3.0.0",
  "solana-commitment-config",
  "solana-compute-budget-interface",
@@ -12123,12 +12590,12 @@ dependencies = [
  "solana-keypair",
  "solana-loader-v3-interface 6.1.0",
  "solana-message 3.0.0",
- "solana-packet",
+ "solana-perf 3.0.10",
  "solana-program-option 3.0.0",
  "solana-program-pack 3.0.0",
  "solana-pubkey 3.0.0",
- "solana-rpc-client",
- "solana-rpc-client-api",
+ "solana-rpc-client 3.0.10",
+ "solana-rpc-client-api 3.0.10",
  "solana-runtime",
  "solana-sdk-ids 3.0.0",
  "solana-signature",
@@ -12139,7 +12606,7 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-error 3.0.0",
  "solana-transaction-status",
- "solana-version",
+ "solana-version 3.0.10",
  "spl-associated-token-account-interface",
  "spl-token-2022-interface",
  "spl-token-interface",
@@ -12262,14 +12729,14 @@ dependencies = [
  "serde_json",
  "serde_with",
  "solana-account 3.1.0",
- "solana-account-decoder-client-types",
+ "solana-account-decoder-client-types 3.0.10",
  "solana-clock 3.0.0",
  "solana-epoch-info",
  "solana-message 3.0.0",
  "solana-pubkey 3.0.0",
  "solana-signature",
  "solana-transaction",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.10",
  "solana-transaction-error 3.0.0",
  "test-case",
  "txtx-addon-kit",
@@ -13066,15 +13533,15 @@ dependencies = [
  "borsh 1.5.7",
  "bs58",
  "convert_case 0.6.0",
- "kaigan",
+ "kaigan 0.3.0",
  "lazy_static",
  "log 0.4.28",
  "serde",
  "serde_derive",
  "serde_json",
  "solana-account 3.1.0",
- "solana-account-decoder-client-types",
- "solana-client",
+ "solana-account-decoder-client-types 3.0.6",
+ "solana-client 3.0.6",
  "solana-clock 3.0.0",
  "solana-commitment-config",
  "solana-hash 3.0.0",
@@ -13122,9 +13589,9 @@ dependencies = [
  "solana-pubkey 3.0.0",
  "solana-signature",
  "solana-transaction",
- "solana-transaction-context",
+ "solana-transaction-context 3.0.6",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types",
+ "solana-transaction-status-client-types 3.0.6",
  "txtx-addon-kit",
 ]
 
