@@ -615,14 +615,6 @@ fn start_geyser_runloop(
                                         let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to reload plugin: {}", e)));
                                     }
                                 }
-                                #[cfg(not(feature = "subgraph"))]
-                                PluginManagerCommand::GetStartTime(_) => {
-                                    continue;
-                                }
-                                #[cfg(feature = "subgraph")]
-                                PluginManagerCommand::GetStartTime(notifier) => {
-                                    let _ = notifier.send(Ok(system_start_time));
-                                }
                             }
                         },
                         Err(e) => {

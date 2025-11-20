@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
+    time::SystemTime,
 };
 
 use bincode::serialized_size;
@@ -2863,6 +2864,10 @@ impl SurfnetSvmLocker {
         config: ExportSnapshotConfig,
     ) -> BTreeMap<String, AccountSnapshot> {
         self.with_svm_reader(|svm_reader| svm_reader.export_snapshot(config))
+    }
+
+    pub fn get_start_time(&self) -> SystemTime {
+        self.with_svm_reader(|svm_reader| svm_reader.start_time)
     }
 }
 

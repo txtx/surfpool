@@ -13,7 +13,7 @@ use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
 use super::{RunloopContext, not_implemented_err, not_implemented_err_async};
-use crate::PluginManagerCommand;
+use crate::{PluginManagerCommand, rpc::State};
 
 #[rpc]
 pub trait AdminRpc {
@@ -864,35 +864,9 @@ impl AdminRpc for SurfpoolAdminRpc {
     }
 
     fn start_time(&self, meta: Self::Metadata) -> Result<SystemTime> {
-        let ctx = meta.unwrap();
-        let (tx, rx) = crossbeam_channel::bounded(1);
-
-        let _ = ctx
-            .plugin_manager_commands_tx
-            .send(PluginManagerCommand::GetStartTime(tx));
-
-        let Ok(result) = rx.recv_timeout(Duration::from_secs(10)) else {
-            return Err(jsonrpc_core::Error::internal_error());
-        };
-
-        let simnet_events_tx = ctx.svm_locker.simnet_events_tx();
-
-        match result {
-            Ok(start_time) => {
-                let _ = simnet_events_tx
-                    .try_send(SimnetEvent::info(format!("Start time: {:?}", start_time)));
-                Ok(start_time)
-            }
-            Err(e) => {
-                let _ = simnet_events_tx
-                    .try_send(SimnetEvent::error(format!(
-                        "Failed to get start time: {}",
-                        e
-                    )))
-                    .ok();
-                Err(jsonrpc_core::Error::internal_error())
-            }
-        }
+        let svm_locker = meta.get_svm_locker()?;
+        let start_time = svm_locker.get_start_time();
+        Ok(start_time)
     }
 
     fn add_authorized_voter(&self, _meta: Self::Metadata, _keypair_file: String) -> Result<()> {
