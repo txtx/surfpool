@@ -834,11 +834,6 @@ async fn start_ws_rpc_server_runloop(
                 let server = match WsServerBuilder::new(rpc_io)
                     .session_meta_extractor(move |ctx: &RequestContext| {
                         // Create meta from context + session
-                        let rpc_addr = middleware
-                            .config
-                            .get_rpc_base_url()
-                            .parse::<SocketAddr>()
-                            .ok();
                         let runloop_context = RunloopContext {
                             id: None,
                             svm_locker: middleware.surfnet_svm.clone(),
@@ -847,7 +842,6 @@ async fn start_ws_rpc_server_runloop(
                                 .plugin_manager_commands_tx
                                 .clone(),
                             remote_rpc_client: middleware.remote_rpc_client.clone(),
-                            rpc_addr,
                         };
                         Some(SurfpoolWebsocketMeta::new(
                             runloop_context,

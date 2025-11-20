@@ -164,38 +164,6 @@ pub trait AdminRpc {
     #[rpc(meta, name = "listPlugins")]
     fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<PluginInfo>>>;
 
-    /// Returns the address of the RPC server.
-    ///
-    /// This RPC method retrieves the network address (IP and port) the RPC server is currently
-    /// listening on. It can be useful for service discovery or monitoring the server’s network status.
-    ///
-    /// ## Returns
-    /// - `Option<SocketAddr>` — The network address of the RPC server, or `None` if no address is available.
-    ///
-    /// ## Example Request (JSON-RPC)
-    /// ```json
-    /// {
-    ///   "jsonrpc": "2.0",
-    ///   "id": 104,
-    ///   "method": "rpcAddress",
-    ///   "params": []
-    /// }
-    /// ```
-    ///
-    /// ## Example Response
-    /// ```json
-    /// {
-    ///   "jsonrpc": "2.0",
-    ///   "result": "127.0.0.1:8080",
-    ///   "id": 104
-    /// }
-    /// ```
-    ///
-    /// # Notes
-    /// - This method is useful for finding the address of a running RPC server, especially in dynamic environments.
-    /// - If the server is not configured or is running without network exposure, the result may be `None`.
-    #[rpc(meta, name = "rpcAddress")]
-    fn rpc_addr(&self, meta: Self::Metadata) -> Result<Option<SocketAddr>>;
 
     /// Sets a filter for log messages in the system.
     ///
@@ -916,11 +884,6 @@ impl AdminRpc for SurfpoolAdminRpc {
         };
 
         Box::pin(async move { Ok(plugin_list) })
-    }
-
-    fn rpc_addr(&self, meta: Self::Metadata) -> Result<Option<SocketAddr>> {
-        let ctx = meta.ok_or_else(|| jsonrpc_core::Error::internal_error())?;
-        Ok(ctx.rpc_addr)
     }
 
     fn set_log_filter(&self, _filter: String) -> Result<()> {
