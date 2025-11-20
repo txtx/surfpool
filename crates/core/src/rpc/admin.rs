@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    time::{Duration, SystemTime},
-};
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
 use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
@@ -219,7 +215,7 @@ pub trait AdminRpc {
     /// ```
     ///
     /// # Notes
-    /// - The result is a `SystemTime` in UTC, reflecting the moment the system was initialized.
+    /// - The result is a `String` in UTC, reflecting the moment the system was initialized.
     /// - This method is useful for monitoring system uptime and verifying system health.
     #[rpc(meta, name = "startTime")]
     fn start_time(&self, meta: Self::Metadata) -> Result<String>;
