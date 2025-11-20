@@ -9,7 +9,7 @@ use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
 use super::{RunloopContext, not_implemented_err, not_implemented_err_async};
-use crate::{PluginManagerCommand, rpc::State};
+use crate::{PluginInfo, PluginManagerCommand, rpc::State};
 
 #[rpc]
 pub trait AdminRpc {
@@ -126,7 +126,9 @@ pub trait AdminRpc {
     /// loaded into the runtime. It can be useful for debugging or operational monitoring.
     ///
     /// ## Returns
-    /// - `Vec<String>` — A list of plugin names currently active in the system.
+    /// - `Vec<PluginInfo>` — A list of plugin information objects, each containing:
+    ///   - `plugin_name`: The name of the plugin (e.g., "surfpool-subgraph")
+    ///   - `uuid`: The unique identifier of the plugin instance
     ///
     /// ## Example Request (JSON-RPC)
     /// ```json
@@ -142,7 +144,12 @@ pub trait AdminRpc {
     /// ```json
     /// {
     ///   "jsonrpc": "2.0",
-    ///   "result": ["tx_filter", "custom_logger"],
+    ///   "result": [
+    ///     {
+    ///       "plugin_name": "surfpool-subgraph",
+    ///       "uuid": "550e8400-e29b-41d4-a716-446655440000"
+    ///     }
+    ///   ],
     ///   "id": 103
     /// }
     /// ```
@@ -151,40 +158,7 @@ pub trait AdminRpc {
     /// - Only plugins that have been successfully loaded will appear in this list.
     /// - This method is read-only and safe to call frequently.
     #[rpc(meta, name = "listPlugins")]
-    fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>>;
-
-    /// Returns the address of the RPC server.
-    ///
-    /// This RPC method retrieves the network address (IP and port) the RPC server is currently
-    /// listening on. It can be useful for service discovery or monitoring the server’s network status.
-    ///
-    /// ## Returns
-    /// - `Option<SocketAddr>` — The network address of the RPC server, or `None` if no address is available.
-    ///
-    /// ## Example Request (JSON-RPC)
-    /// ```json
-    /// {
-    ///   "jsonrpc": "2.0",
-    ///   "id": 104,
-    ///   "method": "rpcAddress",
-    ///   "params": []
-    /// }
-    /// ```
-    ///
-    /// ## Example Response
-    /// ```json
-    /// {
-    ///   "jsonrpc": "2.0",
-    ///   "result": "127.0.0.1:8080",
-    ///   "id": 104
-    /// }
-    /// ```
-    ///
-    /// # Notes
-    /// - This method is useful for finding the address of a running RPC server, especially in dynamic environments.
-    /// - If the server is not configured or is running without network exposure, the result may be `None`.
-    #[rpc(meta, name = "rpcAddress")]
-    fn rpc_addr(&self, meta: Self::Metadata) -> Result<Option<SocketAddr>>;
+    fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<PluginInfo>>>;
 
     /// Returns the system start time.
     ///
@@ -851,12 +825,21 @@ impl AdminRpc for SurfpoolAdminRpc {
         Box::pin(async move { Ok(endpoint_url) })
     }
 
-    fn list_plugins(&self, _meta: Self::Metadata) -> BoxFuture<Result<Vec<String>>> {
-        not_implemented_err_async("list_plugins")
-    }
+    fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<PluginInfo>>> {
+        let Some(ctx) = meta else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
 
-    fn rpc_addr(&self, _meta: Self::Metadata) -> Result<Option<SocketAddr>> {
-        not_implemented_err("rpc_addr")
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let _ = ctx
+            .plugin_manager_commands_tx
+            .send(PluginManagerCommand::ListPlugins(tx));
+
+        let Ok(plugin_list) = rx.recv_timeout(Duration::from_secs(10)) else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        Box::pin(async move { Ok(plugin_list) })
     }
 
     fn start_time(&self, meta: Self::Metadata) -> Result<String> {

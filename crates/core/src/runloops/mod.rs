@@ -418,9 +418,8 @@ fn start_geyser_runloop(
 
         let mut surfpool_plugin_manager: Vec<Box<dyn GeyserPlugin>> = vec![];
 
-        // Map between each plugin's UUID to its position (index) in the surfpool_plugin_manager Vec.
-        // Allows for easier reload/unload
-        let mut plugin_uuid_map: HashMap<crate::Uuid, usize> = HashMap::new();
+        // Map between each plugin's UUID to its entry (index, plugin_name)
+        let mut plugin_map: HashMap<crate::Uuid, (usize, String)> = HashMap::new();
 
         #[cfg(feature = "geyser_plugin")]
         for plugin_config_path in plugin_config_paths.into_iter() {
@@ -481,7 +480,7 @@ fn start_geyser_runloop(
                                       config: txtx_addon_network_svm_types::subgraph::PluginConfig,
                                       notifier: crossbeam_channel::Sender<String>,
                                       surfpool_plugin_manager: &mut Vec<Box<dyn GeyserPlugin>>,
-                                      plugin_uuid_map: &mut HashMap<uuid::Uuid, usize>,
+                                      plugin_map: &mut HashMap<uuid::Uuid, (usize, String)>,
                                       indexing_enabled: &mut bool|
          -> Result<(), String> {
             let _ = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(
@@ -518,7 +517,7 @@ fn start_geyser_runloop(
             let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
             let plugin_index = surfpool_plugin_manager.len();
             surfpool_plugin_manager.push(plugin);
-            plugin_uuid_map.insert(uuid, plugin_index);
+            plugin_map.insert(uuid, (plugin_index, config.plugin_name.to_string()));
 
             Ok(())
         };
@@ -527,12 +526,13 @@ fn start_geyser_runloop(
         #[cfg(feature = "subgraph")]
         let unload_plugin_by_uuid = |uuid: uuid::Uuid,
                                        surfpool_plugin_manager: &mut Vec<Box<dyn GeyserPlugin>>,
-                                       plugin_uuid_map: &mut HashMap<uuid::Uuid, usize>,
+                                       plugin_map: &mut HashMap<uuid::Uuid, (usize, String)>,
                                        indexing_enabled: &mut bool|
          -> Result<(), String> {
-            let plugin_index = *plugin_uuid_map
+            let plugin_index = plugin_map
                 .get(&uuid)
-                .ok_or_else(|| format!("Plugin {} not found", uuid))?;
+                .ok_or_else(|| format!("Plugin {} not found", uuid))?
+                .0;
 
             if plugin_index >= surfpool_plugin_manager.len() {
                 return Err(format!("Plugin index {} out of bounds", plugin_index));
@@ -546,12 +546,12 @@ fn start_geyser_runloop(
 
             // Remove from tracking structures
             surfpool_plugin_manager.remove(plugin_index);
-            plugin_uuid_map.remove(&uuid);
+            plugin_map.remove(&uuid);
 
             // Adjust indices after removal
-            for (_, idx) in plugin_uuid_map.iter_mut() {
-                if *idx > plugin_index {
-                    *idx -= 1;
+            for (index, _) in plugin_map.values_mut() {
+                if *index > plugin_index {
+                    *index -= 1;
                 }
             }
 
@@ -579,7 +579,7 @@ fn start_geyser_runloop(
                                 }
                                 #[cfg(feature = "subgraph")]
                                 PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
-                                    if let Err(e) = load_subgraph_plugin(uuid, config, notifier, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
+                                    if let Err(e) = load_subgraph_plugin(uuid, config, notifier, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
                                         let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to load plugin: {}", e)));
                                     }
                                 }
@@ -589,7 +589,7 @@ fn start_geyser_runloop(
                                 }
                                 #[cfg(feature = "subgraph")]
                                 PluginManagerCommand::UnloadPlugin(uuid, notifier) => {
-                                    let result = unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled);
+                                    let result = unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled);
                                     let _ = notifier.send(result);
                                 }
                                 #[cfg(not(feature = "subgraph"))]
@@ -599,7 +599,7 @@ fn start_geyser_runloop(
                                 #[cfg(feature = "subgraph")]
                                 PluginManagerCommand::ReloadPlugin(uuid, config, notifier) => {
                                     // Unload the old plugin
-                                    if let Err(e) = unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
+                                    if let Err(e) = unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
                                         let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to unload plugin during reload: {}", e)));
                                         continue;
                                     }
@@ -607,9 +607,18 @@ fn start_geyser_runloop(
                                     let _ = simnet_events_tx.try_send(SimnetEvent::info(format!("Unloaded plugin with UUID - {}", uuid)));
 
                                     // Load the new plugin with the same UUID
-                                    if let Err(e) = load_subgraph_plugin(uuid, config, notifier, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
+                                    if let Err(e) = load_subgraph_plugin(uuid, config, notifier, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
                                         let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to reload plugin: {}", e)));
                                     }
+                                }
+                                PluginManagerCommand::ListPlugins(notifier) => {
+                                    let plugin_list: Vec<crate::PluginInfo> = plugin_map.iter().map(|(uuid, (_, plugin_name))| {
+                                        crate::PluginInfo {
+                                            plugin_name: plugin_name.clone(),
+                                            uuid: uuid.to_string(),
+                                        }
+                                    }).collect();
+                                    let _ = notifier.send(plugin_list);
                                 }
                             }
                         },
