@@ -1,7 +1,7 @@
 use std::{
     cmp::max,
     collections::{BTreeMap, BinaryHeap, HashMap, HashSet, VecDeque},
-    str::FromStr,
+    str::FromStr, time::SystemTime,
 };
 
 use agave_feature_set::{FeatureSet, enable_extend_program_checked};
@@ -224,6 +224,7 @@ pub struct SurfnetSvm {
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
+    pub start_time: SystemTime,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: HashMap<Pubkey, TokenAccount>,
@@ -320,6 +321,7 @@ impl SurfnetSvm {
             logs_subscriptions: Vec::new(),
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
+            start_time: SystemTime::now(),
             accounts_by_owner,
             account_associated_data: HashMap::new(),
             token_accounts: HashMap::new(),
