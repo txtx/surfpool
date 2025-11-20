@@ -222,7 +222,7 @@ pub trait AdminRpc {
     /// - The result is a `SystemTime` in UTC, reflecting the moment the system was initialized.
     /// - This method is useful for monitoring system uptime and verifying system health.
     #[rpc(meta, name = "startTime")]
-    fn start_time(&self, meta: Self::Metadata) -> Result<SystemTime>;
+    fn start_time(&self, meta: Self::Metadata) -> Result<String>;
 
     // #[rpc(meta, name = "startProgress")]
     // fn start_progress(&self, meta: Self::Metadata) -> Result<ValidatorStartProgress>;
@@ -863,10 +863,12 @@ impl AdminRpc for SurfpoolAdminRpc {
         not_implemented_err("rpc_addr")
     }
 
-    fn start_time(&self, meta: Self::Metadata) -> Result<SystemTime> {
+    fn start_time(&self, meta: Self::Metadata) -> Result<String> {
         let svm_locker = meta.get_svm_locker()?;
-        let start_time = svm_locker.get_start_time();
-        Ok(start_time)
+        let system_time = svm_locker.get_start_time();
+
+        let datetime_utc: chrono::DateTime<chrono::Utc> = system_time.into();
+        Ok(datetime_utc.to_rfc3339())
     }
 
     fn add_authorized_voter(&self, _meta: Self::Metadata, _keypair_file: String) -> Result<()> {

@@ -1,7 +1,5 @@
 #![allow(unused_imports, dead_code, unused_mut, unused_variables)]
 
-#[cfg(feature = "subgraph")]
-use std::time::SystemTime;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
@@ -564,8 +562,6 @@ fn start_geyser_runloop(
 
             Ok(())
         };
-        #[cfg(feature = "subgraph")]
-        let system_start_time = SystemTime::now();
 
         let err = loop {
             use agave_geyser_plugin_interface::geyser_plugin_interface::{ReplicaAccountInfoV3, ReplicaAccountInfoVersions};
