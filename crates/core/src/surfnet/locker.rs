@@ -1414,23 +1414,22 @@ impl SurfnetSvmLocker {
             {
                 if before.ne(&after) {
                     mutated_account_pubkeys.insert(*pubkey);
-                    if let Some(after) = &after {
-                        svm_writer.update_account_registries(pubkey, after)?;
-                        let write_version = svm_writer.increment_write_version();
+                    let after = after.unwrap_or_default();
+                    svm_writer.update_account_registries(pubkey, &after)?;
+                    let write_version = svm_writer.increment_write_version();
 
-                        if let Some(sanitized_transaction) = sanitized_transaction.clone() {
-                            let _ = svm_writer.geyser_events_tx.send(GeyserEvent::UpdateAccount(
-                                GeyserAccountUpdate::transaction_update(
-                                    *pubkey,
-                                    after.clone(),
-                                    svm_writer.get_latest_absolute_slot(),
-                                    sanitized_transaction.clone(),
-                                    write_version,
-                                ),
-                            ));
-                        }
+                    if let Some(sanitized_transaction) = sanitized_transaction.clone() {
+                        let _ = svm_writer.geyser_events_tx.send(GeyserEvent::UpdateAccount(
+                            GeyserAccountUpdate::transaction_update(
+                                *pubkey,
+                                after.clone(),
+                                svm_writer.get_latest_absolute_slot(),
+                                sanitized_transaction.clone(),
+                                write_version,
+                            ),
+                        ));
                     }
-                    svm_writer.notify_account_subscribers(pubkey, &after.unwrap_or_default());
+                    svm_writer.notify_account_subscribers(pubkey, &after);
                 }
             }
 
