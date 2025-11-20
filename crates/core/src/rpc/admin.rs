@@ -164,7 +164,6 @@ pub trait AdminRpc {
     #[rpc(meta, name = "listPlugins")]
     fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<PluginInfo>>>;
 
-
     /// Sets a filter for log messages in the system.
     ///
     /// This RPC method allows the user to configure the logging level or filters applied to the logs
