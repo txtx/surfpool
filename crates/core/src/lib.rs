@@ -53,6 +53,7 @@ pub async fn start_local_surfnet(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
     pub plugin_name: String,
     pub uuid: String,
