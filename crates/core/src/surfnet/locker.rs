@@ -268,9 +268,8 @@ impl SurfnetSvmLocker {
 
         if result.inner.is_none() {
             // Check if the account has been explicitly closed - if so, don't fetch from remote
-            let is_closed = self.with_svm_reader(|svm_reader| {
-                svm_reader.closed_accounts.contains(pubkey)
-            });
+            let is_closed =
+                self.with_svm_reader(|svm_reader| svm_reader.closed_accounts.contains(pubkey));
 
             if !is_closed {
                 let remote_account = client.get_account(pubkey, commitment_config).await?;
@@ -354,9 +353,7 @@ impl SurfnetSvmLocker {
         } = self.get_multiple_accounts_local(pubkeys);
 
         // Get the closed accounts set
-        let closed_accounts = self.with_svm_reader(|svm_reader| {
-            svm_reader.closed_accounts.clone()
-        });
+        let closed_accounts = self.with_svm_reader(|svm_reader| svm_reader.closed_accounts.clone());
 
         // Collect missing pubkeys that are NOT closed (local_results is already in correct order from pubkeys)
         let missing_accounts: Vec<Pubkey> = local_results
@@ -368,7 +365,7 @@ impl SurfnetSvmLocker {
                     } else {
                         None
                     }
-                },
+                }
                 _ => None,
             })
             .collect();
@@ -1753,9 +1750,7 @@ impl SurfnetSvmLocker {
 
     /// Gets all currently closed accounts.
     pub fn get_closed_accounts(&self) -> Vec<Pubkey> {
-        self.with_svm_reader(|svm_reader| {
-            svm_reader.closed_accounts.iter().copied().collect()
-        })
+        self.with_svm_reader(|svm_reader| svm_reader.closed_accounts.iter().copied().collect())
     }
 
     /// Registers a scenario for execution

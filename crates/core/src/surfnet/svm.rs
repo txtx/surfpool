@@ -3611,10 +3611,7 @@ mod tests {
 
         assert_eq!(svm.get_token_accounts_by_owner(&token_owner).len(), 0);
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 0);
-        assert!(svm
-            .token_accounts
-            .get(&token_account_pubkey)
-            .is_none());
+        assert!(svm.token_accounts.get(&token_account_pubkey).is_none());
     }
 }
 

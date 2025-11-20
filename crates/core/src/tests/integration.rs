@@ -10,7 +10,10 @@ use jsonrpc_core_client::transports::http;
 use solana_account::Account;
 use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount};
 use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
-use solana_client::{rpc_config::RpcSimulateTransactionConfig, rpc_response::RpcLogsResponse};
+use solana_client::{
+    nonblocking::rpc_client::RpcClient, rpc_config::RpcSimulateTransactionConfig,
+    rpc_response::RpcLogsResponse,
+};
 use solana_clock::{Clock, Slot};
 use solana_commitment_config::CommitmentConfig;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
@@ -18,7 +21,7 @@ use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
-    AddressLookupTableAccount, LegacyMessage, Message, VersionedMessage, legacy,
+    AddressLookupTableAccount, Message, VersionedMessage, legacy,
     v0::{self},
 };
 use solana_pubkey::Pubkey;
@@ -49,7 +52,10 @@ use crate::{
         surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
     runloops::start_local_surfnet_runloop,
-    surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
+    surfnet::{
+        locker::SurfnetSvmLocker,
+        svm::{self, SurfnetSvm},
+    },
     tests::helpers::get_free_port,
     types::{TimeTravelConfig, TransactionLoadedAddresses},
 };
@@ -4121,4 +4127,191 @@ fn test_reset_network() {
 
     // Clean up
     svm_locker.reset_account(owned, false).unwrap();
+}
+
+fn start_surfnet(
+    airdrop_addresses: Vec<Pubkey>,
+    datasource_rpc_url: Option<String>,
+) -> Result<(String, SurfnetSvmLocker), String> {
+    let bind_host = "127.0.0.1";
+    let bind_port = get_free_port().unwrap();
+    let offline_mode = datasource_rpc_url.is_none();
+
+    let config = SurfpoolConfig {
+        simnets: vec![SimnetConfig {
+            slot_time: 1,
+            airdrop_addresses,
+            airdrop_token_amount: LAMPORTS_PER_SOL,
+            offline_mode,
+            remote_rpc_url: datasource_rpc_url,
+            ..SimnetConfig::default()
+        }],
+        rpc: RpcConfig {
+            bind_host: bind_host.to_string(),
+            bind_port,
+            ..Default::default()
+        },
+        ..SurfpoolConfig::default()
+    };
+
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+    let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
+    let svm_locker_cc: SurfnetSvmLocker = svm_locker.clone();
+
+    let _handle = std::thread::spawn(move || {
+        let future = start_local_surfnet_runloop(
+            svm_locker_cc,
+            config,
+            subgraph_commands_tx,
+            simnet_commands_tx,
+            simnet_commands_rx,
+            geyser_events_rx,
+        );
+        if let Err(e) = hiro_system_kit::nestable_block_on(future) {
+            panic!("{e:?}");
+        }
+    });
+
+    let mut ready = false;
+    // don't wait for connection in offline mode
+    let mut connected = offline_mode;
+    loop {
+        match simnet_events_rx.recv() {
+            Ok(SimnetEvent::Ready) => {
+                ready = true;
+            }
+            Ok(SimnetEvent::Connected(_)) => {
+                connected = true;
+            }
+            _ => (),
+        }
+        if ready && connected {
+            break;
+        }
+    }
+
+    Ok((format!("http://{}:{}", bind_host, bind_port), svm_locker))
+}
+
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_closed_accounts() {
+    let keypair = Keypair::new();
+    let pubkey = keypair.pubkey();
+    // Start datasource surfnet first, which will only have accounts we airdrop to
+    let (datasource_surfnet_url, _datasource_svm_locker) =
+        start_surfnet(vec![pubkey], None).expect("Failed to start datasource surfnet");
+    println!("Datasource surfnet started at {}", datasource_surfnet_url);
+
+    // Now start the test surfnet which forks the datasource surfnet
+    let (surfnet_url, surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_surfnet_url)).expect("Failed to start surfnet");
+    println!("Surfnet started at {}", surfnet_url);
+
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Verify that when we fetch our account from the surfnet, it will fetch it from the datasource surfnet
+    {
+        let account = rpc_client
+            .get_account(&pubkey)
+            .await
+            .expect("Failed to get account from surfnet");
+        assert_eq!(
+            account.lamports, LAMPORTS_PER_SOL,
+            "Account lamports should match airdrop amount"
+        );
+        println!("Account fetched successfully from datasource surfnet");
+    }
+
+    // Verify that if we send the `reset_account` cheatcode, the account will no longer exist locally, but will be fetched from the datasource surfnet again
+    {
+        let _: serde_json::Value = rpc_client
+            .send(
+                solana_client::rpc_request::RpcRequest::Custom {
+                    method: "surfnet_resetAccount",
+                },
+                json!([pubkey.to_string()]),
+            )
+            .await
+            .expect("Failed to reset account");
+
+        assert!(
+            surfnet_svm_locker
+                .get_account_local(&pubkey)
+                .inner
+                .is_none(),
+            "Account should be deleted locally after reset_account"
+        );
+
+        let account = rpc_client
+            .get_account(&pubkey)
+            .await
+            .expect("Failed to get account from surfnet after reset_account");
+        assert_eq!(
+            account.lamports, LAMPORTS_PER_SOL,
+            "Account should be re-fetched from remote after reset_account"
+        );
+        println!("Account re-fetched successfully from datasource surfnet after reset_account");
+    }
+
+    // Verify that if we send a transaction that closes the account, the account is deleted locally and will not be re-fetched from the datasource surfnet
+    {
+        let recent_blockhash = rpc_client
+            .get_latest_blockhash()
+            .await
+            .expect("Failed to get latest blockhash");
+
+        let recipient = Pubkey::new_unique();
+        let close_ix = system_instruction::transfer(&pubkey, &recipient, LAMPORTS_PER_SOL - 5000);
+
+        println!(
+            "Sending {} from {} to {}",
+            LAMPORTS_PER_SOL - 5000,
+            pubkey,
+            recipient
+        );
+        let message = Message::new_with_blockhash(&[close_ix], Some(&pubkey), &recent_blockhash);
+        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&keypair])
+            .expect("Failed to create transaction");
+
+        let _sig = rpc_client
+            .send_and_confirm_transaction(&tx)
+            .await
+            .expect("Failed to send and confirm transaction");
+
+        let tx = rpc_client
+            .get_transaction(
+                &_sig,
+                solana_transaction_status::UiTransactionEncoding::JsonParsed,
+            )
+            .await
+            .expect("Failed to get transaction");
+
+        println!("Transaction details: {:?}", tx);
+        let _ = rpc_client
+            .get_signature_status_with_commitment(&_sig, CommitmentConfig::finalized())
+            .await
+            .expect("Failed to get transaction status")
+            .expect("Transaction status not found")
+            .unwrap();
+
+        assert!(
+            surfnet_svm_locker
+                .get_account_local(&pubkey)
+                .inner
+                .is_none(),
+            "Account should be deleted locally after being closed"
+        );
+
+        println!("Fetching account after being closed...");
+        let account_result = rpc_client.get_account(&pubkey).await;
+        assert!(
+            account_result.is_err(),
+            "Account should not be re-fetched from remote after being closed; found {:?}",
+            account_result.unwrap()
+        );
+        println!("Account successfully closed and not re-fetched from datasource surfnet");
+    }
 }
