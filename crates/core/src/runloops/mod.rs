@@ -565,22 +565,6 @@ fn start_geyser_runloop(
             Ok(())
         };
         #[cfg(feature = "subgraph")]
-        let set_log_filter = |filter: &str| -> Result<(), String> {
-            use log::LevelFilter;
-
-            match filter.to_lowercase().as_str() {
-                "off"   => log::set_max_level(LevelFilter::Off),
-                "error" => log::set_max_level(LevelFilter::Error),
-                "warn"  => log::set_max_level(LevelFilter::Warn),
-                "info"  => log::set_max_level(LevelFilter::Info),
-                "debug" => log::set_max_level(LevelFilter::Debug),
-                "trace" => log::set_max_level(LevelFilter::Trace),
-                _ => return Err(format!("Invalid log filter: {}", filter)),
-            }
-            Ok(())
-        };
-
-        #[cfg(feature = "subgraph")]
         let system_start_time = SystemTime::now();
 
         let err = loop {
@@ -629,24 +613,6 @@ fn start_geyser_runloop(
                                     // Load the new plugin with the same UUID
                                     if let Err(e) = load_subgraph_plugin(uuid, config, notifier, &mut surfpool_plugin_manager, &mut plugin_uuid_map, &mut indexing_enabled) {
                                         let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to reload plugin: {}", e)));
-                                    }
-                                }
-                                #[cfg(not(feature = "subgraph"))]
-                                PluginManagerCommand::SetLogFilter(_, _) => {
-                                    continue;
-                                }
-                                #[cfg(feature = "subgraph")]
-                                PluginManagerCommand::SetLogFilter(filter, notifier) => {
-                                    let result = set_log_filter(&filter);
-                                    match result{
-                                        Ok(_) => {
-                                            let _ = notifier.send(Ok(()));
-                                            let _ = simnet_events_tx.try_send(SimnetEvent::info(format!("Log filter set to: {}", filter)));
-                                        }
-                                        Err(e) => {
-                                            let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to set log filter: {}", e)));
-                                            let _ = notifier.send(Err(e));
-                                        }
                                     }
                                 }
                                 #[cfg(not(feature = "subgraph"))]

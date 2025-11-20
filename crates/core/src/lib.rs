@@ -59,7 +59,6 @@ pub enum PluginManagerCommand {
     LoadConfig(Uuid, PluginConfig, Sender<String>),
     UnloadPlugin(Uuid, Sender<Result<(), String>>),
     ReloadPlugin(Uuid, PluginConfig, Sender<String>),
-    SetLogFilter(String, Sender<Result<(), String>>),
     GetStartTime(Sender<Result<SystemTime, String>>)
 }
 
