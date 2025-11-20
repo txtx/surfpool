@@ -1324,18 +1324,6 @@
           "returns": "A list of plugin names."
         },
         {
-          "method": "setLogFilter",
-          "description": "Sets the log filter for the node.",
-          "params": [
-            {
-              "name": "filter",
-              "type": "string",
-              "description": "The log filter to set."
-            }
-          ],
-          "returns": null
-        },
-        {
           "method": "addAuthorizedVoter",
           "description": "Adds an authorized voter.",
           "params": [
