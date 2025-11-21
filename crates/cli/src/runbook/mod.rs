@@ -420,13 +420,13 @@ pub async fn configure_supervised_execution(
             output_json,
         );
 
-        match moved_kill_loops_tx.send(true) {
-            Ok(_) if success => {},
-            Ok(_) => std::process::exit(1),
-            Err(e) => {
-                error!("Failed to send kill signal: {}", e);
-                std::process::exit(1);
-            }
+        if let Err(e) = moved_kill_loops_tx.send(true) {
+            error!("Failed to send kill signal: {}", e);
+            std::process::exit(1);
+        }
+        
+        if !success {
+            std::process::exit(1);
         }
     });
 
