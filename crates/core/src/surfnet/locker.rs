@@ -268,8 +268,7 @@ impl SurfnetSvmLocker {
 
         if result.inner.is_none() {
             // Check if the account has been explicitly closed - if so, don't fetch from remote
-            let is_closed =
-                self.with_svm_reader(|svm_reader| svm_reader.closed_accounts.contains(pubkey));
+            let is_closed = self.get_closed_accounts().contains(pubkey);
 
             if !is_closed {
                 let remote_account = client.get_account(pubkey, commitment_config).await?;
@@ -353,7 +352,7 @@ impl SurfnetSvmLocker {
         } = self.get_multiple_accounts_local(pubkeys);
 
         // Get the closed accounts set
-        let closed_accounts = self.with_svm_reader(|svm_reader| svm_reader.closed_accounts.clone());
+        let closed_accounts = self.get_closed_accounts();
 
         // Collect missing pubkeys that are NOT closed (local_results is already in correct order from pubkeys)
         let missing_accounts: Vec<Pubkey> = local_results
@@ -1718,22 +1717,6 @@ impl SurfnetSvmLocker {
 
     pub fn get_streamed_accounts(&self) -> HashMap<Pubkey, bool> {
         self.with_svm_reader(|svm_reader| svm_reader.streamed_accounts.clone())
-    }
-
-    /// Marks an account as explicitly closed by the user.
-    ///
-    /// Once marked as closed, this account will not be fetched from mainnet even if it doesn't exist
-    /// in the local cache. This prevents closed accounts from being inadvertently restored.
-    pub fn close_account(&self, pubkey: Pubkey) -> SurfpoolResult<()> {
-        let simnet_events_tx = self.simnet_events_tx();
-        let _ = simnet_events_tx.send(SimnetEvent::info(format!(
-            "Account {} marked as closed",
-            pubkey
-        )));
-        self.with_svm_writer(move |svm_writer| {
-            svm_writer.closed_accounts.insert(pubkey);
-        });
-        Ok(())
     }
 
     /// Removes an account from the closed accounts set.
