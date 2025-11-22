@@ -6,7 +6,8 @@ pub const PYTH_V2_IDL_CONTENT: &str = include_str!("./protocols/pyth/v2/idl.json
 pub const PYTH_V2_OVERRIDES_CONTENT: &str = include_str!("./protocols/pyth/v2/overrides.yaml");
 
 pub const JUPITER_V6_IDL_CONTENT: &str = include_str!("./protocols/jupiter/v6/idl.json");
-pub const JUPITER_V6_OVERRIDES_CONTENT: &str = include_str!("./protocols/jupiter/v6/overrides.yaml");
+pub const JUPITER_V6_OVERRIDES_CONTENT: &str =
+    include_str!("./protocols/jupiter/v6/overrides.yaml");
 
 /// Registry for managing override templates loaded from YAML files
 #[derive(Clone, Debug, Default)]
@@ -25,11 +26,7 @@ impl TemplateRegistry {
     }
 
     pub fn load_pyth_overrides(&mut self) {
-        self.load_protocol_overrides(
-            PYTH_V2_IDL_CONTENT,
-            PYTH_V2_OVERRIDES_CONTENT,
-            "pyth",
-        );
+        self.load_protocol_overrides(PYTH_V2_IDL_CONTENT, PYTH_V2_OVERRIDES_CONTENT, "pyth");
     }
 
     pub fn load_jupiter_overrides(&mut self) {
@@ -40,7 +37,12 @@ impl TemplateRegistry {
         );
     }
 
-    fn load_protocol_overrides(&mut self, idl_content: &str, overrides_content: &str, protocol_name: &str) {
+    fn load_protocol_overrides(
+        &mut self,
+        idl_content: &str,
+        overrides_content: &str,
+        protocol_name: &str,
+    ) {
         let idl = match serde_json::from_str(idl_content) {
             Ok(idl) => idl,
             Err(e) => panic!("unable to load {} idl: {}", protocol_name, e),
@@ -111,31 +113,40 @@ mod tests {
     #[test]
     fn test_registry_loads_both_protocols() {
         let registry = TemplateRegistry::new();
-        
+
         // Should have Pyth (4 templates) + Jupiter (1 template) = 5 total
-        assert_eq!(registry.count(), 5, "Registry should load 5 templates total");
-        
+        assert_eq!(
+            registry.count(),
+            5,
+            "Registry should load 5 templates total"
+        );
+
         assert!(registry.contains("pyth-sol-usd-v2"));
         assert!(registry.contains("pyth-btc-usd-v2"));
         assert!(registry.contains("pyth-eth-btc-v2"));
         assert!(registry.contains("pyth-eth-usd-v2"));
-        
+
         assert!(registry.contains("jupiter-token-ledger-override"));
     }
 
     #[test]
     fn test_jupiter_template_loads_correctly() {
         let registry = TemplateRegistry::new();
-        
-        let jupiter_template = registry.get("jupiter-token-ledger-override")
+
+        let jupiter_template = registry
+            .get("jupiter-token-ledger-override")
             .expect("Jupiter template should exist");
-        
+
         assert_eq!(jupiter_template.protocol, "Jupiter");
         assert_eq!(jupiter_template.account_type, "TokenLedger");
         assert_eq!(jupiter_template.name, "Override Jupiter Token Ledger");
         assert_eq!(jupiter_template.properties.len(), 2);
-        
-        assert!(jupiter_template.properties.contains(&"tokenAccount".to_string()));
+
+        assert!(
+            jupiter_template
+                .properties
+                .contains(&"tokenAccount".to_string())
+        );
         assert!(jupiter_template.properties.contains(&"amount".to_string()));
         assert!(jupiter_template.tags.contains(&"dex".to_string()));
         assert!(jupiter_template.tags.contains(&"aggregator".to_string()));
@@ -146,10 +157,10 @@ mod tests {
     #[test]
     fn test_filter_by_protocol() {
         let registry = TemplateRegistry::new();
-        
+
         let pyth_templates = registry.by_protocol("Pyth");
         assert_eq!(pyth_templates.len(), 4, "Should have 4 Pyth templates");
-        
+
         let jupiter_templates = registry.by_protocol("Jupiter");
         assert_eq!(jupiter_templates.len(), 1, "Should have 1 Jupiter template");
     }
@@ -157,25 +168,39 @@ mod tests {
     #[test]
     fn test_filter_by_tags() {
         let registry = TemplateRegistry::new();
-        
+
         let oracle_templates = registry.by_tags(&[vec!["oracle".to_string()]].concat());
-        assert_eq!(oracle_templates.len(), 4, "Should find 4 oracle templates (Pyth)");
-        
+        assert_eq!(
+            oracle_templates.len(),
+            4,
+            "Should find 4 oracle templates (Pyth)"
+        );
+
         let dex_templates = registry.by_tags(&[vec!["dex".to_string()]].concat());
-        assert_eq!(dex_templates.len(), 1, "Should find 1 dex template (Jupiter)");
-        
+        assert_eq!(
+            dex_templates.len(),
+            1,
+            "Should find 1 dex template (Jupiter)"
+        );
+
         let aggregator_templates = registry.by_tags(&[vec!["aggregator".to_string()]].concat());
-        assert_eq!(aggregator_templates.len(), 1, "Should find 1 aggregator template (Jupiter)");
+        assert_eq!(
+            aggregator_templates.len(),
+            1,
+            "Should find 1 aggregator template (Jupiter)"
+        );
     }
 
     #[test]
     fn test_jupiter_idl_has_token_ledger_account() {
         let registry = TemplateRegistry::new();
         let jupiter_template = registry.get("jupiter-token-ledger-override").unwrap();
-        let has_token_ledger = jupiter_template.idl.accounts
+        let has_token_ledger = jupiter_template
+            .idl
+            .accounts
             .iter()
             .any(|acc| acc.name == "TokenLedger");
-        
+
         assert!(has_token_ledger, "IDL should contain TokenLedger account");
     }
 
@@ -183,7 +208,7 @@ mod tests {
     fn test_list_all_template_ids() {
         let registry = TemplateRegistry::new();
         let ids = registry.list_ids();
-        
+
         assert_eq!(ids.len(), 5);
         assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
         assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
