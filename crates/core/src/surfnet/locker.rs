@@ -798,6 +798,28 @@ impl SurfnetSvmLocker {
         self.with_svm_reader(|svm_reader| svm_reader.max_profiles)
     }
 
+    pub fn get_log_bytes_limit(&self) -> Option<usize> {
+        self.with_svm_reader(|svm_reader| svm_reader.log_bytes_limit)
+    }
+
+    pub fn set_instruction_profiling_enabled(&self, enabled: bool) {
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.set_profile_instructions(enabled);
+        });
+    }
+
+    pub fn set_profiling_map_capacity(&self, capacity: usize) {
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.set_profiling_map_capacity(capacity);
+        });
+    }
+
+    pub fn set_log_bytes_limit(&self, limit: Option<usize>) {
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.set_log_bytes_limit(limit);
+        });
+    }
+
     pub async fn process_transaction(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,

@@ -248,6 +248,7 @@ pub struct SurfnetSvm {
     pub feature_set: FeatureSet,
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
+    pub log_bytes_limit: Option<usize>,
     pub runbook_executions: Vec<RunbookExecutionStatusReport>,
     pub account_update_slots: HashMap<Pubkey, Slot>,
     pub streamed_accounts: HashMap<Pubkey, bool>,
@@ -341,6 +342,7 @@ impl SurfnetSvm {
             feature_set,
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
+            log_bytes_limit: None,
             runbook_executions: Vec::new(),
             account_update_slots: HashMap::new(),
             streamed_accounts: HashMap::new(),
@@ -381,6 +383,7 @@ impl SurfnetSvm {
         self.slot_time = slot_time;
         self.instruction_profiling_enabled = do_profile_instructions;
         self.set_profiling_map_capacity(self.max_profiles);
+        self.log_bytes_limit = log_bytes_limit;
         self.inner.set_log_bytes_limit(log_bytes_limit);
 
         let registry = TemplateRegistry::new();
@@ -416,6 +419,11 @@ impl SurfnetSvm {
         let clamped_capacity = max(1, capacity);
         self.max_profiles = clamped_capacity;
         self.executed_transaction_profiles = FifoMap::new(clamped_capacity);
+    }
+
+    pub fn set_log_bytes_limit(&mut self, limit: Option<usize>) {
+        self.log_bytes_limit = limit;
+        self.inner.set_log_bytes_limit(limit);
     }
 
     /// Airdrops a specified amount of lamports to a single public key.

@@ -59,6 +59,15 @@ pub struct PluginInfo {
     pub uuid: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeatureStates {
+    pub instruction_profiling_enabled: bool,
+    pub max_profiles: usize,
+    pub log_bytes_limit: Option<usize>,
+    pub loaded_plugins: Vec<PluginInfo>,
+}
+
 #[derive(Debug)]
 pub enum PluginManagerCommand {
     LoadConfig(Uuid, PluginConfig, Sender<String>),

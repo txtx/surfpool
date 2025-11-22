@@ -128,6 +128,12 @@ enum Command {
     /// Start MCP server
     #[clap(name = "mcp", bin_name = "mcp")]
     Mcp,
+    /// Manage plugins at runtime
+    #[clap(subcommand, name = "plugin", bin_name = "plugin")]
+    Plugin(PluginCommand),
+    /// Manage features at runtime
+    #[clap(subcommand, name = "feature", bin_name = "feature")]
+    Feature(FeatureCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -404,6 +410,115 @@ pub enum CloudCommand {
     Start(CloudStartCommand),
 }
 
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+pub enum PluginCommand {
+    /// List all loaded plugins
+    #[clap(name = "list", bin_name = "list")]
+    List(PluginListCommand),
+    /// Load a plugin from a config file
+    #[clap(name = "load", bin_name = "load")]
+    Load(PluginLoadCommand),
+    /// Unload a plugin by UUID
+    #[clap(name = "unload", bin_name = "unload")]
+    Unload(PluginUnloadCommand),
+    /// Reload a plugin with new configuration
+    #[clap(name = "reload", bin_name = "reload")]
+    Reload(PluginReloadCommand),
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+pub struct PluginListCommand {
+    /// RPC URL of the running surfpool instance
+    #[arg(long = "rpc-url", default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+pub struct PluginLoadCommand {
+    /// Path to plugin configuration file (JSON)
+    #[arg(value_name = "CONFIG_FILE")]
+    pub config_file: String,
+    /// RPC URL of the running surfpool instance
+    #[arg(long = "rpc-url", default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+pub struct PluginUnloadCommand {
+    /// UUID of the plugin to unload
+    #[arg(value_name = "UUID")]
+    pub uuid: String,
+    /// RPC URL of the running surfpool instance
+    #[arg(long = "rpc-url", default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+pub struct PluginReloadCommand {
+    /// UUID of the plugin to reload
+    #[arg(value_name = "UUID")]
+    pub uuid: String,
+    /// Path to new plugin configuration file (JSON)
+    #[arg(value_name = "CONFIG_FILE")]
+    pub config_file: String,
+    /// RPC URL of the running surfpool instance
+    #[arg(long = "rpc-url", default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+}
+
+#[derive(Subcommand, PartialEq, Clone, Debug)]
+pub enum FeatureCommand {
+    /// Get current feature states
+    #[clap(name = "get", bin_name = "get")]
+    Get(FeatureGetCommand),
+    /// Set instruction profiling
+    #[clap(name = "profiling", bin_name = "profiling")]
+    Profiling(FeatureProfilingCommand),
+    /// Set max profiles capacity
+    #[clap(name = "max-profiles", bin_name = "max-profiles")]
+    MaxProfiles(FeatureMaxProfilesCommand),
+    /// Set log bytes limit
+    #[clap(name = "log-limit", bin_name = "log-limit")]
+    LogLimit(FeatureLogLimitCommand),
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+pub struct FeatureGetCommand {
+    /// RPC URL of the running surfpool instance
+    #[arg(long = "rpc-url", default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+pub struct FeatureProfilingCommand {
+    /// Enable or disable profiling (true/false)
+    #[arg(value_name = "ENABLED")]
+    pub enabled: String,
+    /// RPC URL of the running surfpool instance
+    #[arg(long = "rpc-url", default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+pub struct FeatureMaxProfilesCommand {
+    /// Maximum number of profiles
+    #[arg(value_name = "CAPACITY")]
+    pub capacity: usize,
+    /// RPC URL of the running surfpool instance
+    #[arg(long = "rpc-url", default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+}
+
+#[derive(Parser, PartialEq, Clone, Debug)]
+pub struct FeatureLogLimitCommand {
+    /// Log bytes limit (use 0 for unlimited)
+    #[arg(value_name = "LIMIT")]
+    pub limit: usize,
+    /// RPC URL of the running surfpool instance
+    #[arg(long = "rpc-url", default_value = "http://localhost:8899")]
+    pub rpc_url: String,
+}
+
 #[derive(Parser, PartialEq, Clone, Debug)]
 #[command(group = clap::ArgGroup::new("execution_mode").multiple(false).args(["unsupervised", "web_console", "term_console"]).required(false))]
 pub struct ExecuteRunbook {
@@ -574,6 +689,8 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::List(cmd) => hiro_system_kit::nestable_block_on(handle_list_command(cmd, ctx)),
         Command::Cloud(cmd) => hiro_system_kit::nestable_block_on(handle_cloud_commands(cmd)),
         Command::Mcp => hiro_system_kit::nestable_block_on(handle_mcp_command(ctx)),
+        Command::Plugin(cmd) => hiro_system_kit::nestable_block_on(handle_plugin_commands(cmd)),
+        Command::Feature(cmd) => hiro_system_kit::nestable_block_on(handle_feature_commands(cmd)),
     }
 }
 
@@ -631,6 +748,232 @@ async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
             .await
         }
     }
+}
+
+async fn handle_plugin_commands(cmd: PluginCommand) -> Result<(), String> {
+    match cmd {
+        PluginCommand::List(cmd) => {
+            let result = rpc_call(&cmd.rpc_url, "listPlugins", serde_json::json!([]))?;
+            match result.get("result") {
+                Some(plugins) => {
+                    println!("{}", serde_json::to_string_pretty(plugins).unwrap());
+                    Ok(())
+                }
+                None => {
+                    if let Some(error) = result.get("error") {
+                        Err(format!("RPC error: {}", error))
+                    } else {
+                        Err("Unexpected RPC response".to_string())
+                    }
+                }
+            }
+        }
+        PluginCommand::Load(cmd) => {
+            let config_content = std::fs::read_to_string(&cmd.config_file)
+                .map_err(|e| format!("Failed to read config file: {}", e))?;
+            let result = rpc_call(
+                &cmd.rpc_url,
+                "loadPlugin",
+                serde_json::json!([config_content]),
+            )?;
+            match result.get("result") {
+                Some(endpoint) => {
+                    println!("Plugin loaded successfully. Endpoint: {}", endpoint);
+                    Ok(())
+                }
+                None => {
+                    if let Some(error) = result.get("error") {
+                        Err(format!("RPC error: {}", error))
+                    } else {
+                        Err("Unexpected RPC response".to_string())
+                    }
+                }
+            }
+        }
+        PluginCommand::Unload(cmd) => {
+            let result = rpc_call(&cmd.rpc_url, "unloadPlugin", serde_json::json!([cmd.uuid]))?;
+            match result.get("result") {
+                Some(_) => {
+                    println!("Plugin unloaded successfully");
+                    Ok(())
+                }
+                None => {
+                    if let Some(error) = result.get("error") {
+                        Err(format!("RPC error: {}", error))
+                    } else {
+                        Err("Unexpected RPC response".to_string())
+                    }
+                }
+            }
+        }
+        PluginCommand::Reload(cmd) => {
+            let config_content = std::fs::read_to_string(&cmd.config_file)
+                .map_err(|e| format!("Failed to read config file: {}", e))?;
+            let result = rpc_call(
+                &cmd.rpc_url,
+                "reloadPlugin",
+                serde_json::json!([cmd.uuid, config_content]),
+            )?;
+            match result.get("result") {
+                Some(_) => {
+                    println!("Plugin reloaded successfully");
+                    Ok(())
+                }
+                None => {
+                    if let Some(error) = result.get("error") {
+                        Err(format!("RPC error: {}", error))
+                    } else {
+                        Err("Unexpected RPC response".to_string())
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn handle_feature_commands(cmd: FeatureCommand) -> Result<(), String> {
+    match cmd {
+        FeatureCommand::Get(cmd) => {
+            let result = rpc_call(&cmd.rpc_url, "getFeatureStates", serde_json::json!([]))?;
+            match result.get("result") {
+                Some(states) => {
+                    println!("{}", serde_json::to_string_pretty(states).unwrap());
+                    Ok(())
+                }
+                None => {
+                    if let Some(error) = result.get("error") {
+                        Err(format!("RPC error: {}", error))
+                    } else {
+                        Err("Unexpected RPC response".to_string())
+                    }
+                }
+            }
+        }
+        FeatureCommand::Profiling(cmd) => {
+            let enabled = cmd.enabled.to_lowercase();
+            let enabled_bool = match enabled.as_str() {
+                "true" | "1" | "yes" | "on" => true,
+                "false" | "0" | "no" | "off" => false,
+                _ => {
+                    return Err(format!(
+                        "Invalid value '{}'. Use true/false, yes/no, on/off, or 1/0",
+                        cmd.enabled
+                    ));
+                }
+            };
+
+            let result = rpc_call(
+                &cmd.rpc_url,
+                "setInstructionProfiling",
+                serde_json::json!([enabled_bool]),
+            )?;
+            match result.get("result") {
+                Some(_) => {
+                    println!(
+                        "Instruction profiling {}",
+                        if enabled_bool { "enabled" } else { "disabled" }
+                    );
+                    Ok(())
+                }
+                None => {
+                    if let Some(error) = result.get("error") {
+                        Err(format!("RPC error: {}", error))
+                    } else {
+                        Err("Unexpected RPC response".to_string())
+                    }
+                }
+            }
+        }
+        FeatureCommand::MaxProfiles(cmd) => {
+            let result = rpc_call(
+                &cmd.rpc_url,
+                "setMaxProfiles",
+                serde_json::json!([cmd.capacity]),
+            )?;
+            match result.get("result") {
+                Some(_) => {
+                    println!("Max profiles set to {}", cmd.capacity);
+                    Ok(())
+                }
+                None => {
+                    if let Some(error) = result.get("error") {
+                        Err(format!("RPC error: {}", error))
+                    } else {
+                        Err("Unexpected RPC response".to_string())
+                    }
+                }
+            }
+        }
+        FeatureCommand::LogLimit(cmd) => {
+            let limit = if cmd.limit == 0 {
+                serde_json::Value::Null
+            } else {
+                serde_json::json!(cmd.limit)
+            };
+            let result = rpc_call(&cmd.rpc_url, "setLogBytesLimit", serde_json::json!([limit]))?;
+            match result.get("result") {
+                Some(_) => {
+                    println!(
+                        "Log bytes limit set to {}",
+                        if cmd.limit == 0 {
+                            "unlimited".to_string()
+                        } else {
+                            cmd.limit.to_string()
+                        }
+                    );
+                    Ok(())
+                }
+                None => {
+                    if let Some(error) = result.get("error") {
+                        Err(format!("RPC error: {}", error))
+                    } else {
+                        Err("Unexpected RPC response".to_string())
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn rpc_call(
+    url: &str,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": params
+    });
+
+    let output = std::process::Command::new("curl")
+        .arg("-sS")
+        .arg("-X")
+        .arg("POST")
+        .arg(url)
+        .arg("-H")
+        .arg("Content-Type: application/json")
+        .arg("-d")
+        .arg(payload.to_string())
+        .output()
+        .map_err(|e| {
+            format!(
+                "Failed to execute curl: {}. Make sure curl is installed.",
+                e
+            )
+        })?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "curl command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let response_text = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(&response_text)
+        .map_err(|e| format!("Failed to parse JSON response: {}", e))
 }
 
 pub fn setup_logger(

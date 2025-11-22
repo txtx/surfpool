@@ -8,7 +8,7 @@ use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
 use super::RunloopContext;
-use crate::{PluginInfo, PluginManagerCommand, rpc::State};
+use crate::{FeatureStates, PluginInfo, PluginManagerCommand, rpc::State};
 
 #[rpc]
 pub trait AdminRpc {
@@ -192,6 +192,90 @@ pub trait AdminRpc {
     /// - This method is useful for monitoring system uptime and verifying system health.
     #[rpc(meta, name = "startTime")]
     fn start_time(&self, meta: Self::Metadata) -> Result<String>;
+
+    /// Sets whether instruction profiling is enabled at runtime.
+    ///
+    /// This method allows administrators to toggle instruction profiling on or off
+    /// without restarting the system. When enabled, the system tracks and profiles
+    /// instruction execution for performance monitoring and debugging.
+    ///
+    /// ## Parameters
+    /// - `enabled`: Boolean indicating whether to enable (true) or disable (false) profiling.
+    ///
+    /// ## Returns
+    /// - [`Result<()>`] — Success or error.
+    ///
+    /// ## Example Request (JSON-RPC)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 107,
+    ///   "method": "setInstructionProfiling",
+    ///   "params": [true]
+    /// }
+    /// ```
+    #[rpc(meta, name = "setInstructionProfiling")]
+    fn set_instruction_profiling(&self, meta: Self::Metadata, enabled: bool) -> Result<()>;
+
+    /// Sets the maximum number of transaction profiles to keep in memory.
+    ///
+    /// ## Parameters
+    /// - `capacity`: The maximum number of transaction profiles to store. Must be at least 1.
+    ///
+    /// ## Returns
+    /// - [`Result<()>`] — Success or error.
+    ///
+    /// ## Example Request (JSON-RPC)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 108,
+    ///   "method": "setMaxProfiles",
+    ///   "params": [500]
+    /// }
+    /// ```
+    #[rpc(meta, name = "setMaxProfiles")]
+    fn set_max_profiles(&self, meta: Self::Metadata, capacity: usize) -> Result<()>;
+
+    /// Sets the maximum number of bytes to include in transaction logs.
+    ///
+    /// ## Parameters
+    /// - `limit`: The byte limit for transaction logs. Use null for unlimited.
+    ///
+    /// ## Returns
+    /// - [`Result<()>`] — Success or error.
+    ///
+    /// ## Example Request (JSON-RPC)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 109,
+    ///   "method": "setLogBytesLimit",
+    ///   "params": [20000]
+    /// }
+    /// ```
+    #[rpc(meta, name = "setLogBytesLimit")]
+    fn set_log_bytes_limit(&self, meta: Self::Metadata, limit: Option<usize>) -> Result<()>;
+
+    /// Gets the current state of all toggleable features.
+    ///
+    /// Returns information about instruction profiling, max profiles capacity,
+    /// log bytes limit, and currently loaded plugins.
+    ///
+    /// ## Returns
+    /// - [`Result<FeatureStates>`] — Current feature states.
+    ///
+    /// ## Example Request (JSON-RPC)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 110,
+    ///   "method": "getFeatureStates",
+    ///   "params": []
+    /// }
+    /// ```
+    #[rpc(meta, name = "getFeatureStates")]
+    fn get_feature_states(&self, meta: Self::Metadata) -> BoxFuture<Result<FeatureStates>>;
 }
 
 pub struct SurfpoolAdminRpc;
@@ -362,5 +446,103 @@ impl AdminRpc for SurfpoolAdminRpc {
 
         let datetime_utc: chrono::DateTime<chrono::Utc> = system_time.into();
         Ok(datetime_utc.to_rfc3339())
+    }
+
+    fn set_instruction_profiling(&self, meta: Self::Metadata, enabled: bool) -> Result<()> {
+        let svm_locker = meta.get_svm_locker()?;
+        svm_locker.set_instruction_profiling_enabled(enabled);
+
+        let Some(ctx) = meta else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+
+        let _ = ctx
+            .svm_locker
+            .simnet_events_tx()
+            .try_send(SimnetEvent::info(format!(
+                "Instruction profiling {}",
+                if enabled { "enabled" } else { "disabled" }
+            )));
+
+        Ok(())
+    }
+
+    fn set_max_profiles(&self, meta: Self::Metadata, capacity: usize) -> Result<()> {
+        let svm_locker = meta.get_svm_locker()?;
+        svm_locker.set_profiling_map_capacity(capacity);
+
+        let Some(ctx) = meta else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+
+        let _ = ctx
+            .svm_locker
+            .simnet_events_tx()
+            .try_send(SimnetEvent::info(format!(
+                "Max profiles set to {}",
+                capacity
+            )));
+
+        Ok(())
+    }
+
+    fn set_log_bytes_limit(&self, meta: Self::Metadata, limit: Option<usize>) -> Result<()> {
+        let svm_locker = meta.get_svm_locker()?;
+        svm_locker.set_log_bytes_limit(limit);
+
+        let Some(ctx) = meta else {
+            return Err(RpcCustomError::NodeUnhealthy {
+                num_slots_behind: None,
+            }
+            .into());
+        };
+
+        let limit_str = limit
+            .map(|l| l.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
+        let _ = ctx
+            .svm_locker
+            .simnet_events_tx()
+            .try_send(SimnetEvent::info(format!(
+                "Log bytes limit set to {}",
+                limit_str
+            )));
+
+        Ok(())
+    }
+
+    fn get_feature_states(&self, meta: Self::Metadata) -> BoxFuture<Result<FeatureStates>> {
+        let Some(ctx) = meta else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        let instruction_profiling_enabled = ctx.svm_locker.is_instruction_profiling_enabled();
+        let max_profiles = ctx.svm_locker.get_profiling_map_capacity();
+        let log_bytes_limit = ctx.svm_locker.get_log_bytes_limit();
+
+        // Get loaded plugins
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let _ = ctx
+            .plugin_manager_commands_tx
+            .send(PluginManagerCommand::ListPlugins(tx));
+
+        let Ok(loaded_plugins) = rx.recv_timeout(Duration::from_secs(10)) else {
+            return Box::pin(async move { Err(jsonrpc_core::Error::internal_error()) });
+        };
+
+        Box::pin(async move {
+            Ok(FeatureStates {
+                instruction_profiling_enabled,
+                max_profiles,
+                log_bytes_limit,
+                loaded_plugins,
+            })
+        })
     }
 }
