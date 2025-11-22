@@ -141,10 +141,10 @@ mod tests {
     fn test_registry_loads_both_protocols() {
         let registry = TemplateRegistry::new();
 
-        // Should have Pyth (4 templates) + Jupiter (1 template) = 5 total
+        // Should have Pyth (4 templates) + Jupiter (1 template) + Raydium(3 templates) = 5 total
         assert_eq!(
             registry.count(),
-            5,
+            8,
             "Registry should load 5 templates total"
         );
 
@@ -154,6 +154,10 @@ mod tests {
         assert!(registry.contains("pyth-eth-usd-v2"));
 
         assert!(registry.contains("jupiter-token-ledger-override"));
+
+        assert!(registry.contains("raydium-clmm-sol-usdc"));
+        assert!(registry.contains("raydium-clmm-btc-usdc"));
+        assert!(registry.contains("raydium-clmm-eth-usdc"));
     }
 
     #[test]
@@ -236,7 +240,8 @@ mod tests {
         let registry = TemplateRegistry::new();
         let ids = registry.list_ids();
 
-        assert_eq!(ids.len(), 5);
+        assert_eq!(ids.len(), 8);
+        assert!(ids.contains(&"raydium-clmm-sol-usdc".to_string()));
         assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
         assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
     }
