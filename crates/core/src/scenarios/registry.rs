@@ -6,8 +6,8 @@ pub const PYTH_V2_IDL_CONTENT: &str = include_str!("./protocols/pyth/v2/idl.json
 pub const PYTH_V2_OVERRIDES_CONTENT: &str = include_str!("./protocols/pyth/v2/overrides.yaml");
 
 pub const RAYDIUM_CLMM_IDL_CONTENT: &str = include_str!("./protocols/raydium/v3/idl.json");
-pub const RAYDIUM_CLMM_OVERRIDES_CONTENT: &str = include_str!("./protocols/raydium/v3/overrides.yaml");
-
+pub const RAYDIUM_CLMM_OVERRIDES_CONTENT: &str =
+    include_str!("./protocols/raydium/v3/overrides.yaml");
 
 /// Registry for managing override templates loaded from YAML files
 #[derive(Clone, Debug, Default)]
