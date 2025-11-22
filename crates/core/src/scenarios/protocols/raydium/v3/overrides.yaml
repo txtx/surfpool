@@ -1,4 +1,4 @@
-protocol: RaydiumCLMM
+protocol: Raydium
 version: v3
 account_type: PoolState
 idl_file_path: idl.json
