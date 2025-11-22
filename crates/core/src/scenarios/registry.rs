@@ -5,6 +5,10 @@ use surfpool_types::{OverrideTemplate, YamlOverrideTemplateCollection};
 pub const PYTH_V2_IDL_CONTENT: &str = include_str!("./protocols/pyth/v2/idl.json");
 pub const PYTH_V2_OVERRIDES_CONTENT: &str = include_str!("./protocols/pyth/v2/overrides.yaml");
 
+pub const RAYDIUM_CLMM_IDL_CONTENT: &str = include_str!("./protocols/raydium/v3/idl.json");
+pub const RAYDIUM_CLMM_OVERRIDES_CONTENT: &str = include_str!("./protocols/raydium/v3/overrides.yaml");
+
+
 /// Registry for managing override templates loaded from YAML files
 #[derive(Clone, Debug, Default)]
 pub struct TemplateRegistry {
@@ -17,6 +21,7 @@ impl TemplateRegistry {
     pub fn new() -> Self {
         let mut default = Self::default();
         default.load_pyth_overrides();
+        default.load_raydium_overrides();
         default
     }
 
@@ -30,6 +35,28 @@ impl TemplateRegistry {
             serde_yaml::from_str::<YamlOverrideTemplateCollection>(PYTH_V2_OVERRIDES_CONTENT)
         else {
             panic!("unable to load pyth overrides");
+        };
+
+        // Convert all templates in the collection
+        let templates = collection.to_override_templates(idl);
+
+        // Register each template
+        for template in templates {
+            let template_id = template.id.clone();
+            self.templates.insert(template_id.clone(), template);
+        }
+    }
+
+    pub fn load_raydium_overrides(&mut self){
+        let idl = match serde_json::from_str(RAYDIUM_CLMM_IDL_CONTENT) {
+            Ok(idl) => idl,
+            Err(e) => panic!("unable to load raydium idl: {}", e),
+        };
+
+        let Ok(collection) =
+            serde_yaml::from_str::<YamlOverrideTemplateCollection>(RAYDIUM_CLMM_OVERRIDES_CONTENT)
+        else {
+            panic!("unable to load raydium overrides");
         };
 
         // Convert all templates in the collection

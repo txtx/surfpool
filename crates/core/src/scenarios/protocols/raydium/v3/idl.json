@@ -1,0 +1,1793 @@
+{
+  "address": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+  "metadata": {
+    "description": "Anchor client and source for Raydium concentrated liquidity AMM",
+    "name": "amm_v3",
+    "spec": "0.1.0",
+    "version": "0.1.0"
+  },
+  "accounts": [
+    {
+      "discriminator": [
+        218,
+        244,
+        33,
+        104,
+        203,
+        203,
+        43,
+        111
+      ],
+      "name": "AmmConfig"
+    },
+    {
+      "discriminator": [
+        122,
+        174,
+        197,
+        53,
+        129,
+        9,
+        165,
+        132
+      ],
+      "name": "ObservationState"
+    },
+    {
+      "discriminator": [
+        19,
+        236,
+        58,
+        237,
+        81,
+        222,
+        183,
+        252
+      ],
+      "name": "OperationState"
+    },
+    {
+      "discriminator": [
+        70,
+        111,
+        150,
+        126,
+        230,
+        15,
+        25,
+        117
+      ],
+      "name": "PersonalPositionState"
+    },
+    {
+      "discriminator": [
+        247,
+        237,
+        227,
+        245,
+        215,
+        195,
+        222,
+        70
+      ],
+      "name": "PoolState"
+    },
+    {
+      "discriminator": [
+        100,
+        226,
+        145,
+        99,
+        146,
+        218,
+        160,
+        106
+      ],
+      "name": "ProtocolPositionState"
+    },
+    {
+      "discriminator": [
+        134,
+        40,
+        183,
+        79,
+        12,
+        112,
+        162,
+        53
+      ],
+      "name": "SupportMintAssociated"
+    }
+  ],
+  "instructions": [],
+  "types": [
+    {
+      "docs": [
+        "Holds the current owner of the factory"
+      ],
+      "name": "AmmConfig",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "Bump to identify PDA"
+            ],
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "index",
+            "type": "u16"
+          },
+          {
+            "docs": [
+              "Address of the protocol owner"
+            ],
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The protocol fee"
+            ],
+            "name": "protocol_fee_rate",
+            "type": "u32"
+          },
+          {
+            "docs": [
+              "The trade fee, denominated in hundredths of a bip (10^-6)"
+            ],
+            "name": "trade_fee_rate",
+            "type": "u32"
+          },
+          {
+            "docs": [
+              "The tick spacing"
+            ],
+            "name": "tick_spacing",
+            "type": "u16"
+          },
+          {
+            "docs": [
+              "The fund fee, denominated in hundredths of a bip (10^-6)"
+            ],
+            "name": "fund_fee_rate",
+            "type": "u32"
+          },
+          {
+            "name": "padding_u32",
+            "type": "u32"
+          },
+          {
+            "name": "fund_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Emitted when tokens are collected for a position"
+      ],
+      "name": "CollectPersonalFeeEvent",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "The ID of the token for which underlying tokens were collected"
+            ],
+            "name": "position_nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The token account that received the collected token_0 tokens"
+            ],
+            "name": "recipient_token_account_0",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The token account that received the collected token_1 tokens"
+            ],
+            "name": "recipient_token_account_1",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The amount of token_0 owed to the position that was collected"
+            ],
+            "name": "amount_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of token_1 owed to the position that was collected"
+            ],
+            "name": "amount_1",
+            "type": "u64"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Emitted when the collected protocol fees are withdrawn by the factory owner"
+      ],
+      "name": "CollectProtocolFeeEvent",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "The pool whose protocol fee is collected"
+            ],
+            "name": "pool_state",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The address that receives the collected token_0 protocol fees"
+            ],
+            "name": "recipient_token_account_0",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The address that receives the collected token_1 protocol fees"
+            ],
+            "name": "recipient_token_account_1",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The amount of token_0 protocol fees that is withdrawn"
+            ],
+            "name": "amount_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of token_0 protocol fees that is withdrawn"
+            ],
+            "name": "amount_1",
+            "type": "u64"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Emitted when create or update a config"
+      ],
+      "name": "ConfigChangeEvent",
+      "type": {
+        "fields": [
+          {
+            "name": "index",
+            "type": "u16"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "protocol_fee_rate",
+            "type": "u32"
+          },
+          {
+            "name": "trade_fee_rate",
+            "type": "u32"
+          },
+          {
+            "name": "tick_spacing",
+            "type": "u16"
+          },
+          {
+            "name": "fund_fee_rate",
+            "type": "u32"
+          },
+          {
+            "name": "fund_owner",
+            "type": "pubkey"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Emitted when create a new position"
+      ],
+      "name": "CreatePersonalPositionEvent",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "The pool for which liquidity was added"
+            ],
+            "name": "pool_state",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The address that create the position"
+            ],
+            "name": "minter",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The owner of the position and recipient of any minted liquidity"
+            ],
+            "name": "nft_owner",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The lower tick of the position"
+            ],
+            "name": "tick_lower_index",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "The upper tick of the position"
+            ],
+            "name": "tick_upper_index",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "The amount of liquidity minted to the position range"
+            ],
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The amount of token_0 was deposit for the liquidity"
+            ],
+            "name": "deposit_amount_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of token_1 was deposit for the liquidity"
+            ],
+            "name": "deposit_amount_1",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The token transfer fee for deposit_amount_0"
+            ],
+            "name": "deposit_amount_0_transfer_fee",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The token transfer fee for deposit_amount_1"
+            ],
+            "name": "deposit_amount_1_transfer_fee",
+            "type": "u64"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Emitted when liquidity is decreased."
+      ],
+      "name": "DecreaseLiquidityEvent",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "The ID of the token for which liquidity was decreased"
+            ],
+            "name": "position_nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The amount by which liquidity for the position was decreased"
+            ],
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The amount of token_0 that was paid for the decrease in liquidity"
+            ],
+            "name": "decrease_amount_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of token_1 that was paid for the decrease in liquidity"
+            ],
+            "name": "decrease_amount_1",
+            "type": "u64"
+          },
+          {
+            "name": "fee_amount_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of token_1 fee"
+            ],
+            "name": "fee_amount_1",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of rewards"
+            ],
+            "name": "reward_amounts",
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "docs": [
+              "The amount of token_0 transfer fee"
+            ],
+            "name": "transfer_fee_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of token_1 transfer fee"
+            ],
+            "name": "transfer_fee_1",
+            "type": "u64"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Emitted when liquidity is increased."
+      ],
+      "name": "IncreaseLiquidityEvent",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "The ID of the token for which liquidity was increased"
+            ],
+            "name": "position_nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The amount by which liquidity for the NFT position was increased"
+            ],
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The amount of token_0 that was paid for the increase in liquidity"
+            ],
+            "name": "amount_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of token_1 that was paid for the increase in liquidity"
+            ],
+            "name": "amount_1",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The token transfer fee for amount_0"
+            ],
+            "name": "amount_0_transfer_fee",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The token transfer fee for amount_1"
+            ],
+            "name": "amount_1_transfer_fee",
+            "type": "u64"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "name": "InitializeRewardParam",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "Reward open time"
+            ],
+            "name": "open_time",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "Reward end time"
+            ],
+            "name": "end_time",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "Token reward per second are earned per unit of liquidity"
+            ],
+            "name": "emissions_per_second_x64",
+            "type": "u128"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Emitted when liquidity decreased or increase."
+      ],
+      "name": "LiquidityCalculateEvent",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "The pool liquidity before decrease or increase"
+            ],
+            "name": "pool_liquidity",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The pool price when decrease or increase in liquidity"
+            ],
+            "name": "pool_sqrt_price_x64",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The pool tick when decrease or increase in liquidity"
+            ],
+            "name": "pool_tick",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "The amount of token_0 that was calculated for the decrease or increase in liquidity"
+            ],
+            "name": "calc_amount_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of token_1 that was calculated for the decrease or increase in liquidity"
+            ],
+            "name": "calc_amount_1",
+            "type": "u64"
+          },
+          {
+            "name": "trade_fee_owed_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of token_1 fee"
+            ],
+            "name": "trade_fee_owed_1",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of token_0 transfer fee without trade_fee_amount_0"
+            ],
+            "name": "transfer_fee_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amount of token_1 transfer fee without trade_fee_amount_0"
+            ],
+            "name": "transfer_fee_1",
+            "type": "u64"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Emitted pool liquidity change when increase and decrease liquidity"
+      ],
+      "name": "LiquidityChangeEvent",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "The pool for swap"
+            ],
+            "name": "pool_state",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The tick of the pool"
+            ],
+            "name": "tick",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "The tick lower of position"
+            ],
+            "name": "tick_lower",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "The tick lower of position"
+            ],
+            "name": "tick_upper",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "The liquidity of the pool before liquidity change"
+            ],
+            "name": "liquidity_before",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The liquidity of the pool after liquidity change"
+            ],
+            "name": "liquidity_after",
+            "type": "u128"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "The element of observations in ObservationState"
+      ],
+      "name": "Observation",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "serialization": "bytemuckunsafe",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "The block timestamp of the observation"
+            ],
+            "name": "block_timestamp",
+            "type": "u32"
+          },
+          {
+            "docs": [
+              "the cumulative of tick during the duration time"
+            ],
+            "name": "tick_cumulative",
+            "type": "i64"
+          },
+          {
+            "docs": [
+              "padding for feature update"
+            ],
+            "name": "padding",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "name": "ObservationState",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "serialization": "bytemuckunsafe",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "Whether the ObservationState is initialized"
+            ],
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "docs": [
+              "recent update epoch"
+            ],
+            "name": "recent_epoch",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "the most-recently updated index of the observations array"
+            ],
+            "name": "observation_index",
+            "type": "u16"
+          },
+          {
+            "docs": [
+              "belongs to which pool"
+            ],
+            "name": "pool_id",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "observation array"
+            ],
+            "name": "observations",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Observation"
+                  }
+                },
+                100
+              ]
+            }
+          },
+          {
+            "docs": [
+              "padding for feature update"
+            ],
+            "name": "padding",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Holds the current owner of the factory"
+      ],
+      "name": "OperationState",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "serialization": "bytemuckunsafe",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "Bump to identify PDA"
+            ],
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "docs": [
+              "Address of the operation owner"
+            ],
+            "name": "operation_owners",
+            "type": {
+              "array": [
+                "pubkey",
+                10
+              ]
+            }
+          },
+          {
+            "docs": [
+              "The mint address of whitelist to emit reward"
+            ],
+            "name": "whitelist_mints",
+            "type": {
+              "array": [
+                "pubkey",
+                100
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "name": "PersonalPositionState",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "Bump to identify PDA"
+            ],
+            "name": "bump",
+            "type": {
+              "array": [
+                "u8",
+                1
+              ]
+            }
+          },
+          {
+            "docs": [
+              "Mint address of the tokenized position"
+            ],
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The ID of the pool with which this token is connected"
+            ],
+            "name": "pool_id",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The lower bound tick of the position"
+            ],
+            "name": "tick_lower_index",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "The upper bound tick of the position"
+            ],
+            "name": "tick_upper_index",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "The amount of liquidity owned by this position"
+            ],
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The token_0 fee growth of the aggregate position as of the last action on the individual position"
+            ],
+            "name": "fee_growth_inside_0_last_x64",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The token_1 fee growth of the aggregate position as of the last action on the individual position"
+            ],
+            "name": "fee_growth_inside_1_last_x64",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The fees owed to the position owner in token_0, as of the last computation"
+            ],
+            "name": "token_fees_owed_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The fees owed to the position owner in token_1, as of the last computation"
+            ],
+            "name": "token_fees_owed_1",
+            "type": "u64"
+          },
+          {
+            "name": "reward_infos",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "PositionRewardInfo"
+                  }
+                },
+                3
+              ]
+            }
+          },
+          {
+            "name": "recent_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": [
+                "u64",
+                7
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Emitted when a pool is created and initialized with a starting price",
+        ""
+      ],
+      "name": "PoolCreatedEvent",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "The first token of the pool by address sort order"
+            ],
+            "name": "token_mint_0",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The second token of the pool by address sort order"
+            ],
+            "name": "token_mint_1",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The minimum number of ticks between initialized ticks"
+            ],
+            "name": "tick_spacing",
+            "type": "u16"
+          },
+          {
+            "docs": [
+              "The address of the created pool"
+            ],
+            "name": "pool_state",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The initial sqrt price of the pool, as a Q64.64"
+            ],
+            "name": "sqrt_price_x64",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The initial tick of the pool, i.e. log base 1.0001 of the starting price of the pool"
+            ],
+            "name": "tick",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "Vault of token_0"
+            ],
+            "name": "token_vault_0",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "Vault of token_1"
+            ],
+            "name": "token_vault_1",
+            "type": "pubkey"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "The pool state",
+        "",
+        "PDA of `[POOL_SEED, config, token_mint_0, token_mint_1]`",
+        ""
+      ],
+      "name": "PoolState",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "serialization": "bytemuckunsafe",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "Bump to identify PDA"
+            ],
+            "name": "bump",
+            "type": {
+              "array": [
+                "u8",
+                1
+              ]
+            }
+          },
+          {
+            "name": "amm_config",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "Token pair of the pool, where token_mint_0 address < token_mint_1 address"
+            ],
+            "name": "token_mint_0",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_mint_1",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "Token pair vault"
+            ],
+            "name": "token_vault_0",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_vault_1",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "observation account key"
+            ],
+            "name": "observation_key",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "mint0 and mint1 decimals"
+            ],
+            "name": "mint_decimals_0",
+            "type": "u8"
+          },
+          {
+            "name": "mint_decimals_1",
+            "type": "u8"
+          },
+          {
+            "docs": [
+              "The minimum number of ticks between initialized ticks"
+            ],
+            "name": "tick_spacing",
+            "type": "u16"
+          },
+          {
+            "docs": [
+              "The currently in range liquidity available to the pool."
+            ],
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The current price of the pool as a sqrt(token_1/token_0) Q64.64 value"
+            ],
+            "name": "sqrt_price_x64",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The current tick of the pool, i.e. according to the last tick transition that was run."
+            ],
+            "name": "tick_current",
+            "type": "i32"
+          },
+          {
+            "name": "padding3",
+            "type": "u16"
+          },
+          {
+            "name": "padding4",
+            "type": "u16"
+          },
+          {
+            "docs": [
+              "The fee growth as a Q64.64 number, i.e. fees of token_0 and token_1 collected per",
+              "unit of liquidity for the entire life of the pool."
+            ],
+            "name": "fee_growth_global_0_x64",
+            "type": "u128"
+          },
+          {
+            "name": "fee_growth_global_1_x64",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The amounts of token_0 and token_1 that are owed to the protocol."
+            ],
+            "name": "protocol_fees_token_0",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fees_token_1",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The amounts in and out of swap token_0 and token_1"
+            ],
+            "name": "swap_in_amount_token_0",
+            "type": "u128"
+          },
+          {
+            "name": "swap_out_amount_token_1",
+            "type": "u128"
+          },
+          {
+            "name": "swap_in_amount_token_1",
+            "type": "u128"
+          },
+          {
+            "name": "swap_out_amount_token_0",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "Bitwise representation of the state of the pool",
+              "bit0, 1: disable open position and increase liquidity, 0: normal",
+              "bit1, 1: disable decrease liquidity, 0: normal",
+              "bit2, 1: disable collect fee, 0: normal",
+              "bit3, 1: disable collect reward, 0: normal",
+              "bit4, 1: disable swap, 0: normal"
+            ],
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "docs": [
+              "Leave blank for future use"
+            ],
+            "name": "padding",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "reward_infos",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "RewardInfo"
+                  }
+                },
+                3
+              ]
+            }
+          },
+          {
+            "docs": [
+              "Packed initialized tick array state"
+            ],
+            "name": "tick_array_bitmap",
+            "type": {
+              "array": [
+                "u64",
+                16
+              ]
+            }
+          },
+          {
+            "docs": [
+              "except protocol_fee and fund_fee"
+            ],
+            "name": "total_fees_token_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "except protocol_fee and fund_fee"
+            ],
+            "name": "total_fees_claimed_token_0",
+            "type": "u64"
+          },
+          {
+            "name": "total_fees_token_1",
+            "type": "u64"
+          },
+          {
+            "name": "total_fees_claimed_token_1",
+            "type": "u64"
+          },
+          {
+            "name": "fund_fees_token_0",
+            "type": "u64"
+          },
+          {
+            "name": "fund_fees_token_1",
+            "type": "u64"
+          },
+          {
+            "name": "open_time",
+            "type": "u64"
+          },
+          {
+            "name": "recent_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "padding1",
+            "type": {
+              "array": [
+                "u64",
+                24
+              ]
+            }
+          },
+          {
+            "name": "padding2",
+            "type": {
+              "array": [
+                "u64",
+                32
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "name": "PositionRewardInfo",
+      "type": {
+        "fields": [
+          {
+            "name": "growth_inside_last_x64",
+            "type": "u128"
+          },
+          {
+            "name": "reward_amount_owed",
+            "type": "u64"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Info stored for each user's position"
+      ],
+      "name": "ProtocolPositionState",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "Bump to identify PDA"
+            ],
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "docs": [
+              "The ID of the pool with which this token is connected"
+            ],
+            "name": "pool_id",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The lower bound tick of the position"
+            ],
+            "name": "tick_lower_index",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "The upper bound tick of the position"
+            ],
+            "name": "tick_upper_index",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "The amount of liquidity owned by this position"
+            ],
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The token_0 fee growth per unit of liquidity as of the last update to liquidity or fees owed"
+            ],
+            "name": "fee_growth_inside_0_last_x64",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The token_1 fee growth per unit of liquidity as of the last update to liquidity or fees owed"
+            ],
+            "name": "fee_growth_inside_1_last_x64",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The fees owed to the position owner in token_0"
+            ],
+            "name": "token_fees_owed_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The fees owed to the position owner in token_1"
+            ],
+            "name": "token_fees_owed_1",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The reward growth per unit of liquidity as of the last update to liquidity"
+            ],
+            "name": "reward_growth_inside",
+            "type": {
+              "array": [
+                "u128",
+                3
+              ]
+            }
+          },
+          {
+            "name": "recent_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": [
+                "u64",
+                7
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "name": "RewardInfo",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "serialization": "bytemuckunsafe",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "Reward state"
+            ],
+            "name": "reward_state",
+            "type": "u8"
+          },
+          {
+            "docs": [
+              "Reward open time"
+            ],
+            "name": "open_time",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "Reward end time"
+            ],
+            "name": "end_time",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "Reward last update time"
+            ],
+            "name": "last_update_time",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "Q64.64 number indicates how many tokens per second are earned per unit of liquidity."
+            ],
+            "name": "emissions_per_second_x64",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The total amount of reward emissioned"
+            ],
+            "name": "reward_total_emissioned",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The total amount of claimed reward"
+            ],
+            "name": "reward_claimed",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "Reward token mint."
+            ],
+            "name": "token_mint",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "Reward vault token account."
+            ],
+            "name": "token_vault",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The owner that has permission to set reward param"
+            ],
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "Q64.64 number that tracks the total tokens earned per unit of liquidity since the reward",
+              "emissions were turned on."
+            ],
+            "name": "reward_growth_global_x64",
+            "type": "u128"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Holds the current owner of the factory"
+      ],
+      "name": "SupportMintAssociated",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "Bump to identify PDA"
+            ],
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "docs": [
+              "Address of the supported token22 mint"
+            ],
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": [
+                "u64",
+                8
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Emitted by when a swap is performed for a pool"
+      ],
+      "name": "SwapEvent",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "The pool for which token_0 and token_1 were swapped"
+            ],
+            "name": "pool_state",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The address that initiated the swap call, and that received the callback"
+            ],
+            "name": "sender",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The payer token account in zero for one swaps, or the recipient token account",
+              "in one for zero swaps"
+            ],
+            "name": "token_account_0",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The payer token account in one for zero swaps, or the recipient token account",
+              "in zero for one swaps"
+            ],
+            "name": "token_account_1",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "The real delta amount of the token_0 of the pool or user"
+            ],
+            "name": "amount_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The transfer fee charged by the withheld_amount of the token_0"
+            ],
+            "name": "transfer_fee_0",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The real delta of the token_1 of the pool or user"
+            ],
+            "name": "amount_1",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "The transfer fee charged by the withheld_amount of the token_1"
+            ],
+            "name": "transfer_fee_1",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "if true, amount_0 is negtive and amount_1 is positive"
+            ],
+            "name": "zero_for_one",
+            "type": "bool"
+          },
+          {
+            "docs": [
+              "The sqrt(price) of the pool after the swap, as a Q64.64"
+            ],
+            "name": "sqrt_price_x64",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The liquidity of the pool after the swap"
+            ],
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "The log base 1.0001 of price of the pool after the swap"
+            ],
+            "name": "tick",
+            "type": "i32"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "name": "TickArrayBitmapExtension",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "serialization": "bytemuckunsafe",
+      "type": {
+        "fields": [
+          {
+            "name": "pool_id",
+            "type": "pubkey"
+          },
+          {
+            "docs": [
+              "Packed initialized tick array state for start_tick_index is positive"
+            ],
+            "name": "positive_tick_array_bitmap",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    8
+                  ]
+                },
+                14
+              ]
+            }
+          },
+          {
+            "docs": [
+              "Packed initialized tick array state for start_tick_index is negitive"
+            ],
+            "name": "negative_tick_array_bitmap",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    8
+                  ]
+                },
+                14
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "name": "TickArrayState",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "serialization": "bytemuckunsafe",
+      "type": {
+        "fields": [
+          {
+            "name": "pool_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "start_tick_index",
+            "type": "i32"
+          },
+          {
+            "name": "ticks",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "TickState"
+                  }
+                },
+                60
+              ]
+            }
+          },
+          {
+            "name": "initialized_tick_count",
+            "type": "u8"
+          },
+          {
+            "name": "recent_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": [
+                "u8",
+                107
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "name": "TickState",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "serialization": "bytemuckunsafe",
+      "type": {
+        "fields": [
+          {
+            "name": "tick",
+            "type": "i32"
+          },
+          {
+            "docs": [
+              "Amount of net liquidity added (subtracted) when tick is crossed from left to right (right to left)"
+            ],
+            "name": "liquidity_net",
+            "type": "i128"
+          },
+          {
+            "docs": [
+              "The total position liquidity that references this tick"
+            ],
+            "name": "liquidity_gross",
+            "type": "u128"
+          },
+          {
+            "docs": [
+              "Fee growth per unit of liquidity on the _other_ side of this tick (relative to the current tick)",
+              "only has relative meaning, not absolute — the value depends on when the tick is initialized"
+            ],
+            "name": "fee_growth_outside_0_x64",
+            "type": "u128"
+          },
+          {
+            "name": "fee_growth_outside_1_x64",
+            "type": "u128"
+          },
+          {
+            "name": "reward_growths_outside_x64",
+            "type": {
+              "array": [
+                "u128",
+                3
+              ]
+            }
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": [
+                "u32",
+                13
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "docs": [
+        "Emitted when Reward are updated for a pool"
+      ],
+      "name": "UpdateRewardInfosEvent",
+      "type": {
+        "fields": [
+          {
+            "docs": [
+              "Reward info"
+            ],
+            "name": "reward_growth_global_x64",
+            "type": {
+              "array": [
+                "u128",
+                3
+              ]
+            }
+          }
+        ],
+        "kind": "struct"
+      }
+    }
+  ]
+}
