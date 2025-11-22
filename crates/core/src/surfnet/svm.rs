@@ -1,7 +1,8 @@
 use std::{
     cmp::max,
     collections::{BTreeMap, BinaryHeap, HashMap, HashSet, VecDeque},
-    str::FromStr, time::SystemTime,
+    str::FromStr,
+    time::SystemTime,
 };
 
 use agave_feature_set::{FeatureSet, enable_extend_program_checked};
