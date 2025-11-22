@@ -5,6 +5,10 @@ use surfpool_types::{OverrideTemplate, YamlOverrideTemplateCollection};
 pub const PYTH_V2_IDL_CONTENT: &str = include_str!("./protocols/pyth/v2/idl.json");
 pub const PYTH_V2_OVERRIDES_CONTENT: &str = include_str!("./protocols/pyth/v2/overrides.yaml");
 
+pub const RAYDIUM_CPMM_IDL_CONTENT: &str = include_str!("./protocols/raydium/cpmm/idl.json");
+pub const RAYDIUM_CPMM_OVERRIDES_CONTENT: &str =
+    include_str!("./protocols/raydium/cpmm/overrides.yaml");
+
 pub const JUPITER_V6_IDL_CONTENT: &str = include_str!("./protocols/jupiter/v6/idl.json");
 pub const JUPITER_V6_OVERRIDES_CONTENT: &str =
     include_str!("./protocols/jupiter/v6/overrides.yaml");
@@ -22,6 +26,7 @@ impl TemplateRegistry {
         let mut default = Self::default();
         default.load_pyth_overrides();
         default.load_jupiter_overrides();
+        default.load_raydium_cpmm_overrides();
         default
     }
 
@@ -34,6 +39,14 @@ impl TemplateRegistry {
             JUPITER_V6_IDL_CONTENT,
             JUPITER_V6_OVERRIDES_CONTENT,
             "jupiter",
+        );
+    }
+
+    pub fn load_raydium_cpmm_overrides(&mut self) {
+        self.load_protocol_overrides(
+            RAYDIUM_CPMM_IDL_CONTENT,
+            RAYDIUM_CPMM_OVERRIDES_CONTENT,
+            "raydium-cpmm",
         );
     }
 
@@ -111,14 +124,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_registry_loads_both_protocols() {
+    fn test_registry_loads_all_protocols() {
         let registry = TemplateRegistry::new();
 
-        // Should have Pyth (4 templates) + Jupiter (1 template) = 5 total
+        // Should have Pyth (4) + Jupiter (1) + Raydium (1) = 6 total
         assert_eq!(
             registry.count(),
-            5,
-            "Registry should load 5 templates total"
+            6,
+            "Registry should load 6 templates total"
         );
 
         assert!(registry.contains("pyth-sol-usd-v2"));
@@ -127,6 +140,7 @@ mod tests {
         assert!(registry.contains("pyth-eth-usd-v2"));
 
         assert!(registry.contains("jupiter-token-ledger-override"));
+        assert!(registry.contains("raydium-cpmm-pool-state-override"));
     }
 
     #[test]
@@ -163,6 +177,9 @@ mod tests {
 
         let jupiter_templates = registry.by_protocol("Jupiter");
         assert_eq!(jupiter_templates.len(), 1, "Should have 1 Jupiter template");
+
+        let raydium_templates = registry.by_protocol("Raydium");
+        assert_eq!(raydium_templates.len(), 1, "Should have 1 Raydium template");
     }
 
     #[test]
@@ -179,8 +196,8 @@ mod tests {
         let dex_templates = registry.by_tags(&[vec!["dex".to_string()]].concat());
         assert_eq!(
             dex_templates.len(),
-            1,
-            "Should find 1 dex template (Jupiter)"
+            2,
+            "Should find 2 dex templates (Jupiter + Raydium)"
         );
 
         let aggregator_templates = registry.by_tags(&[vec!["aggregator".to_string()]].concat());
@@ -209,8 +226,70 @@ mod tests {
         let registry = TemplateRegistry::new();
         let ids = registry.list_ids();
 
-        assert_eq!(ids.len(), 5);
+        assert_eq!(ids.len(), 6);
         assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
         assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
+        assert!(ids.contains(&"raydium-cpmm-pool-state-override".to_string()));
+    }
+
+    #[test]
+    fn test_raydium_cpmm_template_loads_correctly() {
+        let registry = TemplateRegistry::new();
+
+        let raydium_template = registry
+            .get("raydium-cpmm-pool-state-override")
+            .expect("Raydium template should exist");
+
+        assert_eq!(raydium_template.protocol, "Raydium");
+        assert_eq!(raydium_template.account_type, "PoolState");
+        assert_eq!(raydium_template.name, "Override Raydium CPMM Pool State");
+
+        assert_eq!(raydium_template.properties.len(), 22);
+        assert!(
+            raydium_template
+                .properties
+                .contains(&"protocol_fees_token_0".to_string())
+        );
+        assert!(
+            raydium_template
+                .properties
+                .contains(&"lp_supply".to_string())
+        );
+        assert!(raydium_template.properties.contains(&"status".to_string()));
+        assert!(
+            raydium_template
+                .properties
+                .contains(&"token_0_vault".to_string())
+        );
+
+        assert!(raydium_template.tags.contains(&"dex".to_string()));
+        assert!(raydium_template.tags.contains(&"amm".to_string()));
+        assert!(raydium_template.tags.contains(&"liquidity".to_string()));
+    }
+
+    #[test]
+    fn test_raydium_cpmm_idl_has_pool_state_account() {
+        let registry = TemplateRegistry::new();
+        let raydium_template = registry.get("raydium-cpmm-pool-state-override").unwrap();
+
+        let has_pool_state = raydium_template
+            .idl
+            .accounts
+            .iter()
+            .any(|acc| acc.name == "PoolState");
+
+        assert!(has_pool_state, "IDL should contain PoolState account");
+    }
+
+    #[test]
+    fn test_filter_by_liquidity_tag_includes_raydium() {
+        let registry = TemplateRegistry::new();
+
+        let liquidity_templates = registry.by_tags(&[vec!["liquidity".to_string()]].concat());
+        assert_eq!(
+            liquidity_templates.len(),
+            1,
+            "Should find 1 liquidity template (Raydium)"
+        );
     }
 }

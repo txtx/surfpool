@@ -15,6 +15,7 @@ Protocols that are natively supported by Surfpool will have their IDLs included 
 **Currently supported protocols:**
 - **Pyth v2** - Price oracle with 4 price feed templates (SOL/USD, BTC/USD, ETH/BTC, ETH/USD)
 - **Jupiter v6** - DEX aggregator with TokenLedger manipulation template
+- **Raydium CPMM** - Constant Product AMM with pool state manipulation template
 
 For custom protocols, an IDL can be registered at runtime using the [`surfnet_registerIdl`](https://docs.surfpool.run/rpc/cheatcodes#surfnet-registeridl) RPC cheatcode.
 
@@ -35,11 +36,11 @@ All accounts in a surfnet's account db that are owned by the protocol will inclu
 
 The following steps can be followed to natively support a protocol:
  1. Create a folder for the protocol in the `crates/core/src/scenarios/protocols` folder. For example, `crates/core/src/scenarios/protocols/pyth/v2`.
- 2. Add a file called `idl.json` containing the protocol's anchor IDL to the folder. For example, see [Pyth's IDL](./protocols/pyth/v2/idl.json) or [Jupiter's IDL](./protocols/jupiter/v6/idl.json)
- 3. Add a file called `overrides.yaml` to the folder. For example, see [Pyth's Override File](./protocols/pyth/v2/overrides.yaml) or [Jupiter's Override File](./protocols/jupiter/v6/overrides.yaml).
+ 2. Add a file called `idl.json` containing the protocol's anchor IDL to the folder. For example, see [Pyth's IDL](./protocols/pyth/v2/idl.json), [Jupiter's IDL](./protocols/jupiter/v6/idl.json), or [Raydium CPMM's IDL](./protocols/raydium/cpmm/idl.json).
+ 3. Add a file called `overrides.yaml` to the folder. For example, see [Pyth's Override File](./protocols/pyth/v2/overrides.yaml), [Jupiter's Override File](./protocols/jupiter/v6/overrides.yaml), or [Raydium CPMM's Override File](./protocols/raydium/cpmm/overrides.yaml).
     1. This file is what will populate Surfpool Studio's UI with the protocol details. The Pyth override file linked above produces the following in the UI:
    ![Pyth Overrides](../../../..//doc/assets/pyth-overrides.png)
- 4. Update the [registry.rs](./registry.rs) file. A small amount of code has to be written to wire together the template registry, the `overrides.yaml`, and the `idl.json`. See the `load_pyth_overrides` and `load_jupiter_overrides` functions for examples.
+ 4. Update the [registry.rs](./registry.rs) file. A small amount of code has to be written to wire together the template registry, the `overrides.yaml`, and the `idl.json`. See the `load_pyth_overrides`, `load_jupiter_overrides`, and `load_raydium_cpmm_overrides` functions for examples.
 
 If any part of these instructions are beyond your skill level or availability, but you'd like to see a specific protocol supported, feel free to [Open an Issue to Support a new Protocol](https://github.com/txtx/surfpool/issues/new?template=native-scenario-support-for-protocol.md)!
 Opening an issue to signal interest is a big help.

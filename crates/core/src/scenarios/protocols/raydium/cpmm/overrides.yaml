@@ -1,0 +1,39 @@
+protocol: "Raydium"
+version: "CPMM"
+idl_file_path: "idl.json"
+tags:
+  - dex
+  - amm
+  - liquidity
+  - defi
+
+templates:
+  - id: "raydium-cpmm-pool-state-override"
+    name: "Override Raydium CPMM Pool State"
+    description: "Manipulate pool reserves, fees, and status for testing liquidity scenarios"
+    idl_account_name: "PoolState"
+    address:
+      type: pubkey
+    properties:
+      - amm_config
+      - pool_creator
+      - token_0_vault
+      - token_1_vault
+      - lp_mint
+      - token_0_mint
+      - token_1_mint
+      - token_0_program
+      - token_1_program
+      - observation_key
+      - auth_bump
+      - status
+      - lp_mint_decimals
+      - mint_0_decimals
+      - mint_1_decimals
+      - lp_supply
+      - protocol_fees_token_0
+      - protocol_fees_token_1
+      - fund_fees_token_0
+      - fund_fees_token_1
+      - open_time
+      - recent_epoch
