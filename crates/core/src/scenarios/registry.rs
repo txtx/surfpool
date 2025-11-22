@@ -64,7 +64,7 @@ impl TemplateRegistry {
         }
     }
 
-    pub fn load_raydium_overrides(&mut self){
+    pub fn load_raydium_overrides(&mut self) {
         let idl = match serde_json::from_str(RAYDIUM_CLMM_IDL_CONTENT) {
             Ok(idl) => idl,
             Err(e) => panic!("unable to load raydium idl: {}", e),
