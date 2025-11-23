@@ -1,0 +1,55 @@
+protocol: kamino
+version: v1.12.6
+account_type: Reserve
+idl_file_path: idl.json
+
+tags:
+  - lending
+  - risk-engine
+  - defi
+
+templates:
+  - id: kamino-reserve-state
+    name: Override Reserve Liquidity & Rates
+    description: Override Kamino Reserve liquidity and interest rate data
+    idl_account_name: Reserve
+    properties:
+      [
+        liquidity.available_amount,
+        liquidity.borrowed_amount_sf,
+        liquidity.market_price_sf,
+        liquidity.cumulative_borrow_rate_bsf,
+      ]
+    address:
+      type: pubkey
+
+  - id: kamino-reserve-config
+    name: Override Reserve Risk Configuration
+    description: Override Kamino Reserve risk parameters and liquidation settings
+    idl_account_name: Reserve
+    properties:
+      [
+        config.loan_to_value_pct,
+        config.liquidation_threshold_pct,
+        config.min_liquidation_bonus_bps,
+        config.max_liquidation_bonus_bps,
+      ]
+    addresses:
+      type: pubkey
+
+  - id: kamino-obligation-health
+    name: Override Obligation Health
+    description: Override Kamino Obligation health metrics for testing liquidation scenarios
+    idl_account_name: Obligation
+    properties:
+      [
+        last_update_slot,
+        lending_market,
+        owner,
+        deposited_value_sf,
+        borrowed_value_sf,
+        allowed_borrow_value_sf,
+        unhealthy_borrow_value_sf,
+      ]
+    address:
+      type: pubkey
