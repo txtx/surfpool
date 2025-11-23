@@ -135,10 +135,10 @@ mod tests {
     fn test_registry_loads_both_protocols() {
         let registry = TemplateRegistry::new();
 
-        // Should have Pyth (4 templates) + Jupiter (1 template) + Raydium(3 templates) = 5 total
+        // Should have Pyth (4 templates) + Jupiter (1 template) + Raydium(3 templates) + Kamino(3 templates) = 11 total
         assert_eq!(
             registry.count(),
-            8,
+            11,
             "Registry should load 5 templates total"
         );
 
@@ -152,6 +152,10 @@ mod tests {
         assert!(registry.contains("raydium-clmm-sol-usdc"));
         assert!(registry.contains("raydium-clmm-btc-usdc"));
         assert!(registry.contains("raydium-clmm-eth-usdc"));
+
+        assert!(registry.contains("kamino-reserve-state"));
+        assert!(registry.contains("kamino-reserve-config"));
+        assert!(registry.contains("kamino-obligation-health"))
     }
 
     #[test]
@@ -188,6 +192,16 @@ mod tests {
 
         let jupiter_templates = registry.by_protocol("Jupiter");
         assert_eq!(jupiter_templates.len(), 1, "Should have 1 Jupiter template");
+
+        let raydium_templates = registry.by_protocol("Raydium");
+        assert_eq!(
+            raydium_templates.len(),
+            3,
+            "Should have 3 Raydium templates"
+        );
+
+        let kamino_templates = registry.by_protocol("Kamino");
+        assert_eq!(kamino_templates.len(), 3, "Should have 3 Kamino templates");
     }
 
     #[test]
@@ -234,9 +248,12 @@ mod tests {
         let registry = TemplateRegistry::new();
         let ids = registry.list_ids();
 
-        assert_eq!(ids.len(), 8);
+        assert_eq!(ids.len(), 11);
         assert!(ids.contains(&"raydium-clmm-sol-usdc".to_string()));
         assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
         assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
+        assert!(ids.contains(&"kamino-reserve-state".to_string()));
+        assert!(ids.contains(&"kamino-reserve-config".to_string()));
+        assert!(ids.contains(&"kamino-obligation-health".to_string()));
     }
 }
