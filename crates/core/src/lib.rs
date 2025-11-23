@@ -59,7 +59,7 @@ pub struct PluginInfo {
     pub uuid: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FeatureStates {
     pub instruction_profiling_enabled: bool,

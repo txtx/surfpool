@@ -449,15 +449,14 @@ impl AdminRpc for SurfpoolAdminRpc {
     }
 
     fn set_instruction_profiling(&self, meta: Self::Metadata, enabled: bool) -> Result<()> {
-        let svm_locker = meta.get_svm_locker()?;
-        svm_locker.set_instruction_profiling_enabled(enabled);
-
         let Some(ctx) = meta else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             }
             .into());
         };
+
+        ctx.svm_locker.set_instruction_profiling_enabled(enabled);
 
         let _ = ctx
             .svm_locker
@@ -471,15 +470,14 @@ impl AdminRpc for SurfpoolAdminRpc {
     }
 
     fn set_max_profiles(&self, meta: Self::Metadata, capacity: usize) -> Result<()> {
-        let svm_locker = meta.get_svm_locker()?;
-        svm_locker.set_profiling_map_capacity(capacity);
-
         let Some(ctx) = meta else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             }
             .into());
         };
+
+        ctx.svm_locker.set_profiling_map_capacity(capacity);
 
         let _ = ctx
             .svm_locker
@@ -493,15 +491,14 @@ impl AdminRpc for SurfpoolAdminRpc {
     }
 
     fn set_log_bytes_limit(&self, meta: Self::Metadata, limit: Option<usize>) -> Result<()> {
-        let svm_locker = meta.get_svm_locker()?;
-        svm_locker.set_log_bytes_limit(limit);
-
         let Some(ctx) = meta else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             }
             .into());
         };
+
+        ctx.svm_locker.set_log_bytes_limit(limit);
 
         let limit_str = limit
             .map(|l| l.to_string())

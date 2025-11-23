@@ -491,9 +491,9 @@ pub struct FeatureGetCommand {
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 pub struct FeatureProfilingCommand {
-    /// Enable or disable profiling (true/false)
+    /// Enable or disable profiling
     #[arg(value_name = "ENABLED")]
-    pub enabled: String,
+    pub enabled: bool,
     /// RPC URL of the running surfpool instance
     #[arg(long = "rpc-url", default_value = "http://localhost:8899")]
     pub rpc_url: String,
@@ -754,19 +754,9 @@ async fn handle_plugin_commands(cmd: PluginCommand) -> Result<(), String> {
     match cmd {
         PluginCommand::List(cmd) => {
             let result = rpc_call(&cmd.rpc_url, "listPlugins", serde_json::json!([]))?;
-            match result.get("result") {
-                Some(plugins) => {
-                    println!("{}", serde_json::to_string_pretty(plugins).unwrap());
-                    Ok(())
-                }
-                None => {
-                    if let Some(error) = result.get("error") {
-                        Err(format!("RPC error: {}", error))
-                    } else {
-                        Err("Unexpected RPC response".to_string())
-                    }
-                }
-            }
+            let plugins = handle_rpc_response(result)?;
+            println!("{}", serde_json::to_string_pretty(&plugins).unwrap());
+            Ok(())
         }
         PluginCommand::Load(cmd) => {
             let config_content = std::fs::read_to_string(&cmd.config_file)
@@ -776,35 +766,15 @@ async fn handle_plugin_commands(cmd: PluginCommand) -> Result<(), String> {
                 "loadPlugin",
                 serde_json::json!([config_content]),
             )?;
-            match result.get("result") {
-                Some(endpoint) => {
-                    println!("Plugin loaded successfully. Endpoint: {}", endpoint);
-                    Ok(())
-                }
-                None => {
-                    if let Some(error) = result.get("error") {
-                        Err(format!("RPC error: {}", error))
-                    } else {
-                        Err("Unexpected RPC response".to_string())
-                    }
-                }
-            }
+            let endpoint = handle_rpc_response(result)?;
+            println!("Plugin loaded successfully. Endpoint: {}", endpoint);
+            Ok(())
         }
         PluginCommand::Unload(cmd) => {
             let result = rpc_call(&cmd.rpc_url, "unloadPlugin", serde_json::json!([cmd.uuid]))?;
-            match result.get("result") {
-                Some(_) => {
-                    println!("Plugin unloaded successfully");
-                    Ok(())
-                }
-                None => {
-                    if let Some(error) = result.get("error") {
-                        Err(format!("RPC error: {}", error))
-                    } else {
-                        Err("Unexpected RPC response".to_string())
-                    }
-                }
-            }
+            handle_rpc_response(result)?;
+            println!("Plugin unloaded successfully");
+            Ok(())
         }
         PluginCommand::Reload(cmd) => {
             let config_content = std::fs::read_to_string(&cmd.config_file)
@@ -814,19 +784,9 @@ async fn handle_plugin_commands(cmd: PluginCommand) -> Result<(), String> {
                 "reloadPlugin",
                 serde_json::json!([cmd.uuid, config_content]),
             )?;
-            match result.get("result") {
-                Some(_) => {
-                    println!("Plugin reloaded successfully");
-                    Ok(())
-                }
-                None => {
-                    if let Some(error) = result.get("error") {
-                        Err(format!("RPC error: {}", error))
-                    } else {
-                        Err("Unexpected RPC response".to_string())
-                    }
-                }
-            }
+            handle_rpc_response(result)?;
+            println!("Plugin reloaded successfully");
+            Ok(())
         }
     }
 }
@@ -835,54 +795,22 @@ async fn handle_feature_commands(cmd: FeatureCommand) -> Result<(), String> {
     match cmd {
         FeatureCommand::Get(cmd) => {
             let result = rpc_call(&cmd.rpc_url, "getFeatureStates", serde_json::json!([]))?;
-            match result.get("result") {
-                Some(states) => {
-                    println!("{}", serde_json::to_string_pretty(states).unwrap());
-                    Ok(())
-                }
-                None => {
-                    if let Some(error) = result.get("error") {
-                        Err(format!("RPC error: {}", error))
-                    } else {
-                        Err("Unexpected RPC response".to_string())
-                    }
-                }
-            }
+            let states = handle_rpc_response(result)?;
+            println!("{}", serde_json::to_string_pretty(&states).unwrap());
+            Ok(())
         }
         FeatureCommand::Profiling(cmd) => {
-            let enabled = cmd.enabled.to_lowercase();
-            let enabled_bool = match enabled.as_str() {
-                "true" | "1" | "yes" | "on" => true,
-                "false" | "0" | "no" | "off" => false,
-                _ => {
-                    return Err(format!(
-                        "Invalid value '{}'. Use true/false, yes/no, on/off, or 1/0",
-                        cmd.enabled
-                    ));
-                }
-            };
-
             let result = rpc_call(
                 &cmd.rpc_url,
                 "setInstructionProfiling",
-                serde_json::json!([enabled_bool]),
+                serde_json::json!([cmd.enabled]),
             )?;
-            match result.get("result") {
-                Some(_) => {
-                    println!(
-                        "Instruction profiling {}",
-                        if enabled_bool { "enabled" } else { "disabled" }
-                    );
-                    Ok(())
-                }
-                None => {
-                    if let Some(error) = result.get("error") {
-                        Err(format!("RPC error: {}", error))
-                    } else {
-                        Err("Unexpected RPC response".to_string())
-                    }
-                }
-            }
+            handle_rpc_response(result)?;
+            println!(
+                "Instruction profiling {}",
+                if cmd.enabled { "enabled" } else { "disabled" }
+            );
+            Ok(())
         }
         FeatureCommand::MaxProfiles(cmd) => {
             let result = rpc_call(
@@ -890,19 +818,9 @@ async fn handle_feature_commands(cmd: FeatureCommand) -> Result<(), String> {
                 "setMaxProfiles",
                 serde_json::json!([cmd.capacity]),
             )?;
-            match result.get("result") {
-                Some(_) => {
-                    println!("Max profiles set to {}", cmd.capacity);
-                    Ok(())
-                }
-                None => {
-                    if let Some(error) = result.get("error") {
-                        Err(format!("RPC error: {}", error))
-                    } else {
-                        Err("Unexpected RPC response".to_string())
-                    }
-                }
-            }
+            handle_rpc_response(result)?;
+            println!("Max profiles set to {}", cmd.capacity);
+            Ok(())
         }
         FeatureCommand::LogLimit(cmd) => {
             let limit = if cmd.limit == 0 {
@@ -911,26 +829,16 @@ async fn handle_feature_commands(cmd: FeatureCommand) -> Result<(), String> {
                 serde_json::json!(cmd.limit)
             };
             let result = rpc_call(&cmd.rpc_url, "setLogBytesLimit", serde_json::json!([limit]))?;
-            match result.get("result") {
-                Some(_) => {
-                    println!(
-                        "Log bytes limit set to {}",
-                        if cmd.limit == 0 {
-                            "unlimited".to_string()
-                        } else {
-                            cmd.limit.to_string()
-                        }
-                    );
-                    Ok(())
+            handle_rpc_response(result)?;
+            println!(
+                "Log bytes limit set to {}",
+                if cmd.limit == 0 {
+                    "unlimited".to_string()
+                } else {
+                    cmd.limit.to_string()
                 }
-                None => {
-                    if let Some(error) = result.get("error") {
-                        Err(format!("RPC error: {}", error))
-                    } else {
-                        Err("Unexpected RPC response".to_string())
-                    }
-                }
-            }
+            );
+            Ok(())
         }
     }
 }
@@ -947,33 +855,40 @@ fn rpc_call(
         "params": params
     });
 
-    let output = std::process::Command::new("curl")
-        .arg("-sS")
-        .arg("-X")
-        .arg("POST")
-        .arg(url)
-        .arg("-H")
-        .arg("Content-Type: application/json")
-        .arg("-d")
-        .arg(payload.to_string())
-        .output()
-        .map_err(|e| {
-            format!(
-                "Failed to execute curl: {}. Make sure curl is installed.",
-                e
-            )
-        })?;
+    let client = reqwest::blocking::Client::new();
+    let response = client
+        .post(url)
+        .json(&payload)
+        .send()
+        .map_err(|e| format!("Failed to send RPC request: {}", e))?;
 
-    if !output.status.success() {
+    if !response.status().is_success() {
         return Err(format!(
-            "curl command failed: {}",
-            String::from_utf8_lossy(&output.stderr)
+            "RPC request failed with status {}: {}",
+            response.status(),
+            response.text().unwrap_or_default()
         ));
     }
 
-    let response_text = String::from_utf8_lossy(&output.stdout);
-    serde_json::from_str(&response_text)
+    response
+        .json()
         .map_err(|e| format!("Failed to parse JSON response: {}", e))
+}
+
+/// Helper function to extract result from RPC response and handle errors consistently
+fn handle_rpc_response(
+    result: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    match result.get("result") {
+        Some(value) => Ok(value.clone()),
+        None => {
+            if let Some(error) = result.get("error") {
+                Err(format!("RPC error: {}", error))
+            } else {
+                Err("Unexpected RPC response".to_string())
+            }
+        }
+    }
 }
 
 pub fn setup_logger(
