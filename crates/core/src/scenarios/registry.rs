@@ -13,6 +13,10 @@ pub const RAYDIUM_CLMM_IDL_CONTENT: &str = include_str!("./protocols/raydium/v3/
 pub const RAYDIUM_CLMM_OVERRIDES_CONTENT: &str =
     include_str!("./protocols/raydium/v3/overrides.yaml");
 
+pub const METEORA_DLMM_IDL_CONTENT: &str = include_str!("./protocols/meteora/dlmm/v1/idl.json");
+pub const METEORA_DLMM_OVERRIDES_CONTENT: &str =
+    include_str!("./protocols/meteora/dlmm/v1/overrides.yaml");
+
 /// Registry for managing override templates loaded from YAML files
 #[derive(Clone, Debug, Default)]
 pub struct TemplateRegistry {
@@ -27,6 +31,7 @@ impl TemplateRegistry {
         default.load_pyth_overrides();
         default.load_jupiter_overrides();
         default.load_raydium_overrides();
+        default.load_meteora_overrides();
         default
     }
 
@@ -39,6 +44,14 @@ impl TemplateRegistry {
             JUPITER_V6_IDL_CONTENT,
             JUPITER_V6_OVERRIDES_CONTENT,
             "jupiter",
+        );
+    }
+
+    pub fn load_meteora_overrides(&mut self) {
+        self.load_protocol_overrides(
+            METEORA_DLMM_IDL_CONTENT,
+            METEORA_DLMM_OVERRIDES_CONTENT,
+            "meteora",
         );
     }
 
@@ -138,14 +151,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_registry_loads_both_protocols() {
+    fn test_registry_loads_all_protocols() {
         let registry = TemplateRegistry::new();
 
-        // Should have Pyth (4 templates) + Jupiter (1 template) + Raydium(3 templates) = 5 total
+        // Pyth (4) + Jupiter (1) + Raydium (3) + Meteora (2) = 10 total
         assert_eq!(
             registry.count(),
-            8,
-            "Registry should load 5 templates total"
+            10,
+            "Registry should load 10 templates total"
         );
 
         assert!(registry.contains("pyth-sol-usd-v2"));
@@ -158,6 +171,9 @@ mod tests {
         assert!(registry.contains("raydium-clmm-sol-usdc"));
         assert!(registry.contains("raydium-clmm-btc-usdc"));
         assert!(registry.contains("raydium-clmm-eth-usdc"));
+
+        assert!(registry.contains("meteora-dlmm-sol-usdc"));
+        assert!(registry.contains("meteora-dlmm-usdt-sol"));
     }
 
     #[test]
@@ -240,9 +256,10 @@ mod tests {
         let registry = TemplateRegistry::new();
         let ids = registry.list_ids();
 
-        assert_eq!(ids.len(), 8);
+        assert_eq!(ids.len(), 10);
         assert!(ids.contains(&"raydium-clmm-sol-usdc".to_string()));
         assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
         assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
+        assert!(ids.contains(&"meteora-dlmm-sol-usdc".to_string()));
     }
 }

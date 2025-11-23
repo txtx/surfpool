@@ -1,0 +1,29 @@
+protocol: Meteora
+version: v1
+account_type: LbPair
+idl_file_path: idl.json
+
+tags:
+  - dlmm
+  - amm
+  - concentrated-liquidity
+  - defi
+
+templates:
+  - id: meteora-dlmm-sol-usdc
+    name: Override SOL/USDC DLMM Pool
+    description: Override Meteora DLMM SOL/USDC pool state with simulated values
+    idl_account_name: LbPair
+    properties: ["active_id", "status", "bin_step"]
+    address:
+      type: pubkey
+      value: BGm1tav58oGcsQJehL9WXBFXF7D27vZsKefj4xJKD5Y
+
+  - id: meteora-dlmm-usdt-sol
+    name: Override USDT/SOL DLMM Pool
+    description: Override Meteora DLMM USDT/SOL pool state with simulated values
+    idl_account_name: LbPair
+    properties: ["active_id", "status", "bin_step"]
+    address:
+      type: pubkey
+      value: HToiT8XK8GHgAT4N3oGXadc7opdApPwsbCL9tFRYa3Rg
