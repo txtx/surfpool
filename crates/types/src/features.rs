@@ -1,12 +1,27 @@
-use std::{fmt, str::FromStr};
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+use strum::{Display, EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
 
 /// SVM feature flags that can be enabled or disabled via CLI.
 ///
 /// These correspond to the fields in `solana_svm_feature_set::SVMFeatureSet`.
 /// Use kebab-case on the CLI (e.g., `--feature disable-fees-sysvar`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    EnumIter,
+    EnumString,
+    Display,
+    IntoStaticStr,
+)]
+#[strum(serialize_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub enum SvmFeature {
     MovePrecompileVerificationToSvm,
@@ -48,196 +63,25 @@ pub enum SvmFeature {
 }
 
 impl SvmFeature {
-    /// Returns all available SVM features.
-    pub fn all() -> &'static [SvmFeature] {
-        &[
-            SvmFeature::MovePrecompileVerificationToSvm,
-            SvmFeature::StricterAbiAndRuntimeConstraints,
-            SvmFeature::EnableBpfLoaderSetAuthorityCheckedIx,
-            SvmFeature::EnableLoaderV4,
-            SvmFeature::DepleteCuMeterOnVmFailure,
-            SvmFeature::AbortOnInvalidCurve,
-            SvmFeature::Blake3SyscallEnabled,
-            SvmFeature::Curve25519SyscallEnabled,
-            SvmFeature::DisableDeployOfAllocFreeSyscall,
-            SvmFeature::DisableFeesSysvar,
-            SvmFeature::DisableSbpfV0Execution,
-            SvmFeature::EnableAltBn128CompressionSyscall,
-            SvmFeature::EnableAltBn128Syscall,
-            SvmFeature::EnableBigModExpSyscall,
-            SvmFeature::EnableGetEpochStakeSyscall,
-            SvmFeature::EnablePoseidonSyscall,
-            SvmFeature::EnableSbpfV1DeploymentAndExecution,
-            SvmFeature::EnableSbpfV2DeploymentAndExecution,
-            SvmFeature::EnableSbpfV3DeploymentAndExecution,
-            SvmFeature::GetSysvarSyscallEnabled,
-            SvmFeature::LastRestartSlotSysvar,
-            SvmFeature::ReenableSbpfV0Execution,
-            SvmFeature::RemainingComputeUnitsSyscallEnabled,
-            SvmFeature::RemoveBpfLoaderIncorrectProgramId,
-            SvmFeature::MoveStakeAndMoveLamportsIxs,
-            SvmFeature::StakeRaiseMinimumDelegationTo1Sol,
-            SvmFeature::DeprecateLegacyVoteIxs,
-            SvmFeature::MaskOutRentEpochInVmSerialization,
-            SvmFeature::SimplifyAltBn128SyscallErrorCodes,
-            SvmFeature::FixAltBn128MultiplicationInputLength,
-            SvmFeature::IncreaseTxAccountLockLimit,
-            SvmFeature::EnableExtendProgramChecked,
-            SvmFeature::FormalizeLoadedTransactionDataSize,
-            SvmFeature::DisableZkElgamalProofProgram,
-            SvmFeature::ReenableZkElgamalProofProgram,
-            SvmFeature::RaiseCpiNestingLimitTo8,
-        ]
+    /// Returns an iterator over all available SVM features.
+    pub fn all() -> impl Iterator<Item = SvmFeature> {
+        SvmFeature::iter()
     }
 
     /// Returns the kebab-case string representation used in CLI.
     pub fn as_str(&self) -> &'static str {
-        match self {
-            SvmFeature::MovePrecompileVerificationToSvm => "move-precompile-verification-to-svm",
-            SvmFeature::StricterAbiAndRuntimeConstraints => "stricter-abi-and-runtime-constraints",
-            SvmFeature::EnableBpfLoaderSetAuthorityCheckedIx => {
-                "enable-bpf-loader-set-authority-checked-ix"
-            }
-            SvmFeature::EnableLoaderV4 => "enable-loader-v4",
-            SvmFeature::DepleteCuMeterOnVmFailure => "deplete-cu-meter-on-vm-failure",
-            SvmFeature::AbortOnInvalidCurve => "abort-on-invalid-curve",
-            SvmFeature::Blake3SyscallEnabled => "blake3-syscall-enabled",
-            SvmFeature::Curve25519SyscallEnabled => "curve25519-syscall-enabled",
-            SvmFeature::DisableDeployOfAllocFreeSyscall => "disable-deploy-of-alloc-free-syscall",
-            SvmFeature::DisableFeesSysvar => "disable-fees-sysvar",
-            SvmFeature::DisableSbpfV0Execution => "disable-sbpf-v0-execution",
-            SvmFeature::EnableAltBn128CompressionSyscall => "enable-alt-bn128-compression-syscall",
-            SvmFeature::EnableAltBn128Syscall => "enable-alt-bn128-syscall",
-            SvmFeature::EnableBigModExpSyscall => "enable-big-mod-exp-syscall",
-            SvmFeature::EnableGetEpochStakeSyscall => "enable-get-epoch-stake-syscall",
-            SvmFeature::EnablePoseidonSyscall => "enable-poseidon-syscall",
-            SvmFeature::EnableSbpfV1DeploymentAndExecution => {
-                "enable-sbpf-v1-deployment-and-execution"
-            }
-            SvmFeature::EnableSbpfV2DeploymentAndExecution => {
-                "enable-sbpf-v2-deployment-and-execution"
-            }
-            SvmFeature::EnableSbpfV3DeploymentAndExecution => {
-                "enable-sbpf-v3-deployment-and-execution"
-            }
-            SvmFeature::GetSysvarSyscallEnabled => "get-sysvar-syscall-enabled",
-            SvmFeature::LastRestartSlotSysvar => "last-restart-slot-sysvar",
-            SvmFeature::ReenableSbpfV0Execution => "reenable-sbpf-v0-execution",
-            SvmFeature::RemainingComputeUnitsSyscallEnabled => {
-                "remaining-compute-units-syscall-enabled"
-            }
-            SvmFeature::RemoveBpfLoaderIncorrectProgramId => {
-                "remove-bpf-loader-incorrect-program-id"
-            }
-            SvmFeature::MoveStakeAndMoveLamportsIxs => "move-stake-and-move-lamports-ixs",
-            SvmFeature::StakeRaiseMinimumDelegationTo1Sol => {
-                "stake-raise-minimum-delegation-to-1-sol"
-            }
-            SvmFeature::DeprecateLegacyVoteIxs => "deprecate-legacy-vote-ixs",
-            SvmFeature::MaskOutRentEpochInVmSerialization => {
-                "mask-out-rent-epoch-in-vm-serialization"
-            }
-            SvmFeature::SimplifyAltBn128SyscallErrorCodes => {
-                "simplify-alt-bn128-syscall-error-codes"
-            }
-            SvmFeature::FixAltBn128MultiplicationInputLength => {
-                "fix-alt-bn128-multiplication-input-length"
-            }
-            SvmFeature::IncreaseTxAccountLockLimit => "increase-tx-account-lock-limit",
-            SvmFeature::EnableExtendProgramChecked => "enable-extend-program-checked",
-            SvmFeature::FormalizeLoadedTransactionDataSize => {
-                "formalize-loaded-transaction-data-size"
-            }
-            SvmFeature::DisableZkElgamalProofProgram => "disable-zk-elgamal-proof-program",
-            SvmFeature::ReenableZkElgamalProofProgram => "reenable-zk-elgamal-proof-program",
-            SvmFeature::RaiseCpiNestingLimitTo8 => "raise-cpi-nesting-limit-to-8",
-        }
+        self.into()
     }
 }
 
-impl fmt::Display for SvmFeature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl FromStr for SvmFeature {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "move-precompile-verification-to-svm" => {
-                Ok(SvmFeature::MovePrecompileVerificationToSvm)
-            }
-            "stricter-abi-and-runtime-constraints" => {
-                Ok(SvmFeature::StricterAbiAndRuntimeConstraints)
-            }
-            "enable-bpf-loader-set-authority-checked-ix" => {
-                Ok(SvmFeature::EnableBpfLoaderSetAuthorityCheckedIx)
-            }
-            "enable-loader-v4" => Ok(SvmFeature::EnableLoaderV4),
-            "deplete-cu-meter-on-vm-failure" => Ok(SvmFeature::DepleteCuMeterOnVmFailure),
-            "abort-on-invalid-curve" => Ok(SvmFeature::AbortOnInvalidCurve),
-            "blake3-syscall-enabled" => Ok(SvmFeature::Blake3SyscallEnabled),
-            "curve25519-syscall-enabled" => Ok(SvmFeature::Curve25519SyscallEnabled),
-            "disable-deploy-of-alloc-free-syscall" => {
-                Ok(SvmFeature::DisableDeployOfAllocFreeSyscall)
-            }
-            "disable-fees-sysvar" => Ok(SvmFeature::DisableFeesSysvar),
-            "disable-sbpf-v0-execution" => Ok(SvmFeature::DisableSbpfV0Execution),
-            "enable-alt-bn128-compression-syscall" => {
-                Ok(SvmFeature::EnableAltBn128CompressionSyscall)
-            }
-            "enable-alt-bn128-syscall" => Ok(SvmFeature::EnableAltBn128Syscall),
-            "enable-big-mod-exp-syscall" => Ok(SvmFeature::EnableBigModExpSyscall),
-            "enable-get-epoch-stake-syscall" => Ok(SvmFeature::EnableGetEpochStakeSyscall),
-            "enable-poseidon-syscall" => Ok(SvmFeature::EnablePoseidonSyscall),
-            "enable-sbpf-v1-deployment-and-execution" => {
-                Ok(SvmFeature::EnableSbpfV1DeploymentAndExecution)
-            }
-            "enable-sbpf-v2-deployment-and-execution" => {
-                Ok(SvmFeature::EnableSbpfV2DeploymentAndExecution)
-            }
-            "enable-sbpf-v3-deployment-and-execution" => {
-                Ok(SvmFeature::EnableSbpfV3DeploymentAndExecution)
-            }
-            "get-sysvar-syscall-enabled" => Ok(SvmFeature::GetSysvarSyscallEnabled),
-            "last-restart-slot-sysvar" => Ok(SvmFeature::LastRestartSlotSysvar),
-            "reenable-sbpf-v0-execution" => Ok(SvmFeature::ReenableSbpfV0Execution),
-            "remaining-compute-units-syscall-enabled" => {
-                Ok(SvmFeature::RemainingComputeUnitsSyscallEnabled)
-            }
-            "remove-bpf-loader-incorrect-program-id" => {
-                Ok(SvmFeature::RemoveBpfLoaderIncorrectProgramId)
-            }
-            "move-stake-and-move-lamports-ixs" => Ok(SvmFeature::MoveStakeAndMoveLamportsIxs),
-            "stake-raise-minimum-delegation-to-1-sol" => {
-                Ok(SvmFeature::StakeRaiseMinimumDelegationTo1Sol)
-            }
-            "deprecate-legacy-vote-ixs" => Ok(SvmFeature::DeprecateLegacyVoteIxs),
-            "mask-out-rent-epoch-in-vm-serialization" => {
-                Ok(SvmFeature::MaskOutRentEpochInVmSerialization)
-            }
-            "simplify-alt-bn128-syscall-error-codes" => {
-                Ok(SvmFeature::SimplifyAltBn128SyscallErrorCodes)
-            }
-            "fix-alt-bn128-multiplication-input-length" => {
-                Ok(SvmFeature::FixAltBn128MultiplicationInputLength)
-            }
-            "increase-tx-account-lock-limit" => Ok(SvmFeature::IncreaseTxAccountLockLimit),
-            "enable-extend-program-checked" => Ok(SvmFeature::EnableExtendProgramChecked),
-            "formalize-loaded-transaction-data-size" => {
-                Ok(SvmFeature::FormalizeLoadedTransactionDataSize)
-            }
-            "disable-zk-elgamal-proof-program" => Ok(SvmFeature::DisableZkElgamalProofProgram),
-            "reenable-zk-elgamal-proof-program" => Ok(SvmFeature::ReenableZkElgamalProofProgram),
-            "raise-cpi-nesting-limit-to-8" => Ok(SvmFeature::RaiseCpiNestingLimitTo8),
-            _ => Err(format!(
-                "Unknown SVM feature: '{}'. Use --help to see available features.",
-                s
-            )),
-        }
-    }
+/// Parse an SvmFeature from a string, with a custom error message.
+pub fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
+    SvmFeature::from_str(s).map_err(|_| {
+        format!(
+            "Unknown SVM feature: '{}'. Use --help to see available features.",
+            s
+        )
+    })
 }
 
 /// Configuration for SVM features, specifying which features to enable or disable.
@@ -362,8 +206,8 @@ mod tests {
     }
 
     #[test]
-    fn test_feature_from_str_error_message() {
-        let err = SvmFeature::from_str("not-a-feature").unwrap_err();
+    fn test_parse_svm_feature_error_message() {
+        let err = parse_svm_feature("not-a-feature").unwrap_err();
         assert!(err.contains("Unknown SVM feature"));
         assert!(err.contains("not-a-feature"));
     }
@@ -397,7 +241,7 @@ mod tests {
         for feature in SvmFeature::all() {
             let s = feature.to_string();
             let parsed = SvmFeature::from_str(&s).unwrap();
-            assert_eq!(*feature, parsed, "Roundtrip failed for {:?}", feature);
+            assert_eq!(feature, parsed, "Roundtrip failed for {:?}", feature);
         }
     }
 
@@ -406,14 +250,14 @@ mod tests {
     #[test]
     fn test_feature_all_count() {
         // Ensure we have all 36 features
-        assert_eq!(SvmFeature::all().len(), 36);
+        assert_eq!(SvmFeature::all().count(), 36);
     }
 
     #[test]
     fn test_feature_all_unique() {
-        let all = SvmFeature::all();
+        let all: Vec<_> = SvmFeature::all().collect();
         let mut seen = std::collections::HashSet::new();
-        for feature in all {
+        for feature in &all {
             assert!(
                 seen.insert(feature),
                 "Duplicate feature in all(): {:?}",

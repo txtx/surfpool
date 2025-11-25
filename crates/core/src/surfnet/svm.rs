@@ -3331,7 +3331,7 @@ mod tests {
     fn test_feature_to_id_all_features_have_mapping() {
         // Ensure every SvmFeature variant has a valid mapping to a feature ID
         for feature in SvmFeature::all() {
-            let id = SurfnetSvm::feature_to_id(feature);
+            let id = SurfnetSvm::feature_to_id(&feature);
             assert!(
                 id.is_some(),
                 "Feature {:?} should have a valid ID mapping",
