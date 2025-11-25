@@ -1,0 +1,18 @@
+protocol: Jupiter
+version: v6
+idl_file_path: jupiter_v6.json
+
+tags:
+  - dex
+  - aggregator
+  - swap
+  - defi
+
+templates:
+  - id: jupiter-token-ledger-override
+    name: Override Jupiter Token Ledger
+    description: Override intermediate token amounts in multi-hop Jupiter swaps for edge case testing
+    idl_account_name: TokenLedger
+    properties: ["tokenAccount", "amount"]
+    address:
+      type: pubkey

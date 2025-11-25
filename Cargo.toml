@@ -94,14 +94,15 @@ ratatui = { version = "0.29.0", features = [
     "crossterm",
 ], default-features = false }
 reqwest = { version = "0.12.23", default-features = false }
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "ff71a526156e6c9409c450f71eccd6aced9bc339", package = "rmcp" }
+rmcp = "0.9.0"
 rust-embed = "8.2.0"
-schemars = { version = "0.8.22" }
-schemars_derive = { version = "0.8.22" }
+schemars = { version = "1.0.4" }
+schemars_derive = { version = "1.0.4" }
 serde = { version = "1.0.226", default-features = false }
 serde_derive = { version = "1.0.226", default-features = false } # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = { version = "1.0.135", default-features = false }
 serde_with = { version = "3.14.0", default-features = false }
+strum = { version = "0.26", default-features = false, features = ["derive"] }
 solana-account = { version = "3.0.0", default-features = false }
 solana-account-decoder = { git = "https://github.com/txtx/solana", branch = "txtx/increase-tx-size-v3.0.10", default-features = false }
 solana-account-decoder-client-types = { git = "https://github.com/txtx/solana", branch = "txtx/increase-tx-size-v3.0.10", default-features = false }

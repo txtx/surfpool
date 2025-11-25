@@ -2,9 +2,27 @@ use std::{
     cmp::max,
     collections::{BTreeMap, BinaryHeap, HashMap, HashSet, VecDeque},
     str::FromStr,
+    time::SystemTime,
 };
 
-use agave_feature_set::{FeatureSet, enable_extend_program_checked};
+use agave_feature_set::{
+    FeatureSet, abort_on_invalid_curve, blake3_syscall_enabled, curve25519_syscall_enabled,
+    deplete_cu_meter_on_vm_failure, deprecate_legacy_vote_ixs,
+    disable_deploy_of_alloc_free_syscall, disable_fees_sysvar, disable_sbpf_v0_execution,
+    disable_zk_elgamal_proof_program, enable_alt_bn128_compression_syscall,
+    enable_alt_bn128_syscall, enable_big_mod_exp_syscall,
+    enable_bpf_loader_set_authority_checked_ix, enable_extend_program_checked,
+    enable_get_epoch_stake_syscall, enable_loader_v4, enable_poseidon_syscall,
+    enable_sbpf_v1_deployment_and_execution, enable_sbpf_v2_deployment_and_execution,
+    enable_sbpf_v3_deployment_and_execution, fix_alt_bn128_multiplication_input_length,
+    formalize_loaded_transaction_data_size, get_sysvar_syscall_enabled,
+    increase_tx_account_lock_limit, last_restart_slot_sysvar,
+    mask_out_rent_epoch_in_vm_serialization, move_precompile_verification_to_svm,
+    move_stake_and_move_lamports_ixs, raise_cpi_nesting_limit_to_8, reenable_sbpf_v0_execution,
+    reenable_zk_elgamal_proof_program, remaining_compute_units_syscall_enabled,
+    remove_bpf_loader_incorrect_program_id, simplify_alt_bn128_syscall_error_codes,
+    stake_raise_minimum_delegation_to_1_sol, stricter_abi_and_runtime_constraints,
+};
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use convert_case::Casing;
@@ -54,8 +72,9 @@ use surfpool_types::{
     AccountChange, AccountProfileState, AccountSnapshot, DEFAULT_PROFILING_MAP_CAPACITY,
     DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, ExportSnapshotScope, FifoMap, Idl,
     OverrideInstance, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
-    RunbookExecutionStatusReport, SimnetEvent, TransactionConfirmationStatus,
-    TransactionStatusEvent, UiAccountChange, UiAccountProfileState, UiProfileResult, VersionedIdl,
+    RunbookExecutionStatusReport, SimnetEvent, SvmFeature, SvmFeatureConfig,
+    TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
+    UiProfileResult, VersionedIdl,
     types::{
         ComputeUnitsEstimationResult, KeyedProfileResult, UiKeyedProfileResult, UuidOrSignature,
     },
@@ -224,6 +243,7 @@ pub struct SurfnetSvm {
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
+    pub start_time: SystemTime,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: HashMap<Pubkey, TokenAccount>,
@@ -320,6 +340,7 @@ impl SurfnetSvm {
             logs_subscriptions: Vec::new(),
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
+            start_time: SystemTime::now(),
             accounts_by_owner,
             account_associated_data: HashMap::new(),
             token_accounts: HashMap::new(),
@@ -349,6 +370,114 @@ impl SurfnetSvm {
         svm.chain_tip = svm.new_blockhash();
 
         (svm, simnet_events_rx, geyser_events_rx)
+    }
+
+    /// Applies the SVM feature configuration to the internal feature set.
+    ///
+    /// This method enables or disables specific SVM features based on the provided configuration.
+    /// Features explicitly listed in `enable` will be activated, and features in `disable` will be deactivated.
+    ///
+    /// # Arguments
+    /// * `config` - The feature configuration specifying which features to enable/disable.
+    pub fn apply_feature_config(&mut self, config: &SvmFeatureConfig) {
+        // Apply explicit enables
+        for feature in &config.enable {
+            if let Some(id) = Self::feature_to_id(feature) {
+                self.feature_set.activate(&id, 0);
+            }
+        }
+
+        // Apply explicit disables
+        for feature in &config.disable {
+            if let Some(id) = Self::feature_to_id(feature) {
+                self.feature_set.deactivate(&id);
+            }
+        }
+
+        // Rebuild LiteSVM with updated feature set
+        self.inner = LiteSVM::new()
+            .with_feature_set(self.feature_set.clone())
+            .with_blockhash_check(false)
+            .with_sigverify(false);
+
+        // Re-add the native mint
+        create_native_mint(&mut self.inner);
+    }
+
+    /// Maps an SvmFeature enum variant to its corresponding feature ID (Pubkey).
+    fn feature_to_id(feature: &SvmFeature) -> Option<Pubkey> {
+        match feature {
+            SvmFeature::MovePrecompileVerificationToSvm => {
+                Some(move_precompile_verification_to_svm::id())
+            }
+            SvmFeature::StricterAbiAndRuntimeConstraints => {
+                Some(stricter_abi_and_runtime_constraints::id())
+            }
+            SvmFeature::EnableBpfLoaderSetAuthorityCheckedIx => {
+                Some(enable_bpf_loader_set_authority_checked_ix::id())
+            }
+            SvmFeature::EnableLoaderV4 => Some(enable_loader_v4::id()),
+            SvmFeature::DepleteCuMeterOnVmFailure => Some(deplete_cu_meter_on_vm_failure::id()),
+            SvmFeature::AbortOnInvalidCurve => Some(abort_on_invalid_curve::id()),
+            SvmFeature::Blake3SyscallEnabled => Some(blake3_syscall_enabled::id()),
+            SvmFeature::Curve25519SyscallEnabled => Some(curve25519_syscall_enabled::id()),
+            SvmFeature::DisableDeployOfAllocFreeSyscall => {
+                Some(disable_deploy_of_alloc_free_syscall::id())
+            }
+            SvmFeature::DisableFeesSysvar => Some(disable_fees_sysvar::id()),
+            SvmFeature::DisableSbpfV0Execution => Some(disable_sbpf_v0_execution::id()),
+            SvmFeature::EnableAltBn128CompressionSyscall => {
+                Some(enable_alt_bn128_compression_syscall::id())
+            }
+            SvmFeature::EnableAltBn128Syscall => Some(enable_alt_bn128_syscall::id()),
+            SvmFeature::EnableBigModExpSyscall => Some(enable_big_mod_exp_syscall::id()),
+            SvmFeature::EnableGetEpochStakeSyscall => Some(enable_get_epoch_stake_syscall::id()),
+            SvmFeature::EnablePoseidonSyscall => Some(enable_poseidon_syscall::id()),
+            SvmFeature::EnableSbpfV1DeploymentAndExecution => {
+                Some(enable_sbpf_v1_deployment_and_execution::id())
+            }
+            SvmFeature::EnableSbpfV2DeploymentAndExecution => {
+                Some(enable_sbpf_v2_deployment_and_execution::id())
+            }
+            SvmFeature::EnableSbpfV3DeploymentAndExecution => {
+                Some(enable_sbpf_v3_deployment_and_execution::id())
+            }
+            SvmFeature::GetSysvarSyscallEnabled => Some(get_sysvar_syscall_enabled::id()),
+            SvmFeature::LastRestartSlotSysvar => Some(last_restart_slot_sysvar::id()),
+            SvmFeature::ReenableSbpfV0Execution => Some(reenable_sbpf_v0_execution::id()),
+            SvmFeature::RemainingComputeUnitsSyscallEnabled => {
+                Some(remaining_compute_units_syscall_enabled::id())
+            }
+            SvmFeature::RemoveBpfLoaderIncorrectProgramId => {
+                Some(remove_bpf_loader_incorrect_program_id::id())
+            }
+            SvmFeature::MoveStakeAndMoveLamportsIxs => Some(move_stake_and_move_lamports_ixs::id()),
+            SvmFeature::StakeRaiseMinimumDelegationTo1Sol => {
+                Some(stake_raise_minimum_delegation_to_1_sol::id())
+            }
+            SvmFeature::DeprecateLegacyVoteIxs => Some(deprecate_legacy_vote_ixs::id()),
+            SvmFeature::MaskOutRentEpochInVmSerialization => {
+                Some(mask_out_rent_epoch_in_vm_serialization::id())
+            }
+            SvmFeature::SimplifyAltBn128SyscallErrorCodes => {
+                Some(simplify_alt_bn128_syscall_error_codes::id())
+            }
+            SvmFeature::FixAltBn128MultiplicationInputLength => {
+                Some(fix_alt_bn128_multiplication_input_length::id())
+            }
+            SvmFeature::IncreaseTxAccountLockLimit => Some(increase_tx_account_lock_limit::id()),
+            SvmFeature::EnableExtendProgramChecked => Some(enable_extend_program_checked::id()),
+            SvmFeature::FormalizeLoadedTransactionDataSize => {
+                Some(formalize_loaded_transaction_data_size::id())
+            }
+            SvmFeature::DisableZkElgamalProofProgram => {
+                Some(disable_zk_elgamal_proof_program::id())
+            }
+            SvmFeature::ReenableZkElgamalProofProgram => {
+                Some(reenable_zk_elgamal_proof_program::id())
+            }
+            SvmFeature::RaiseCpiNestingLimitTo8 => Some(raise_cpi_nesting_limit_to_8::id()),
+        }
     }
 
     pub fn increment_write_version(&mut self) -> u64 {
@@ -3194,5 +3323,200 @@ mod tests {
         let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
         svm.set_profiling_map_capacity(10);
         assert_eq!(svm.executed_transaction_profiles.capacity(), 10);
+    }
+
+    // ==================== Feature configuration tests ====================
+
+    #[test]
+    fn test_feature_to_id_all_features_have_mapping() {
+        // Ensure every SvmFeature variant has a valid mapping to a feature ID
+        for feature in SvmFeature::all() {
+            let id = SurfnetSvm::feature_to_id(&feature);
+            assert!(
+                id.is_some(),
+                "Feature {:?} should have a valid ID mapping",
+                feature
+            );
+        }
+    }
+
+    #[test]
+    fn test_feature_to_id_returns_valid_pubkeys() {
+        // Spot check a few known features
+        let loader_v4_id = SurfnetSvm::feature_to_id(&SvmFeature::EnableLoaderV4);
+        assert!(loader_v4_id.is_some());
+        assert_ne!(loader_v4_id.unwrap(), Pubkey::default());
+
+        let disable_fees_id = SurfnetSvm::feature_to_id(&SvmFeature::DisableFeesSysvar);
+        assert!(disable_fees_id.is_some());
+        assert_ne!(disable_fees_id.unwrap(), Pubkey::default());
+
+        // Different features should have different IDs
+        assert_ne!(loader_v4_id, disable_fees_id);
+    }
+
+    #[test]
+    fn test_apply_feature_config_empty() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let config = SvmFeatureConfig::new();
+
+        // Should not panic with empty config
+        svm.apply_feature_config(&config);
+    }
+
+    #[test]
+    fn test_apply_feature_config_enable_feature() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        // Disable a feature first
+        let feature_id = enable_loader_v4::id();
+        svm.feature_set.deactivate(&feature_id);
+        assert!(!svm.feature_set.is_active(&feature_id));
+
+        // Now enable it via config
+        let config = SvmFeatureConfig::new().enable(SvmFeature::EnableLoaderV4);
+        svm.apply_feature_config(&config);
+
+        assert!(svm.feature_set.is_active(&feature_id));
+    }
+
+    #[test]
+    fn test_apply_feature_config_disable_feature() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        // Feature should be active by default (all_enabled)
+        let feature_id = disable_fees_sysvar::id();
+        assert!(svm.feature_set.is_active(&feature_id));
+
+        // Now disable it via config
+        let config = SvmFeatureConfig::new().disable(SvmFeature::DisableFeesSysvar);
+        svm.apply_feature_config(&config);
+
+        assert!(!svm.feature_set.is_active(&feature_id));
+    }
+
+    #[test]
+    fn test_apply_feature_config_mainnet_defaults() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let config = SvmFeatureConfig::default_mainnet_features();
+
+        svm.apply_feature_config(&config);
+
+        // Features disabled on mainnet should now be inactive
+        assert!(!svm.feature_set.is_active(&enable_loader_v4::id()));
+        assert!(
+            !svm.feature_set
+                .is_active(&enable_extend_program_checked::id())
+        );
+        assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
+        assert!(
+            !svm.feature_set
+                .is_active(&enable_sbpf_v1_deployment_and_execution::id())
+        );
+        assert!(
+            !svm.feature_set
+                .is_active(&formalize_loaded_transaction_data_size::id())
+        );
+        assert!(
+            !svm.feature_set
+                .is_active(&move_precompile_verification_to_svm::id())
+        );
+
+        // Features active on mainnet should still be active
+        assert!(svm.feature_set.is_active(&disable_fees_sysvar::id()));
+        assert!(svm.feature_set.is_active(&curve25519_syscall_enabled::id()));
+        assert!(
+            svm.feature_set
+                .is_active(&enable_sbpf_v2_deployment_and_execution::id())
+        );
+        assert!(
+            svm.feature_set
+                .is_active(&enable_sbpf_v3_deployment_and_execution::id())
+        );
+        assert!(
+            svm.feature_set
+                .is_active(&raise_cpi_nesting_limit_to_8::id())
+        );
+    }
+
+    #[test]
+    fn test_apply_feature_config_mainnet_with_override() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        // Start with mainnet defaults, but enable loader v4
+        let config =
+            SvmFeatureConfig::default_mainnet_features().enable(SvmFeature::EnableLoaderV4);
+
+        svm.apply_feature_config(&config);
+
+        // Loader v4 should be enabled despite mainnet defaults
+        assert!(svm.feature_set.is_active(&enable_loader_v4::id()));
+
+        // Other mainnet-disabled features should still be disabled
+        assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
+        assert!(
+            !svm.feature_set
+                .is_active(&enable_extend_program_checked::id())
+        );
+    }
+
+    #[test]
+    fn test_apply_feature_config_multiple_changes() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let config = SvmFeatureConfig::new()
+            .enable(SvmFeature::EnableLoaderV4)
+            .enable(SvmFeature::EnableSbpfV2DeploymentAndExecution)
+            .disable(SvmFeature::DisableFeesSysvar)
+            .disable(SvmFeature::Blake3SyscallEnabled);
+
+        svm.apply_feature_config(&config);
+
+        assert!(svm.feature_set.is_active(&enable_loader_v4::id()));
+        assert!(
+            svm.feature_set
+                .is_active(&enable_sbpf_v2_deployment_and_execution::id())
+        );
+        assert!(!svm.feature_set.is_active(&disable_fees_sysvar::id()));
+        assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
+    }
+
+    #[test]
+    fn test_apply_feature_config_preserves_native_mint() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        // Native mint should exist before
+        assert!(
+            svm.inner
+                .get_account(&spl_token_interface::native_mint::ID)
+                .is_some()
+        );
+
+        let config = SvmFeatureConfig::new().disable(SvmFeature::DisableFeesSysvar);
+        svm.apply_feature_config(&config);
+
+        // Native mint should still exist after (re-added in apply_feature_config)
+        assert!(
+            svm.inner
+                .get_account(&spl_token_interface::native_mint::ID)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn test_apply_feature_config_idempotent() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let config = SvmFeatureConfig::new()
+            .enable(SvmFeature::EnableLoaderV4)
+            .disable(SvmFeature::DisableFeesSysvar);
+
+        // Apply twice
+        svm.apply_feature_config(&config);
+        svm.apply_feature_config(&config);
+
+        // State should be the same
+        assert!(svm.feature_set.is_active(&enable_loader_v4::id()));
+        assert!(!svm.feature_set.is_active(&disable_fees_sysvar::id()));
     }
 }
