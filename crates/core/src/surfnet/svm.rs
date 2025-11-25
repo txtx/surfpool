@@ -9,18 +9,19 @@ use agave_feature_set::{
     FeatureSet, abort_on_invalid_curve, blake3_syscall_enabled, curve25519_syscall_enabled,
     deplete_cu_meter_on_vm_failure, deprecate_legacy_vote_ixs,
     disable_deploy_of_alloc_free_syscall, disable_fees_sysvar, disable_sbpf_v0_execution,
-    disable_zk_elgamal_proof_program, enable_alt_bn128_compression_syscall, enable_alt_bn128_syscall,
-    enable_big_mod_exp_syscall, enable_bpf_loader_set_authority_checked_ix,
-    enable_extend_program_checked, enable_get_epoch_stake_syscall, enable_loader_v4,
-    enable_poseidon_syscall, enable_sbpf_v1_deployment_and_execution,
-    enable_sbpf_v2_deployment_and_execution, enable_sbpf_v3_deployment_and_execution,
+    disable_zk_elgamal_proof_program, enable_alt_bn128_compression_syscall,
+    enable_alt_bn128_syscall, enable_big_mod_exp_syscall,
+    enable_bpf_loader_set_authority_checked_ix, enable_extend_program_checked,
+    enable_get_epoch_stake_syscall, enable_loader_v4, enable_poseidon_syscall,
+    enable_sbpf_v1_deployment_and_execution, enable_sbpf_v2_deployment_and_execution,
+    enable_sbpf_v3_deployment_and_execution, fix_alt_bn128_multiplication_input_length,
     formalize_loaded_transaction_data_size, get_sysvar_syscall_enabled,
     increase_tx_account_lock_limit, last_restart_slot_sysvar,
     mask_out_rent_epoch_in_vm_serialization, move_precompile_verification_to_svm,
     move_stake_and_move_lamports_ixs, raise_cpi_nesting_limit_to_8, reenable_sbpf_v0_execution,
     reenable_zk_elgamal_proof_program, remaining_compute_units_syscall_enabled,
     remove_bpf_loader_incorrect_program_id, simplify_alt_bn128_syscall_error_codes,
-    stake_raise_minimum_delegation_to_1_sol, stricter_abi_and_runtime_constraints, fix_alt_bn128_multiplication_input_length,
+    stake_raise_minimum_delegation_to_1_sol, stricter_abi_and_runtime_constraints,
 };
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
@@ -3403,28 +3404,39 @@ mod tests {
 
         // Features disabled on mainnet should now be inactive
         assert!(!svm.feature_set.is_active(&enable_loader_v4::id()));
-        assert!(!svm.feature_set.is_active(&enable_extend_program_checked::id()));
+        assert!(
+            !svm.feature_set
+                .is_active(&enable_extend_program_checked::id())
+        );
         assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
-        assert!(!svm
-            .feature_set
-            .is_active(&enable_sbpf_v1_deployment_and_execution::id()));
-        assert!(!svm
-            .feature_set
-            .is_active(&formalize_loaded_transaction_data_size::id()));
-        assert!(!svm
-            .feature_set
-            .is_active(&move_precompile_verification_to_svm::id()));
+        assert!(
+            !svm.feature_set
+                .is_active(&enable_sbpf_v1_deployment_and_execution::id())
+        );
+        assert!(
+            !svm.feature_set
+                .is_active(&formalize_loaded_transaction_data_size::id())
+        );
+        assert!(
+            !svm.feature_set
+                .is_active(&move_precompile_verification_to_svm::id())
+        );
 
         // Features active on mainnet should still be active
         assert!(svm.feature_set.is_active(&disable_fees_sysvar::id()));
         assert!(svm.feature_set.is_active(&curve25519_syscall_enabled::id()));
-        assert!(svm
-            .feature_set
-            .is_active(&enable_sbpf_v2_deployment_and_execution::id()));
-        assert!(svm
-            .feature_set
-            .is_active(&enable_sbpf_v3_deployment_and_execution::id()));
-        assert!(svm.feature_set.is_active(&raise_cpi_nesting_limit_to_8::id()));
+        assert!(
+            svm.feature_set
+                .is_active(&enable_sbpf_v2_deployment_and_execution::id())
+        );
+        assert!(
+            svm.feature_set
+                .is_active(&enable_sbpf_v3_deployment_and_execution::id())
+        );
+        assert!(
+            svm.feature_set
+                .is_active(&raise_cpi_nesting_limit_to_8::id())
+        );
     }
 
     #[test]
@@ -3442,7 +3454,10 @@ mod tests {
 
         // Other mainnet-disabled features should still be disabled
         assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
-        assert!(!svm.feature_set.is_active(&enable_extend_program_checked::id()));
+        assert!(
+            !svm.feature_set
+                .is_active(&enable_extend_program_checked::id())
+        );
     }
 
     #[test]
@@ -3458,9 +3473,10 @@ mod tests {
         svm.apply_feature_config(&config);
 
         assert!(svm.feature_set.is_active(&enable_loader_v4::id()));
-        assert!(svm
-            .feature_set
-            .is_active(&enable_sbpf_v2_deployment_and_execution::id()));
+        assert!(
+            svm.feature_set
+                .is_active(&enable_sbpf_v2_deployment_and_execution::id())
+        );
         assert!(!svm.feature_set.is_active(&disable_fees_sysvar::id()));
         assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
     }
@@ -3470,19 +3486,21 @@ mod tests {
         let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
 
         // Native mint should exist before
-        assert!(svm
-            .inner
-            .get_account(&spl_token_interface::native_mint::ID)
-            .is_some());
+        assert!(
+            svm.inner
+                .get_account(&spl_token_interface::native_mint::ID)
+                .is_some()
+        );
 
         let config = SvmFeatureConfig::new().disable(SvmFeature::DisableFeesSysvar);
         svm.apply_feature_config(&config);
 
         // Native mint should still exist after (re-added in apply_feature_config)
-        assert!(svm
-            .inner
-            .get_account(&spl_token_interface::native_mint::ID)
-            .is_some());
+        assert!(
+            svm.inner
+                .get_account(&spl_token_interface::native_mint::ID)
+                .is_some()
+        );
     }
 
     #[test]

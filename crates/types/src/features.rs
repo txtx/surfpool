@@ -166,7 +166,9 @@ impl FromStr for SvmFeature {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "move-precompile-verification-to-svm" => Ok(SvmFeature::MovePrecompileVerificationToSvm),
+            "move-precompile-verification-to-svm" => {
+                Ok(SvmFeature::MovePrecompileVerificationToSvm)
+            }
             "stricter-abi-and-runtime-constraints" => {
                 Ok(SvmFeature::StricterAbiAndRuntimeConstraints)
             }
@@ -565,10 +567,7 @@ mod tests {
             config.is_enabled(&SvmFeature::EnableExtendProgramChecked),
             Some(false)
         );
-        assert_eq!(
-            config.is_enabled(&SvmFeature::EnableLoaderV4),
-            Some(false)
-        );
+        assert_eq!(config.is_enabled(&SvmFeature::EnableLoaderV4), Some(false));
         assert_eq!(
             config.is_enabled(&SvmFeature::EnableSbpfV1DeploymentAndExecution),
             Some(false)
@@ -623,7 +622,10 @@ mod tests {
         // Features that ARE active on mainnet should not be in disable list
         // These should return None (use default, which is enabled)
         assert_eq!(config.is_enabled(&SvmFeature::DisableFeesSysvar), None);
-        assert_eq!(config.is_enabled(&SvmFeature::Curve25519SyscallEnabled), None);
+        assert_eq!(
+            config.is_enabled(&SvmFeature::Curve25519SyscallEnabled),
+            None
+        );
         assert_eq!(config.is_enabled(&SvmFeature::EnableAltBn128Syscall), None);
         assert_eq!(config.is_enabled(&SvmFeature::EnablePoseidonSyscall), None);
         assert_eq!(
