@@ -15,7 +15,8 @@ use surfpool_mcp::McpOptions;
 use surfpool_types::{
     BlockProductionMode, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
     DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT, DEFAULT_SLOT_TIME_MS, DEFAULT_WS_PORT, RpcConfig,
-    SimnetConfig, SimnetEvent, StudioConfig, SubgraphConfig, SurfpoolConfig,
+    SimnetConfig, SimnetEvent, StudioConfig, SubgraphConfig, SurfpoolConfig, SvmFeature,
+    SvmFeatureConfig,
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -227,6 +228,19 @@ pub struct StartSimnet {
     /// Path to the Test.toml test suite files to load (eg. surfpool start --anchor-test-config-path ./path/to/Test.toml)
     #[arg(long = "anchor-test-config-path")]
     pub anchor_test_config_paths: Vec<String>,
+    /// Enable specific SVM features. Can be specified multiple times. (eg. surfpool start --feature enable-loader-v4 --feature enable-sbpf-v2-deployment-and-execution)
+    #[arg(long = "feature", short = 'f', value_parser = parse_svm_feature)]
+    pub features: Vec<SvmFeature>,
+    /// Disable specific SVM features. Can be specified multiple times. (eg. surfpool start --disable-feature disable-fees-sysvar)
+    #[arg(long = "disable-feature", value_parser = parse_svm_feature)]
+    pub disable_features: Vec<SvmFeature>,
+    /// Enable all SVM features (override mainnet defaults which are used by default)
+    #[clap(long = "features-all", action=ArgAction::SetTrue, default_value = "false")]
+    pub all_features: bool,
+}
+
+fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
+    SvmFeature::from_str(s)
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -319,6 +333,27 @@ impl StartSimnet {
         }
     }
 
+    pub fn feature_config(&self) -> SvmFeatureConfig {
+        // Use mainnet defaults by default, --all-features enables everything
+        let mut config = if self.all_features {
+            SvmFeatureConfig::default()
+        } else {
+            SvmFeatureConfig::default_mainnet_features()
+        };
+
+        // Apply explicit enables (these override defaults)
+        for feature in &self.features {
+            config = config.enable(*feature);
+        }
+
+        // Apply explicit disables (these override defaults)
+        for feature in &self.disable_features {
+            config = config.disable(*feature);
+        }
+
+        config
+    }
+
     pub fn simnet_config(&self, airdrop_addresses: Vec<Pubkey>) -> SimnetConfig {
         let remote_rpc_url = if !self.offline {
             Some(self.datasource_rpc_url())
@@ -341,6 +376,7 @@ impl StartSimnet {
             } else {
                 Some(self.log_bytes_limit)
             },
+            feature_config: self.feature_config(),
         }
     }
 
