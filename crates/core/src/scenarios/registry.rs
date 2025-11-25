@@ -9,6 +9,11 @@ pub const JUPITER_V6_IDL_CONTENT: &str = include_str!("./protocols/jupiter/v6/id
 pub const JUPITER_V6_OVERRIDES_CONTENT: &str =
     include_str!("./protocols/jupiter/v6/overrides.yaml");
 
+pub const SWITCHBOARD_ON_DEMAND_IDL_CONTENT: &str =
+    include_str!("./protocols/switchboard/on-demand/idl.json");
+pub const SWITCHBOARD_ON_DEMAND_OVERRIDES_CONTENT: &str =
+    include_str!("./protocols/switchboard/on-demand/overrides.yaml");
+
 pub const RAYDIUM_CLMM_IDL_CONTENT: &str = include_str!("./protocols/raydium/v3/idl.json");
 pub const RAYDIUM_CLMM_OVERRIDES_CONTENT: &str =
     include_str!("./protocols/raydium/v3/overrides.yaml");
@@ -27,6 +32,7 @@ impl TemplateRegistry {
         default.load_pyth_overrides();
         default.load_jupiter_overrides();
         default.load_raydium_overrides();
+        default.load_switchboard_on_demand_overrides();
         default
     }
 
@@ -39,6 +45,14 @@ impl TemplateRegistry {
             JUPITER_V6_IDL_CONTENT,
             JUPITER_V6_OVERRIDES_CONTENT,
             "jupiter",
+        );
+    }
+
+    pub fn load_switchboard_on_demand_overrides(&mut self) {
+        self.load_protocol_overrides(
+            SWITCHBOARD_ON_DEMAND_IDL_CONTENT,
+            SWITCHBOARD_ON_DEMAND_OVERRIDES_CONTENT,
+            "switchboard-on-demand",
         );
     }
 
@@ -141,11 +155,11 @@ mod tests {
     fn test_registry_loads_both_protocols() {
         let registry = TemplateRegistry::new();
 
-        // Should have Pyth (4 templates) + Jupiter (1 template) + Raydium(3 templates) = 5 total
+        // Should have Pyth (4) + Jupiter (1) + Raydium (3) + Switchboard (1) = 9 total
         assert_eq!(
             registry.count(),
-            8,
-            "Registry should load 5 templates total"
+            9,
+            "Registry should load 9 templates total"
         );
 
         assert!(registry.contains("pyth-sol-usd-v2"));
@@ -158,6 +172,8 @@ mod tests {
         assert!(registry.contains("raydium-clmm-sol-usdc"));
         assert!(registry.contains("raydium-clmm-btc-usdc"));
         assert!(registry.contains("raydium-clmm-eth-usdc"));
+
+        assert!(registry.contains("switchboard-quote-override"));
     }
 
     #[test]
@@ -203,8 +219,8 @@ mod tests {
         let oracle_templates = registry.by_tags(&[vec!["oracle".to_string()]].concat());
         assert_eq!(
             oracle_templates.len(),
-            4,
-            "Should find 4 oracle templates (Pyth)"
+            5,
+            "Should find 5 oracle templates (Pyth + Switchboard)"
         );
 
         let dex_templates = registry.by_tags(&[vec!["dex".to_string()]].concat());
@@ -240,9 +256,78 @@ mod tests {
         let registry = TemplateRegistry::new();
         let ids = registry.list_ids();
 
-        assert_eq!(ids.len(), 8);
+        assert_eq!(ids.len(), 9);
         assert!(ids.contains(&"raydium-clmm-sol-usdc".to_string()));
         assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
         assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
     }
+}
+
+#[test]
+fn test_switchboard_template_loads_correctly() {
+    let registry = TemplateRegistry::new();
+
+    let switchboard_template = registry
+        .get("switchboard-quote-override")
+        .expect("Switchboard template should exist");
+
+    assert_eq!(switchboard_template.protocol, "Switchboard");
+    assert_eq!(switchboard_template.account_type, "SwitchboardQuote");
+    assert_eq!(
+        switchboard_template.name,
+        "Override Switchboard Oracle Quote"
+    );
+
+    assert_eq!(switchboard_template.properties.len(), 3);
+    assert!(
+        switchboard_template
+            .properties
+            .contains(&"queue".to_string())
+    );
+    assert!(
+        switchboard_template
+            .properties
+            .contains(&"slot".to_string())
+    );
+    assert!(
+        switchboard_template
+            .properties
+            .contains(&"version".to_string())
+    );
+
+    assert!(switchboard_template.tags.contains(&"oracle".to_string()));
+    assert!(
+        switchboard_template
+            .tags
+            .contains(&"price-feed".to_string())
+    );
+}
+
+#[test]
+fn test_switchboard_idl_has_quote_account() {
+    let registry = TemplateRegistry::new();
+    let switchboard_template = registry.get("switchboard-quote-override").unwrap();
+
+    let has_quote_account = switchboard_template
+        .idl
+        .accounts
+        .iter()
+        .any(|acc| acc.name == "SwitchboardQuote");
+
+    assert!(
+        has_quote_account,
+        "IDL should contain SwitchboardQuote account"
+    );
+}
+
+#[test]
+fn test_filter_by_oracle_tag_includes_switchboard() {
+    let registry = TemplateRegistry::new();
+
+    let oracle_templates = registry.by_tags(&[vec!["oracle".to_string()]].concat());
+    // Should include Pyth (4) + Switchboard (1) = 5
+    assert!(
+        oracle_templates.len() >= 5,
+        "Should find at least 5 oracle templates (Pyth + Switchboard)"
+    );
 }

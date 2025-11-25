@@ -1,0 +1,20 @@
+protocol: "Switchboard"
+version: "on-demand"
+idl_file_path: "idl.json"
+tags:
+  - oracle
+  - price-feed
+  - defi
+  - on-demand
+
+templates:
+  - id: "switchboard-quote-override"
+    name: "Override Switchboard Oracle Quote"
+    description: "Manipulate oracle quote data for testing price feeds and signature verification"
+    idl_account_name: "SwitchboardQuote"
+    address:
+      type: pubkey
+    properties:
+      - queue
+      - slot
+      - version
