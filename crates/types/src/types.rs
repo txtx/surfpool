@@ -646,10 +646,21 @@ pub struct CreateSurfnetRequest {
     pub settings: Option<CloudSurfnetSettings>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case", default)]
 pub struct CloudSurfnetSettings {
     pub profiling_disabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gating: Option<CloudSurfnetRpcGating>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case", default)]
+pub struct CloudSurfnetRpcGating {
+    pub private_methods_secret_token: Option<String>,
+    pub private_methods: Vec<String>,
+    pub public_methods: Vec<String>,
+    pub disabled_methods: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
