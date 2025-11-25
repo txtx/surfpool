@@ -240,7 +240,12 @@ pub struct StartSimnet {
 }
 
 fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
-    SvmFeature::from_str(s)
+    SvmFeature::from_str(s).map_err(|_| {
+        format!(
+            "Unknown SVM feature: '{}'. Use --help to see available features.",
+            s
+        )
+    })
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
