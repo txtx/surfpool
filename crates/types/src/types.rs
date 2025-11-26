@@ -568,15 +568,19 @@ impl Default for SimnetConfig {
 }
 
 impl SimnetConfig {
+    /// Returns a sanitized version of the datasource URL safe for display.
+    /// Only returns scheme and host (e.g., "https://example.com") to prevent
+    /// leaking API keys in paths or query parameters.
     pub fn get_sanitized_datasource_url(&self) -> Option<String> {
         let raw = self.remote_rpc_url.as_ref()?;
-        let base = raw
-            .split('?')
-            .next()
-            .map(|s| s.trim())
-            .unwrap_or_default()
-            .to_string();
-        if base.is_empty() { None } else { Some(base) }
+
+        if let Ok(url) = url::Url::parse(raw) {
+            let scheme = url.scheme();
+            let host = url.host_str()?;
+            Some(format!("{}://{}", scheme, host))
+        } else {
+            None
+        }
     }
 }
 
@@ -1446,5 +1450,60 @@ mod tests {
             deserialized_pre_tx.scope,
             ExportSnapshotScope::PreTransaction("5signature123".to_string())
         );
+    }
+
+    #[test]
+    fn test_sanitize_datasource_url_strips_path_and_query() {
+        // API key in path should be stripped
+        let config = SimnetConfig {
+            remote_rpc_url: Some(
+                "https://example.rpc-provider.com/v2/abc123def456ghi789".to_string(),
+            ),
+            ..Default::default()
+        };
+        let sanitized = config.get_sanitized_datasource_url().unwrap();
+        assert_eq!(sanitized, "https://example.rpc-provider.com");
+        assert!(!sanitized.contains("abc123"));
+    }
+
+    #[test]
+    fn test_sanitize_datasource_url_strips_query_params() {
+        let config = SimnetConfig {
+            remote_rpc_url: Some(
+                "https://mainnet.helius-rpc.com/?api-key=secret-key-12345".to_string(),
+            ),
+            ..Default::default()
+        };
+        let sanitized = config.get_sanitized_datasource_url().unwrap();
+        assert_eq!(sanitized, "https://mainnet.helius-rpc.com");
+        assert!(!sanitized.contains("secret-key"));
+    }
+
+    #[test]
+    fn test_sanitize_datasource_url_public_rpc() {
+        let config = SimnetConfig {
+            remote_rpc_url: Some("https://api.mainnet-beta.solana.com".to_string()),
+            ..Default::default()
+        };
+        let sanitized = config.get_sanitized_datasource_url().unwrap();
+        assert_eq!(sanitized, "https://api.mainnet-beta.solana.com");
+    }
+
+    #[test]
+    fn test_sanitize_datasource_url_none() {
+        let config = SimnetConfig {
+            remote_rpc_url: None,
+            ..Default::default()
+        };
+        assert!(config.get_sanitized_datasource_url().is_none());
+    }
+
+    #[test]
+    fn test_sanitize_datasource_url_invalid() {
+        let config = SimnetConfig {
+            remote_rpc_url: Some("not-a-valid-url".to_string()),
+            ..Default::default()
+        };
+        assert!(config.get_sanitized_datasource_url().is_none());
     }
 }

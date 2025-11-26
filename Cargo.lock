@@ -12268,6 +12268,7 @@ dependencies = [
  "test-case",
  "txtx-addon-kit",
  "txtx-addon-network-svm-types",
+ "url 1.7.2",
  "uuid",
 ]
 
