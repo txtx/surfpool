@@ -13,6 +13,9 @@ pub const RAYDIUM_CLMM_IDL_CONTENT: &str = include_str!("./protocols/raydium/v3/
 pub const RAYDIUM_CLMM_OVERRIDES_CONTENT: &str =
     include_str!("./protocols/raydium/v3/overrides.yaml");
 
+pub const METEORA_DLMM_IDL_CONTENT: &str = include_str!("./protocols/meteora/dlmm/v1/idl.json");
+pub const METEORA_DLMM_OVERRIDES_CONTENT: &str =
+    include_str!("./protocols/meteora/dlmm/v1/overrides.yaml");
 pub const KAMINO_V1_IDL_CONTENT: &str = include_str!("./protocols/kamino/v1/idl.json");
 pub const KAMINO_V1_OVERRIDES_CONTENT: &str = include_str!("./protocols/kamino/v1/overrides.yaml");
 
@@ -33,6 +36,7 @@ impl TemplateRegistry {
         default.load_pyth_overrides();
         default.load_jupiter_overrides();
         default.load_raydium_overrides();
+        default.load_meteora_overrides();
         default.load_kamino_overrides();
         default.load_drift_overrides();
         default
@@ -47,6 +51,14 @@ impl TemplateRegistry {
             JUPITER_V6_IDL_CONTENT,
             JUPITER_V6_OVERRIDES_CONTENT,
             "jupiter",
+        );
+    }
+
+    pub fn load_meteora_overrides(&mut self) {
+        self.load_protocol_overrides(
+            METEORA_DLMM_IDL_CONTENT,
+            METEORA_DLMM_OVERRIDES_CONTENT,
+            "meteora",
         );
     }
 
@@ -140,13 +152,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_registry_loads_both_protocols() {
+    fn test_registry_loads_all_protocols() {
         let registry = TemplateRegistry::new();
 
-        // Should have Pyth (4 templates) + Jupiter (1 template) + Raydium(3 templates) + Drift(4 templates) + Kamino(3 templates)= 15 total
+        // Should have Pyth (4 templates) + Jupiter (1 template) + Raydium(3 templates) + Drift(4 templates) + Meteora (2) + Kamino(3 templates)= 17 total
         assert_eq!(
             registry.count(),
-            15,
+            17,
             "Registry should load 15 templates total"
         );
 
@@ -160,6 +172,9 @@ mod tests {
         assert!(registry.contains("raydium-clmm-sol-usdc"));
         assert!(registry.contains("raydium-clmm-btc-usdc"));
         assert!(registry.contains("raydium-clmm-eth-usdc"));
+
+        assert!(registry.contains("meteora-dlmm-sol-usdc"));
+        assert!(registry.contains("meteora-dlmm-usdt-sol"));
 
         assert!(registry.contains("kamino-reserve-state"));
         assert!(registry.contains("kamino-reserve-config"));
@@ -261,7 +276,10 @@ mod tests {
         let registry = TemplateRegistry::new();
         let ids = registry.list_ids();
 
-        assert_eq!(ids.len(), 15);
+        assert!(ids.contains(&"raydium-clmm-sol-usdc".to_string()));
+        assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
+        assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
+        assert!(ids.contains(&"meteora-dlmm-sol-usdc".to_string()));
         assert!(ids.contains(&"raydium-clmm-sol-usdc".to_string()));
         assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
         assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
