@@ -16,6 +16,9 @@ pub const RAYDIUM_CLMM_OVERRIDES_CONTENT: &str =
 pub const KAMINO_V1_IDL_CONTENT: &str = include_str!("./protocols/kamino/v1/idl.json");
 pub const KAMINO_V1_OVERRIDES_CONTENT: &str = include_str!("./protocols/kamino/v1/overrides.yaml");
 
+pub const DRIFT_V2_IDL_CONTENT: &str = include_str!("./protocols/drift/v2/idl.json");
+pub const DRIFT_V2_OVERRIDES_CONTENT: &str = include_str!("./protocols/drift/v2/overrides.yaml");
+
 /// Registry for managing override templates loaded from YAML files
 #[derive(Clone, Debug, Default)]
 pub struct TemplateRegistry {
@@ -31,6 +34,7 @@ impl TemplateRegistry {
         default.load_jupiter_overrides();
         default.load_raydium_overrides();
         default.load_kamino_overrides();
+        default.load_drift_overrides();
         default
     }
 
@@ -56,6 +60,10 @@ impl TemplateRegistry {
 
     pub fn load_kamino_overrides(&mut self) {
         self.load_protocol_overrides(KAMINO_V1_IDL_CONTENT, KAMINO_V1_OVERRIDES_CONTENT, "kamino");
+    }
+  
+    pub fn load_drift_overrides(&mut self) {
+        self.load_protocol_overrides(DRIFT_V2_IDL_CONTENT, DRIFT_V2_OVERRIDES_CONTENT, "drift");
     }
 
     fn load_protocol_overrides(
@@ -135,11 +143,11 @@ mod tests {
     fn test_registry_loads_both_protocols() {
         let registry = TemplateRegistry::new();
 
-        // Should have Pyth (4 templates) + Jupiter (1 template) + Raydium(3 templates) + Kamino(3 templates) = 11 total
+        // Should have Pyth (4 templates) + Jupiter (1 template) + Raydium(3 templates) + Drift(4 templates) + Kamino(3 templates)= 15 total
         assert_eq!(
             registry.count(),
-            11,
-            "Registry should load 5 templates total"
+            15,
+            "Registry should load 15 templates total"
         );
 
         assert!(registry.contains("pyth-sol-usd-v2"));
@@ -155,7 +163,12 @@ mod tests {
 
         assert!(registry.contains("kamino-reserve-state"));
         assert!(registry.contains("kamino-reserve-config"));
-        assert!(registry.contains("kamino-obligation-health"))
+        assert!(registry.contains("kamino-obligation-health"));
+      
+        assert!(registry.contains("drift-perp-market"));
+        assert!(registry.contains("drift-spot-market"));
+        assert!(registry.contains("drift-user-state"));
+        assert!(registry.contains("drift-global-state"))
     }
 
     #[test]
@@ -255,5 +268,6 @@ mod tests {
         assert!(ids.contains(&"kamino-reserve-state".to_string()));
         assert!(ids.contains(&"kamino-reserve-config".to_string()));
         assert!(ids.contains(&"kamino-obligation-health".to_string()));
+        assert!(ids.contains(&"drift-perp-market".to_string()))
     }
 }

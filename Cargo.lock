@@ -12264,6 +12264,7 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-context",
  "solana-transaction-error 3.0.0",
+ "strum 0.26.3",
  "test-case",
  "txtx-addon-kit",
  "txtx-addon-network-svm-types",

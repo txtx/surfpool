@@ -25,6 +25,8 @@ use txtx_addon_kit::indexmap::IndexMap;
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
 
+use crate::SvmFeatureConfig;
+
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEFAULT_RPC_PORT: u16 = 8899;
 pub const DEFAULT_WS_PORT: u16 = 8900;
@@ -544,6 +546,7 @@ pub struct SimnetConfig {
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
     pub log_bytes_limit: Option<usize>,
+    pub feature_config: SvmFeatureConfig,
 }
 
 impl Default for SimnetConfig {
@@ -559,6 +562,7 @@ impl Default for SimnetConfig {
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             log_bytes_limit: Some(10_000),
+            feature_config: SvmFeatureConfig::default(),
         }
     }
 }
@@ -642,10 +646,21 @@ pub struct CreateSurfnetRequest {
     pub settings: Option<CloudSurfnetSettings>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case", default)]
 pub struct CloudSurfnetSettings {
     pub profiling_disabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gating: Option<CloudSurfnetRpcGating>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case", default)]
+pub struct CloudSurfnetRpcGating {
+    pub private_methods_secret_token: Option<String>,
+    pub private_methods: Vec<String>,
+    pub public_methods: Vec<String>,
+    pub disabled_methods: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
