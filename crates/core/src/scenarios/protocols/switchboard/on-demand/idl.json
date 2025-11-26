@@ -1,0 +1,42 @@
+{
+  "address": "orac1eFjzWL5R3RbbdMV68K9H6TaCVVcL6LjvQQWAbz",
+  "metadata": {
+    "name": "switchboard_on_demand",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [],
+  "accounts": [
+    {
+      "name": "SwitchboardQuote",
+      "discriminator": [
+        116,
+        116,
+        137,
+        152,
+        52,
+        140,
+        50,
+        31
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "queue",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "version",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ],
+  "types": []
+}

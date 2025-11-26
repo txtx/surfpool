@@ -15,6 +15,7 @@ Protocols that are natively supported by Surfpool will have their IDLs included 
 **Currently supported protocols:**
 - **Pyth v2** - Price oracle with 4 price feed templates (SOL/USD, BTC/USD, ETH/BTC, ETH/USD)
 - **Jupiter v6** - DEX aggregator with TokenLedger manipulation template
+- **Switchboard On-Demand** - On-demand oracle with QuoteAccount override template
 - **Kamino v1.x** – Lending protocol with Reserve liquidity, risk config, and Obligation health override templates
 - **Drift v2** - Perp and spot markets, user state, and global state
 
