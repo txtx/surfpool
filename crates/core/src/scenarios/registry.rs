@@ -58,10 +58,10 @@ impl TemplateRegistry {
             SWITCHBOARD_ON_DEMAND_OVERRIDES_CONTENT,
             "switchboard-on-demand",
         );
-      
+    }
+
     pub fn load_drift_overrides(&mut self) {
         self.load_protocol_overrides(DRIFT_V2_IDL_CONTENT, DRIFT_V2_OVERRIDES_CONTENT, "drift");
-
     }
 
     fn load_protocol_overrides(
@@ -163,16 +163,11 @@ mod tests {
     fn test_registry_loads_both_protocols() {
         let registry = TemplateRegistry::new();
 
-        // Should have Pyth (4) + Jupiter (1) + Raydium (3) + Switchboard (1) = 9 total
+        // Should have Pyth (4) + Jupiter (1) + Raydium (3) + Switchboard (1) + Drift (4) = 13 total
         assert_eq!(
             registry.count(),
-            9,
-            "Registry should load 9 templates total"
-        // Should have Pyth (4 templates) + Jupiter (1 template) + Raydium(3 templates) + Drift(4 templates) = 12 total
-        assert_eq!(
-            registry.count(),
-            12,
-            "Registry should load 5 templates total"
+            13,
+            "Registry should load 13 templates total"
         );
 
         assert!(registry.contains("pyth-sol-usd-v2"));
@@ -187,12 +182,11 @@ mod tests {
         assert!(registry.contains("raydium-clmm-eth-usdc"));
 
         assert!(registry.contains("switchboard-quote-override"));
-          
+
         assert!(registry.contains("drift-perp-market"));
         assert!(registry.contains("drift-spot-market"));
         assert!(registry.contains("drift-user-state"));
-        assert!(registry.contains("drift-global-state"))
-
+        assert!(registry.contains("drift-global-state"));
     }
 
     #[test]
@@ -275,9 +269,7 @@ mod tests {
         let registry = TemplateRegistry::new();
         let ids = registry.list_ids();
 
-
-        assert_eq!(ids.len(), 9);
-        assert_eq!(ids.len(), 12);
+        assert_eq!(ids.len(), 13);
 
         assert!(ids.contains(&"raydium-clmm-sol-usdc".to_string()));
         assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
