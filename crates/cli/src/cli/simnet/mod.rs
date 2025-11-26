@@ -61,7 +61,12 @@ pub async fn handle_start_local_surfnet_command(
     }
 
     // We start the simnet as soon as possible, as it needs to be ready for deployments
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (mut surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+
+    // Apply feature configuration from CLI flags
+    let feature_config = cmd.feature_config();
+    surfnet_svm.apply_feature_config(&feature_config);
+
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
@@ -547,6 +552,18 @@ async fn write_and_execute_iac(
                                 kind: EventKind::Create(CreateKind::File),
                                 paths,
                                 attrs: _,
+                            })
+                            // Linux: inotify reports Data(Any) instead of Data(Content)
+                            | Ok(Event {
+                                kind: EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+                                paths,
+                                attrs: _,
+                            })
+                            // Linux: atomic file replacement via rename
+                            | Ok(Event {
+                                kind: EventKind::Modify(ModifyKind::Name(_)),
+                                paths,
+                                attrs: _,
                             }) => {
                                 for path in paths.iter() {
                                     if path.to_string_lossy().ends_with(".so") {
@@ -568,7 +585,10 @@ async fn write_and_execute_iac(
                             &in_memory_runbook_data,
                         );
 
-                        let _ = hiro_system_kit::nestable_block_on(join_all(futures));
+                        // Catch panics to keep the watch thread alive
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            hiro_system_kit::nestable_block_on(join_all(futures))
+                        }));
                     }
                     Ok::<(), String>(())
                 })
