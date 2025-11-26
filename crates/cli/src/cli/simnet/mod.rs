@@ -552,6 +552,18 @@ async fn write_and_execute_iac(
                                 kind: EventKind::Create(CreateKind::File),
                                 paths,
                                 attrs: _,
+                            })
+                            // Linux: inotify reports Data(Any) instead of Data(Content)
+                            | Ok(Event {
+                                kind: EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+                                paths,
+                                attrs: _,
+                            })
+                            // Linux: atomic file replacement via rename
+                            | Ok(Event {
+                                kind: EventKind::Modify(ModifyKind::Name(_)),
+                                paths,
+                                attrs: _,
                             }) => {
                                 for path in paths.iter() {
                                     if path.to_string_lossy().ends_with(".so") {
@@ -573,7 +585,10 @@ async fn write_and_execute_iac(
                             &in_memory_runbook_data,
                         );
 
-                        let _ = hiro_system_kit::nestable_block_on(join_all(futures));
+                        // Catch panics to keep the watch thread alive
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            hiro_system_kit::nestable_block_on(join_all(futures))
+                        }));
                     }
                     Ok::<(), String>(())
                 })
