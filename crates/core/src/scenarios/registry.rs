@@ -18,6 +18,12 @@ pub const RAYDIUM_CLMM_IDL_CONTENT: &str = include_str!("./protocols/raydium/v3/
 pub const RAYDIUM_CLMM_OVERRIDES_CONTENT: &str =
     include_str!("./protocols/raydium/v3/overrides.yaml");
 
+pub const METEORA_DLMM_IDL_CONTENT: &str = include_str!("./protocols/meteora/dlmm/v1/idl.json");
+pub const METEORA_DLMM_OVERRIDES_CONTENT: &str =
+    include_str!("./protocols/meteora/dlmm/v1/overrides.yaml");
+pub const KAMINO_V1_IDL_CONTENT: &str = include_str!("./protocols/kamino/v1/idl.json");
+pub const KAMINO_V1_OVERRIDES_CONTENT: &str = include_str!("./protocols/kamino/v1/overrides.yaml");
+
 pub const DRIFT_V2_IDL_CONTENT: &str = include_str!("./protocols/drift/v2/idl.json");
 pub const DRIFT_V2_OVERRIDES_CONTENT: &str = include_str!("./protocols/drift/v2/overrides.yaml");
 
@@ -36,6 +42,8 @@ impl TemplateRegistry {
         default.load_jupiter_overrides();
         default.load_raydium_overrides();
         default.load_switchboard_on_demand_overrides();
+        default.load_meteora_overrides();
+        default.load_kamino_overrides();
         default.load_drift_overrides();
         default
     }
@@ -60,6 +68,26 @@ impl TemplateRegistry {
         );
     }
 
+    pub fn load_meteora_overrides(&mut self) {
+        self.load_protocol_overrides(
+            METEORA_DLMM_IDL_CONTENT,
+            METEORA_DLMM_OVERRIDES_CONTENT,
+            "meteora",
+        );
+    }
+
+    pub fn load_raydium_overrides(&mut self) {
+        self.load_protocol_overrides(
+            RAYDIUM_CLMM_IDL_CONTENT,
+            RAYDIUM_CLMM_OVERRIDES_CONTENT,
+            "raydium",
+        );
+    }
+
+    pub fn load_kamino_overrides(&mut self) {
+        self.load_protocol_overrides(KAMINO_V1_IDL_CONTENT, KAMINO_V1_OVERRIDES_CONTENT, "kamino");
+    }
+
     pub fn load_drift_overrides(&mut self) {
         self.load_protocol_overrides(DRIFT_V2_IDL_CONTENT, DRIFT_V2_OVERRIDES_CONTENT, "drift");
     }
@@ -79,28 +107,6 @@ impl TemplateRegistry {
             serde_yaml::from_str::<YamlOverrideTemplateCollection>(overrides_content)
         else {
             panic!("unable to load {} overrides", protocol_name);
-        };
-
-        // Convert all templates in the collection
-        let templates = collection.to_override_templates(idl);
-
-        // Register each template
-        for template in templates {
-            let template_id = template.id.clone();
-            self.templates.insert(template_id.clone(), template);
-        }
-    }
-
-    pub fn load_raydium_overrides(&mut self) {
-        let idl = match serde_json::from_str(RAYDIUM_CLMM_IDL_CONTENT) {
-            Ok(idl) => idl,
-            Err(e) => panic!("unable to load raydium idl: {}", e),
-        };
-
-        let Ok(collection) =
-            serde_yaml::from_str::<YamlOverrideTemplateCollection>(RAYDIUM_CLMM_OVERRIDES_CONTENT)
-        else {
-            panic!("unable to load raydium overrides");
         };
 
         // Convert all templates in the collection
@@ -160,14 +166,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_registry_loads_both_protocols() {
+    fn test_registry_loads_all_protocols() {
         let registry = TemplateRegistry::new();
 
-        // Should have Pyth (4) + Jupiter (1) + Raydium (3) + Switchboard (1) + Drift (4) = 13 total
+        // Should have Pyth (4 templates) + Jupiter (1 template) + Switchboard (1) + Raydium(3 templates) + Drift(4 templates) + Meteora (2) + Kamino(3 templates)= 17 total
         assert_eq!(
             registry.count(),
-            13,
-            "Registry should load 13 templates total"
+            18,
+            "Registry should load 15 templates total"
         );
 
         assert!(registry.contains("pyth-sol-usd-v2"));
@@ -182,6 +188,13 @@ mod tests {
         assert!(registry.contains("raydium-clmm-eth-usdc"));
 
         assert!(registry.contains("switchboard-quote-override"));
+
+        assert!(registry.contains("meteora-dlmm-sol-usdc"));
+        assert!(registry.contains("meteora-dlmm-usdt-sol"));
+
+        assert!(registry.contains("kamino-reserve-state"));
+        assert!(registry.contains("kamino-reserve-config"));
+        assert!(registry.contains("kamino-obligation-health"));
 
         assert!(registry.contains("drift-perp-market"));
         assert!(registry.contains("drift-spot-market"));
@@ -223,6 +236,16 @@ mod tests {
 
         let jupiter_templates = registry.by_protocol("Jupiter");
         assert_eq!(jupiter_templates.len(), 1, "Should have 1 Jupiter template");
+
+        let raydium_templates = registry.by_protocol("Raydium");
+        assert_eq!(
+            raydium_templates.len(),
+            3,
+            "Should have 3 Raydium templates"
+        );
+
+        let kamino_templates = registry.by_protocol("Kamino");
+        assert_eq!(kamino_templates.len(), 3, "Should have 3 Kamino templates");
     }
 
     #[test]
@@ -269,12 +292,17 @@ mod tests {
         let registry = TemplateRegistry::new();
         let ids = registry.list_ids();
 
-        assert_eq!(ids.len(), 13);
-
         assert!(ids.contains(&"raydium-clmm-sol-usdc".to_string()));
         assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
         assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
-        assert!(ids.contains(&"drift-perp-market".to_string()));
+        assert!(ids.contains(&"meteora-dlmm-sol-usdc".to_string()));
+        assert!(ids.contains(&"raydium-clmm-sol-usdc".to_string()));
+        assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
+        assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
+        assert!(ids.contains(&"kamino-reserve-state".to_string()));
+        assert!(ids.contains(&"kamino-reserve-config".to_string()));
+        assert!(ids.contains(&"kamino-obligation-health".to_string()));
+        assert!(ids.contains(&"drift-perp-market".to_string()))
     }
 }
 
