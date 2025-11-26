@@ -61,7 +61,7 @@ impl TemplateRegistry {
     pub fn load_kamino_overrides(&mut self) {
         self.load_protocol_overrides(KAMINO_V1_IDL_CONTENT, KAMINO_V1_OVERRIDES_CONTENT, "kamino");
     }
-  
+
     pub fn load_drift_overrides(&mut self) {
         self.load_protocol_overrides(DRIFT_V2_IDL_CONTENT, DRIFT_V2_OVERRIDES_CONTENT, "drift");
     }
@@ -164,7 +164,7 @@ mod tests {
         assert!(registry.contains("kamino-reserve-state"));
         assert!(registry.contains("kamino-reserve-config"));
         assert!(registry.contains("kamino-obligation-health"));
-      
+
         assert!(registry.contains("drift-perp-market"));
         assert!(registry.contains("drift-spot-market"));
         assert!(registry.contains("drift-user-state"));
@@ -261,7 +261,7 @@ mod tests {
         let registry = TemplateRegistry::new();
         let ids = registry.list_ids();
 
-        assert_eq!(ids.len(), 11);
+        assert_eq!(ids.len(), 15);
         assert!(ids.contains(&"raydium-clmm-sol-usdc".to_string()));
         assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
         assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
