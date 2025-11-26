@@ -339,7 +339,7 @@ pub async fn execute_runbook(
             cmd.output_json,
         );
         let _ = simnet_events_tx.send(SimnetEvent::RunbookCompleted(runbook_id, diags));
-        if !success {    
+        if !success {
             return Err("Runbook execution failed".to_string());
         }
     } else {
@@ -424,7 +424,7 @@ pub async fn configure_supervised_execution(
             error!("Failed to send kill signal: {}", e);
             std::process::exit(1);
         }
-        
+
         if !success {
             std::process::exit(1);
         }
@@ -750,7 +750,7 @@ fn process_runbook_execution_output(
     if let Err(diags) = execution_result {
         let _ = simnet_events_tx.send(SimnetEvent::warn("Runbook execution aborted"));
         log_diagnostic_lines(diags, simnet_events_tx);
-        write_runbook_transient_state(runbook, runbook_state_location, simnet_events_tx); 
+        write_runbook_transient_state(runbook, runbook_state_location, simnet_events_tx);
         return false;
     } else {
         let runbook_outputs = runbook.collect_formatted_outputs();
