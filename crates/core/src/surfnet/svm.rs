@@ -3614,5 +3614,3 @@ mod tests {
         assert!(svm.token_accounts.get(&token_account_pubkey).is_none());
     }
 }
-
-
