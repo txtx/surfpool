@@ -37,6 +37,7 @@ uuid = { workspace = true }
 
 txtx-addon-kit = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 test-case = { workspace = true }
