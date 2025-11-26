@@ -18,6 +18,9 @@ pub const RAYDIUM_CLMM_IDL_CONTENT: &str = include_str!("./protocols/raydium/v3/
 pub const RAYDIUM_CLMM_OVERRIDES_CONTENT: &str =
     include_str!("./protocols/raydium/v3/overrides.yaml");
 
+pub const DRIFT_V2_IDL_CONTENT: &str = include_str!("./protocols/drift/v2/idl.json");
+pub const DRIFT_V2_OVERRIDES_CONTENT: &str = include_str!("./protocols/drift/v2/overrides.yaml");
+
 /// Registry for managing override templates loaded from YAML files
 #[derive(Clone, Debug, Default)]
 pub struct TemplateRegistry {
@@ -33,6 +36,7 @@ impl TemplateRegistry {
         default.load_jupiter_overrides();
         default.load_raydium_overrides();
         default.load_switchboard_on_demand_overrides();
+        default.load_drift_overrides();
         default
     }
 
@@ -54,6 +58,10 @@ impl TemplateRegistry {
             SWITCHBOARD_ON_DEMAND_OVERRIDES_CONTENT,
             "switchboard-on-demand",
         );
+      
+    pub fn load_drift_overrides(&mut self) {
+        self.load_protocol_overrides(DRIFT_V2_IDL_CONTENT, DRIFT_V2_OVERRIDES_CONTENT, "drift");
+
     }
 
     fn load_protocol_overrides(
@@ -160,6 +168,11 @@ mod tests {
             registry.count(),
             9,
             "Registry should load 9 templates total"
+        // Should have Pyth (4 templates) + Jupiter (1 template) + Raydium(3 templates) + Drift(4 templates) = 12 total
+        assert_eq!(
+            registry.count(),
+            12,
+            "Registry should load 5 templates total"
         );
 
         assert!(registry.contains("pyth-sol-usd-v2"));
@@ -174,6 +187,12 @@ mod tests {
         assert!(registry.contains("raydium-clmm-eth-usdc"));
 
         assert!(registry.contains("switchboard-quote-override"));
+          
+        assert!(registry.contains("drift-perp-market"));
+        assert!(registry.contains("drift-spot-market"));
+        assert!(registry.contains("drift-user-state"));
+        assert!(registry.contains("drift-global-state"))
+
     }
 
     #[test]
@@ -256,10 +275,14 @@ mod tests {
         let registry = TemplateRegistry::new();
         let ids = registry.list_ids();
 
+
         assert_eq!(ids.len(), 9);
+        assert_eq!(ids.len(), 12);
+
         assert!(ids.contains(&"raydium-clmm-sol-usdc".to_string()));
         assert!(ids.contains(&"jupiter-token-ledger-override".to_string()));
         assert!(ids.contains(&"pyth-sol-usd-v2".to_string()));
+        assert!(ids.contains(&"drift-perp-market".to_string()));
     }
 }
 

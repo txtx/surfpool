@@ -331,7 +331,7 @@ pub async fn execute_runbook(
             .as_ref()
             .map_err(|ds| ds.iter().map(|d| d.message.clone()).collect())
             .err();
-        process_runbook_execution_output(
+        let success = process_runbook_execution_output(
             res,
             &mut runbook,
             runbook_state_location,
@@ -339,6 +339,9 @@ pub async fn execute_runbook(
             cmd.output_json,
         );
         let _ = simnet_events_tx.send(SimnetEvent::RunbookCompleted(runbook_id, diags));
+        if !success {
+            return Err("Runbook execution failed".to_string());
+        }
     } else {
         let (kill_supervised_execution_tx, block_store_handle) =
             configure_supervised_execution(runbook, runbook_state_location, &cmd, simnet_events_tx)
@@ -409,7 +412,7 @@ pub async fn configure_supervised_execution(
         let runloop_future =
             start_supervised_runbook_runloop(&mut runbook, moved_block_tx, action_item_events_rx);
 
-        process_runbook_execution_output(
+        let success = process_runbook_execution_output(
             hiro_system_kit::nestable_block_on(runloop_future),
             &mut runbook,
             moved_runbook_state,
@@ -417,7 +420,12 @@ pub async fn configure_supervised_execution(
             output_json,
         );
 
-        if let Err(_e) = moved_kill_loops_tx.send(true) {
+        if let Err(e) = moved_kill_loops_tx.send(true) {
+            error!("Failed to send kill signal: {}", e);
+            std::process::exit(1);
+        }
+
+        if !success {
             std::process::exit(1);
         }
     });
@@ -738,11 +746,12 @@ fn process_runbook_execution_output(
     runbook_state_location: Option<RunbookStateLocation>,
     simnet_events_tx: &Sender<SimnetEvent>,
     output_json: Option<Option<String>>,
-) {
+) -> bool {
     if let Err(diags) = execution_result {
         let _ = simnet_events_tx.send(SimnetEvent::warn("Runbook execution aborted"));
         log_diagnostic_lines(diags, simnet_events_tx);
         write_runbook_transient_state(runbook, runbook_state_location, simnet_events_tx);
+        return false;
     } else {
         let runbook_outputs = runbook.collect_formatted_outputs();
         if !runbook_outputs.is_empty() {
@@ -788,6 +797,7 @@ fn process_runbook_execution_output(
             }
         }
         write_runbook_state(runbook, runbook_state_location, simnet_events_tx);
+        return true;
     }
 }
 
