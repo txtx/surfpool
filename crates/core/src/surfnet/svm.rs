@@ -1385,13 +1385,14 @@ impl SurfnetSvm {
         }
 
         let num_transactions = confirmed_signatures.len() as u64;
+        self.updated_at += self.slot_time;
 
         self.blocks.insert(
             slot,
             BlockHeader {
                 hash: self.chain_tip.hash.clone(),
                 previous_blockhash: previous_chain_tip.hash,
-                block_time: chrono::Utc::now().timestamp_millis(),
+                block_time: self.updated_at as i64 / 1_000,
                 block_height: self.chain_tip.index,
                 parent_slot: slot,
                 signatures: confirmed_signatures,
@@ -1405,10 +1406,9 @@ impl SurfnetSvm {
             num_slots: 1,
             sample_period_secs: 1,
             num_transactions,
-            num_non_vote_transactions: None,
+            num_non_vote_transactions: Some(num_transactions),
         });
 
-        self.updated_at += self.slot_time;
         self.latest_epoch_info.slot_index += 1;
         self.latest_epoch_info.block_height = self.chain_tip.index;
         self.latest_epoch_info.absolute_slot += 1;
