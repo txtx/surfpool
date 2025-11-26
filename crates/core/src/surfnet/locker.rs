@@ -256,6 +256,8 @@ impl SurfnetSvmLocker {
     }
 
     /// Attempts local retrieval, then fetches from remote if missing, returning a contextualized result.
+    ///
+    /// Does not fetch from remote if the account has been explicitly closed by the user.
     pub async fn get_account_local_then_remote(
         &self,
         client: &SurfnetRemoteClient,
@@ -265,8 +267,15 @@ impl SurfnetSvmLocker {
         let result = self.get_account_local(pubkey);
 
         if result.inner.is_none() {
-            let remote_account = client.get_account(pubkey, commitment_config).await?;
-            Ok(result.with_new_value(remote_account))
+            // Check if the account has been explicitly closed - if so, don't fetch from remote
+            let is_closed = self.get_closed_accounts().contains(pubkey);
+
+            if !is_closed {
+                let remote_account = client.get_account(pubkey, commitment_config).await?;
+                Ok(result.with_new_value(remote_account))
+            } else {
+                Ok(result)
+            }
         } else {
             Ok(result)
         }
@@ -328,6 +337,7 @@ impl SurfnetSvmLocker {
     ///
     /// Returns accounts in the same order as the input `pubkeys` array. Accounts found locally
     /// are returned as-is; accounts not found locally are fetched from the remote RPC client.
+    /// Accounts that have been explicitly closed are not fetched from remote.
     pub async fn get_multiple_accounts_with_remote_fallback(
         &self,
         client: &SurfnetRemoteClient,
@@ -341,11 +351,20 @@ impl SurfnetSvmLocker {
             inner: local_results,
         } = self.get_multiple_accounts_local(pubkeys);
 
-        // Collect missing pubkeys (local_results is already in correct order from pubkeys)
+        // Get the closed accounts set
+        let closed_accounts = self.get_closed_accounts();
+
+        // Collect missing pubkeys that are NOT closed (local_results is already in correct order from pubkeys)
         let missing_accounts: Vec<Pubkey> = local_results
             .iter()
             .filter_map(|result| match result {
-                GetAccountResult::None(pubkey) => Some(*pubkey),
+                GetAccountResult::None(pubkey) => {
+                    if !closed_accounts.contains(pubkey) {
+                        Some(*pubkey)
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             })
             .collect();
@@ -383,11 +402,15 @@ impl SurfnetSvmLocker {
             .map(|(pubkey, local_result)| {
                 match local_result {
                     GetAccountResult::None(_) => {
-                        // Replace with remote result if available
-                        remote_map
-                            .get(pubkey)
-                            .cloned()
-                            .unwrap_or(GetAccountResult::None(*pubkey))
+                        // Replace with remote result if available and not closed
+                        if closed_accounts.contains(pubkey) {
+                            GetAccountResult::None(*pubkey)
+                        } else {
+                            remote_map
+                                .get(pubkey)
+                                .cloned()
+                                .unwrap_or(GetAccountResult::None(*pubkey))
+                        }
                     }
                     found => {
                         debug!("Keeping local account: {}", pubkey);
@@ -1390,23 +1413,22 @@ impl SurfnetSvmLocker {
             {
                 if before.ne(&after) {
                     mutated_account_pubkeys.insert(*pubkey);
-                    if let Some(after) = &after {
-                        svm_writer.update_account_registries(pubkey, after)?;
-                        let write_version = svm_writer.increment_write_version();
+                    let after = after.unwrap_or_default();
+                    svm_writer.update_account_registries(pubkey, &after)?;
+                    let write_version = svm_writer.increment_write_version();
 
-                        if let Some(sanitized_transaction) = sanitized_transaction.clone() {
-                            let _ = svm_writer.geyser_events_tx.send(GeyserEvent::UpdateAccount(
-                                GeyserAccountUpdate::transaction_update(
-                                    *pubkey,
-                                    after.clone(),
-                                    svm_writer.get_latest_absolute_slot(),
-                                    sanitized_transaction.clone(),
-                                    write_version,
-                                ),
-                            ));
-                        }
+                    if let Some(sanitized_transaction) = sanitized_transaction.clone() {
+                        let _ = svm_writer.geyser_events_tx.send(GeyserEvent::UpdateAccount(
+                            GeyserAccountUpdate::transaction_update(
+                                *pubkey,
+                                after.clone(),
+                                svm_writer.get_latest_absolute_slot(),
+                                sanitized_transaction.clone(),
+                                write_version,
+                            ),
+                        ));
                     }
-                    svm_writer.notify_account_subscribers(pubkey, &after.unwrap_or_default());
+                    svm_writer.notify_account_subscribers(pubkey, &after);
                 }
             }
 
@@ -1634,11 +1656,15 @@ impl SurfnetSvmLocker {
         });
     }
 
-    /// Resets an account in the SVM state
+    /// Resets an account in the SVM state for refresh/streaming.
     ///
-    /// This function coordinates the reset of accounts by calling the SVM's reset_account method.
+    /// This function coordinates the reset of accounts by removing them from the local cache,
+    /// allowing them to be fetched fresh from mainnet on the next access.
     /// It handles program accounts (including their program data accounts) and can optionally
     /// cascade the reset to all accounts owned by a program.
+    ///
+    /// This is different from `close_account()` which marks an account as permanently closed
+    /// and prevents it from being fetched from mainnet.
     pub fn reset_account(
         &self,
         pubkey: Pubkey,
@@ -1649,18 +1675,25 @@ impl SurfnetSvmLocker {
             "Account {} will be reset",
             pubkey
         )));
+        // Unclose the account so it can be fetched from mainnet again
+        self.unclose_account(pubkey)?;
         self.with_svm_writer(move |svm_writer| {
             svm_writer.reset_account(&pubkey, include_owned_accounts)
         })
     }
 
-    /// Resets SVM state
+    /// Resets SVM state and clears all closed accounts.
     ///
-    /// This function coordinates the reset of accounts by calling the SVM's reset_account method.
+    /// This function coordinates the reset of the entire network state.
+    /// It also clears the closed_accounts set so all accounts can be fetched from mainnet again.
     pub fn reset_network(&self) -> SurfpoolResult<()> {
         let simnet_events_tx = self.simnet_events_tx();
         let _ = simnet_events_tx.send(SimnetEvent::info("Resetting network..."));
-        self.with_svm_writer(move |svm_writer| svm_writer.reset_network())
+        self.with_svm_writer(move |svm_writer| {
+            let _ = svm_writer.reset_network();
+            svm_writer.closed_accounts.clear();
+        });
+        Ok(())
     }
 
     /// Streams an account by its pubkey.
@@ -1684,6 +1717,22 @@ impl SurfnetSvmLocker {
 
     pub fn get_streamed_accounts(&self) -> HashMap<Pubkey, bool> {
         self.with_svm_reader(|svm_reader| svm_reader.streamed_accounts.clone())
+    }
+
+    /// Removes an account from the closed accounts set.
+    ///
+    /// This allows the account to be fetched from mainnet again if requested.
+    /// This is useful when resetting an account for a refresh/stream operation.
+    pub fn unclose_account(&self, pubkey: Pubkey) -> SurfpoolResult<()> {
+        self.with_svm_writer(move |svm_writer| {
+            svm_writer.closed_accounts.remove(&pubkey);
+        });
+        Ok(())
+    }
+
+    /// Gets all currently closed accounts.
+    pub fn get_closed_accounts(&self) -> Vec<Pubkey> {
+        self.with_svm_reader(|svm_reader| svm_reader.closed_accounts.iter().copied().collect())
     }
 
     /// Registers a scenario for execution

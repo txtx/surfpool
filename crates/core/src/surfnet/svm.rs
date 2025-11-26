@@ -271,6 +271,9 @@ pub struct SurfnetSvm {
     pub streamed_accounts: HashMap<Pubkey, bool>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
     pub scheduled_overrides: HashMap<Slot, Vec<OverrideInstance>>,
+    /// Tracks accounts that have been explicitly closed by the user.
+    /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
+    pub closed_accounts: HashSet<Pubkey>,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -364,6 +367,7 @@ impl SurfnetSvm {
             streamed_accounts: HashMap::new(),
             recent_blockhashes: VecDeque::new(),
             scheduled_overrides: HashMap::new(),
+            closed_accounts: HashSet::new(),
         };
 
         // Generate the initial synthetic blockhash
@@ -790,6 +794,14 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         account: &Account,
     ) -> SurfpoolResult<()> {
+        if account == &Account::default() {
+            self.closed_accounts.insert(*pubkey);
+            if let Some(old_account) = self.get_account(pubkey) {
+                self.remove_from_indexes(pubkey, &old_account);
+            }
+            return Ok(());
+        }
+
         // only update our indexes if the account exists in the svm accounts db
         if let Some(old_account) = self.get_account(pubkey) {
             self.remove_from_indexes(pubkey, &old_account);
@@ -3325,7 +3337,7 @@ mod tests {
         assert_eq!(svm.executed_transaction_profiles.capacity(), 10);
     }
 
-    // ==================== Feature configuration tests ====================
+    // Feature configuration tests
 
     #[test]
     fn test_feature_to_id_all_features_have_mapping() {
@@ -3518,5 +3530,87 @@ mod tests {
         // State should be the same
         assert!(svm.feature_set.is_active(&enable_loader_v4::id()));
         assert!(!svm.feature_set.is_active(&disable_fees_sysvar::id()));
+    }
+
+    // Garbage collection tests
+
+    #[test]
+    fn test_garbage_collected_account_tracking() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let owner = Pubkey::new_unique();
+        let account_pubkey = Pubkey::new_unique();
+
+        let account = Account {
+            lamports: 1000000,
+            data: vec![1, 2, 3, 4, 5],
+            owner,
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        svm.set_account(&account_pubkey, account.clone()).unwrap();
+
+        assert!(svm.get_account(&account_pubkey).is_some());
+        assert!(!svm.closed_accounts.contains(&account_pubkey));
+        assert_eq!(svm.get_account_owned_by(&owner).len(), 1);
+
+        let empty_account = Account::default();
+        svm.update_account_registries(&account_pubkey, &empty_account)
+            .unwrap();
+
+        assert!(svm.closed_accounts.contains(&account_pubkey));
+
+        assert_eq!(svm.get_account_owned_by(&owner).len(), 0);
+
+        let owned_accounts = svm.get_account_owned_by(&owner);
+        assert!(!owned_accounts.iter().any(|(pk, _)| *pk == account_pubkey));
+    }
+
+    #[test]
+    fn test_garbage_collected_token_account_cleanup() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let token_owner = Pubkey::new_unique();
+        let delegate = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let token_account_pubkey = Pubkey::new_unique();
+
+        let mut token_account_data = [0u8; TokenAccount::LEN];
+        let token_account = TokenAccount {
+            mint,
+            owner: token_owner,
+            amount: 1000,
+            delegate: COption::Some(delegate),
+            state: AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 500,
+            close_authority: COption::None,
+        };
+        token_account.pack_into_slice(&mut token_account_data);
+
+        let account = Account {
+            lamports: 2000000,
+            data: token_account_data.to_vec(),
+            owner: spl_token_interface::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        svm.set_account(&token_account_pubkey, account).unwrap();
+
+        assert_eq!(svm.get_token_accounts_by_owner(&token_owner).len(), 1);
+        assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 1);
+        assert!(!svm.closed_accounts.contains(&token_account_pubkey));
+
+        let empty_account = Account::default();
+        svm.update_account_registries(&token_account_pubkey, &empty_account)
+            .unwrap();
+
+        assert!(svm.closed_accounts.contains(&token_account_pubkey));
+
+        assert_eq!(svm.get_token_accounts_by_owner(&token_owner).len(), 0);
+        assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 0);
+        assert!(svm.token_accounts.get(&token_account_pubkey).is_none());
     }
 }
