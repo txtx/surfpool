@@ -2,9 +2,27 @@ use std::{
     cmp::max,
     collections::{BTreeMap, BinaryHeap, HashMap, HashSet, VecDeque},
     str::FromStr,
+    time::SystemTime,
 };
 
-use agave_feature_set::{FeatureSet, enable_extend_program_checked};
+use agave_feature_set::{
+    FeatureSet, abort_on_invalid_curve, blake3_syscall_enabled, curve25519_syscall_enabled,
+    deplete_cu_meter_on_vm_failure, deprecate_legacy_vote_ixs,
+    disable_deploy_of_alloc_free_syscall, disable_fees_sysvar, disable_sbpf_v0_execution,
+    disable_zk_elgamal_proof_program, enable_alt_bn128_compression_syscall,
+    enable_alt_bn128_syscall, enable_big_mod_exp_syscall,
+    enable_bpf_loader_set_authority_checked_ix, enable_extend_program_checked,
+    enable_get_epoch_stake_syscall, enable_loader_v4, enable_poseidon_syscall,
+    enable_sbpf_v1_deployment_and_execution, enable_sbpf_v2_deployment_and_execution,
+    enable_sbpf_v3_deployment_and_execution, fix_alt_bn128_multiplication_input_length,
+    formalize_loaded_transaction_data_size, get_sysvar_syscall_enabled,
+    increase_tx_account_lock_limit, last_restart_slot_sysvar,
+    mask_out_rent_epoch_in_vm_serialization, move_precompile_verification_to_svm,
+    move_stake_and_move_lamports_ixs, raise_cpi_nesting_limit_to_8, reenable_sbpf_v0_execution,
+    reenable_zk_elgamal_proof_program, remaining_compute_units_syscall_enabled,
+    remove_bpf_loader_incorrect_program_id, simplify_alt_bn128_syscall_error_codes,
+    stake_raise_minimum_delegation_to_1_sol, stricter_abi_and_runtime_constraints,
+};
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use convert_case::Casing;
@@ -52,8 +70,9 @@ use spl_token_2022_interface::extension::{
 };
 use surfpool_types::{
     AccountChange, AccountProfileState, AccountSnapshot, DEFAULT_PROFILING_MAP_CAPACITY,
-    DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, FifoMap, Idl, OverrideInstance, ProfileResult,
-    RpcProfileDepth, RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetEvent,
+    DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, ExportSnapshotScope, FifoMap, Idl,
+    OverrideInstance, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
+    RunbookExecutionStatusReport, SimnetEvent, SvmFeature, SvmFeatureConfig,
     TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
     UiProfileResult, VersionedIdl,
     types::{
@@ -224,6 +243,7 @@ pub struct SurfnetSvm {
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
+    pub start_time: SystemTime,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: HashMap<Pubkey, TokenAccount>,
@@ -251,6 +271,9 @@ pub struct SurfnetSvm {
     pub streamed_accounts: HashMap<Pubkey, bool>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
     pub scheduled_overrides: HashMap<Slot, Vec<OverrideInstance>>,
+    /// Tracks accounts that have been explicitly closed by the user.
+    /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
+    pub closed_accounts: HashSet<Pubkey>,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -320,6 +343,7 @@ impl SurfnetSvm {
             logs_subscriptions: Vec::new(),
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
+            start_time: SystemTime::now(),
             accounts_by_owner,
             account_associated_data: HashMap::new(),
             token_accounts: HashMap::new(),
@@ -343,12 +367,121 @@ impl SurfnetSvm {
             streamed_accounts: HashMap::new(),
             recent_blockhashes: VecDeque::new(),
             scheduled_overrides: HashMap::new(),
+            closed_accounts: HashSet::new(),
         };
 
         // Generate the initial synthetic blockhash
         svm.chain_tip = svm.new_blockhash();
 
         (svm, simnet_events_rx, geyser_events_rx)
+    }
+
+    /// Applies the SVM feature configuration to the internal feature set.
+    ///
+    /// This method enables or disables specific SVM features based on the provided configuration.
+    /// Features explicitly listed in `enable` will be activated, and features in `disable` will be deactivated.
+    ///
+    /// # Arguments
+    /// * `config` - The feature configuration specifying which features to enable/disable.
+    pub fn apply_feature_config(&mut self, config: &SvmFeatureConfig) {
+        // Apply explicit enables
+        for feature in &config.enable {
+            if let Some(id) = Self::feature_to_id(feature) {
+                self.feature_set.activate(&id, 0);
+            }
+        }
+
+        // Apply explicit disables
+        for feature in &config.disable {
+            if let Some(id) = Self::feature_to_id(feature) {
+                self.feature_set.deactivate(&id);
+            }
+        }
+
+        // Rebuild LiteSVM with updated feature set
+        self.inner = LiteSVM::new()
+            .with_feature_set(self.feature_set.clone())
+            .with_blockhash_check(false)
+            .with_sigverify(false);
+
+        // Re-add the native mint
+        create_native_mint(&mut self.inner);
+    }
+
+    /// Maps an SvmFeature enum variant to its corresponding feature ID (Pubkey).
+    fn feature_to_id(feature: &SvmFeature) -> Option<Pubkey> {
+        match feature {
+            SvmFeature::MovePrecompileVerificationToSvm => {
+                Some(move_precompile_verification_to_svm::id())
+            }
+            SvmFeature::StricterAbiAndRuntimeConstraints => {
+                Some(stricter_abi_and_runtime_constraints::id())
+            }
+            SvmFeature::EnableBpfLoaderSetAuthorityCheckedIx => {
+                Some(enable_bpf_loader_set_authority_checked_ix::id())
+            }
+            SvmFeature::EnableLoaderV4 => Some(enable_loader_v4::id()),
+            SvmFeature::DepleteCuMeterOnVmFailure => Some(deplete_cu_meter_on_vm_failure::id()),
+            SvmFeature::AbortOnInvalidCurve => Some(abort_on_invalid_curve::id()),
+            SvmFeature::Blake3SyscallEnabled => Some(blake3_syscall_enabled::id()),
+            SvmFeature::Curve25519SyscallEnabled => Some(curve25519_syscall_enabled::id()),
+            SvmFeature::DisableDeployOfAllocFreeSyscall => {
+                Some(disable_deploy_of_alloc_free_syscall::id())
+            }
+            SvmFeature::DisableFeesSysvar => Some(disable_fees_sysvar::id()),
+            SvmFeature::DisableSbpfV0Execution => Some(disable_sbpf_v0_execution::id()),
+            SvmFeature::EnableAltBn128CompressionSyscall => {
+                Some(enable_alt_bn128_compression_syscall::id())
+            }
+            SvmFeature::EnableAltBn128Syscall => Some(enable_alt_bn128_syscall::id()),
+            SvmFeature::EnableBigModExpSyscall => Some(enable_big_mod_exp_syscall::id()),
+            SvmFeature::EnableGetEpochStakeSyscall => Some(enable_get_epoch_stake_syscall::id()),
+            SvmFeature::EnablePoseidonSyscall => Some(enable_poseidon_syscall::id()),
+            SvmFeature::EnableSbpfV1DeploymentAndExecution => {
+                Some(enable_sbpf_v1_deployment_and_execution::id())
+            }
+            SvmFeature::EnableSbpfV2DeploymentAndExecution => {
+                Some(enable_sbpf_v2_deployment_and_execution::id())
+            }
+            SvmFeature::EnableSbpfV3DeploymentAndExecution => {
+                Some(enable_sbpf_v3_deployment_and_execution::id())
+            }
+            SvmFeature::GetSysvarSyscallEnabled => Some(get_sysvar_syscall_enabled::id()),
+            SvmFeature::LastRestartSlotSysvar => Some(last_restart_slot_sysvar::id()),
+            SvmFeature::ReenableSbpfV0Execution => Some(reenable_sbpf_v0_execution::id()),
+            SvmFeature::RemainingComputeUnitsSyscallEnabled => {
+                Some(remaining_compute_units_syscall_enabled::id())
+            }
+            SvmFeature::RemoveBpfLoaderIncorrectProgramId => {
+                Some(remove_bpf_loader_incorrect_program_id::id())
+            }
+            SvmFeature::MoveStakeAndMoveLamportsIxs => Some(move_stake_and_move_lamports_ixs::id()),
+            SvmFeature::StakeRaiseMinimumDelegationTo1Sol => {
+                Some(stake_raise_minimum_delegation_to_1_sol::id())
+            }
+            SvmFeature::DeprecateLegacyVoteIxs => Some(deprecate_legacy_vote_ixs::id()),
+            SvmFeature::MaskOutRentEpochInVmSerialization => {
+                Some(mask_out_rent_epoch_in_vm_serialization::id())
+            }
+            SvmFeature::SimplifyAltBn128SyscallErrorCodes => {
+                Some(simplify_alt_bn128_syscall_error_codes::id())
+            }
+            SvmFeature::FixAltBn128MultiplicationInputLength => {
+                Some(fix_alt_bn128_multiplication_input_length::id())
+            }
+            SvmFeature::IncreaseTxAccountLockLimit => Some(increase_tx_account_lock_limit::id()),
+            SvmFeature::EnableExtendProgramChecked => Some(enable_extend_program_checked::id()),
+            SvmFeature::FormalizeLoadedTransactionDataSize => {
+                Some(formalize_loaded_transaction_data_size::id())
+            }
+            SvmFeature::DisableZkElgamalProofProgram => {
+                Some(disable_zk_elgamal_proof_program::id())
+            }
+            SvmFeature::ReenableZkElgamalProofProgram => {
+                Some(reenable_zk_elgamal_proof_program::id())
+            }
+            SvmFeature::RaiseCpiNestingLimitTo8 => Some(raise_cpi_nesting_limit_to_8::id()),
+        }
     }
 
     pub fn increment_write_version(&mut self) -> u64 {
@@ -661,6 +794,14 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         account: &Account,
     ) -> SurfpoolResult<()> {
+        if account == &Account::default() {
+            self.closed_accounts.insert(*pubkey);
+            if let Some(old_account) = self.get_account(pubkey) {
+                self.remove_from_indexes(pubkey, &old_account);
+            }
+            return Ok(());
+        }
+
         // only update our indexes if the account exists in the svm accounts db
         if let Some(old_account) = self.get_account(pubkey) {
             self.remove_from_indexes(pubkey, &old_account);
@@ -1256,13 +1397,14 @@ impl SurfnetSvm {
         }
 
         let num_transactions = confirmed_signatures.len() as u64;
+        self.updated_at += self.slot_time;
 
         self.blocks.insert(
             slot,
             BlockHeader {
                 hash: self.chain_tip.hash.clone(),
                 previous_blockhash: previous_chain_tip.hash,
-                block_time: chrono::Utc::now().timestamp_millis(),
+                block_time: self.updated_at as i64 / 1_000,
                 block_height: self.chain_tip.index,
                 parent_slot: slot,
                 signatures: confirmed_signatures,
@@ -1276,10 +1418,9 @@ impl SurfnetSvm {
             num_slots: 1,
             sample_period_secs: 1,
             num_transactions,
-            num_non_vote_transactions: None,
+            num_non_vote_transactions: Some(num_transactions),
         });
 
-        self.updated_at += self.slot_time;
         self.latest_epoch_info.slot_index += 1;
         self.latest_epoch_info.block_height = self.chain_tip.index;
         self.latest_epoch_info.absolute_slot += 1;
@@ -2361,16 +2502,17 @@ impl SurfnetSvm {
                 || pubkey == &solana_sdk_ids::bpf_loader_deprecated::id()
                 || pubkey == &solana_sdk_ids::bpf_loader_upgradeable::id()
         }
-        for (pubkey, account_shared_data) in self.iter_accounts() {
+
+        // Helper function to process an account and add it to fixtures
+        let mut process_account = |pubkey: &Pubkey, account: &Account| {
             let is_include_account = include_accounts.iter().any(|k| k.eq(&pubkey.to_string()));
             let is_exclude_account = exclude_accounts.iter().any(|k| k.eq(&pubkey.to_string()));
-            let is_program_account = is_program_account(account_shared_data.owner());
+            let is_program_account = is_program_account(&account.owner);
             if is_exclude_account
                 || ((is_program_account && !include_program_accounts) && !is_include_account)
             {
-                continue;
+                return;
             }
-            let account = Account::from(account_shared_data.clone());
 
             // For token accounts, we need to provide the mint additional data
             let additional_data = if account.owner == spl_token_interface::id()
@@ -2388,7 +2530,7 @@ impl SurfnetSvm {
             };
 
             let ui_account =
-                self.encode_ui_account(pubkey, &account, encoding, additional_data, None);
+                self.encode_ui_account(pubkey, account, encoding, additional_data, None);
 
             let (base64, parsed_data) = match ui_account.data {
                 UiAccountData::Json(parsed_account) => {
@@ -2408,7 +2550,39 @@ impl SurfnetSvm {
             );
 
             fixtures.insert(pubkey.to_string(), account_snapshot);
+        };
+
+        match &config.scope {
+            ExportSnapshotScope::Network => {
+                // Export all network accounts (current behavior)
+                for (pubkey, account_shared_data) in self.iter_accounts() {
+                    let account = Account::from(account_shared_data.clone());
+                    process_account(&pubkey, &account);
+                }
+            }
+            ExportSnapshotScope::PreTransaction(signature_str) => {
+                // Export accounts from a specific transaction's pre-execution state
+                if let Ok(signature) = Signature::from_str(signature_str) {
+                    if let Some(profile) = self.executed_transaction_profiles.get(&signature) {
+                        // Collect accounts from pre-execution capture only
+                        // This gives us the account state BEFORE the transaction executed
+                        for (pubkey, account_opt) in
+                            &profile.transaction_profile.pre_execution_capture
+                        {
+                            if let Some(account) = account_opt {
+                                process_account(pubkey, account);
+                            }
+                        }
+
+                        // Also collect readonly account states (these don't change)
+                        for (pubkey, account) in &profile.readonly_account_states {
+                            process_account(pubkey, account);
+                        }
+                    }
+                }
+            }
         }
+
         fixtures
     }
 
@@ -3199,5 +3373,282 @@ mod tests {
         let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
         svm.set_profiling_map_capacity(10);
         assert_eq!(svm.executed_transaction_profiles.capacity(), 10);
+    }
+
+    // Feature configuration tests
+
+    #[test]
+    fn test_feature_to_id_all_features_have_mapping() {
+        // Ensure every SvmFeature variant has a valid mapping to a feature ID
+        for feature in SvmFeature::all() {
+            let id = SurfnetSvm::feature_to_id(&feature);
+            assert!(
+                id.is_some(),
+                "Feature {:?} should have a valid ID mapping",
+                feature
+            );
+        }
+    }
+
+    #[test]
+    fn test_feature_to_id_returns_valid_pubkeys() {
+        // Spot check a few known features
+        let loader_v4_id = SurfnetSvm::feature_to_id(&SvmFeature::EnableLoaderV4);
+        assert!(loader_v4_id.is_some());
+        assert_ne!(loader_v4_id.unwrap(), Pubkey::default());
+
+        let disable_fees_id = SurfnetSvm::feature_to_id(&SvmFeature::DisableFeesSysvar);
+        assert!(disable_fees_id.is_some());
+        assert_ne!(disable_fees_id.unwrap(), Pubkey::default());
+
+        // Different features should have different IDs
+        assert_ne!(loader_v4_id, disable_fees_id);
+    }
+
+    #[test]
+    fn test_apply_feature_config_empty() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let config = SvmFeatureConfig::new();
+
+        // Should not panic with empty config
+        svm.apply_feature_config(&config);
+    }
+
+    #[test]
+    fn test_apply_feature_config_enable_feature() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        // Disable a feature first
+        let feature_id = enable_loader_v4::id();
+        svm.feature_set.deactivate(&feature_id);
+        assert!(!svm.feature_set.is_active(&feature_id));
+
+        // Now enable it via config
+        let config = SvmFeatureConfig::new().enable(SvmFeature::EnableLoaderV4);
+        svm.apply_feature_config(&config);
+
+        assert!(svm.feature_set.is_active(&feature_id));
+    }
+
+    #[test]
+    fn test_apply_feature_config_disable_feature() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        // Feature should be active by default (all_enabled)
+        let feature_id = disable_fees_sysvar::id();
+        assert!(svm.feature_set.is_active(&feature_id));
+
+        // Now disable it via config
+        let config = SvmFeatureConfig::new().disable(SvmFeature::DisableFeesSysvar);
+        svm.apply_feature_config(&config);
+
+        assert!(!svm.feature_set.is_active(&feature_id));
+    }
+
+    #[test]
+    fn test_apply_feature_config_mainnet_defaults() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let config = SvmFeatureConfig::default_mainnet_features();
+
+        svm.apply_feature_config(&config);
+
+        // Features disabled on mainnet should now be inactive
+        assert!(!svm.feature_set.is_active(&enable_loader_v4::id()));
+        assert!(
+            !svm.feature_set
+                .is_active(&enable_extend_program_checked::id())
+        );
+        assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
+        assert!(
+            !svm.feature_set
+                .is_active(&enable_sbpf_v1_deployment_and_execution::id())
+        );
+        assert!(
+            !svm.feature_set
+                .is_active(&formalize_loaded_transaction_data_size::id())
+        );
+        assert!(
+            !svm.feature_set
+                .is_active(&move_precompile_verification_to_svm::id())
+        );
+
+        // Features active on mainnet should still be active
+        assert!(svm.feature_set.is_active(&disable_fees_sysvar::id()));
+        assert!(svm.feature_set.is_active(&curve25519_syscall_enabled::id()));
+        assert!(
+            svm.feature_set
+                .is_active(&enable_sbpf_v2_deployment_and_execution::id())
+        );
+        assert!(
+            svm.feature_set
+                .is_active(&enable_sbpf_v3_deployment_and_execution::id())
+        );
+        assert!(
+            svm.feature_set
+                .is_active(&raise_cpi_nesting_limit_to_8::id())
+        );
+    }
+
+    #[test]
+    fn test_apply_feature_config_mainnet_with_override() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        // Start with mainnet defaults, but enable loader v4
+        let config =
+            SvmFeatureConfig::default_mainnet_features().enable(SvmFeature::EnableLoaderV4);
+
+        svm.apply_feature_config(&config);
+
+        // Loader v4 should be enabled despite mainnet defaults
+        assert!(svm.feature_set.is_active(&enable_loader_v4::id()));
+
+        // Other mainnet-disabled features should still be disabled
+        assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
+        assert!(
+            !svm.feature_set
+                .is_active(&enable_extend_program_checked::id())
+        );
+    }
+
+    #[test]
+    fn test_apply_feature_config_multiple_changes() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let config = SvmFeatureConfig::new()
+            .enable(SvmFeature::EnableLoaderV4)
+            .enable(SvmFeature::EnableSbpfV2DeploymentAndExecution)
+            .disable(SvmFeature::DisableFeesSysvar)
+            .disable(SvmFeature::Blake3SyscallEnabled);
+
+        svm.apply_feature_config(&config);
+
+        assert!(svm.feature_set.is_active(&enable_loader_v4::id()));
+        assert!(
+            svm.feature_set
+                .is_active(&enable_sbpf_v2_deployment_and_execution::id())
+        );
+        assert!(!svm.feature_set.is_active(&disable_fees_sysvar::id()));
+        assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
+    }
+
+    #[test]
+    fn test_apply_feature_config_preserves_native_mint() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        // Native mint should exist before
+        assert!(
+            svm.inner
+                .get_account(&spl_token_interface::native_mint::ID)
+                .is_some()
+        );
+
+        let config = SvmFeatureConfig::new().disable(SvmFeature::DisableFeesSysvar);
+        svm.apply_feature_config(&config);
+
+        // Native mint should still exist after (re-added in apply_feature_config)
+        assert!(
+            svm.inner
+                .get_account(&spl_token_interface::native_mint::ID)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn test_apply_feature_config_idempotent() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let config = SvmFeatureConfig::new()
+            .enable(SvmFeature::EnableLoaderV4)
+            .disable(SvmFeature::DisableFeesSysvar);
+
+        // Apply twice
+        svm.apply_feature_config(&config);
+        svm.apply_feature_config(&config);
+
+        // State should be the same
+        assert!(svm.feature_set.is_active(&enable_loader_v4::id()));
+        assert!(!svm.feature_set.is_active(&disable_fees_sysvar::id()));
+    }
+
+    // Garbage collection tests
+
+    #[test]
+    fn test_garbage_collected_account_tracking() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let owner = Pubkey::new_unique();
+        let account_pubkey = Pubkey::new_unique();
+
+        let account = Account {
+            lamports: 1000000,
+            data: vec![1, 2, 3, 4, 5],
+            owner,
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        svm.set_account(&account_pubkey, account.clone()).unwrap();
+
+        assert!(svm.get_account(&account_pubkey).is_some());
+        assert!(!svm.closed_accounts.contains(&account_pubkey));
+        assert_eq!(svm.get_account_owned_by(&owner).len(), 1);
+
+        let empty_account = Account::default();
+        svm.update_account_registries(&account_pubkey, &empty_account)
+            .unwrap();
+
+        assert!(svm.closed_accounts.contains(&account_pubkey));
+
+        assert_eq!(svm.get_account_owned_by(&owner).len(), 0);
+
+        let owned_accounts = svm.get_account_owned_by(&owner);
+        assert!(!owned_accounts.iter().any(|(pk, _)| *pk == account_pubkey));
+    }
+
+    #[test]
+    fn test_garbage_collected_token_account_cleanup() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let token_owner = Pubkey::new_unique();
+        let delegate = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let token_account_pubkey = Pubkey::new_unique();
+
+        let mut token_account_data = [0u8; TokenAccount::LEN];
+        let token_account = TokenAccount {
+            mint,
+            owner: token_owner,
+            amount: 1000,
+            delegate: COption::Some(delegate),
+            state: AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 500,
+            close_authority: COption::None,
+        };
+        token_account.pack_into_slice(&mut token_account_data);
+
+        let account = Account {
+            lamports: 2000000,
+            data: token_account_data.to_vec(),
+            owner: spl_token_interface::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        svm.set_account(&token_account_pubkey, account).unwrap();
+
+        assert_eq!(svm.get_token_accounts_by_owner(&token_owner).len(), 1);
+        assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 1);
+        assert!(!svm.closed_accounts.contains(&token_account_pubkey));
+
+        let empty_account = Account::default();
+        svm.update_account_registries(&token_account_pubkey, &empty_account)
+            .unwrap();
+
+        assert!(svm.closed_accounts.contains(&token_account_pubkey));
+
+        assert_eq!(svm.get_token_accounts_by_owner(&token_owner).len(), 0);
+        assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 0);
+        assert!(svm.token_accounts.get(&token_account_pubkey).is_none());
     }
 }

@@ -25,6 +25,8 @@ use txtx_addon_kit::indexmap::IndexMap;
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
 
+use crate::SvmFeatureConfig;
+
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEFAULT_RPC_PORT: u16 = 8899;
 pub const DEFAULT_WS_PORT: u16 = 8900;
@@ -342,6 +344,7 @@ pub mod profile_state_map {
 pub enum SubgraphCommand {
     CreateCollection(Uuid, SubgraphRequest, Sender<String>),
     ObserveCollection(Receiver<DataIndexingCommand>),
+    DestroyCollection(Uuid), // Clean up collection on plugin unload
     Shutdown,
 }
 
@@ -543,6 +546,7 @@ pub struct SimnetConfig {
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
     pub log_bytes_limit: Option<usize>,
+    pub feature_config: SvmFeatureConfig,
 }
 
 impl Default for SimnetConfig {
@@ -558,20 +562,25 @@ impl Default for SimnetConfig {
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             log_bytes_limit: Some(10_000),
+            feature_config: SvmFeatureConfig::default(),
         }
     }
 }
 
 impl SimnetConfig {
+    /// Returns a sanitized version of the datasource URL safe for display.
+    /// Only returns scheme and host (e.g., "https://example.com") to prevent
+    /// leaking API keys in paths or query parameters.
     pub fn get_sanitized_datasource_url(&self) -> Option<String> {
         let raw = self.remote_rpc_url.as_ref()?;
-        let base = raw
-            .split('?')
-            .next()
-            .map(|s| s.trim())
-            .unwrap_or_default()
-            .to_string();
-        if base.is_empty() { None } else { Some(base) }
+
+        if let Ok(url) = url::Url::parse(raw) {
+            let scheme = url.scheme();
+            let host = url.host_str()?;
+            Some(format!("{}://{}", scheme, host))
+        } else {
+            None
+        }
     }
 }
 
@@ -641,10 +650,21 @@ pub struct CreateSurfnetRequest {
     pub settings: Option<CloudSurfnetSettings>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case", default)]
 pub struct CloudSurfnetSettings {
     pub profiling_disabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gating: Option<CloudSurfnetRpcGating>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case", default)]
+pub struct CloudSurfnetRpcGating {
+    pub private_methods_secret_token: Option<String>,
+    pub private_methods: Vec<String>,
+    pub public_methods: Vec<String>,
+    pub disabled_methods: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1002,6 +1022,15 @@ impl AccountSnapshot {
 pub struct ExportSnapshotConfig {
     pub include_parsed_accounts: Option<bool>,
     pub filter: Option<ExportSnapshotFilter>,
+    pub scope: ExportSnapshotScope,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportSnapshotScope {
+    #[default]
+    Network,
+    PreTransaction(String),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -1377,5 +1406,104 @@ mod tests {
         let get: Vec<_> = profiling_map.iter().map(|(k, v)| (*k, *v)).collect();
         println!("Profiling map: {:?}", get);
         assert_eq!(get, vec![("b", 4), ("c", 3), ("d", 4), ("e", 5)]);
+    }
+
+    #[test]
+    fn test_export_snapshot_scope_serialization() {
+        // Test Network variant
+        let network_config = ExportSnapshotConfig {
+            include_parsed_accounts: None,
+            filter: None,
+            scope: ExportSnapshotScope::Network,
+        };
+        let network_json = serde_json::to_value(&network_config).unwrap();
+        println!(
+            "Network config: {}",
+            serde_json::to_string_pretty(&network_json).unwrap()
+        );
+        assert_eq!(network_json["scope"], json!("network"));
+
+        // Test PreTransaction variant
+        let pre_tx_config = ExportSnapshotConfig {
+            include_parsed_accounts: None,
+            filter: None,
+            scope: ExportSnapshotScope::PreTransaction("5signature123".to_string()),
+        };
+        let pre_tx_json = serde_json::to_value(&pre_tx_config).unwrap();
+        println!(
+            "PreTransaction config: {}",
+            serde_json::to_string_pretty(&pre_tx_json).unwrap()
+        );
+        assert_eq!(
+            pre_tx_json["scope"],
+            json!({"preTransaction": "5signature123"})
+        );
+
+        // Test deserialization
+        let deserialized_network: ExportSnapshotConfig =
+            serde_json::from_value(network_json).unwrap();
+        assert_eq!(deserialized_network.scope, ExportSnapshotScope::Network);
+
+        let deserialized_pre_tx: ExportSnapshotConfig =
+            serde_json::from_value(pre_tx_json).unwrap();
+        assert_eq!(
+            deserialized_pre_tx.scope,
+            ExportSnapshotScope::PreTransaction("5signature123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_datasource_url_strips_path_and_query() {
+        // API key in path should be stripped
+        let config = SimnetConfig {
+            remote_rpc_url: Some(
+                "https://example.rpc-provider.com/v2/abc123def456ghi789".to_string(),
+            ),
+            ..Default::default()
+        };
+        let sanitized = config.get_sanitized_datasource_url().unwrap();
+        assert_eq!(sanitized, "https://example.rpc-provider.com");
+        assert!(!sanitized.contains("abc123"));
+    }
+
+    #[test]
+    fn test_sanitize_datasource_url_strips_query_params() {
+        let config = SimnetConfig {
+            remote_rpc_url: Some(
+                "https://mainnet.helius-rpc.com/?api-key=secret-key-12345".to_string(),
+            ),
+            ..Default::default()
+        };
+        let sanitized = config.get_sanitized_datasource_url().unwrap();
+        assert_eq!(sanitized, "https://mainnet.helius-rpc.com");
+        assert!(!sanitized.contains("secret-key"));
+    }
+
+    #[test]
+    fn test_sanitize_datasource_url_public_rpc() {
+        let config = SimnetConfig {
+            remote_rpc_url: Some("https://api.mainnet-beta.solana.com".to_string()),
+            ..Default::default()
+        };
+        let sanitized = config.get_sanitized_datasource_url().unwrap();
+        assert_eq!(sanitized, "https://api.mainnet-beta.solana.com");
+    }
+
+    #[test]
+    fn test_sanitize_datasource_url_none() {
+        let config = SimnetConfig {
+            remote_rpc_url: None,
+            ..Default::default()
+        };
+        assert!(config.get_sanitized_datasource_url().is_none());
+    }
+
+    #[test]
+    fn test_sanitize_datasource_url_invalid() {
+        let config = SimnetConfig {
+            remote_rpc_url: Some("not-a-valid-url".to_string()),
+            ..Default::default()
+        };
+        assert!(config.get_sanitized_datasource_url().is_none());
     }
 }

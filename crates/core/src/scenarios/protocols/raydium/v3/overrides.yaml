@@ -1,0 +1,37 @@
+protocol: Raydium
+version: v3
+account_type: PoolState
+idl_file_path: idl.json
+
+tags:
+  - amm
+  - concentrated-liquidity
+  - defi
+
+templates:
+  - id: raydium-clmm-sol-usdc
+    name: Override SOL/USDC CLMM Pool
+    description: Override Raydium CLMM v3 SOL/USDC pool state with simulated values
+    idl_account_name: PoolState
+    properties: ["liquidity", "sqrt_price_x64", "tick_current"]
+    address:
+      type: pubkey
+      value: 3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv
+
+  - id: raydium-clmm-btc-usdc
+    name: Override BTC/USDC CLMM Pool
+    description: Override Raydium CLMM v3 BTC/USDC pool state with simulated values
+    idl_account_name: PoolState
+    properties: ["liquidity", "sqrt_price_x64", "tick_current"]
+    address:
+      type: pubkey
+      value: 6kbC5epG18DF2DwPEW34tBy5pGFS7pEGALR3v5MGxgc5
+
+  - id: raydium-clmm-eth-usdc
+    name: Override ETH/USDC CLMM Pool
+    description: Override Raydium CLMM v3 ETH/USDC pool state with simulated values
+    idl_account_name: PoolState
+    properties: ["liquidity", "sqrt_price_x64", "tick_current"]
+    address:
+      type: pubkey
+      value: AoPebtuJC4f2RweZSxcVCcdeTgaEXY64Uho8b5HdPxAR

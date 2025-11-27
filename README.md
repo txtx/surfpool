@@ -46,6 +46,10 @@ Includes Stream Oracles, Universal Faucet, Transaction Inspector, and Time Trave
 Surfpool Studio is your local dashboard to visualize, inspect, and manage your networks in real time.
 Surfpool Cloud extends that same experience to the cloud — letting you index mainnet data and run large-scale simulations with the same developer experience. It’s serverless, backend-as-a-service, and built for analytics at scale.
 
+### 🧪 Surfpool Scenarios
+With Surfpool Scenarios you can curate slot-by-slot account states for key accounts, mixing live mainnet data with overridden account states.
+This allows you to stress test your protocol in key real-world situations and to reproduce any chain-state conditions. See the [Scenarios Docs](./crates/core/src/scenarios/README.md) for more details.
+
 ## Installation
 
 Install pre-built binaries:

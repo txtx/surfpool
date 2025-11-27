@@ -1469,14 +1469,16 @@ impl Full for SurfpoolFullRpc {
         let remote_client = remote_ctx.map(|(r, _)| r);
 
         Box::pin(async move {
+            // Capture the context slot once at the beginning to ensure consistency
+            // across all signature lookups, even if the slot advances during the loop
+            let context_slot = svm_locker.get_latest_absolute_slot();
+
             let mut responses = Vec::with_capacity(signatures.len());
-            let mut last_latest_absolute_slot = 0;
             for signature in signatures.into_iter() {
                 let res = svm_locker
                     .get_transaction(&remote_client, &signature, get_default_transaction_config())
                     .await?;
 
-                last_latest_absolute_slot = svm_locker.get_latest_absolute_slot();
                 let mut status = res.map_some_transaction_status();
                 if let Some(confirmation_status) =
                     status.as_ref().and_then(|s| s.confirmation_status.as_ref())
@@ -1491,7 +1493,7 @@ impl Full for SurfpoolFullRpc {
                 responses.push(status);
             }
             Ok(RpcResponse {
-                context: RpcResponseContext::new(last_latest_absolute_slot),
+                context: RpcResponseContext::new(context_slot),
                 value: responses,
             })
         })
@@ -2596,6 +2598,12 @@ mod tests {
         );
         setup.process_txs(txs.clone()).await;
 
+        // Capture the expected slot before the call to verify context slot consistency
+        let current_slot = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.get_latest_absolute_slot());
+
         // fetch while transactions are still in processed status
         {
             let res = setup
@@ -2630,6 +2638,13 @@ mod tests {
             )
             .await
             .unwrap();
+
+        // Verify context slot is captured at the beginning of the call
+        assert_eq!(
+            res.context.slot,
+            current_slot + 1,
+            "Context slot should be captured at the beginning of the call, not after lookups"
+        );
 
         assert_eq!(
             res.value

@@ -1,0 +1,4451 @@
+{
+  "address": "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+  "metadata": {
+    "name": "lb_clmm",
+    "version": "0.10.1",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [],
+  "accounts": [
+    {
+      "name": "BinArray",
+      "discriminator": [
+        92,
+        142,
+        92,
+        220,
+        5,
+        148,
+        70,
+        181
+      ]
+    },
+    {
+      "name": "BinArrayBitmapExtension",
+      "discriminator": [
+        80,
+        111,
+        124,
+        113,
+        55,
+        237,
+        18,
+        5
+      ]
+    },
+    {
+      "name": "ClaimFeeOperator",
+      "discriminator": [
+        166,
+        48,
+        134,
+        86,
+        34,
+        200,
+        188,
+        150
+      ]
+    },
+    {
+      "name": "DummyZcAccount",
+      "discriminator": [
+        94,
+        107,
+        238,
+        80,
+        208,
+        48,
+        180,
+        8
+      ]
+    },
+    {
+      "name": "LbPair",
+      "discriminator": [
+        33,
+        11,
+        49,
+        98,
+        181,
+        101,
+        177,
+        13
+      ]
+    },
+    {
+      "name": "Oracle",
+      "discriminator": [
+        139,
+        194,
+        131,
+        179,
+        140,
+        179,
+        229,
+        244
+      ]
+    },
+    {
+      "name": "Position",
+      "discriminator": [
+        170,
+        188,
+        143,
+        228,
+        122,
+        64,
+        247,
+        208
+      ]
+    },
+    {
+      "name": "PositionV2",
+      "discriminator": [
+        117,
+        176,
+        212,
+        199,
+        245,
+        180,
+        133,
+        182
+      ]
+    },
+    {
+      "name": "PresetParameter",
+      "discriminator": [
+        242,
+        62,
+        244,
+        34,
+        181,
+        112,
+        58,
+        170
+      ]
+    },
+    {
+      "name": "PresetParameter2",
+      "discriminator": [
+        171,
+        236,
+        148,
+        115,
+        162,
+        113,
+        222,
+        174
+      ]
+    },
+    {
+      "name": "TokenBadge",
+      "discriminator": [
+        116,
+        219,
+        204,
+        229,
+        249,
+        116,
+        255,
+        150
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AddLiquidity",
+      "discriminator": [
+        31,
+        94,
+        125,
+        90,
+        227,
+        52,
+        61,
+        186
+      ]
+    },
+    {
+      "name": "ClaimFee",
+      "discriminator": [
+        75,
+        122,
+        154,
+        48,
+        140,
+        74,
+        123,
+        163
+      ]
+    },
+    {
+      "name": "ClaimFee2",
+      "discriminator": [
+        232,
+        171,
+        242,
+        97,
+        58,
+        77,
+        35,
+        45
+      ]
+    },
+    {
+      "name": "ClaimReward",
+      "discriminator": [
+        148,
+        116,
+        134,
+        204,
+        22,
+        171,
+        85,
+        95
+      ]
+    },
+    {
+      "name": "ClaimReward2",
+      "discriminator": [
+        27,
+        143,
+        244,
+        33,
+        80,
+        43,
+        110,
+        146
+      ]
+    },
+    {
+      "name": "CompositionFee",
+      "discriminator": [
+        128,
+        151,
+        123,
+        106,
+        17,
+        102,
+        113,
+        142
+      ]
+    },
+    {
+      "name": "DecreasePositionLength",
+      "discriminator": [
+        52,
+        118,
+        235,
+        85,
+        172,
+        169,
+        15,
+        128
+      ]
+    },
+    {
+      "name": "DynamicFeeParameterUpdate",
+      "discriminator": [
+        88,
+        88,
+        178,
+        135,
+        194,
+        146,
+        91,
+        243
+      ]
+    },
+    {
+      "name": "FeeParameterUpdate",
+      "discriminator": [
+        48,
+        76,
+        241,
+        117,
+        144,
+        215,
+        242,
+        44
+      ]
+    },
+    {
+      "name": "FundReward",
+      "discriminator": [
+        246,
+        228,
+        58,
+        130,
+        145,
+        170,
+        79,
+        204
+      ]
+    },
+    {
+      "name": "GoToABin",
+      "discriminator": [
+        59,
+        138,
+        76,
+        68,
+        138,
+        131,
+        176,
+        67
+      ]
+    },
+    {
+      "name": "IncreaseObservation",
+      "discriminator": [
+        99,
+        249,
+        17,
+        121,
+        166,
+        156,
+        207,
+        215
+      ]
+    },
+    {
+      "name": "IncreasePositionLength",
+      "discriminator": [
+        157,
+        239,
+        42,
+        204,
+        30,
+        56,
+        223,
+        46
+      ]
+    },
+    {
+      "name": "InitializeReward",
+      "discriminator": [
+        211,
+        153,
+        88,
+        62,
+        149,
+        60,
+        177,
+        70
+      ]
+    },
+    {
+      "name": "LbPairCreate",
+      "discriminator": [
+        185,
+        74,
+        252,
+        125,
+        27,
+        215,
+        188,
+        111
+      ]
+    },
+    {
+      "name": "PositionClose",
+      "discriminator": [
+        255,
+        196,
+        16,
+        107,
+        28,
+        202,
+        53,
+        128
+      ]
+    },
+    {
+      "name": "PositionCreate",
+      "discriminator": [
+        144,
+        142,
+        252,
+        84,
+        157,
+        53,
+        37,
+        121
+      ]
+    },
+    {
+      "name": "Rebalancing",
+      "discriminator": [
+        0,
+        109,
+        117,
+        179,
+        61,
+        91,
+        199,
+        200
+      ]
+    },
+    {
+      "name": "RemoveLiquidity",
+      "discriminator": [
+        116,
+        244,
+        97,
+        232,
+        103,
+        31,
+        152,
+        58
+      ]
+    },
+    {
+      "name": "Swap",
+      "discriminator": [
+        81,
+        108,
+        227,
+        190,
+        205,
+        208,
+        10,
+        196
+      ]
+    },
+    {
+      "name": "UpdatePositionLockReleasePoint",
+      "discriminator": [
+        133,
+        214,
+        66,
+        224,
+        64,
+        12,
+        7,
+        191
+      ]
+    },
+    {
+      "name": "UpdatePositionOperator",
+      "discriminator": [
+        39,
+        115,
+        48,
+        204,
+        246,
+        47,
+        66,
+        57
+      ]
+    },
+    {
+      "name": "UpdateRewardDuration",
+      "discriminator": [
+        223,
+        245,
+        224,
+        153,
+        49,
+        29,
+        163,
+        172
+      ]
+    },
+    {
+      "name": "UpdateRewardFunder",
+      "discriminator": [
+        224,
+        178,
+        174,
+        74,
+        252,
+        165,
+        85,
+        180
+      ]
+    },
+    {
+      "name": "WithdrawIneligibleReward",
+      "discriminator": [
+        231,
+        189,
+        65,
+        149,
+        102,
+        215,
+        154,
+        244
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidStartBinIndex",
+      "msg": "Invalid start bin index"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidBinId",
+      "msg": "Invalid bin id"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidInput",
+      "msg": "Invalid input data"
+    },
+    {
+      "code": 6003,
+      "name": "ExceededAmountSlippageTolerance",
+      "msg": "Exceeded amount slippage tolerance"
+    },
+    {
+      "code": 6004,
+      "name": "ExceededBinSlippageTolerance",
+      "msg": "Exceeded bin slippage tolerance"
+    },
+    {
+      "code": 6005,
+      "name": "CompositionFactorFlawed",
+      "msg": "Composition factor flawed"
+    },
+    {
+      "code": 6006,
+      "name": "NonPresetBinStep",
+      "msg": "Non preset bin step"
+    },
+    {
+      "code": 6007,
+      "name": "ZeroLiquidity",
+      "msg": "Zero liquidity"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidPosition",
+      "msg": "Invalid position"
+    },
+    {
+      "code": 6009,
+      "name": "BinArrayNotFound",
+      "msg": "Bin array not found"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidTokenMint",
+      "msg": "Invalid token mint"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidAccountForSingleDeposit",
+      "msg": "Invalid account for single deposit"
+    },
+    {
+      "code": 6012,
+      "name": "PairInsufficientLiquidity",
+      "msg": "Pair insufficient liquidity"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidFeeOwner",
+      "msg": "Invalid fee owner"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidFeeWithdrawAmount",
+      "msg": "Invalid fee withdraw amount"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidAdmin",
+      "msg": "Invalid admin"
+    },
+    {
+      "code": 6016,
+      "name": "IdenticalFeeOwner",
+      "msg": "Identical fee owner"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidBps",
+      "msg": "Invalid basis point"
+    },
+    {
+      "code": 6018,
+      "name": "MathOverflow",
+      "msg": "Math operation overflow"
+    },
+    {
+      "code": 6019,
+      "name": "TypeCastFailed",
+      "msg": "Type cast error"
+    },
+    {
+      "code": 6020,
+      "name": "InvalidRewardIndex",
+      "msg": "Invalid reward index"
+    },
+    {
+      "code": 6021,
+      "name": "InvalidRewardDuration",
+      "msg": "Invalid reward duration"
+    },
+    {
+      "code": 6022,
+      "name": "RewardInitialized",
+      "msg": "Reward already initialized"
+    },
+    {
+      "code": 6023,
+      "name": "RewardUninitialized",
+      "msg": "Reward not initialized"
+    },
+    {
+      "code": 6024,
+      "name": "IdenticalFunder",
+      "msg": "Identical funder"
+    },
+    {
+      "code": 6025,
+      "name": "RewardCampaignInProgress",
+      "msg": "Reward campaign in progress"
+    },
+    {
+      "code": 6026,
+      "name": "IdenticalRewardDuration",
+      "msg": "Reward duration is the same"
+    },
+    {
+      "code": 6027,
+      "name": "InvalidBinArray",
+      "msg": "Invalid bin array"
+    },
+    {
+      "code": 6028,
+      "name": "NonContinuousBinArrays",
+      "msg": "Bin arrays must be continuous"
+    },
+    {
+      "code": 6029,
+      "name": "InvalidRewardVault",
+      "msg": "Invalid reward vault"
+    },
+    {
+      "code": 6030,
+      "name": "NonEmptyPosition",
+      "msg": "Position is not empty"
+    },
+    {
+      "code": 6031,
+      "name": "UnauthorizedAccess",
+      "msg": "Unauthorized access"
+    },
+    {
+      "code": 6032,
+      "name": "InvalidFeeParameter",
+      "msg": "Invalid fee parameter"
+    },
+    {
+      "code": 6033,
+      "name": "MissingOracle",
+      "msg": "Missing oracle account"
+    },
+    {
+      "code": 6034,
+      "name": "InsufficientSample",
+      "msg": "Insufficient observation sample"
+    },
+    {
+      "code": 6035,
+      "name": "InvalidLookupTimestamp",
+      "msg": "Invalid lookup timestamp"
+    },
+    {
+      "code": 6036,
+      "name": "BitmapExtensionAccountIsNotProvided",
+      "msg": "Bitmap extension account is not provided"
+    },
+    {
+      "code": 6037,
+      "name": "CannotFindNonZeroLiquidityBinArrayId",
+      "msg": "Cannot find non-zero liquidity binArrayId"
+    },
+    {
+      "code": 6038,
+      "name": "BinIdOutOfBound",
+      "msg": "Bin id out of bound"
+    },
+    {
+      "code": 6039,
+      "name": "InsufficientOutAmount",
+      "msg": "Insufficient amount in for minimum out"
+    },
+    {
+      "code": 6040,
+      "name": "InvalidPositionWidth",
+      "msg": "Invalid position width"
+    },
+    {
+      "code": 6041,
+      "name": "ExcessiveFeeUpdate",
+      "msg": "Excessive fee update"
+    },
+    {
+      "code": 6042,
+      "name": "PoolDisabled",
+      "msg": "Pool disabled"
+    },
+    {
+      "code": 6043,
+      "name": "InvalidPoolType",
+      "msg": "Invalid pool type"
+    },
+    {
+      "code": 6044,
+      "name": "ExceedMaxWhitelist",
+      "msg": "Whitelist for wallet is full"
+    },
+    {
+      "code": 6045,
+      "name": "InvalidIndex",
+      "msg": "Invalid index"
+    },
+    {
+      "code": 6046,
+      "name": "RewardNotEnded",
+      "msg": "Reward not ended"
+    },
+    {
+      "code": 6047,
+      "name": "MustWithdrawnIneligibleReward",
+      "msg": "Must withdraw ineligible reward"
+    },
+    {
+      "code": 6048,
+      "name": "UnauthorizedAddress",
+      "msg": "Unauthorized address"
+    },
+    {
+      "code": 6049,
+      "name": "OperatorsAreTheSame",
+      "msg": "Cannot update because operators are the same"
+    },
+    {
+      "code": 6050,
+      "name": "WithdrawToWrongTokenAccount",
+      "msg": "Withdraw to wrong token account"
+    },
+    {
+      "code": 6051,
+      "name": "WrongRentReceiver",
+      "msg": "Wrong rent receiver"
+    },
+    {
+      "code": 6052,
+      "name": "AlreadyPassActivationPoint",
+      "msg": "Already activated"
+    },
+    {
+      "code": 6053,
+      "name": "ExceedMaxSwappedAmount",
+      "msg": "Swapped amount is exceeded max swapped amount"
+    },
+    {
+      "code": 6054,
+      "name": "InvalidStrategyParameters",
+      "msg": "Invalid strategy parameters"
+    },
+    {
+      "code": 6055,
+      "name": "LiquidityLocked",
+      "msg": "Liquidity locked"
+    },
+    {
+      "code": 6056,
+      "name": "BinRangeIsNotEmpty",
+      "msg": "Bin range is not empty"
+    },
+    {
+      "code": 6057,
+      "name": "NotExactAmountOut",
+      "msg": "Amount out is not matched with exact amount out"
+    },
+    {
+      "code": 6058,
+      "name": "InvalidActivationType",
+      "msg": "Invalid activation type"
+    },
+    {
+      "code": 6059,
+      "name": "InvalidActivationDuration",
+      "msg": "Invalid activation duration"
+    },
+    {
+      "code": 6060,
+      "name": "MissingTokenAmountAsTokenLaunchProof",
+      "msg": "Missing token amount as token launch owner proof"
+    },
+    {
+      "code": 6061,
+      "name": "InvalidQuoteToken",
+      "msg": "Quote token must be SOL or USDC"
+    },
+    {
+      "code": 6062,
+      "name": "InvalidBinStep",
+      "msg": "Invalid bin step"
+    },
+    {
+      "code": 6063,
+      "name": "InvalidBaseFee",
+      "msg": "Invalid base fee"
+    },
+    {
+      "code": 6064,
+      "name": "InvalidPreActivationDuration",
+      "msg": "Invalid pre-activation duration"
+    },
+    {
+      "code": 6065,
+      "name": "AlreadyPassPreActivationSwapPoint",
+      "msg": "Already pass pre-activation swap point"
+    },
+    {
+      "code": 6066,
+      "name": "InvalidStatus",
+      "msg": "Invalid status"
+    },
+    {
+      "code": 6067,
+      "name": "ExceededMaxOracleLength",
+      "msg": "Exceed max oracle length"
+    },
+    {
+      "code": 6068,
+      "name": "InvalidMinimumLiquidity",
+      "msg": "Invalid minimum liquidity"
+    },
+    {
+      "code": 6069,
+      "name": "NotSupportMint",
+      "msg": "Not support token_2022 mint extension"
+    },
+    {
+      "code": 6070,
+      "name": "UnsupportedMintExtension",
+      "msg": "Unsupported mint extension"
+    },
+    {
+      "code": 6071,
+      "name": "UnsupportNativeMintToken2022",
+      "msg": "Unsupported native mint token2022"
+    },
+    {
+      "code": 6072,
+      "name": "UnmatchTokenMint",
+      "msg": "Unmatch token mint"
+    },
+    {
+      "code": 6073,
+      "name": "UnsupportedTokenMint",
+      "msg": "Unsupported token mint"
+    },
+    {
+      "code": 6074,
+      "name": "InsufficientRemainingAccounts",
+      "msg": "Insufficient remaining accounts"
+    },
+    {
+      "code": 6075,
+      "name": "InvalidRemainingAccountSlice",
+      "msg": "Invalid remaining account slice"
+    },
+    {
+      "code": 6076,
+      "name": "DuplicatedRemainingAccountTypes",
+      "msg": "Duplicated remaining account types"
+    },
+    {
+      "code": 6077,
+      "name": "MissingRemainingAccountForTransferHook",
+      "msg": "Missing remaining account for transfer hook"
+    },
+    {
+      "code": 6078,
+      "name": "NoTransferHookProgram",
+      "msg": "Remaining account was passed for transfer hook but there's no hook program"
+    },
+    {
+      "code": 6079,
+      "name": "ZeroFundedAmount",
+      "msg": "Zero funded amount"
+    },
+    {
+      "code": 6080,
+      "name": "InvalidSide",
+      "msg": "Invalid side"
+    },
+    {
+      "code": 6081,
+      "name": "InvalidResizeLength",
+      "msg": "Invalid resize length"
+    },
+    {
+      "code": 6082,
+      "name": "NotSupportAtTheMoment",
+      "msg": "Not support at the moment"
+    },
+    {
+      "code": 6083,
+      "name": "InvalidRebalanceParameters",
+      "msg": "Invalid rebalance parameters"
+    },
+    {
+      "code": 6084,
+      "name": "InvalidRewardAccounts",
+      "msg": "Invalid reward accounts"
+    },
+    {
+      "code": 6085,
+      "name": "UndeterminedError",
+      "msg": "Undetermined error"
+    },
+    {
+      "code": 6086,
+      "name": "ReallocExceedMaxLengthPerInstruction",
+      "msg": "Realloc exceed max length per instruction"
+    },
+    {
+      "code": 6087,
+      "name": "InvalidBaseFeeMantissa",
+      "msg": "Mantissa cannot more than two significant digits"
+    },
+    {
+      "code": 6088,
+      "name": "InvalidPositionOwner",
+      "msg": "Invalid position owner"
+    },
+    {
+      "code": 6089,
+      "name": "InvalidPoolAddress",
+      "msg": "Invalid pool address"
+    }
+  ],
+  "types": [
+    {
+      "name": "AccountsType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "TransferHookX"
+          },
+          {
+            "name": "TransferHookY"
+          },
+          {
+            "name": "TransferHookReward"
+          },
+          {
+            "name": "TransferHookMultiReward",
+            "fields": [
+              "u8"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "ActivationType",
+      "docs": [
+        "Type of the activation"
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Slot"
+          },
+          {
+            "name": "Timestamp"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AddLiquidity",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "from",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "amounts",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "active_bin_id",
+            "type": "i32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AddLiquidityParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "min_delta_id",
+            "type": "i32"
+          },
+          {
+            "name": "max_delta_id",
+            "type": "i32"
+          },
+          {
+            "name": "x0",
+            "type": "u64"
+          },
+          {
+            "name": "y0",
+            "type": "u64"
+          },
+          {
+            "name": "delta_x",
+            "type": "u64"
+          },
+          {
+            "name": "delta_y",
+            "type": "u64"
+          },
+          {
+            "name": "bit_flag",
+            "type": "u8"
+          },
+          {
+            "name": "favor_x_in_active_id",
+            "type": "bool"
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AddLiquiditySingleSidePreciseParameter",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bins",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "CompressedBinDepositAmount"
+                }
+              }
+            }
+          },
+          {
+            "name": "decompress_multiplier",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AddLiquiditySingleSidePreciseParameter2",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bins",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "CompressedBinDepositAmount"
+                }
+              }
+            }
+          },
+          {
+            "name": "decompress_multiplier",
+            "type": "u64"
+          },
+          {
+            "name": "max_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BaseFeeParameter",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "protocol_share",
+            "docs": [
+              "Portion of swap fees retained by the protocol by controlling protocol_share parameter. protocol_swap_fee = protocol_share * total_swap_fee"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "base_factor",
+            "docs": [
+              "Base factor for base fee rate"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "base_fee_power_factor",
+            "docs": [
+              "Base fee power factor"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Bin",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount_x",
+            "docs": [
+              "Amount of token X in the bin. This already excluded protocol fees."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "amount_y",
+            "docs": [
+              "Amount of token Y in the bin. This already excluded protocol fees."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "price",
+            "docs": [
+              "Bin price"
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "liquidity_supply",
+            "docs": [
+              "Liquidities of the bin. This is the same as LP mint supply. q-number"
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "reward_per_token_stored",
+            "docs": [
+              "reward_a_per_token_stored"
+            ],
+            "type": {
+              "array": [
+                "u128",
+                2
+              ]
+            }
+          },
+          {
+            "name": "fee_amount_x_per_token_stored",
+            "docs": [
+              "Swap fee amount of token X per liquidity deposited."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "fee_amount_y_per_token_stored",
+            "docs": [
+              "Swap fee amount of token Y per liquidity deposited."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "amount_x_in",
+            "docs": [
+              "Total token X swap into the bin. Only used for tracking purpose."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "amount_y_in",
+            "docs": [
+              "Total token Y swap into he bin. Only used for tracking purpose."
+            ],
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BinArray",
+      "docs": [
+        "An account to contain a range of bin. For example: Bin 100 <-> 200.",
+        "For example:",
+        "BinArray index: 0 contains bin 0 <-> 599",
+        "index: 2 contains bin 600 <-> 1199, ..."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "i64"
+          },
+          {
+            "name": "version",
+            "docs": [
+              "Version of binArray"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "bins",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Bin"
+                  }
+                },
+                70
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "BinArrayBitmapExtension",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "positive_bin_array_bitmap",
+            "docs": [
+              "Packed initialized bin array state for start_bin_index is positive"
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    8
+                  ]
+                },
+                12
+              ]
+            }
+          },
+          {
+            "name": "negative_bin_array_bitmap",
+            "docs": [
+              "Packed initialized bin array state for start_bin_index is negative"
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    8
+                  ]
+                },
+                12
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "BinLiquidityDistribution",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bin_id",
+            "docs": [
+              "Define the bin ID wish to deposit to."
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "distribution_x",
+            "docs": [
+              "DistributionX (or distributionY) is the percentages of amountX (or amountY) you want to add to each bin."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "distribution_y",
+            "docs": [
+              "DistributionX (or distributionY) is the percentages of amountX (or amountY) you want to add to each bin."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BinLiquidityDistributionByWeight",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bin_id",
+            "docs": [
+              "Define the bin ID wish to deposit to."
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "weight",
+            "docs": [
+              "weight of liquidity distributed for this bin id"
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BinLiquidityReduction",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bin_id",
+            "type": "i32"
+          },
+          {
+            "name": "bps_to_remove",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimFee",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_x",
+            "type": "u64"
+          },
+          {
+            "name": "fee_y",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimFee2",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_x",
+            "type": "u64"
+          },
+          {
+            "name": "fee_y",
+            "type": "u64"
+          },
+          {
+            "name": "active_bin_id",
+            "type": "i32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimFeeOperator",
+      "docs": [
+        "Parameter that set by the protocol"
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "operator",
+            "docs": [
+              "operator"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "_padding",
+            "docs": [
+              "Reserve"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimReward",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_index",
+            "type": "u64"
+          },
+          {
+            "name": "total_reward",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimReward2",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_index",
+            "type": "u64"
+          },
+          {
+            "name": "total_reward",
+            "type": "u64"
+          },
+          {
+            "name": "active_bin_id",
+            "type": "i32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompositionFee",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "from",
+            "type": "pubkey"
+          },
+          {
+            "name": "bin_id",
+            "type": "i16"
+          },
+          {
+            "name": "token_x_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "token_y_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_token_x_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_token_y_fee_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompressedBinDepositAmount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bin_id",
+            "type": "i32"
+          },
+          {
+            "name": "amount",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CustomizableParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active_id",
+            "docs": [
+              "Pool price"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "bin_step",
+            "docs": [
+              "Bin step"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "base_factor",
+            "docs": [
+              "Base factor"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "activation_type",
+            "docs": [
+              "Activation type. 0 = Slot, 1 = Time. Check ActivationType enum"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "has_alpha_vault",
+            "docs": [
+              "Whether the pool has an alpha vault"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "activation_point",
+            "docs": [
+              "Decide when does the pool start trade. None = Now"
+            ],
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "creator_pool_on_off_control",
+            "docs": [
+              "Pool creator have permission to enable/disable pool with restricted program validation. Only applicable for customizable permissionless pool."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "base_fee_power_factor",
+            "docs": [
+              "Base fee power factor"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "padding",
+            "docs": [
+              "Padding, for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                62
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DecreasePositionLength",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "length_to_remove",
+            "type": "u16"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DummyIx",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "_pair_status",
+            "type": {
+              "defined": {
+                "name": "PairStatus"
+              }
+            }
+          },
+          {
+            "name": "_pair_type",
+            "type": {
+              "defined": {
+                "name": "PairType"
+              }
+            }
+          },
+          {
+            "name": "_activation_type",
+            "type": {
+              "defined": {
+                "name": "ActivationType"
+              }
+            }
+          },
+          {
+            "name": "_token_program_flag",
+            "type": {
+              "defined": {
+                "name": "TokenProgramFlags"
+              }
+            }
+          },
+          {
+            "name": "_resize_side",
+            "type": {
+              "defined": {
+                "name": "ResizeSide"
+              }
+            }
+          },
+          {
+            "name": "_rounding",
+            "type": {
+              "defined": {
+                "name": "Rounding"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DummyZcAccount",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position_bin_data",
+            "type": {
+              "defined": {
+                "name": "PositionBinData"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DynamicFeeParameter",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "filter_period",
+            "docs": [
+              "Filter period determine high frequency trading time window."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "decay_period",
+            "docs": [
+              "Decay period determine when the volatile fee start decay / decrease."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "reduction_factor",
+            "docs": [
+              "Reduction factor controls the volatile fee rate decrement rate."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "variable_fee_control",
+            "docs": [
+              "Used to scale the variable fee component depending on the dynamic of the market"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "max_volatility_accumulator",
+            "docs": [
+              "Maximum number of bin crossed can be accumulated. Used to cap volatile fee rate."
+            ],
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DynamicFeeParameterUpdate",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "filter_period",
+            "docs": [
+              "Filter period determine high frequency trading time window."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "decay_period",
+            "docs": [
+              "Decay period determine when the volatile fee start decay / decrease."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "reduction_factor",
+            "docs": [
+              "Reduction factor controls the volatile fee rate decrement rate."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "variable_fee_control",
+            "docs": [
+              "Used to scale the variable fee component depending on the dynamic of the market"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "max_volatility_accumulator",
+            "docs": [
+              "Maximum number of bin crossed can be accumulated. Used to cap volatile fee rate."
+            ],
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeInfo",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fee_x_per_token_complete",
+            "type": "u128"
+          },
+          {
+            "name": "fee_y_per_token_complete",
+            "type": "u128"
+          },
+          {
+            "name": "fee_x_pending",
+            "type": "u64"
+          },
+          {
+            "name": "fee_y_pending",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeParameterUpdate",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "protocol_share",
+            "type": "u16"
+          },
+          {
+            "name": "base_factor",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FundReward",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "funder",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_index",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GoToABin",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "from_bin_id",
+            "type": "i32"
+          },
+          {
+            "name": "to_bin_id",
+            "type": "i32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IncreaseObservation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_observation_length",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IncreasePositionLength",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "length_to_add",
+            "type": "u16"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitPermissionPairIx",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active_id",
+            "type": "i32"
+          },
+          {
+            "name": "bin_step",
+            "type": "u16"
+          },
+          {
+            "name": "base_factor",
+            "type": "u16"
+          },
+          {
+            "name": "base_fee_power_factor",
+            "type": "u8"
+          },
+          {
+            "name": "activation_type",
+            "type": "u8"
+          },
+          {
+            "name": "protocol_share",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitPresetParameters2Ix",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "u16"
+          },
+          {
+            "name": "bin_step",
+            "docs": [
+              "Bin step. Represent the price increment / decrement."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "base_factor",
+            "docs": [
+              "Used for base fee calculation. base_fee_rate = base_factor * bin_step * 10 * 10^base_fee_power_factor"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "filter_period",
+            "docs": [
+              "Filter period determine high frequency trading time window."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "decay_period",
+            "docs": [
+              "Decay period determine when the volatile fee start decay / decrease."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "reduction_factor",
+            "docs": [
+              "Reduction factor controls the volatile fee rate decrement rate."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "variable_fee_control",
+            "docs": [
+              "Used to scale the variable fee component depending on the dynamic of the market"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "max_volatility_accumulator",
+            "docs": [
+              "Maximum number of bin crossed can be accumulated. Used to cap volatile fee rate."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "protocol_share",
+            "docs": [
+              "Portion of swap fees retained by the protocol by controlling protocol_share parameter. protocol_swap_fee = protocol_share * total_swap_fee"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "base_fee_power_factor",
+            "docs": [
+              "Base fee power factor"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitPresetParametersIx",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bin_step",
+            "docs": [
+              "Bin step. Represent the price increment / decrement."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "base_factor",
+            "docs": [
+              "Used for base fee calculation. base_fee_rate = base_factor * bin_step * 10 * 10^base_fee_power_factor"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "filter_period",
+            "docs": [
+              "Filter period determine high frequency trading time window."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "decay_period",
+            "docs": [
+              "Decay period determine when the volatile fee start decay / decrease."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "reduction_factor",
+            "docs": [
+              "Reduction factor controls the volatile fee rate decrement rate."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "variable_fee_control",
+            "docs": [
+              "Used to scale the variable fee component depending on the dynamic of the market"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "max_volatility_accumulator",
+            "docs": [
+              "Maximum number of bin crossed can be accumulated. Used to cap volatile fee rate."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "protocol_share",
+            "docs": [
+              "Portion of swap fees retained by the protocol by controlling protocol_share parameter. protocol_swap_fee = protocol_share * total_swap_fee"
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeLbPair2Params",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active_id",
+            "docs": [
+              "Pool price"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "padding",
+            "docs": [
+              "Padding, for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                96
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeReward",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "funder",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_index",
+            "type": "u64"
+          },
+          {
+            "name": "reward_duration",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LbPair",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "parameters",
+            "type": {
+              "defined": {
+                "name": "StaticParameters"
+              }
+            }
+          },
+          {
+            "name": "v_parameters",
+            "type": {
+              "defined": {
+                "name": "VariableParameters"
+              }
+            }
+          },
+          {
+            "name": "bump_seed",
+            "type": {
+              "array": [
+                "u8",
+                1
+              ]
+            }
+          },
+          {
+            "name": "bin_step_seed",
+            "docs": [
+              "Bin step signer seed"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "pair_type",
+            "docs": [
+              "Type of the pair"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "active_id",
+            "docs": [
+              "Active bin id"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "bin_step",
+            "docs": [
+              "Bin step. Represent the price increment / decrement."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "status",
+            "docs": [
+              "Status of the pair. Check PairStatus enum."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "require_base_factor_seed",
+            "docs": [
+              "Require base factor seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "base_factor_seed",
+            "docs": [
+              "Base factor seed"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "activation_type",
+            "docs": [
+              "Activation type"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "creator_pool_on_off_control",
+            "docs": [
+              "Allow pool creator to enable/disable pool with restricted validation. Only applicable for customizable permissionless pair type."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "token_x_mint",
+            "docs": [
+              "Token X mint"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "token_y_mint",
+            "docs": [
+              "Token Y mint"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "reserve_x",
+            "docs": [
+              "LB token X vault"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "reserve_y",
+            "docs": [
+              "LB token Y vault"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "protocol_fee",
+            "docs": [
+              "Uncollected protocol fee"
+            ],
+            "type": {
+              "defined": {
+                "name": "ProtocolFee"
+              }
+            }
+          },
+          {
+            "name": "_padding_1",
+            "docs": [
+              "_padding_1, previous Fee owner, BE CAREFUL FOR TOMBSTONE WHEN REUSE !!"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "reward_infos",
+            "docs": [
+              "Farming reward information"
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "RewardInfo"
+                  }
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "oracle",
+            "docs": [
+              "Oracle pubkey"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bin_array_bitmap",
+            "docs": [
+              "Packed initialized bin array state"
+            ],
+            "type": {
+              "array": [
+                "u64",
+                16
+              ]
+            }
+          },
+          {
+            "name": "last_updated_at",
+            "docs": [
+              "Last time the pool fee parameter was updated"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "_padding_2",
+            "docs": [
+              "_padding_2, previous whitelisted_wallet, BE CAREFUL FOR TOMBSTONE WHEN REUSE !!"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "pre_activation_swap_address",
+            "docs": [
+              "Address allowed to swap when the current point is greater than or equal to the pre-activation point. The pre-activation point is calculated as `activation_point - pre_activation_duration`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "base_key",
+            "docs": [
+              "Base keypair. Only required for permission pair"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "activation_point",
+            "docs": [
+              "Time point to enable the pair. Only applicable for permission pair."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pre_activation_duration",
+            "docs": [
+              "Duration before activation activation_point. Used to calculate pre-activation time point for pre_activation_swap_address"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "_padding_3",
+            "docs": [
+              "_padding 3 is reclaimed free space from swap_cap_deactivate_point and swap_cap_amount before, BE CAREFUL FOR TOMBSTONE WHEN REUSE !!"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "_padding_4",
+            "docs": [
+              "_padding_4, previous lock_duration, BE CAREFUL FOR TOMBSTONE WHEN REUSE !!"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "creator",
+            "docs": [
+              "Pool creator"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "token_mint_x_program_flag",
+            "docs": [
+              "token_mint_x_program_flag"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "token_mint_y_program_flag",
+            "docs": [
+              "token_mint_y_program_flag"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved space for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                22
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LbPairCreate",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "bin_step",
+            "type": "u16"
+          },
+          {
+            "name": "token_x",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_y",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidityOneSideParameter",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "docs": [
+              "Amount of X token or Y token to deposit"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "active_id",
+            "docs": [
+              "Active bin that integrator observe off-chain"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "max_active_bin_slippage",
+            "docs": [
+              "max active bin slippage allowed"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "bin_liquidity_dist",
+            "docs": [
+              "Liquidity distribution to each bins"
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "BinLiquidityDistributionByWeight"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidityParameter",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount_x",
+            "docs": [
+              "Amount of X token to deposit"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "amount_y",
+            "docs": [
+              "Amount of Y token to deposit"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bin_liquidity_dist",
+            "docs": [
+              "Liquidity distribution to each bins"
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "BinLiquidityDistribution"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidityParameterByStrategy",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount_x",
+            "docs": [
+              "Amount of X token to deposit"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "amount_y",
+            "docs": [
+              "Amount of Y token to deposit"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "active_id",
+            "docs": [
+              "Active bin that integrator observe off-chain"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "max_active_bin_slippage",
+            "docs": [
+              "max active bin slippage allowed"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "strategy_parameters",
+            "docs": [
+              "strategy parameters"
+            ],
+            "type": {
+              "defined": {
+                "name": "StrategyParameters"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidityParameterByStrategyOneSide",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "docs": [
+              "Amount of X token or Y token to deposit"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "active_id",
+            "docs": [
+              "Active bin that integrator observe off-chain"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "max_active_bin_slippage",
+            "docs": [
+              "max active bin slippage allowed"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "strategy_parameters",
+            "docs": [
+              "strategy parameters"
+            ],
+            "type": {
+              "defined": {
+                "name": "StrategyParameters"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidityParameterByWeight",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount_x",
+            "docs": [
+              "Amount of X token to deposit"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "amount_y",
+            "docs": [
+              "Amount of Y token to deposit"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "active_id",
+            "docs": [
+              "Active bin that integrator observe off-chain"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "max_active_bin_slippage",
+            "docs": [
+              "max active bin slippage allowed"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "bin_liquidity_dist",
+            "docs": [
+              "Liquidity distribution to each bins"
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "BinLiquidityDistributionByWeight"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Oracle",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "idx",
+            "docs": [
+              "Index of latest observation"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "active_size",
+            "docs": [
+              "Size of active sample. Active sample is initialized observation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "length",
+            "docs": [
+              "Number of observations"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PairStatus",
+      "docs": [
+        "Pair status. 0 = Enabled, 1 = Disabled. Putting 0 as enabled for backward compatibility."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Enabled"
+          },
+          {
+            "name": "Disabled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PairType",
+      "docs": [
+        "Type of the Pair. 0 = Permissionless, 1 = Permission, 2 = CustomizablePermissionless. Putting 0 as permissionless for backward compatibility."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Permissionless"
+          },
+          {
+            "name": "Permission"
+          },
+          {
+            "name": "CustomizablePermissionless"
+          },
+          {
+            "name": "PermissionlessV2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Position",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "docs": [
+              "The LB pair of this position"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "docs": [
+              "Owner of the position. Client rely on this to to fetch their positions."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "liquidity_shares",
+            "docs": [
+              "Liquidity shares of this position in bins (lower_bin_id <-> upper_bin_id). This is the same as LP concept."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                70
+              ]
+            }
+          },
+          {
+            "name": "reward_infos",
+            "docs": [
+              "Farming reward information"
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "UserRewardInfo"
+                  }
+                },
+                70
+              ]
+            }
+          },
+          {
+            "name": "fee_infos",
+            "docs": [
+              "Swap fee to claim information"
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "FeeInfo"
+                  }
+                },
+                70
+              ]
+            }
+          },
+          {
+            "name": "lower_bin_id",
+            "docs": [
+              "Lower bin ID"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "upper_bin_id",
+            "docs": [
+              "Upper bin ID"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "last_updated_at",
+            "docs": [
+              "Last updated timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "total_claimed_fee_x_amount",
+            "docs": [
+              "Total claimed token fee X"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_claimed_fee_y_amount",
+            "docs": [
+              "Total claimed token fee Y"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_claimed_rewards",
+            "docs": [
+              "Total claimed rewards"
+            ],
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved space for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                160
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionBinData",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "liquidity_share",
+            "type": "u128"
+          },
+          {
+            "name": "reward_info",
+            "type": {
+              "defined": {
+                "name": "UserRewardInfo"
+              }
+            }
+          },
+          {
+            "name": "fee_info",
+            "type": {
+              "defined": {
+                "name": "FeeInfo"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionClose",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionCreate",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionV2",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "docs": [
+              "The LB pair of this position"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "docs": [
+              "Owner of the position. Client rely on this to to fetch their positions."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "liquidity_shares",
+            "docs": [
+              "Liquidity shares of this position in bins (lower_bin_id <-> upper_bin_id). This is the same as LP concept."
+            ],
+            "type": {
+              "array": [
+                "u128",
+                70
+              ]
+            }
+          },
+          {
+            "name": "reward_infos",
+            "docs": [
+              "Farming reward information"
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "UserRewardInfo"
+                  }
+                },
+                70
+              ]
+            }
+          },
+          {
+            "name": "fee_infos",
+            "docs": [
+              "Swap fee to claim information"
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "FeeInfo"
+                  }
+                },
+                70
+              ]
+            }
+          },
+          {
+            "name": "lower_bin_id",
+            "docs": [
+              "Lower bin ID"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "upper_bin_id",
+            "docs": [
+              "Upper bin ID"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "last_updated_at",
+            "docs": [
+              "Last updated timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "total_claimed_fee_x_amount",
+            "docs": [
+              "Total claimed token fee X"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_claimed_fee_y_amount",
+            "docs": [
+              "Total claimed token fee Y"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_claimed_rewards",
+            "docs": [
+              "Total claimed rewards"
+            ],
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "operator",
+            "docs": [
+              "Operator of position"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "lock_release_point",
+            "docs": [
+              "Time point which the locked liquidity can be withdraw"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "_padding_0",
+            "docs": [
+              "_padding_0, previous subjected_to_bootstrap_liquidity_locking, BE CAREFUL FOR TOMBSTONE WHEN REUSE !!"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "fee_owner",
+            "docs": [
+              "Address is able to claim fee in this position, only valid for bootstrap_liquidity_position"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved space for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                87
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PresetParameter",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bin_step",
+            "docs": [
+              "Bin step. Represent the price increment / decrement."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "base_factor",
+            "docs": [
+              "Used for base fee calculation. base_fee_rate = base_factor * bin_step * 10 * 10^base_fee_power_factor"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "filter_period",
+            "docs": [
+              "Filter period determine high frequency trading time window."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "decay_period",
+            "docs": [
+              "Decay period determine when the volatile fee start decay / decrease."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "reduction_factor",
+            "docs": [
+              "Reduction factor controls the volatile fee rate decrement rate."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "variable_fee_control",
+            "docs": [
+              "Used to scale the variable fee component depending on the dynamic of the market"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "max_volatility_accumulator",
+            "docs": [
+              "Maximum number of bin crossed can be accumulated. Used to cap volatile fee rate."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "min_bin_id",
+            "docs": [
+              "Min bin id supported by the pool based on the configured bin step."
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "max_bin_id",
+            "docs": [
+              "Max bin id supported by the pool based on the configured bin step."
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "protocol_share",
+            "docs": [
+              "Portion of swap fees retained by the protocol by controlling protocol_share parameter. protocol_swap_fee = protocol_share * total_swap_fee"
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PresetParameter2",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bin_step",
+            "docs": [
+              "Bin step. Represent the price increment / decrement."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "base_factor",
+            "docs": [
+              "Used for base fee calculation. base_fee_rate = base_factor * bin_step * 10 * 10^base_fee_power_factor"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "filter_period",
+            "docs": [
+              "Filter period determine high frequency trading time window."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "decay_period",
+            "docs": [
+              "Decay period determine when the volatile fee start decay / decrease."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "variable_fee_control",
+            "docs": [
+              "Used to scale the variable fee component depending on the dynamic of the market"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "max_volatility_accumulator",
+            "docs": [
+              "Maximum number of bin crossed can be accumulated. Used to cap volatile fee rate."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "reduction_factor",
+            "docs": [
+              "Reduction factor controls the volatile fee rate decrement rate."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "protocol_share",
+            "docs": [
+              "Portion of swap fees retained by the protocol by controlling protocol_share parameter. protocol_swap_fee = protocol_share * total_swap_fee"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "index",
+            "docs": [
+              "index"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "base_fee_power_factor",
+            "docs": [
+              "Base fee power factor"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "padding_0",
+            "docs": [
+              "Padding 0 for future use"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "padding_1",
+            "docs": [
+              "Padding 1 for future use"
+            ],
+            "type": {
+              "array": [
+                "u64",
+                20
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolFee",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount_x",
+            "type": "u64"
+          },
+          {
+            "name": "amount_y",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RebalanceLiquidityParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active_id",
+            "docs": [
+              "active id"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "max_active_bin_slippage",
+            "docs": [
+              "max active bin slippage allowed"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "should_claim_fee",
+            "docs": [
+              "a flag to indicate that whether fee should be harvested"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "should_claim_reward",
+            "docs": [
+              "a flag to indicate that whether rewards should be harvested"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "min_withdraw_x_amount",
+            "docs": [
+              "threshold for withdraw token x"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_deposit_x_amount",
+            "docs": [
+              "threshold for deposit token x"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "min_withdraw_y_amount",
+            "docs": [
+              "threshold for withdraw token y"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_deposit_y_amount",
+            "docs": [
+              "threshold for deposit token y"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "shrink_mode",
+            "docs": [
+              "shrink mode"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "padding",
+            "docs": [
+              "padding 32 bytes for future usage"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                31
+              ]
+            }
+          },
+          {
+            "name": "removes",
+            "docs": [
+              "removes"
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "RemoveLiquidityParams"
+                }
+              }
+            }
+          },
+          {
+            "name": "adds",
+            "docs": [
+              "adds"
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "AddLiquidityParams"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Rebalancing",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "active_bin_id",
+            "type": "i32"
+          },
+          {
+            "name": "x_withdrawn_amount",
+            "type": "u64"
+          },
+          {
+            "name": "x_added_amount",
+            "type": "u64"
+          },
+          {
+            "name": "y_withdrawn_amount",
+            "type": "u64"
+          },
+          {
+            "name": "y_added_amount",
+            "type": "u64"
+          },
+          {
+            "name": "x_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "y_fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "old_min_id",
+            "type": "i32"
+          },
+          {
+            "name": "old_max_id",
+            "type": "i32"
+          },
+          {
+            "name": "new_min_id",
+            "type": "i32"
+          },
+          {
+            "name": "new_max_id",
+            "type": "i32"
+          },
+          {
+            "name": "rewards",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RemainingAccountsInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slices",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "RemainingAccountsSlice"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RemainingAccountsSlice",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "accounts_type",
+            "type": {
+              "defined": {
+                "name": "AccountsType"
+              }
+            }
+          },
+          {
+            "name": "length",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RemoveLiquidity",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "from",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "amounts",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "active_bin_id",
+            "type": "i32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RemoveLiquidityParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "min_bin_id",
+            "type": {
+              "option": "i32"
+            }
+          },
+          {
+            "name": "max_bin_id",
+            "type": {
+              "option": "i32"
+            }
+          },
+          {
+            "name": "bps",
+            "type": "u16"
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResizeSide",
+      "docs": [
+        "Side of resize, 0 for lower and 1 for upper"
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Lower"
+          },
+          {
+            "name": "Upper"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardInfo",
+      "docs": [
+        "Stores the state relevant for tracking liquidity mining rewards"
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "docs": [
+              "Reward token mint."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "Reward vault token account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "funder",
+            "docs": [
+              "Authority account that allows to fund rewards"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_duration",
+            "docs": [
+              "LM reward duration in seconds."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reward_duration_end",
+            "docs": [
+              "LM reward duration end time."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reward_rate",
+            "docs": [
+              "LM reward rate"
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "last_update_time",
+            "docs": [
+              "The last time reward states were updated."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "cumulative_seconds_with_empty_liquidity_reward",
+            "docs": [
+              "Accumulated seconds where when farm distribute rewards, but the bin is empty. The reward will be accumulated for next reward time window."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Rounding",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Up"
+          },
+          {
+            "name": "Down"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StaticParameters",
+      "docs": [
+        "Parameter that set by the protocol"
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "base_factor",
+            "docs": [
+              "Used for base fee calculation. base_fee_rate = base_factor * bin_step * 10 * 10^base_fee_power_factor"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "filter_period",
+            "docs": [
+              "Filter period determine high frequency trading time window."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "decay_period",
+            "docs": [
+              "Decay period determine when the volatile fee start decay / decrease."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "reduction_factor",
+            "docs": [
+              "Reduction factor controls the volatile fee rate decrement rate."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "variable_fee_control",
+            "docs": [
+              "Used to scale the variable fee component depending on the dynamic of the market"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "max_volatility_accumulator",
+            "docs": [
+              "Maximum number of bin crossed can be accumulated. Used to cap volatile fee rate."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "min_bin_id",
+            "docs": [
+              "Min bin id supported by the pool based on the configured bin step."
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "max_bin_id",
+            "docs": [
+              "Max bin id supported by the pool based on the configured bin step."
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "protocol_share",
+            "docs": [
+              "Portion of swap fees retained by the protocol by controlling protocol_share parameter. protocol_swap_fee = protocol_share * total_swap_fee"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "base_fee_power_factor",
+            "docs": [
+              "Base fee power factor"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_padding",
+            "docs": [
+              "Padding for bytemuck safe alignment"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                5
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "StrategyParameters",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "min_bin_id",
+            "docs": [
+              "min bin id"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "max_bin_id",
+            "docs": [
+              "max bin id"
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "strategy_type",
+            "docs": [
+              "strategy type"
+            ],
+            "type": {
+              "defined": {
+                "name": "StrategyType"
+              }
+            }
+          },
+          {
+            "name": "parameteres",
+            "docs": [
+              "parameters"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "StrategyType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "SpotOneSide"
+          },
+          {
+            "name": "CurveOneSide"
+          },
+          {
+            "name": "BidAskOneSide"
+          },
+          {
+            "name": "SpotBalanced"
+          },
+          {
+            "name": "CurveBalanced"
+          },
+          {
+            "name": "BidAskBalanced"
+          },
+          {
+            "name": "SpotImBalanced"
+          },
+          {
+            "name": "CurveImBalanced"
+          },
+          {
+            "name": "BidAskImBalanced"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Swap",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "from",
+            "type": "pubkey"
+          },
+          {
+            "name": "start_bin_id",
+            "type": "i32"
+          },
+          {
+            "name": "end_bin_id",
+            "type": "i32"
+          },
+          {
+            "name": "amount_in",
+            "type": "u64"
+          },
+          {
+            "name": "amount_out",
+            "type": "u64"
+          },
+          {
+            "name": "swap_for_y",
+            "type": "bool"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee",
+            "type": "u64"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u128"
+          },
+          {
+            "name": "host_fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokenBadge",
+      "docs": [
+        "Parameter that set by the protocol"
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "token_mint",
+            "docs": [
+              "token mint"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "_padding",
+            "docs": [
+              "Reserve"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokenProgramFlags",
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "TokenProgram"
+          },
+          {
+            "name": "TokenProgram2022"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdatePositionLockReleasePoint",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "current_point",
+            "type": "u64"
+          },
+          {
+            "name": "new_lock_release_point",
+            "type": "u64"
+          },
+          {
+            "name": "old_lock_release_point",
+            "type": "u64"
+          },
+          {
+            "name": "sender",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdatePositionOperator",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_operator",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_operator",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateRewardDuration",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_index",
+            "type": "u64"
+          },
+          {
+            "name": "old_reward_duration",
+            "type": "u64"
+          },
+          {
+            "name": "new_reward_duration",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateRewardFunder",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_index",
+            "type": "u64"
+          },
+          {
+            "name": "old_funder",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_funder",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserRewardInfo",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "reward_per_token_completes",
+            "type": {
+              "array": [
+                "u128",
+                2
+              ]
+            }
+          },
+          {
+            "name": "reward_pendings",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VariableParameters",
+      "docs": [
+        "Parameters that changes based on dynamic of the market"
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "volatility_accumulator",
+            "docs": [
+              "Volatility accumulator measure the number of bin crossed since reference bin ID. Normally (without filter period taken into consideration), reference bin ID is the active bin of last swap.",
+              "It affects the variable fee rate"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "volatility_reference",
+            "docs": [
+              "Volatility reference is decayed volatility accumulator. It is always <= volatility_accumulator"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "index_reference",
+            "docs": [
+              "Active bin id of last swap."
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "_padding",
+            "docs": [
+              "Padding for bytemuck safe alignment"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "last_update_timestamp",
+            "docs": [
+              "Last timestamp the variable parameters was updated"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "_padding_1",
+            "docs": [
+              "Padding for bytemuck safe alignment"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "WithdrawIneligibleReward",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lb_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "BASIS_POINT_MAX",
+      "type": "i32",
+      "value": "10000"
+    },
+    {
+      "name": "BIN_ARRAY",
+      "type": "bytes",
+      "value": "[98, 105, 110, 95, 97, 114, 114, 97, 121]"
+    },
+    {
+      "name": "BIN_ARRAY_BITMAP_SEED",
+      "type": "bytes",
+      "value": "[98, 105, 116, 109, 97, 112]"
+    },
+    {
+      "name": "BIN_ARRAY_BITMAP_SIZE",
+      "type": "i32",
+      "value": "512"
+    },
+    {
+      "name": "CLAIM_PROTOCOL_FEE_OPERATOR",
+      "type": "bytes",
+      "value": "[99, 102, 95, 111, 112, 101, 114, 97, 116, 111, 114]"
+    },
+    {
+      "name": "DEFAULT_BIN_PER_POSITION",
+      "type": "u64",
+      "value": "70"
+    },
+    {
+      "name": "EXTENSION_BINARRAY_BITMAP_SIZE",
+      "type": "u64",
+      "value": "12"
+    },
+    {
+      "name": "FEE_PRECISION",
+      "type": "u64",
+      "value": "1000000000"
+    },
+    {
+      "name": "HOST_FEE_BPS",
+      "docs": [
+        "Host fee. 20%"
+      ],
+      "type": "u16",
+      "value": "2000"
+    },
+    {
+      "name": "ILM_PROTOCOL_SHARE",
+      "type": "u16",
+      "value": "2000"
+    },
+    {
+      "name": "MAX_BASE_FEE",
+      "docs": [
+        "Maximum base fee, base_fee / 10^9 = fee_in_percentage"
+      ],
+      "type": "u128",
+      "value": "100000000"
+    },
+    {
+      "name": "MAX_BIN_ID",
+      "docs": [
+        "Maximum bin ID supported. Computed based on 1 bps."
+      ],
+      "type": "i32",
+      "value": "443636"
+    },
+    {
+      "name": "MAX_BIN_PER_ARRAY",
+      "type": "u64",
+      "value": "70"
+    },
+    {
+      "name": "MAX_BIN_STEP",
+      "docs": [
+        "Maximum bin step"
+      ],
+      "type": "u16",
+      "value": "400"
+    },
+    {
+      "name": "MAX_FEE_RATE",
+      "docs": [
+        "Maximum fee rate. 10%"
+      ],
+      "type": "u64",
+      "value": "100000000"
+    },
+    {
+      "name": "MAX_PROTOCOL_SHARE",
+      "docs": [
+        "Maximum protocol share of the fee. 25%"
+      ],
+      "type": "u16",
+      "value": "2500"
+    },
+    {
+      "name": "MAX_RESIZE_LENGTH",
+      "type": "u64",
+      "value": "91"
+    },
+    {
+      "name": "MAX_REWARD_BIN_SPLIT",
+      "type": "u64",
+      "value": "15"
+    },
+    {
+      "name": "MAX_REWARD_DURATION",
+      "type": "u64",
+      "value": "31536000"
+    },
+    {
+      "name": "MINIMUM_LIQUIDITY",
+      "type": "u128",
+      "value": "1000000"
+    },
+    {
+      "name": "MIN_BASE_FEE",
+      "docs": [
+        "Minimum base fee"
+      ],
+      "type": "u128",
+      "value": "100000"
+    },
+    {
+      "name": "MIN_BIN_ID",
+      "docs": [
+        "Minimum bin ID supported. Computed based on 1 bps."
+      ],
+      "type": "i32",
+      "value": "-443636"
+    },
+    {
+      "name": "MIN_REWARD_DURATION",
+      "type": "u64",
+      "value": "1"
+    },
+    {
+      "name": "NUM_REWARDS",
+      "type": "u64",
+      "value": "2"
+    },
+    {
+      "name": "ORACLE",
+      "type": "bytes",
+      "value": "[111, 114, 97, 99, 108, 101]"
+    },
+    {
+      "name": "POSITION",
+      "type": "bytes",
+      "value": "[112, 111, 115, 105, 116, 105, 111, 110]"
+    },
+    {
+      "name": "POSITION_MAX_LENGTH",
+      "type": "u64",
+      "value": "1400"
+    },
+    {
+      "name": "PRESET_PARAMETER",
+      "type": "bytes",
+      "value": "[112, 114, 101, 115, 101, 116, 95, 112, 97, 114, 97, 109, 101, 116, 101, 114]"
+    },
+    {
+      "name": "PRESET_PARAMETER2",
+      "type": "bytes",
+      "value": "[112, 114, 101, 115, 101, 116, 95, 112, 97, 114, 97, 109, 101, 116, 101, 114, 50]"
+    },
+    {
+      "name": "PROTOCOL_SHARE",
+      "type": "u16",
+      "value": "500"
+    }
+  ]
+}
