@@ -1,0 +1,46 @@
+protocol: Whirlpool
+version: v0.7.0
+account_type: Whirlpool
+idl_file_path: idl.json
+
+tags:
+  - amm
+  - concentrated-liquidity
+  - defi
+
+templates:
+  - id: whirlpool-sol-usdc
+    name: Override SOL/USDC Whirlpool
+    description: Override Whirlpool SOL/USDC pool state with simulated values
+    idl_account_name: Whirlpool
+    properties: ["liquidity", "sqrt_price", "tick_current_index"]
+    address:
+      type: pubkey
+      value: HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ
+
+  - id: whirlpool-sol-usdt
+    name: Override SOL/USDT Whirlpool
+    description: Override Whirlpool SOL/USDT pool state with simulated values
+    idl_account_name: Whirlpool
+    properties: ["liquidity", "sqrt_price", "tick_current_index"]
+    address:
+      type: pubkey
+      value: FwewVm8u6tFPGewAyHmWAqad9hmF7mvqxK4mJ7iNqqGC
+
+  - id: whirlpool-msol-sol
+    name: Override mSOL/SOL Whirlpool
+    description: Override Whirlpool mSOL/SOL pool state with simulated values
+    idl_account_name: Whirlpool
+    properties: ["liquidity", "sqrt_price", "tick_current_index"]
+    address:
+      type: pubkey
+      value: HQcY5n2zP6rW74fyFEhWeBd3LnJpBcZechkvJpmdb8cx
+
+  - id: whirlpool-orca-usdc
+    name: Override ORCA/USDC Whirlpool
+    description: Override Whirlpool ORCA/USDC pool state with simulated values
+    idl_account_name: Whirlpool
+    properties: ["liquidity", "sqrt_price", "tick_current_index"]
+    address:
+      type: pubkey
+      value: 5Z66YYYaTmmx1R4mATAGLSc8aV4Vfy5tNdJQzk1GP9RF
