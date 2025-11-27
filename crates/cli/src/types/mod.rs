@@ -51,15 +51,15 @@ impl Framework {
 
         if let Some(version) = anchor_version {
             let version_parts: Vec<&str> = version.split('.').collect();
-            if version_parts.len() >= 2 {
-                if let (Ok(major), Ok(minor)) = (
+            if version_parts.len() >= 2
+                && let (Ok(major), Ok(minor)) = (
                     version_parts[0].parse::<u32>(),
                     version_parts[1].parse::<u32>(),
-                ) {
-                    if major == 0 && minor < 26 {
-                        return Ok(None);
-                    }
-                }
+                )
+                && major == 0
+                && minor < 26
+            {
+                return Ok(None);
             }
         }
 
