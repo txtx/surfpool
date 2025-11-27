@@ -12034,6 +12034,7 @@ dependencies = [
  "mustache",
  "notify",
  "ratatui",
+ "reqwest 0.12.23",
  "rust-embed",
  "serde",
  "serde_json",
