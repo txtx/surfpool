@@ -28,8 +28,7 @@ pub const DRIFT_V2_IDL_CONTENT: &str = include_str!("./protocols/drift/v2/idl.js
 pub const DRIFT_V2_OVERRIDES_CONTENT: &str = include_str!("./protocols/drift/v2/overrides.yaml");
 
 pub const WHIRLPOOL_IDL_CONTENT: &str = include_str!("./protocols/whirlpool/idl.json");
-pub const WHIRLPOOL_OVERRIDES_CONTENT: &str =
-    include_str!("./protocols/whirlpool/overrides.yaml");
+pub const WHIRLPOOL_OVERRIDES_CONTENT: &str = include_str!("./protocols/whirlpool/overrides.yaml");
 
 /// Registry for managing override templates loaded from YAML files
 #[derive(Clone, Debug, Default)]
