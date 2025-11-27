@@ -43,10 +43,25 @@ impl Framework {
         &self,
         program_name: &str,
         idl: Option<&String>,
+        anchor_version: Option<&str>,
     ) -> Result<Option<String>, String> {
         let Some(idl) = idl else {
             return Ok(None);
         };
+
+        if let Some(version) = anchor_version {
+            let version_parts: Vec<&str> = version.split('.').collect();
+            if version_parts.len() >= 2 {
+                if let (Ok(major), Ok(minor)) = (
+                    version_parts[0].parse::<u32>(),
+                    version_parts[1].parse::<u32>(),
+                ) {
+                    if major == 0 && minor < 26 {
+                        return Ok(None);
+                    }
+                }
+            }
+        }
 
         match self {
             Framework::Anchor | Framework::Native | Framework::Pinocchio => {
