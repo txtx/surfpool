@@ -460,4 +460,30 @@ impl SurfpoolError {
         error.message = format!("Expected profile not found for key {key}");
         Self(error)
     }
+
+    pub fn update_core_asset_error<T>(pubkey: Pubkey, e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Error updating core asset {}: {}",
+            pubkey,
+            e.to_string()
+        )));
+        Self(error)
+    }
+
+    pub fn update_core_collection_error<T>(pubkey: Pubkey, e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Error updating core collection {}: {}",
+            pubkey,
+            e.to_string()
+        )));
+        Self(error)
+    }
 }
