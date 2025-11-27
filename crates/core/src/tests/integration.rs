@@ -4584,3 +4584,208 @@ async fn test_ws_signature_subscribe_before_transaction_exists() {
     assert!(error_opt.is_none(), "Transaction should succeed");
     println!("✓ Subscription before transaction works correctly at slot {}", slot);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_account_subscribe_balance_change() {
+    use solana_system_interface::instruction as system_instruction;
+    use crossbeam_channel::unbounded;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create and fund a new account
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker.airdrop(&payer.pubkey(), LAMPORTS_PER_SOL).unwrap();
+
+    // subscribe to payer account updates
+    let account_rx = svm_locker.subscribe_for_account_updates(&payer.pubkey(), Some(UiAccountEncoding::Base58));
+
+    // make a transaction to change the account balance
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let tx = Transaction::new_signed_with_payer(&[transfer_ix], Some(&payer.pubkey()), &[&payer], recent_blockhash);
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker.process_transaction(&None, VersionedTransaction::from(tx), status_tx, false, false).await.unwrap();
+
+    let account_update = account_rx.recv_timeout(Duration::from_secs(5));
+    assert!(account_update.is_ok(), "Should receive account update");
+
+    let updated_account = account_update.unwrap();
+    assert_eq!(updated_account.lamports, LAMPORTS_PER_SOL - 100_000 - 5000, // original - transfer amount - fees
+    "Account balance should be updated"); 
+    println!("✓ Received account update notification with new balance {}", updated_account.lamports);
+
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_account_subscribe_multiple_changes() {
+    use solana_system_interface::instruction as system_instruction;
+    use crossbeam_channel::unbounded;
+    use solana_account_decoder::UiAccountEncoding;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create and fund a new account
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker.airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL).unwrap();
+
+    // subscribe to payer account updates
+    let account_rx = svm_locker.subscribe_for_account_updates(&payer.pubkey(), Some(UiAccountEncoding::Base58));
+
+    
+
+    // make multiple transactions
+    for i in 0..3 {
+        let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+        let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+        let tx = Transaction::new_signed_with_payer(&[transfer_ix], Some(&payer.pubkey()), &[&payer], recent_blockhash);
+
+        let (status_tx, _status_rx) = unbounded();
+        svm_locker.process_transaction(&None, VersionedTransaction::from(tx), status_tx, false, false).await.unwrap();
+
+        let account_update = account_rx.recv_timeout(Duration::from_secs(5));
+        assert!(account_update.is_ok(), "Should receive account update for transaction {}", i + 1);
+        println!("✓ Received account update notification for transaction {}", i + 1);
+
+        // confirm the block to get fresh blockhash for next transaction
+        if i < 2 {
+            svm_locker.confirm_current_block(&None).await.unwrap();
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_account_subscribe_multiple_subscribers() {
+    use solana_account_decoder::UiAccountEncoding;
+    use solana_system_interface::instruction as system_instruction;
+    use crossbeam_channel::unbounded;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let sender = Keypair::new();
+    svm_locker.airdrop(&payer.pubkey(), LAMPORTS_PER_SOL).unwrap();
+    svm_locker.airdrop(&sender.pubkey(), LAMPORTS_PER_SOL).unwrap();
+
+    // create multiple subscriptions to the same account
+    let account_rx1 = svm_locker.subscribe_for_account_updates(&payer.pubkey(), Some(UiAccountEncoding::Base64));
+    let account_rx2 = svm_locker.subscribe_for_account_updates(&payer.pubkey(), Some(UiAccountEncoding::Base58));
+    let account_rx3 = svm_locker.subscribe_for_account_updates(&payer.pubkey(), None);
+
+    // trigger a change with a transfer (not airdrop)
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&sender.pubkey(), &payer.pubkey(), 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&sender.pubkey()),
+        &[&sender],
+        recent_blockhash
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(&None, VersionedTransaction::from(tx), status_tx, false, false)
+        .await
+        .unwrap();
+
+    // all subscribers should receive notifications
+    assert!(account_rx1.recv_timeout(Duration::from_secs(5)).is_ok(), "Subscriber 1 should receive notification");
+    assert!(account_rx2.recv_timeout(Duration::from_secs(5)).is_ok(), "Subscriber 2 should receive notification");
+    assert!(account_rx3.recv_timeout(Duration::from_secs(5)).is_ok(), "Subscriber 3 should receive notification");
+
+    println!("✓ All 3 subscribers received notifications for account change");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_account_subscribe_new_account_creation() {
+    use solana_system_interface::instruction as system_instruction;
+    use crossbeam_channel::unbounded;
+    use solana_account_decoder::UiAccountEncoding;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let new_account = Pubkey::new_unique();
+    svm_locker.airdrop(&payer.pubkey(), LAMPORTS_PER_SOL).unwrap();
+
+    // subscribe to an account that doesn't exist yet
+    let account_rx = svm_locker.subscribe_for_account_updates(
+        &new_account,
+        Some(UiAccountEncoding::Base64)
+    );
+
+    // create the account with a transfer
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &new_account, 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(&None, VersionedTransaction::from(tx), status_tx, false, false)
+        .await
+        .unwrap();
+
+    // should receive notification when account is created
+    let account_update = account_rx.recv_timeout(Duration::from_secs(5));
+    assert!(account_update.is_ok(), "Should receive notification when account is created");
+
+    let created_account = account_update.unwrap();
+    assert_eq!(created_account.lamports, 100_000, "New account should have correct balance");
+    println!("✓ Received account update notification for new account creation with balance {}", created_account.lamports);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_account_subscribe_account_closure() {
+    use solana_system_interface::instruction as system_instruction;
+    use crossbeam_channel::unbounded;
+    use solana_account_decoder::UiAccountEncoding;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let account_to_close = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    
+    // give the account some funds
+    svm_locker.airdrop(&account_to_close.pubkey(), 10_000).unwrap();
+
+    // subscribe to the account
+    let account_rx = svm_locker.subscribe_for_account_updates(
+        &account_to_close.pubkey(),
+        Some(UiAccountEncoding::Base64)
+    );
+
+    // close the account by sending all funds minus fee
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let close_ix = system_instruction::transfer(&account_to_close.pubkey(), &recipient, 5_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[close_ix],
+        Some(&account_to_close.pubkey()),
+        &[&account_to_close],
+        recent_blockhash
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(&None, VersionedTransaction::from(tx), status_tx, true, false)
+        .await
+        .unwrap();
+
+    // should receive notification for the closure
+    let account_update = account_rx.recv_timeout(Duration::from_secs(5));
+    assert!(account_update.is_ok(), "Should receive notification when account is closed");
+
+    println!("✓ Received notification for account closure");
+}
