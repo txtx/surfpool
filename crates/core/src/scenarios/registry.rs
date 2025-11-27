@@ -27,6 +27,9 @@ pub const KAMINO_V1_OVERRIDES_CONTENT: &str = include_str!("./protocols/kamino/v
 pub const DRIFT_V2_IDL_CONTENT: &str = include_str!("./protocols/drift/v2/idl.json");
 pub const DRIFT_V2_OVERRIDES_CONTENT: &str = include_str!("./protocols/drift/v2/overrides.yaml");
 
+pub const WHIRLPOOL_IDL_CONTENT: &str = include_str!("./protocols/whirlpool/idl.json");
+pub const WHIRLPOOL_OVERRIDES_CONTENT: &str = include_str!("./protocols/whirlpool/overrides.yaml");
+
 /// Registry for managing override templates loaded from YAML files
 #[derive(Clone, Debug, Default)]
 pub struct TemplateRegistry {
@@ -45,6 +48,7 @@ impl TemplateRegistry {
         default.load_meteora_overrides();
         default.load_kamino_overrides();
         default.load_drift_overrides();
+        default.load_whirlpool_overrides();
         default
     }
 
@@ -90,6 +94,14 @@ impl TemplateRegistry {
 
     pub fn load_drift_overrides(&mut self) {
         self.load_protocol_overrides(DRIFT_V2_IDL_CONTENT, DRIFT_V2_OVERRIDES_CONTENT, "drift");
+    }
+
+    pub fn load_whirlpool_overrides(&mut self) {
+        self.load_protocol_overrides(
+            WHIRLPOOL_IDL_CONTENT,
+            WHIRLPOOL_OVERRIDES_CONTENT,
+            "whirlpool",
+        );
     }
 
     fn load_protocol_overrides(
@@ -169,11 +181,11 @@ mod tests {
     fn test_registry_loads_all_protocols() {
         let registry = TemplateRegistry::new();
 
-        // Should have Pyth (4 templates) + Jupiter (1 template) + Switchboard (1) + Raydium(3 templates) + Drift(4 templates) + Meteora (2) + Kamino(3 templates)= 17 total
+        // Should have Pyth (4 templates) + Jupiter (1 template) + Switchboard (1) + Raydium(3 templates) + Drift(4 templates) + Meteora (2) + Kamino(3 templates) + Whirlpool(4 templates) = 22 total
         assert_eq!(
             registry.count(),
-            18,
-            "Registry should load 15 templates total"
+            22,
+            "Registry should load 22 templates total"
         );
 
         assert!(registry.contains("pyth-sol-usd-v2"));
@@ -200,6 +212,11 @@ mod tests {
         assert!(registry.contains("drift-spot-market"));
         assert!(registry.contains("drift-user-state"));
         assert!(registry.contains("drift-global-state"));
+
+        assert!(registry.contains("whirlpool-sol-usdc"));
+        assert!(registry.contains("whirlpool-sol-usdt"));
+        assert!(registry.contains("whirlpool-msol-sol"));
+        assert!(registry.contains("whirlpool-orca-usdc"));
     }
 
     #[test]
@@ -246,6 +263,13 @@ mod tests {
 
         let kamino_templates = registry.by_protocol("Kamino");
         assert_eq!(kamino_templates.len(), 3, "Should have 3 Kamino templates");
+
+        let whirlpool_templates = registry.by_protocol("Whirlpool");
+        assert_eq!(
+            whirlpool_templates.len(),
+            4,
+            "Should have 4 Whirlpool templates"
+        );
     }
 
     #[test]
@@ -302,7 +326,11 @@ mod tests {
         assert!(ids.contains(&"kamino-reserve-state".to_string()));
         assert!(ids.contains(&"kamino-reserve-config".to_string()));
         assert!(ids.contains(&"kamino-obligation-health".to_string()));
-        assert!(ids.contains(&"drift-perp-market".to_string()))
+        assert!(ids.contains(&"drift-perp-market".to_string()));
+        assert!(ids.contains(&"whirlpool-sol-usdc".to_string()));
+        assert!(ids.contains(&"whirlpool-sol-usdt".to_string()));
+        assert!(ids.contains(&"whirlpool-msol-sol".to_string()));
+        assert!(ids.contains(&"whirlpool-orca-usdc".to_string()));
     }
 }
 

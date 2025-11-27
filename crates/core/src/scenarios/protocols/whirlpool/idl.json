@@ -1,0 +1,1255 @@
+{
+  "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+  "metadata": {
+    "name": "whirlpool",
+    "version": "0.7.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [],
+  "accounts": [
+    {
+      "name": "AdaptiveFeeTier",
+      "discriminator": [
+        147,
+        16,
+        144,
+        116,
+        47,
+        146,
+        149,
+        46
+      ]
+    },
+    {
+      "name": "DynamicTickArray",
+      "discriminator": [
+        17,
+        216,
+        246,
+        142,
+        225,
+        199,
+        218,
+        56
+      ]
+    },
+    {
+      "name": "FeeTier",
+      "discriminator": [
+        56,
+        75,
+        159,
+        76,
+        142,
+        68,
+        190,
+        105
+      ]
+    },
+    {
+      "name": "LockConfig",
+      "discriminator": [
+        106,
+        47,
+        238,
+        159,
+        124,
+        12,
+        160,
+        192
+      ]
+    },
+    {
+      "name": "Oracle",
+      "discriminator": [
+        139,
+        194,
+        131,
+        179,
+        140,
+        179,
+        229,
+        244
+      ]
+    },
+    {
+      "name": "Position",
+      "discriminator": [
+        170,
+        188,
+        143,
+        228,
+        122,
+        64,
+        247,
+        208
+      ]
+    },
+    {
+      "name": "PositionBundle",
+      "discriminator": [
+        129,
+        169,
+        175,
+        65,
+        185,
+        95,
+        32,
+        100
+      ]
+    },
+    {
+      "name": "TickArray",
+      "discriminator": [
+        69,
+        97,
+        189,
+        190,
+        110,
+        7,
+        66,
+        187
+      ]
+    },
+    {
+      "name": "TokenBadge",
+      "discriminator": [
+        116,
+        219,
+        204,
+        229,
+        249,
+        116,
+        255,
+        150
+      ]
+    },
+    {
+      "name": "Whirlpool",
+      "discriminator": [
+        63,
+        149,
+        209,
+        12,
+        225,
+        128,
+        99,
+        9
+      ]
+    },
+    {
+      "name": "WhirlpoolsConfig",
+      "discriminator": [
+        157,
+        20,
+        49,
+        224,
+        217,
+        87,
+        193,
+        254
+      ]
+    },
+    {
+      "name": "WhirlpoolsConfigExtension",
+      "discriminator": [
+        2,
+        99,
+        215,
+        163,
+        240,
+        26,
+        153,
+        58
+      ]
+    }
+  ],
+  "types": [
+    {
+      "name": "AccountsType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "TransferHookA"
+          },
+          {
+            "name": "TransferHookB"
+          },
+          {
+            "name": "TransferHookReward"
+          },
+          {
+            "name": "TransferHookInput"
+          },
+          {
+            "name": "TransferHookIntermediate"
+          },
+          {
+            "name": "TransferHookOutput"
+          },
+          {
+            "name": "SupplementalTickArrays"
+          },
+          {
+            "name": "SupplementalTickArraysOne"
+          },
+          {
+            "name": "SupplementalTickArraysTwo"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdaptiveFeeConstants",
+      "serialization": "bytemuckunsafe",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "filter_period",
+            "type": "u16"
+          },
+          {
+            "name": "decay_period",
+            "type": "u16"
+          },
+          {
+            "name": "reduction_factor",
+            "type": "u16"
+          },
+          {
+            "name": "adaptive_fee_control_factor",
+            "type": "u32"
+          },
+          {
+            "name": "max_volatility_accumulator",
+            "type": "u32"
+          },
+          {
+            "name": "tick_group_size",
+            "type": "u16"
+          },
+          {
+            "name": "major_swap_threshold_ticks",
+            "type": "u16"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdaptiveFeeTier",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpools_config",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_tier_index",
+            "type": "u16"
+          },
+          {
+            "name": "tick_spacing",
+            "type": "u16"
+          },
+          {
+            "name": "initialize_pool_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "delegated_fee_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "default_base_fee_rate",
+            "type": "u16"
+          },
+          {
+            "name": "filter_period",
+            "type": "u16"
+          },
+          {
+            "name": "decay_period",
+            "type": "u16"
+          },
+          {
+            "name": "reduction_factor",
+            "type": "u16"
+          },
+          {
+            "name": "adaptive_fee_control_factor",
+            "type": "u32"
+          },
+          {
+            "name": "max_volatility_accumulator",
+            "type": "u32"
+          },
+          {
+            "name": "tick_group_size",
+            "type": "u16"
+          },
+          {
+            "name": "major_swap_threshold_ticks",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdaptiveFeeVariables",
+      "serialization": "bytemuckunsafe",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "last_reference_update_timestamp",
+            "type": "u64"
+          },
+          {
+            "name": "last_major_swap_timestamp",
+            "type": "u64"
+          },
+          {
+            "name": "volatility_reference",
+            "type": "u32"
+          },
+          {
+            "name": "tick_group_index_reference",
+            "type": "i32"
+          },
+          {
+            "name": "volatility_accumulator",
+            "type": "u32"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigFeatureFlag",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "TokenBadge",
+            "fields": [
+              "bool"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "DynamicTick",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Uninitialized"
+          },
+          {
+            "name": "Initialized",
+            "fields": [
+              {
+                "defined": {
+                  "name": "DynamicTickData"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "DynamicTickArray",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "start_tick_index",
+            "type": "i32"
+          },
+          {
+            "name": "whirlpool",
+            "type": "pubkey"
+          },
+          {
+            "name": "tick_bitmap",
+            "type": "u128"
+          },
+          {
+            "name": "ticks",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "DynamicTick"
+                  }
+                },
+                88
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DynamicTickData",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "liquidity_net",
+            "type": "i128"
+          },
+          {
+            "name": "liquidity_gross",
+            "type": "u128"
+          },
+          {
+            "name": "fee_growth_outside_a",
+            "type": "u128"
+          },
+          {
+            "name": "fee_growth_outside_b",
+            "type": "u128"
+          },
+          {
+            "name": "reward_growths_outside",
+            "type": {
+              "array": [
+                "u128",
+                3
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeTier",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpools_config",
+            "type": "pubkey"
+          },
+          {
+            "name": "tick_spacing",
+            "type": "u16"
+          },
+          {
+            "name": "default_fee_rate",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidityDecreased",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpool",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "tick_lower_index",
+            "type": "i32"
+          },
+          {
+            "name": "tick_upper_index",
+            "type": "i32"
+          },
+          {
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "name": "token_a_amount",
+            "type": "u64"
+          },
+          {
+            "name": "token_b_amount",
+            "type": "u64"
+          },
+          {
+            "name": "token_a_transfer_fee",
+            "type": "u64"
+          },
+          {
+            "name": "token_b_transfer_fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidityIncreased",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpool",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "tick_lower_index",
+            "type": "i32"
+          },
+          {
+            "name": "tick_upper_index",
+            "type": "i32"
+          },
+          {
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "name": "token_a_amount",
+            "type": "u64"
+          },
+          {
+            "name": "token_b_amount",
+            "type": "u64"
+          },
+          {
+            "name": "token_a_transfer_fee",
+            "type": "u64"
+          },
+          {
+            "name": "token_b_transfer_fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LockConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "position_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "whirlpool",
+            "type": "pubkey"
+          },
+          {
+            "name": "locked_timestamp",
+            "type": "u64"
+          },
+          {
+            "name": "lock_type",
+            "type": {
+              "defined": {
+                "name": "LockTypeLabel"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LockType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Permanent"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LockTypeLabel",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Permanent"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OpenPositionBumps",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OpenPositionWithMetadataBumps",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position_bump",
+            "type": "u8"
+          },
+          {
+            "name": "metadata_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Oracle",
+      "serialization": "bytemuckunsafe",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpool",
+            "type": "pubkey"
+          },
+          {
+            "name": "trade_enable_timestamp",
+            "type": "u64"
+          },
+          {
+            "name": "adaptive_fee_constants",
+            "type": {
+              "defined": {
+                "name": "AdaptiveFeeConstants"
+              }
+            }
+          },
+          {
+            "name": "adaptive_fee_variables",
+            "type": {
+              "defined": {
+                "name": "AdaptiveFeeVariables"
+              }
+            }
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpool",
+            "type": "pubkey"
+          },
+          {
+            "name": "whirlpools_config",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_mint_a",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_mint_b",
+            "type": "pubkey"
+          },
+          {
+            "name": "tick_spacing",
+            "type": "u16"
+          },
+          {
+            "name": "token_program_a",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program_b",
+            "type": "pubkey"
+          },
+          {
+            "name": "decimals_a",
+            "type": "u8"
+          },
+          {
+            "name": "decimals_b",
+            "type": "u8"
+          },
+          {
+            "name": "initial_sqrt_price",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Position",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpool",
+            "type": "pubkey"
+          },
+          {
+            "name": "position_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "name": "tick_lower_index",
+            "type": "i32"
+          },
+          {
+            "name": "tick_upper_index",
+            "type": "i32"
+          },
+          {
+            "name": "fee_growth_checkpoint_a",
+            "type": "u128"
+          },
+          {
+            "name": "fee_owed_a",
+            "type": "u64"
+          },
+          {
+            "name": "fee_growth_checkpoint_b",
+            "type": "u128"
+          },
+          {
+            "name": "fee_owed_b",
+            "type": "u64"
+          },
+          {
+            "name": "reward_infos",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "PositionRewardInfo"
+                  }
+                },
+                3
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionBundle",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position_bundle_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "position_bitmap",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionRewardInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "growth_inside_checkpoint",
+            "type": "u128"
+          },
+          {
+            "name": "amount_owed",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RemainingAccountsInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slices",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "RemainingAccountsSlice"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RemainingAccountsSlice",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "accounts_type",
+            "type": {
+              "defined": {
+                "name": "AccountsType"
+              }
+            }
+          },
+          {
+            "name": "length",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tick",
+      "serialization": "bytemuckunsafe",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "name": "liquidity_net",
+            "type": "i128"
+          },
+          {
+            "name": "liquidity_gross",
+            "type": "u128"
+          },
+          {
+            "name": "fee_growth_outside_a",
+            "type": "u128"
+          },
+          {
+            "name": "fee_growth_outside_b",
+            "type": "u128"
+          },
+          {
+            "name": "reward_growths_outside",
+            "type": {
+              "array": [
+                "u128",
+                3
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TickArray",
+      "serialization": "bytemuckunsafe",
+      "repr": {
+        "kind": "c",
+        "packed": true
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "start_tick_index",
+            "type": "i32"
+          },
+          {
+            "name": "ticks",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Tick"
+                  }
+                },
+                88
+              ]
+            }
+          },
+          {
+            "name": "whirlpool",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokenBadge",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpools_config",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "attribute_require_non_transferable_position",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokenBadgeAttribute",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "RequireNonTransferablePosition",
+            "fields": [
+              "bool"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Traded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpool",
+            "type": "pubkey"
+          },
+          {
+            "name": "a_to_b",
+            "type": "bool"
+          },
+          {
+            "name": "pre_sqrt_price",
+            "type": "u128"
+          },
+          {
+            "name": "post_sqrt_price",
+            "type": "u128"
+          },
+          {
+            "name": "input_amount",
+            "type": "u64"
+          },
+          {
+            "name": "output_amount",
+            "type": "u64"
+          },
+          {
+            "name": "input_transfer_fee",
+            "type": "u64"
+          },
+          {
+            "name": "output_transfer_fee",
+            "type": "u64"
+          },
+          {
+            "name": "lp_fee",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Whirlpool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpools_config",
+            "type": "pubkey"
+          },
+          {
+            "name": "whirlpool_bump",
+            "type": {
+              "array": [
+                "u8",
+                1
+              ]
+            }
+          },
+          {
+            "name": "tick_spacing",
+            "type": "u16"
+          },
+          {
+            "name": "fee_tier_index_seed",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "fee_rate",
+            "type": "u16"
+          },
+          {
+            "name": "protocol_fee_rate",
+            "type": "u16"
+          },
+          {
+            "name": "liquidity",
+            "type": "u128"
+          },
+          {
+            "name": "sqrt_price",
+            "type": "u128"
+          },
+          {
+            "name": "tick_current_index",
+            "type": "i32"
+          },
+          {
+            "name": "protocol_fee_owed_a",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee_owed_b",
+            "type": "u64"
+          },
+          {
+            "name": "token_mint_a",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_vault_a",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_growth_global_a",
+            "type": "u128"
+          },
+          {
+            "name": "token_mint_b",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_vault_b",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_growth_global_b",
+            "type": "u128"
+          },
+          {
+            "name": "reward_last_updated_timestamp",
+            "type": "u64"
+          },
+          {
+            "name": "reward_infos",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "WhirlpoolRewardInfo"
+                  }
+                },
+                3
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "WhirlpoolBumps",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpool_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WhirlpoolRewardInfo",
+      "docs": [
+        "Stores the state relevant for tracking liquidity mining rewards at the `Whirlpool` level.",
+        "These values are used in conjunction with `PositionRewardInfo`, `Tick.reward_growths_outside`,",
+        "and `Whirlpool.reward_last_updated_timestamp` to determine how many rewards are earned by open",
+        "positions."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "docs": [
+              "Reward token mint."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "Reward vault token account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "extension",
+            "docs": [
+              "reward_infos[0]: Authority account that has permission to initialize the reward and set emissions.",
+              "reward_infos[1]: used for a struct that contains fields for extending the functionality of Whirlpool.",
+              "reward_infos[2]: reserved for future use.",
+              "",
+              "Historical notes:",
+              "Originally, this was a field named \"authority\", but it was found that there was no opportunity",
+              "to set different authorities for the three rewards. Therefore, the use of this field was changed for Whirlpool's future extensibility."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "emissions_per_second_x64",
+            "docs": [
+              "Q64.64 number that indicates how many tokens per second are earned per unit of liquidity."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "growth_global_x64",
+            "docs": [
+              "Q64.64 number that tracks the total tokens earned per unit of liquidity since the reward",
+              "emissions were turned on."
+            ],
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WhirlpoolsConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fee_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "collect_protocol_fees_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_emissions_super_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "default_protocol_fee_rate",
+            "type": "u16"
+          },
+          {
+            "name": "feature_flags",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WhirlpoolsConfigExtension",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "whirlpools_config",
+            "type": "pubkey"
+          },
+          {
+            "name": "config_extension_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_badge_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    }
+  ]
+}
