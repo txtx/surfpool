@@ -4315,3 +4315,34 @@ async fn test_closed_accounts() {
         println!("Account successfully closed and not re-fetched from datasource surfnet");
     }
 }
+
+
+// websocket rpc methods tests
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_scaffold() {
+    use std::sync::RwLock as StdRwLock;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to build Tokio runtime");
+
+    let tokio_handle = runtime.handle();
+
+    let uid = std::sync::atomic::AtomicUsize::new(0);
+    let ws_server = crate::rpc::ws::SurfpoolWsRpc {
+        uid,
+        signature_subscription_map: Arc::new(StdRwLock::new(HashMap::new())),
+        account_subscription_map: Arc::new(StdRwLock::new(HashMap::new())),
+        slot_subscription_map: Arc::new(StdRwLock::new(HashMap::new())),
+        logs_subscription_map: Arc::new(StdRwLock::new(HashMap::new())),
+        tokio_handle: tokio_handle.clone(),
+    };
+
+    // subscribe to a method you want to test
+    // use the svm_locker to write to the vm and/or trigger events
+}
