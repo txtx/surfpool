@@ -4789,3 +4789,99 @@ async fn test_ws_account_subscribe_account_closure() {
 
     println!("✓ Received notification for account closure");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_slot_subscribe_basic() {
+    use surfpool_types::types::BlockProductionMode;
+
+    let (svm_locker, _simnet_commands_tx, _simnet_events_rx) = boot_simnet(BlockProductionMode::Clock, Some(100));
+
+    // subscribe to slot updates
+    let slot_rx = svm_locker.subscribe_for_slot_updates();
+
+    // wait for the first slot update
+    let slot_info_1 = slot_rx.recv_timeout(Duration::from_secs(2));
+    assert!(slot_info_1.is_ok(), "Should receive slot update");
+
+    let first_slot = slot_info_1.unwrap();
+    println!("✓ Received first slot update: {}", first_slot.slot);
+
+    // wait for the second slot update
+    let slot_info_2 = slot_rx.recv_timeout(Duration::from_secs(2));
+    assert!(slot_info_2.is_ok(), "Should receive slot update");
+
+    let second_slot = slot_info_2.unwrap();
+    println!("✓ Received second slot update: {}", second_slot.slot);
+
+    assert!(second_slot.slot > first_slot.slot, "Second slot should be greater than first slot");
+    println!("✓ Slot updates are progressing correctly");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_slot_subscribe_manual_advancement() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // subscribe to slot updates
+    let slot_rx = svm_locker.subscribe_for_slot_updates();
+
+    let initial_slot = svm_locker.get_latest_absolute_slot();
+
+    // manually advance slot by confirming a block
+    svm_locker.confirm_current_block(&None).await.unwrap();
+
+    // should receive slot update notification
+    let slot_update = slot_rx.recv_timeout(Duration::from_secs(5));
+    assert!(slot_update.is_ok(), "Should receive slot update after block confirmation");
+
+    let slot_info = slot_update.unwrap();
+    assert!(
+        slot_info.slot > initial_slot,
+        "Updated slot should be greater than initial slot"
+    );
+    println!("✓ Received slot notification after manual block confirmation: slot {} -> {}", initial_slot, slot_info.slot);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_slot_subscribe_multiple_subscribers() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create multiple subscriptions
+    let slot_rx1 = svm_locker.subscribe_for_slot_updates();
+    let slot_rx2 = svm_locker.subscribe_for_slot_updates();
+    let slot_rx3 = svm_locker.subscribe_for_slot_updates();
+
+    // advance slot
+    svm_locker.confirm_current_block(&None).await.unwrap();
+
+    // all subscribers should receive notification
+    assert!(slot_rx1.recv_timeout(Duration::from_secs(5)).is_ok(), "Subscriber 1 should receive slot update");
+    assert!(slot_rx2.recv_timeout(Duration::from_secs(5)).is_ok(), "Subscriber 2 should receive slot update");
+    assert!(slot_rx3.recv_timeout(Duration::from_secs(5)).is_ok(), "Subscriber 3 should receive slot update");
+
+    println!("✓ All 3 subscribers received slot update notifications");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_slot_subscribe_multiple_slot_changes() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let slot_rx = svm_locker.subscribe_for_slot_updates();
+
+    // advance slot multiple times
+    for i in 0..3 {
+        svm_locker.confirm_current_block(&None).await.unwrap();
+
+        let slot_update = slot_rx.recv_timeout(Duration::from_secs(5));
+        assert!(
+            slot_update.is_ok(), 
+            "Should receive slot update for advancement {}", 
+            i + 1
+        );
+
+        let slot_info = slot_update.unwrap();
+        println!("✓ Received slot notification #{}: slot {}", i + 1, slot_info.slot);
+    }
+}
