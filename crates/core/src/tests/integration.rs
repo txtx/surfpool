@@ -4320,29 +4320,40 @@ async fn test_closed_accounts() {
 // websocket rpc methods tests
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_scaffold() {
-    use std::sync::RwLock as StdRwLock;
+async fn test_ws_signature_subscribe_processed_commitment() {
+    use solana_system_interface::instruction as system_instruction;
+    use crossbeam_channel::unbounded;
+    use crate::surfnet::SignatureSubscriptionType;
+
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
 
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("Failed to build Tokio runtime");
+    // create a test transaction
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 100_000;
+    svm_locker.airdrop(&payer.pubkey(), LAMPORTS_PER_SOL).unwrap();
 
-    let tokio_handle = runtime.handle();
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let tx = Transaction::new_signed_with_payer(&[transfer_ix], Some(&payer.pubkey()), &[&payer], recent_blockhash);
+    let signature = tx.signatures[0];
 
-    let uid = std::sync::atomic::AtomicUsize::new(0);
-    let ws_server = crate::rpc::ws::SurfpoolWsRpc {
-        uid,
-        signature_subscription_map: Arc::new(StdRwLock::new(HashMap::new())),
-        account_subscription_map: Arc::new(StdRwLock::new(HashMap::new())),
-        slot_subscription_map: Arc::new(StdRwLock::new(HashMap::new())),
-        logs_subscription_map: Arc::new(StdRwLock::new(HashMap::new())),
-        tokio_handle: tokio_handle.clone(),
-    };
+    // subscribe with processed commitment
+    let subscription_type = SignatureSubscriptionType::processed();
+    let notification_rx = svm_locker.subscribe_for_signature_updates(&signature, subscription_type);
 
-    // subscribe to a method you want to test
-    // use the svm_locker to write to the vm and/or trigger events
+    // process the transaction
+    let (status_tx, _status_rx) = unbounded();
+    let result = svm_locker.process_transaction(&None, VersionedTransaction::from(tx), status_tx, true, true).await;
+    assert!(result.is_ok(), "Transaction should be processed successfully");
+
+    // wait for the notification
+    let notification = notification_rx.recv_timeout(Duration::from_secs(5));
+    assert!(notification.is_ok(), "Should receive processed notification");
+
+    let (slot, error_opt) = notification.unwrap();
+    assert!(error_opt.is_none(), "Transaction should succeed without error");
+    println!("✓ Received processed signature notification at slot {}", slot);
 }
