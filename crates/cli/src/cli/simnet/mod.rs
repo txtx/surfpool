@@ -469,6 +469,7 @@ async fn write_and_execute_iac(
             }
         }
 
+        let runbook_input = cmd.runbook_input.clone();
         // Is infrastructure-as-code (IaC) already setup?
         let base_location =
             FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
@@ -510,6 +511,7 @@ async fn write_and_execute_iac(
             simnet_events_tx,
             &on_disk_runbook_data,
             &in_memory_runbook_data,
+            &runbook_input,
         );
 
         let simnet_events_tx = simnet_events_tx.clone();
@@ -523,6 +525,7 @@ async fn write_and_execute_iac(
         if cmd.watch {
             let _handle = hiro_system_kit::thread_named("Watch Filesystem")
                 .spawn(move || {
+                    let runbook_input = runbook_input.clone();
                     let mut target_path = base_location.clone();
                     let _ = target_path.append_path("target");
                     let _ = target_path.append_path("deploy");
@@ -583,6 +586,7 @@ async fn write_and_execute_iac(
                             &simnet_events_tx,
                             &on_disk_runbook_data,
                             &in_memory_runbook_data,
+                            &runbook_input,
                         );
 
                         // Catch panics to keep the watch thread alive
@@ -603,6 +607,7 @@ fn assemble_runbook_execution_futures(
     simnet_events_tx: &Sender<SimnetEvent>,
     on_disk_runbook_data: &Option<(FileLocation, Vec<String>)>,
     in_memory_runbook_data: &Option<(String, RunbookSources, WorkspaceManifest)>,
+    runbook_input: &Vec<String>,
 ) -> Vec<std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>> {
     let mut futures: Vec<
         std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>,
@@ -634,8 +639,12 @@ fn assemble_runbook_execution_futures(
             futures.push(Box::pin(execute_on_disk_runbook(
                 progress_tx.clone(),
                 simnet_events_tx_copy.clone(),
-                ExecuteRunbook::default_localnet(&runbook_id_owned)
-                    .with_manifest_path(file_location_owned.to_string()),
+                {
+                    let mut ec = ExecuteRunbook::default_localnet(&runbook_id_owned)
+                        .with_manifest_path(file_location_owned.to_string());
+                    ec.inputs = runbook_input.clone();
+                    ec
+                },
                 do_setup_logger,
             )));
         }
