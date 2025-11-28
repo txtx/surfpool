@@ -35,6 +35,7 @@ pub struct ProgramFrameworkData {
     pub accounts: Option<Vec<AccountEntry>>,
     pub accounts_dir: Option<Vec<AccountDirEntry>>,
     pub clones: Option<Vec<String>>,
+    pub anchor_version: Option<String>,
 }
 
 impl ProgramFrameworkData {
@@ -45,6 +46,7 @@ impl ProgramFrameworkData {
         accounts: Option<Vec<AccountEntry>>,
         accounts_dir: Option<Vec<AccountDirEntry>>,
         clones: Option<Vec<String>>,
+        anchor_version: Option<String>,
     ) -> Self {
         Self {
             framework,
@@ -53,6 +55,7 @@ impl ProgramFrameworkData {
             accounts,
             accounts_dir,
             clones,
+            anchor_version,
         }
     }
 
@@ -64,6 +67,7 @@ impl ProgramFrameworkData {
             accounts: None,
             accounts_dir: None,
             clones: None,
+            anchor_version: None,
         }
     }
 }
@@ -134,6 +138,7 @@ pub fn scaffold_in_memory_iac(
     genesis_accounts: &Option<Vec<GenesisEntry>>,
     accounts: &Option<Vec<AccountEntry>>,
     accounts_dir: &Option<Vec<AccountDirEntry>>,
+    anchor_version: Option<&str>,
 ) -> Result<(String, RunbookSources, WorkspaceManifest), String> {
     let mut deployment_runbook_src: String = String::new();
 
@@ -155,6 +160,7 @@ pub fn scaffold_in_memory_iac(
             .get_interpolated_subgraph_template(
                 &program_metadata.name,
                 program_metadata.idl.as_ref(),
+                anchor_version,
             )
             .ok()
             .flatten()
@@ -199,6 +205,7 @@ pub fn scaffold_iac_layout(
     programs: &[ProgramMetadata],
     base_location: &FileLocation,
     auto_generate_runbooks: bool,
+    anchor_version: Option<&str>,
 ) -> Result<(), String> {
     let mut target_location = base_location.clone();
     target_location.append_path("target")?;
@@ -299,6 +306,7 @@ pub fn scaffold_iac_layout(
         subgraph_runbook_src = framework.get_interpolated_subgraph_template(
             &program_metadata.name,
             program_metadata.idl.as_ref(),
+            anchor_version,
         )?;
 
         // Configure initialize instruction

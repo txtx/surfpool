@@ -131,6 +131,7 @@ pub fn try_get_programs_from_project(
             } else {
                 Some(clones)
             },
+            manifest.toolchain.anchor_version.clone(),
         )))
     } else {
         Ok(None)

@@ -452,6 +452,7 @@ async fn write_and_execute_iac(
         accounts,
         accounts_dir,
         clones,
+        anchor_version,
     }) = deployment
     {
         if let Some(clones) = clones.as_ref() {
@@ -483,6 +484,7 @@ async fn write_and_execute_iac(
                 &programs,
                 &base_location,
                 cmd.skip_runbook_generation_prompts,
+                anchor_version.as_deref(),
             )?;
         }
 
@@ -500,6 +502,7 @@ async fn write_and_execute_iac(
                 &genesis_accounts,
                 &accounts,
                 &accounts_dir,
+                anchor_version.as_deref(),
             )?);
         } else {
             let runbooks_ids_to_execute = cmd.runbooks.clone();
