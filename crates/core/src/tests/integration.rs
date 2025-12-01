@@ -38,6 +38,7 @@ use surfpool_types::{
         BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
     },
 };
+use test_case::test_case;
 use tokio::{sync::RwLock, task};
 use uuid::Uuid;
 pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
@@ -4315,14 +4316,15 @@ async fn test_closed_accounts() {
     }
 }
 
-
 // websocket rpc methods tests
 
+#[test_case(SignatureSubscriptionType::processed() ; "processed commitment")]
+#[test_case(SignatureSubscriptionType::received() ; "received commitment")]
+#[test_case(SignatureSubscriptionType::confirmed() ; "confirmed commitment")]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_signature_subscribe_processed_commitment() {
-    use solana_system_interface::instruction as system_instruction;
+async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionType) {
     use crossbeam_channel::unbounded;
-    use crate::surfnet::SignatureSubscriptionType;
+    use solana_system_interface::instruction as system_instruction;
 
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
 
@@ -4332,120 +4334,59 @@ async fn test_ws_signature_subscribe_processed_commitment() {
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
     let lamports_to_send = 100_000;
-    svm_locker.airdrop(&payer.pubkey(), LAMPORTS_PER_SOL).unwrap();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
     let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, lamports_to_send);
-    let tx = Transaction::new_signed_with_payer(&[transfer_ix], Some(&payer.pubkey()), &[&payer], recent_blockhash);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
     let signature = tx.signatures[0];
 
     // subscribe with processed commitment
-    let subscription_type = SignatureSubscriptionType::processed();
-    let notification_rx = svm_locker.subscribe_for_signature_updates(&signature, subscription_type);
+    let notification_rx =
+        svm_locker.subscribe_for_signature_updates(&signature, subscription_type.clone());
 
     // process the transaction
     let (status_tx, _status_rx) = unbounded();
-    let result = svm_locker.process_transaction(&None, VersionedTransaction::from(tx), status_tx, true, true).await;
-    assert!(result.is_ok(), "Transaction should be processed successfully");
+    let result = svm_locker
+        .process_transaction(&None, VersionedTransaction::from(tx), status_tx, true, true)
+        .await;
+    assert!(
+        result.is_ok(),
+        "Transaction should be processed successfully"
+    );
+
+    match subscription_type {
+        SignatureSubscriptionType::Commitment(CommitmentLevel::Confirmed) => {
+            // confirm the block to trigger confirmed notification
+            svm_locker.confirm_current_block(&None).await.unwrap();
+        }
+        _ => {}
+    }
 
     // wait for the notification
     let notification = notification_rx.recv_timeout(Duration::from_secs(5));
-    assert!(notification.is_ok(), "Should receive processed notification");
+    assert!(
+        notification.is_ok(),
+        "Should receive {} notification",
+        subscription_type
+    );
 
     let (slot, error_opt) = notification.unwrap();
-    assert!(error_opt.is_none(), "Transaction should succeed without error");
-    println!("✓ Received processed signature notification at slot {}", slot);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_ws_signature_subscribe_confirmed_commitment() {
-    use solana_system_interface::instruction as system_instruction;
-    use crossbeam_channel::unbounded;
-    use crate::surfnet::SignatureSubscriptionType;
-
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
-    let svm_locker = SurfnetSvmLocker::new(svm_instance);
-
-    // create a test transaction
-    let payer = Keypair::new();
-    let recipient = Pubkey::new_unique();
-    svm_locker.airdrop(&payer.pubkey(), LAMPORTS_PER_SOL).unwrap();
-
-    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
-    let tx = Transaction::new_signed_with_payer(
-        &[transfer_ix], 
-        Some(&payer.pubkey()), 
-        &[&payer], 
-        recent_blockhash
+    assert!(
+        error_opt.is_none(),
+        "Transaction should succeed without error"
     );
-    let signature = tx.signatures[0];
-
-    // Subscribe with confirmed commitment
-    let subscription_type = SignatureSubscriptionType::confirmed();
-    let notification_rx = svm_locker.subscribe_for_signature_updates(&signature, subscription_type);
-
-    // process the transaction
-    let (status_tx, _status_rx) = unbounded();
-    svm_locker
-        .process_transaction(&None, VersionedTransaction::from(tx), status_tx, false, false)
-        .await
-        .unwrap();
-
-    // confirm the block to trigger confirmed notification
-    svm_locker.confirm_current_block(&None).await.unwrap();
-
-    // wait for the notification
-    let notification = notification_rx.recv_timeout(Duration::from_secs(5));
-    assert!(notification.is_ok(), "Should receive confirmed notification");
-
-    let (slot, error_opt) = notification.unwrap();
-    assert!(error_opt.is_none(), "Transaction should succeed without error");
-    println!("✓ Received confirmed signature notification at slot {}", slot);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_ws_signature_subscribe_received_notification() {
-    use solana_system_interface::instruction as system_instruction;
-    use crossbeam_channel::unbounded;
-    use crate::surfnet::SignatureSubscriptionType;
-
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
-    let svm_locker = SurfnetSvmLocker::new(svm_instance);
-
-    // create a test transaction
-    let payer = Keypair::new();
-    let recipient = Pubkey::new_unique();
-    svm_locker.airdrop(&payer.pubkey(), LAMPORTS_PER_SOL).unwrap();
-
-    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
-    let tx = Transaction::new_signed_with_payer(
-        &[transfer_ix], 
-        Some(&payer.pubkey()), 
-        &[&payer], 
-        recent_blockhash
+    println!(
+        "✓ Received {} signature notification at slot {}",
+        subscription_type, slot
     );
-    let signature = tx.signatures[0];
-
-    // subscribe with received notification type
-    let subscription_type = SignatureSubscriptionType::received();
-    let notification_rx = svm_locker.subscribe_for_signature_updates(&signature, subscription_type);
-
-    // process the transaction
-    let (status_tx, _status_rx) = unbounded();
-    svm_locker
-        .process_transaction(&None, VersionedTransaction::from(tx), status_tx, false, false)
-        .await
-        .unwrap();
-
-    // wait for the notification (should come immediately when tx is received)
-    let notification = notification_rx.recv_timeout(Duration::from_secs(5));
-    assert!(notification.is_ok(), "Should receive 'received' notification");
-
-    let (slot, _error_opt) = notification.unwrap();
-    // received notifications don't include error status yet
-    println!("✓ Received 'received' signature notification at slot {}", slot);
 }
 
 #[tokio::test(flavor = "multi_thread")]
