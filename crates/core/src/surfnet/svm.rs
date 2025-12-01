@@ -2159,8 +2159,48 @@ impl SurfnetSvm {
         logs: Vec<String>,
         commitment_level: CommitmentLevel,
     ) {
-        for (expected_level, _filter, tx) in self.logs_subscriptions.iter() {
-            if expected_level.eq(&commitment_level) {
+        for (expected_level, filter, tx) in self.logs_subscriptions.iter() {
+            if !expected_level.eq(&commitment_level) {
+                continue; // Skip if commitment level is not expected
+            }
+
+            let should_notify = match filter {
+                RpcTransactionLogsFilter::All | RpcTransactionLogsFilter::AllWithVotes => true,
+
+                RpcTransactionLogsFilter::Mentions(mentioned_accounts) => {
+                    // Get the tx accounts including loaded addresses
+                    let transaction_accounts =
+                        if let Some(SurfnetTransactionStatus::Processed(tx_data)) =
+                            self.transactions.get(signature)
+                        {
+                            let (tx_meta, _) = tx_data.as_ref();
+                            let mut accounts = match &tx_meta.transaction.message {
+                                VersionedMessage::Legacy(msg) => msg.account_keys.clone(),
+                                VersionedMessage::V0(msg) => msg.account_keys.clone(),
+                            };
+
+                            accounts.extend(&tx_meta.meta.loaded_addresses.writable);
+                            accounts.extend(&tx_meta.meta.loaded_addresses.readonly);
+                            Some(accounts)
+                        } else {
+                            None
+                        };
+
+                    let Some(accounts) = transaction_accounts else {
+                        continue;
+                    };
+
+                    mentioned_accounts.iter().any(|filtered_acc| {
+                        if let Ok(filtered_pubkey) = Pubkey::from_str(&filtered_acc) {
+                            accounts.contains(&filtered_pubkey)
+                        } else {
+                            false
+                        }
+                    })
+                }
+            };
+
+            if should_notify {
                 let message = RpcLogsResponse {
                     signature: signature.to_string(),
                     err: err.clone().map(|e| e.into()),

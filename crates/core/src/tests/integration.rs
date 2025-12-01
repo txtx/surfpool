@@ -15,7 +15,7 @@ use solana_client::{
     rpc_response::RpcLogsResponse,
 };
 use solana_clock::{Clock, Slot};
-use solana_commitment_config::CommitmentConfig;
+use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
@@ -38,6 +38,7 @@ use surfpool_types::{
         BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
     },
 };
+use test_case::test_case;
 use tokio::{sync::RwLock, task};
 use uuid::Uuid;
 pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
@@ -52,10 +53,7 @@ use crate::{
         surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
     runloops::start_local_surfnet_runloop,
-    surfnet::{
-        locker::SurfnetSvmLocker,
-        svm::{self, SurfnetSvm},
-    },
+    surfnet::{SignatureSubscriptionType, locker::SurfnetSvmLocker, svm::SurfnetSvm},
     tests::helpers::get_free_port,
     types::{TimeTravelConfig, TransactionLoadedAddresses},
 };
@@ -4313,5 +4311,1142 @@ async fn test_closed_accounts() {
             account_result.unwrap()
         );
         println!("Account successfully closed and not re-fetched from datasource surfnet");
+    }
+}
+
+// websocket rpc methods tests
+
+#[test_case(SignatureSubscriptionType::processed() ; "processed commitment")]
+#[test_case(SignatureSubscriptionType::received() ; "received commitment")]
+#[test_case(SignatureSubscriptionType::confirmed() ; "confirmed commitment")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionType) {
+    use crossbeam_channel::unbounded;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create a test transaction
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 100_000;
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+    let signature = tx.signatures[0];
+
+    // subscribe with processed commitment
+    let notification_rx =
+        svm_locker.subscribe_for_signature_updates(&signature, subscription_type.clone());
+
+    // process the transaction
+    let (status_tx, _status_rx) = unbounded();
+    let result = svm_locker
+        .process_transaction(&None, VersionedTransaction::from(tx), status_tx, true, true)
+        .await;
+    assert!(
+        result.is_ok(),
+        "Transaction should be processed successfully"
+    );
+
+    match subscription_type {
+        SignatureSubscriptionType::Commitment(CommitmentLevel::Confirmed) => {
+            // confirm the block to trigger confirmed notification
+            svm_locker.confirm_current_block(&None).await.unwrap();
+        }
+        _ => {}
+    }
+
+    // wait for the notification
+    let notification = notification_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        notification.is_ok(),
+        "Should receive {} notification",
+        subscription_type
+    );
+
+    let (slot, error_opt) = notification.unwrap();
+    assert!(
+        error_opt.is_none(),
+        "Transaction should succeed without error"
+    );
+    println!(
+        "✓ Received {} signature notification at slot {}",
+        subscription_type, slot
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_signature_subscribe_failed_transaction() {
+    use crossbeam_channel::unbounded;
+    use solana_system_interface::instruction as system_instruction;
+
+    use crate::surfnet::SignatureSubscriptionType;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create a test transaction that will fail (insufficient funds)
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker.airdrop(&payer.pubkey(), 10_000).unwrap(); // airdrop a very small amount
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, LAMPORTS_PER_SOL); // Try to send more than we have
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+    let signature = tx.signatures[0];
+
+    // subscribe with processed commitment
+    let subscription_type = SignatureSubscriptionType::processed();
+    let notification_rx = svm_locker.subscribe_for_signature_updates(&signature, subscription_type);
+
+    // process the transaction (should fail)
+    let (status_tx, _status_rx) = unbounded();
+    let _ = svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await;
+
+    // wait for the notification with error
+    let notification = notification_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        notification.is_ok(),
+        "Should receive notification for failed transaction"
+    );
+
+    let (slot, error_opt) = notification.unwrap();
+    assert!(error_opt.is_some(), "Failed transaction should have error");
+    println!(
+        "✓ Received signature notification for failed transaction at slot {} with error: {:?}",
+        slot, error_opt
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_signature_subscribe_multiple_subscribers() {
+    use crossbeam_channel::unbounded;
+    use solana_system_interface::instruction as system_instruction;
+
+    use crate::surfnet::SignatureSubscriptionType;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create a test transaction
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+    let signature = tx.signatures[0];
+
+    // create multiple subscriptions to the same signature
+    let notification_rx1 = svm_locker
+        .subscribe_for_signature_updates(&signature, SignatureSubscriptionType::processed());
+    let notification_rx2 = svm_locker
+        .subscribe_for_signature_updates(&signature, SignatureSubscriptionType::processed());
+    let notification_rx3 = svm_locker
+        .subscribe_for_signature_updates(&signature, SignatureSubscriptionType::confirmed());
+
+    // process the transaction
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // all processed subscriptions should receive notification
+    assert!(
+        notification_rx1
+            .recv_timeout(Duration::from_secs(5))
+            .is_ok(),
+        "Subscriber 1 should receive notification"
+    );
+    assert!(
+        notification_rx2
+            .recv_timeout(Duration::from_secs(5))
+            .is_ok(),
+        "Subscriber 2 should receive notification"
+    );
+
+    // confirm the block for confirmed subscription
+    svm_locker.confirm_current_block(&None).await.unwrap();
+    assert!(
+        notification_rx3
+            .recv_timeout(Duration::from_secs(5))
+            .is_ok(),
+        "Confirmed subscriber should receive notification"
+    );
+
+    println!("✓ Multiple subscribers all received notifications correctly");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_signature_subscribe_before_transaction_exists() {
+    use crossbeam_channel::unbounded;
+    use solana_system_interface::instruction as system_instruction;
+
+    use crate::surfnet::SignatureSubscriptionType;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+    let signature = tx.signatures[0];
+
+    // subscribe before the transaction exists
+    let subscription_type = SignatureSubscriptionType::processed();
+    let notification_rx = svm_locker.subscribe_for_signature_updates(&signature, subscription_type);
+
+    // small delay to ensure the subscription is registered
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // now process the transaction
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // should still receive notification
+    let notification = notification_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        notification.is_ok(),
+        "Should receive notification even when subscribed before transaction"
+    );
+
+    let (slot, error_opt) = notification.unwrap();
+    assert!(error_opt.is_none(), "Transaction should succeed");
+    println!(
+        "✓ Subscription before transaction works correctly at slot {}",
+        slot
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_account_subscribe_balance_change() {
+    use crossbeam_channel::unbounded;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create and fund a new account
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    // subscribe to payer account updates
+    let account_rx =
+        svm_locker.subscribe_for_account_updates(&payer.pubkey(), Some(UiAccountEncoding::Base58));
+
+    // make a transaction to change the account balance
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    let account_update = account_rx.recv_timeout(Duration::from_secs(5));
+    assert!(account_update.is_ok(), "Should receive account update");
+
+    let updated_account = account_update.unwrap();
+    assert_eq!(
+        updated_account.lamports,
+        LAMPORTS_PER_SOL - 100_000 - 5000, // original - transfer amount - fees
+        "Account balance should be updated"
+    );
+    println!(
+        "✓ Received account update notification with new balance {}",
+        updated_account.lamports
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_account_subscribe_multiple_changes() {
+    use crossbeam_channel::unbounded;
+    use solana_account_decoder::UiAccountEncoding;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create and fund a new account
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker
+        .airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap();
+
+    // subscribe to payer account updates
+    let account_rx =
+        svm_locker.subscribe_for_account_updates(&payer.pubkey(), Some(UiAccountEncoding::Base58));
+
+    // make multiple transactions
+    for i in 0..3 {
+        let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+        let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+        let tx = Transaction::new_signed_with_payer(
+            &[transfer_ix],
+            Some(&payer.pubkey()),
+            &[&payer],
+            recent_blockhash,
+        );
+
+        let (status_tx, _status_rx) = unbounded();
+        svm_locker
+            .process_transaction(
+                &None,
+                VersionedTransaction::from(tx),
+                status_tx,
+                false,
+                false,
+            )
+            .await
+            .unwrap();
+
+        let account_update = account_rx.recv_timeout(Duration::from_secs(5));
+        assert!(
+            account_update.is_ok(),
+            "Should receive account update for transaction {}",
+            i + 1
+        );
+        println!(
+            "✓ Received account update notification for transaction {}",
+            i + 1
+        );
+
+        // confirm the block to get fresh blockhash for next transaction
+        if i < 2 {
+            svm_locker.confirm_current_block(&None).await.unwrap();
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_account_subscribe_multiple_subscribers() {
+    use crossbeam_channel::unbounded;
+    use solana_account_decoder::UiAccountEncoding;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let sender = Keypair::new();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+    svm_locker
+        .airdrop(&sender.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    // create multiple subscriptions to the same account
+    let account_rx1 =
+        svm_locker.subscribe_for_account_updates(&payer.pubkey(), Some(UiAccountEncoding::Base64));
+    let account_rx2 =
+        svm_locker.subscribe_for_account_updates(&payer.pubkey(), Some(UiAccountEncoding::Base58));
+    let account_rx3 = svm_locker.subscribe_for_account_updates(&payer.pubkey(), None);
+
+    // trigger a change with a transfer (not airdrop)
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&sender.pubkey(), &payer.pubkey(), 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&sender.pubkey()),
+        &[&sender],
+        recent_blockhash,
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // all subscribers should receive notifications
+    assert!(
+        account_rx1.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "Subscriber 1 should receive notification"
+    );
+    assert!(
+        account_rx2.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "Subscriber 2 should receive notification"
+    );
+    assert!(
+        account_rx3.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "Subscriber 3 should receive notification"
+    );
+
+    println!("✓ All 3 subscribers received notifications for account change");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_account_subscribe_new_account_creation() {
+    use crossbeam_channel::unbounded;
+    use solana_account_decoder::UiAccountEncoding;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let new_account = Pubkey::new_unique();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    // subscribe to an account that doesn't exist yet
+    let account_rx =
+        svm_locker.subscribe_for_account_updates(&new_account, Some(UiAccountEncoding::Base64));
+
+    // create the account with a transfer
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &new_account, 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // should receive notification when account is created
+    let account_update = account_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        account_update.is_ok(),
+        "Should receive notification when account is created"
+    );
+
+    let created_account = account_update.unwrap();
+    assert_eq!(
+        created_account.lamports, 100_000,
+        "New account should have correct balance"
+    );
+    println!(
+        "✓ Received account update notification for new account creation with balance {}",
+        created_account.lamports
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_account_subscribe_account_closure() {
+    use crossbeam_channel::unbounded;
+    use solana_account_decoder::UiAccountEncoding;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let account_to_close = Keypair::new();
+    let recipient = Pubkey::new_unique();
+
+    // give the account some funds
+    svm_locker
+        .airdrop(&account_to_close.pubkey(), 10_000)
+        .unwrap();
+
+    // subscribe to the account
+    let account_rx = svm_locker
+        .subscribe_for_account_updates(&account_to_close.pubkey(), Some(UiAccountEncoding::Base64));
+
+    // close the account by sending all funds minus fee
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let close_ix = system_instruction::transfer(&account_to_close.pubkey(), &recipient, 5_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[close_ix],
+        Some(&account_to_close.pubkey()),
+        &[&account_to_close],
+        recent_blockhash,
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            true,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // should receive notification for the closure
+    let account_update = account_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        account_update.is_ok(),
+        "Should receive notification when account is closed"
+    );
+
+    println!("✓ Received notification for account closure");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_slot_subscribe_basic() {
+    use surfpool_types::types::BlockProductionMode;
+
+    let (svm_locker, _simnet_commands_tx, _simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(100));
+
+    // subscribe to slot updates
+    let slot_rx = svm_locker.subscribe_for_slot_updates();
+
+    // wait for the first slot update
+    let slot_info_1 = slot_rx.recv_timeout(Duration::from_secs(2));
+    assert!(slot_info_1.is_ok(), "Should receive slot update");
+
+    let first_slot = slot_info_1.unwrap();
+    println!("✓ Received first slot update: {}", first_slot.slot);
+
+    // wait for the second slot update
+    let slot_info_2 = slot_rx.recv_timeout(Duration::from_secs(2));
+    assert!(slot_info_2.is_ok(), "Should receive slot update");
+
+    let second_slot = slot_info_2.unwrap();
+    println!("✓ Received second slot update: {}", second_slot.slot);
+
+    assert!(
+        second_slot.slot > first_slot.slot,
+        "Second slot should be greater than first slot"
+    );
+    println!("✓ Slot updates are progressing correctly");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_slot_subscribe_manual_advancement() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // subscribe to slot updates
+    let slot_rx = svm_locker.subscribe_for_slot_updates();
+
+    let initial_slot = svm_locker.get_latest_absolute_slot();
+
+    // manually advance slot by confirming a block
+    svm_locker.confirm_current_block(&None).await.unwrap();
+
+    // should receive slot update notification
+    let slot_update = slot_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        slot_update.is_ok(),
+        "Should receive slot update after block confirmation"
+    );
+
+    let slot_info = slot_update.unwrap();
+    assert!(
+        slot_info.slot > initial_slot,
+        "Updated slot should be greater than initial slot"
+    );
+    println!(
+        "✓ Received slot notification after manual block confirmation: slot {} -> {}",
+        initial_slot, slot_info.slot
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_slot_subscribe_multiple_subscribers() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create multiple subscriptions
+    let slot_rx1 = svm_locker.subscribe_for_slot_updates();
+    let slot_rx2 = svm_locker.subscribe_for_slot_updates();
+    let slot_rx3 = svm_locker.subscribe_for_slot_updates();
+
+    // advance slot
+    svm_locker.confirm_current_block(&None).await.unwrap();
+
+    // all subscribers should receive notification
+    assert!(
+        slot_rx1.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "Subscriber 1 should receive slot update"
+    );
+    assert!(
+        slot_rx2.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "Subscriber 2 should receive slot update"
+    );
+    assert!(
+        slot_rx3.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "Subscriber 3 should receive slot update"
+    );
+
+    println!("✓ All 3 subscribers received slot update notifications");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_slot_subscribe_multiple_slot_changes() {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let slot_rx = svm_locker.subscribe_for_slot_updates();
+
+    // advance slot multiple times
+    for i in 0..3 {
+        svm_locker.confirm_current_block(&None).await.unwrap();
+
+        let slot_update = slot_rx.recv_timeout(Duration::from_secs(5));
+        assert!(
+            slot_update.is_ok(),
+            "Should receive slot update for advancement {}",
+            i + 1
+        );
+
+        let slot_info = slot_update.unwrap();
+        println!(
+            "✓ Received slot notification #{}: slot {}",
+            i + 1,
+            slot_info.slot
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_logs_subscribe_all_transactions() {
+    use crossbeam_channel::unbounded;
+    use solana_client::rpc_config::RpcTransactionLogsFilter;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    // subscribe to all transaction logs
+    let logs_rx = svm_locker
+        .subscribe_for_logs_updates(&CommitmentLevel::Processed, &RpcTransactionLogsFilter::All);
+
+    // create and process a test transaction
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+    let signature = tx.signatures[0];
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // wait for the logs update
+    let logs_update = logs_rx.recv_timeout(Duration::from_secs(5));
+    assert!(logs_update.is_ok(), "Should receive logs update");
+
+    let (_slot, logs_response) = logs_update.unwrap();
+    assert_eq!(
+        logs_response.signature,
+        signature.to_string(),
+        "Signature should match"
+    );
+    assert!(
+        logs_response.err.is_none(),
+        "Transaction should succeed without error"
+    );
+    assert!(
+        !logs_response.logs.is_empty(),
+        "Should have at least one log message"
+    );
+    println!("✓ Received logs update for transaction: {}", signature);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_logs_subscribe_mentions_account() {
+    use crossbeam_channel::unbounded;
+    use solana_client::rpc_config::RpcTransactionLogsFilter;
+    use solana_commitment_config::CommitmentLevel;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    // subscribe to logs mentioning the system program
+    let system_program = solana_sdk_ids::system_program::id();
+    let logs_rx = svm_locker.subscribe_for_logs_updates(
+        &CommitmentLevel::Processed,
+        &RpcTransactionLogsFilter::Mentions(vec![system_program.to_string()]),
+    );
+    // also subscribe to logs mentioning the token program
+    let token_program = spl_token_interface::id();
+    let logs_rx_2 = svm_locker.subscribe_for_logs_updates(
+        &CommitmentLevel::Processed,
+        &RpcTransactionLogsFilter::Mentions(vec![token_program.to_string()]),
+    );
+
+    // create transaction that uses system program
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // should receive logs since transaction mentions system program
+    let logs_notification = logs_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        logs_notification.is_ok(),
+        "Should receive logs for transaction mentioning system program"
+    );
+
+    let (_slot, logs_response) = logs_notification.unwrap();
+    assert!(
+        !logs_response.logs.is_empty(),
+        "Should have logs from system program"
+    );
+    println!("✓ Received logs notification for transaction mentioning system program");
+
+    // should NOT receive logs for token program subscription
+    let logs_notification_2 = logs_rx_2.recv_timeout(Duration::from_secs(3));
+    assert!(
+        logs_notification_2.is_err(),
+        "Should NOT receive logs for transaction not mentioning token program"
+    );
+    println!("✓ Did not receive logs notification for transaction not mentioning token program");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_logs_subscribe_confirmed_commitment() {
+    use crossbeam_channel::unbounded;
+    use solana_client::rpc_config::RpcTransactionLogsFilter;
+    use solana_commitment_config::CommitmentLevel;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // subscribe to confirmed logs
+    let logs_rx = svm_locker
+        .subscribe_for_logs_updates(&CommitmentLevel::Confirmed, &RpcTransactionLogsFilter::All);
+
+    // create and process a transaction
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // confirm the block to trigger confirmed logs
+    svm_locker.confirm_current_block(&None).await.unwrap();
+
+    // wait for confirmed logs notification
+    let logs_notification = logs_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        logs_notification.is_ok(),
+        "Should receive confirmed logs notification"
+    );
+
+    let (slot, logs_response) = logs_notification.unwrap();
+    assert!(
+        !logs_response.logs.is_empty(),
+        "Confirmed logs should not be empty"
+    );
+    println!("✓ Received confirmed logs notification at slot {}", slot);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_logs_subscribe_finalized_commitment() {
+    use crossbeam_channel::unbounded;
+    use solana_client::rpc_config::RpcTransactionLogsFilter;
+    use solana_commitment_config::CommitmentLevel;
+    use solana_system_interface::instruction as system_instruction;
+
+    use crate::surfnet::FINALIZATION_SLOT_THRESHOLD;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // subscribe to finalized logs
+    let logs_rx = svm_locker
+        .subscribe_for_logs_updates(&CommitmentLevel::Finalized, &RpcTransactionLogsFilter::All);
+
+    // create and process a transaction
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // confirm and finalize the block
+    svm_locker.confirm_current_block(&None).await.unwrap();
+
+    // advance enough slots to trigger finalization
+    for _ in 0..FINALIZATION_SLOT_THRESHOLD {
+        svm_locker.confirm_current_block(&None).await.unwrap();
+    }
+
+    // wait for finalized logs notification
+    let logs_notification = logs_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        logs_notification.is_ok(),
+        "Should receive finalized logs notification"
+    );
+
+    let (slot, logs_response) = logs_notification.unwrap();
+    assert!(
+        !logs_response.logs.is_empty(),
+        "Finalized logs should not be empty"
+    );
+    println!("✓ Received finalized logs notification at slot {}", slot);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_logs_subscribe_failed_transaction() {
+    use crossbeam_channel::unbounded;
+    use solana_client::rpc_config::RpcTransactionLogsFilter;
+    use solana_commitment_config::CommitmentLevel;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create test accounts
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker.airdrop(&payer.pubkey(), 5_000).unwrap();
+
+    // subscribe to all logs
+    let logs_rx = svm_locker
+        .subscribe_for_logs_updates(&CommitmentLevel::Processed, &RpcTransactionLogsFilter::All);
+
+    // create and process a transaction that will fail (insufficient funds)
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, LAMPORTS_PER_SOL);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    let _ = svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await;
+
+    // wait for logs notification with error
+    let logs_notification = logs_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        logs_notification.is_ok(),
+        "Should receive logs for failed transaction"
+    );
+
+    let (_slot, logs_response) = logs_notification.unwrap();
+    assert!(
+        logs_response.err.is_some(),
+        "Failed transaction should have error in logs"
+    );
+    assert!(
+        !logs_response.logs.is_empty(),
+        "Failed transaction should still have logs"
+    );
+    println!(
+        "✓ Received logs notification for failed transaction with error: {:?}",
+        logs_response.err
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_logs_subscribe_multiple_subscribers() {
+    use crossbeam_channel::unbounded;
+    use solana_client::rpc_config::RpcTransactionLogsFilter;
+    use solana_commitment_config::CommitmentLevel;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create multiple subscriptions with different commitment levels
+    let logs_rx1 = svm_locker
+        .subscribe_for_logs_updates(&CommitmentLevel::Processed, &RpcTransactionLogsFilter::All);
+    let logs_rx2 = svm_locker
+        .subscribe_for_logs_updates(&CommitmentLevel::Processed, &RpcTransactionLogsFilter::All);
+    let logs_rx3 = svm_locker
+        .subscribe_for_logs_updates(&CommitmentLevel::Confirmed, &RpcTransactionLogsFilter::All);
+
+    // create and process a transaction
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // all processed subscribers should receive notification
+    assert!(
+        logs_rx1.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "Processed subscriber 1 should receive logs"
+    );
+    assert!(
+        logs_rx2.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "Processed subscriber 2 should receive logs"
+    );
+
+    // confirm block for confirmed subscriber
+    svm_locker.confirm_current_block(&None).await.unwrap();
+    assert!(
+        logs_rx3.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "Confirmed subscriber should receive logs"
+    );
+
+    println!("✓ All subscribers received logs notifications at their respective commitment levels");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_logs_subscribe_logs_content() {
+    use crossbeam_channel::unbounded;
+    use solana_client::rpc_config::RpcTransactionLogsFilter;
+    use solana_commitment_config::CommitmentLevel;
+    use solana_system_interface::instruction as system_instruction;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // create test accounts
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
+
+    // subscribe to all logs
+    let logs_rx = svm_locker
+        .subscribe_for_logs_updates(&CommitmentLevel::Processed, &RpcTransactionLogsFilter::All);
+
+    // create and process a transaction
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[transfer_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+    let signature = tx.signatures[0];
+
+    let (status_tx, _status_rx) = unbounded();
+    svm_locker
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // receive and validate logs content
+    let logs_notification = logs_rx.recv_timeout(Duration::from_secs(5));
+    assert!(logs_notification.is_ok(), "Should receive logs");
+
+    let (_slot, logs_response) = logs_notification.unwrap();
+
+    // verify logs response structure
+    assert_eq!(logs_response.signature, signature.to_string());
+    assert!(logs_response.err.is_none());
+    assert!(!logs_response.logs.is_empty());
+
+    // logs should contain program invocation messages
+    let has_program_log = logs_response.logs.iter().any(|log| log.contains("Program"));
+    assert!(
+        has_program_log,
+        "Logs should contain program execution messages"
+    );
+
+    println!("✓ Logs notification contains valid content:");
+    for (i, log) in logs_response.logs.iter().enumerate() {
+        println!("  Log {}: {}", i + 1, log);
     }
 }

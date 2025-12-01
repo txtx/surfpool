@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use crossbeam_channel::Sender;
 use jsonrpc_core::Result as RpcError;
@@ -93,6 +93,15 @@ pub type LogsSubscriptionData = (
 pub enum SignatureSubscriptionType {
     Received,
     Commitment(CommitmentLevel),
+}
+
+impl Display for SignatureSubscriptionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SignatureSubscriptionType::Received => write!(f, "received"),
+            SignatureSubscriptionType::Commitment(level) => write!(f, "{level}"),
+        }
+    }
 }
 
 type DoUpdateSvm = bool;
