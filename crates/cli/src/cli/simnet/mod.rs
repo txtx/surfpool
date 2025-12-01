@@ -5,7 +5,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    thread::sleep,
     time::Duration,
 };
 
@@ -137,6 +136,7 @@ pub async fn handle_start_local_surfnet_command(
     let simnet_commands_tx_copy = simnet_commands_tx.clone();
     let config_copy = config.clone();
 
+    let simnet_events_tx_for_thread = simnet_events_tx.clone();
     let _handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
             let future = start_local_surfnet(
@@ -148,9 +148,8 @@ pub async fn handle_start_local_surfnet_command(
                 geyser_events_rx,
             );
             if let Err(e) = hiro_system_kit::nestable_block_on(future) {
-                error!("Simnet exited with error: {e}");
-                sleep(Duration::from_millis(500));
-                std::process::exit(1);
+                // Send the error through the event channel so the main thread can handle it
+                let _ = simnet_events_tx_for_thread.send(SimnetEvent::Aborted(e.to_string()));
             }
             Ok::<(), String>(())
         })
@@ -158,7 +157,10 @@ pub async fn handle_start_local_surfnet_command(
 
     loop {
         match simnet_events_rx.recv() {
-            Ok(SimnetEvent::Aborted(error)) => return Err(error),
+            Ok(SimnetEvent::Aborted(error)) => {
+                eprintln!("Error: {}", error);
+                return Err(error);
+            }
             Ok(SimnetEvent::Shutdown) => return Ok(()),
             Ok(SimnetEvent::Ready) => break,
             _other => continue,

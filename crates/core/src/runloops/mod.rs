@@ -54,6 +54,27 @@ use crate::{
 
 const BLOCKHASH_SLOT_TTL: u64 = 75;
 
+/// Checks if a port is available for binding.
+fn check_port_availability(addr: SocketAddr, server_type: &str) -> Result<(), String> {
+    match std::net::TcpListener::bind(addr) {
+        Ok(_listener) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            let msg = format!(
+                "{} port {} is already in use. Try --port or --ws-port to use a different port.",
+                server_type,
+                addr.port()
+            );
+            eprintln!("Error: {}", msg);
+            Err(msg)
+        }
+        Err(e) => {
+            let msg = format!("Failed to bind {} server to {}: {}", server_type, addr, e);
+            eprintln!("Error: {}", msg);
+            Err(msg)
+        }
+    }
+}
+
 pub async fn start_local_surfnet_runloop(
     svm_locker: SurfnetSvmLocker,
     config: SurfpoolConfig,
@@ -721,6 +742,20 @@ async fn start_rpc_servers_runloop(
     ),
     String,
 > {
+    let rpc_addr: SocketAddr = config
+        .rpc
+        .get_rpc_base_url()
+        .parse()
+        .map_err(|e: std::net::AddrParseError| e.to_string())?;
+    let ws_addr: SocketAddr = config
+        .rpc
+        .get_ws_base_url()
+        .parse()
+        .map_err(|e: std::net::AddrParseError| e.to_string())?;
+
+    check_port_availability(rpc_addr, "RPC")?;
+    check_port_availability(ws_addr, "WebSocket")?;
+
     let (plugin_manager_commands_tx, plugin_manager_commands_rx) = unbounded();
     let simnet_events_tx = svm_locker.simnet_events_tx();
 
@@ -761,9 +796,6 @@ async fn start_http_rpc_server_runloop(
     if !config.plugin_config_path.is_empty() {
         io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());
     }
-
-    let _ = std::net::TcpListener::bind(server_bind)
-        .map_err(|e| format!("Failed to start RPC server: {}", e))?;
 
     let _handle = hiro_system_kit::thread_named("RPC Handler")
         .spawn(move || {
