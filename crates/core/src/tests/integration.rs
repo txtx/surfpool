@@ -4389,9 +4389,10 @@ async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionTyp
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_signature_subscribe_failed_transaction() {
-    use crate::surfnet::SignatureSubscriptionType;
     use crossbeam_channel::unbounded;
     use solana_system_interface::instruction as system_instruction;
+
+    use crate::surfnet::SignatureSubscriptionType;
 
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
@@ -4444,9 +4445,10 @@ async fn test_ws_signature_subscribe_failed_transaction() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_signature_subscribe_multiple_subscribers() {
-    use crate::surfnet::SignatureSubscriptionType;
     use crossbeam_channel::unbounded;
     use solana_system_interface::instruction as system_instruction;
+
+    use crate::surfnet::SignatureSubscriptionType;
 
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
@@ -4517,9 +4519,10 @@ async fn test_ws_signature_subscribe_multiple_subscribers() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_signature_subscribe_before_transaction_exists() {
-    use crate::surfnet::SignatureSubscriptionType;
     use crossbeam_channel::unbounded;
     use solana_system_interface::instruction as system_instruction;
+
+    use crate::surfnet::SignatureSubscriptionType;
 
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
@@ -5187,11 +5190,12 @@ async fn test_ws_logs_subscribe_confirmed_commitment() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_logs_subscribe_finalized_commitment() {
-    use crate::surfnet::FINALIZATION_SLOT_THRESHOLD;
     use crossbeam_channel::unbounded;
     use solana_client::rpc_config::RpcTransactionLogsFilter;
     use solana_commitment_config::CommitmentLevel;
     use solana_system_interface::instruction as system_instruction;
+
+    use crate::surfnet::FINALIZATION_SLOT_THRESHOLD;
 
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
