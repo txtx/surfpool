@@ -242,6 +242,9 @@ pub struct StartSimnet {
     /// Enable all SVM features (override mainnet defaults which are used by default)
     #[clap(long = "features-all", action=ArgAction::SetTrue, default_value = "false")]
     pub all_features: bool,
+    /// A set of inputs to use for the runbook (eg. surfpool start --runbook-input myInputs.json)
+    #[arg(long = "runbook-input", short = 'i', default_value = "./txtx.yml")]
+    pub runbook_input: Vec<String>,
 }
 
 fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
