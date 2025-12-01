@@ -770,15 +770,27 @@ impl SurfnetSvm {
     /// # Returns
     /// `Ok(())` on success, or an error if the operation fails.
     pub fn set_account(&mut self, pubkey: &Pubkey, account: Account) -> SurfpoolResult<()> {
+        let lamports_is_zero = account.lamports == 0;
         self.inner
             .set_account(*pubkey, account.clone())
             .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+
+        if lamports_is_zero {
+            // LiteSVM drops zero-lamport accounts; insert it back so cheat codes can persist them.
+            let accounts_db_ref = self.inner.accounts_db();
+            // Safety: accounts_db_ptr points to the inner accounts DB owned by self.inner.
+            unsafe {
+                let accounts_inner_ptr =
+                    &accounts_db_ref.inner as *const _ as *mut HashMap<Pubkey, AccountSharedData>;
+                (*accounts_inner_ptr).insert(*pubkey, AccountSharedData::from(account.clone()));
+            }
+        }
 
         self.account_update_slots
             .insert(*pubkey, self.get_latest_absolute_slot());
 
         // Update the account registries and indexes
-        self.update_account_registries(pubkey, &account)?;
+        self.update_account_registries_with_options(pubkey, &account, !lamports_is_zero)?;
 
         // Notify account subscribers
         self.notify_account_subscribers(pubkey, &account);
@@ -794,7 +806,16 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         account: &Account,
     ) -> SurfpoolResult<()> {
-        if account == &Account::default() {
+        self.update_account_registries_with_options(pubkey, account, true)
+    }
+
+    fn update_account_registries_with_options(
+        &mut self,
+        pubkey: &Pubkey,
+        account: &Account,
+        treat_default_as_closed: bool,
+    ) -> SurfpoolResult<()> {
+        if treat_default_as_closed && account == &Account::default() {
             self.closed_accounts.insert(*pubkey);
             if let Some(old_account) = self.get_account(pubkey) {
                 self.remove_from_indexes(pubkey, &old_account);
@@ -3530,6 +3551,27 @@ mod tests {
         // State should be the same
         assert!(svm.feature_set.is_active(&enable_loader_v4::id()));
         assert!(!svm.feature_set.is_active(&disable_fees_sysvar::id()));
+    }
+
+    #[test]
+    fn test_set_account_allows_zero_lamports() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        let pubkey = Pubkey::new_unique();
+        let account = Account {
+            lamports: 0,
+            data: vec![],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        svm.set_account(&pubkey, account.clone()).unwrap();
+
+        let stored = svm.get_account(&pubkey).expect("account should persist");
+        assert_eq!(stored.lamports, 0);
+        assert_eq!(stored.owner, account.owner);
+        assert!(!svm.closed_accounts.contains(&pubkey));
     }
 
     // Garbage collection tests
