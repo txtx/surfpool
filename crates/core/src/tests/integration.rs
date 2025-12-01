@@ -4864,23 +4864,31 @@ async fn test_ws_logs_subscribe_all_transactions() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_logs_subscribe_mentions_account() {
-    use solana_system_interface::instruction as system_instruction;
     use crossbeam_channel::unbounded;
     use solana_client::rpc_config::RpcTransactionLogsFilter;
     use solana_commitment_config::CommitmentLevel;
+    use solana_system_interface::instruction as system_instruction;
 
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
-    svm_locker.airdrop(&payer.pubkey(), LAMPORTS_PER_SOL).unwrap();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap();
 
     // subscribe to logs mentioning the system program
     let system_program = solana_sdk_ids::system_program::id();
     let logs_rx = svm_locker.subscribe_for_logs_updates(
         &CommitmentLevel::Processed,
-        &RpcTransactionLogsFilter::Mentions(vec![system_program.to_string()])
+        &RpcTransactionLogsFilter::Mentions(vec![system_program.to_string()]),
+    );
+    // also subscribe to logs mentioning the token program
+    let token_program = spl_token_interface::id();
+    let logs_rx_2 = svm_locker.subscribe_for_logs_updates(
+        &CommitmentLevel::Processed,
+        &RpcTransactionLogsFilter::Mentions(vec![token_program.to_string()]),
     );
 
     // create transaction that uses system program
@@ -4890,22 +4898,42 @@ async fn test_ws_logs_subscribe_mentions_account() {
         &[transfer_ix],
         Some(&payer.pubkey()),
         &[&payer],
-        recent_blockhash
+        recent_blockhash,
     );
 
     let (status_tx, _status_rx) = unbounded();
     svm_locker
-        .process_transaction(&None, VersionedTransaction::from(tx), status_tx, false, false)
+        .process_transaction(
+            &None,
+            VersionedTransaction::from(tx),
+            status_tx,
+            false,
+            false,
+        )
         .await
         .unwrap();
 
     // should receive logs since transaction mentions system program
     let logs_notification = logs_rx.recv_timeout(Duration::from_secs(5));
-    assert!(logs_notification.is_ok(), "Should receive logs for transaction mentioning system program");
+    assert!(
+        logs_notification.is_ok(),
+        "Should receive logs for transaction mentioning system program"
+    );
 
     let (_slot, logs_response) = logs_notification.unwrap();
-    assert!(!logs_response.logs.is_empty(), "Should have logs from system program");
+    assert!(
+        !logs_response.logs.is_empty(),
+        "Should have logs from system program"
+    );
     println!("✓ Received logs notification for transaction mentioning system program");
+
+    // should NOT receive logs for token program subscription
+    let logs_notification_2 = logs_rx_2.recv_timeout(Duration::from_secs(3));
+    assert!(
+        logs_notification_2.is_err(),
+        "Should NOT receive logs for transaction not mentioning token program"
+    );
+    println!("✓ Did not receive logs notification for transaction not mentioning token program");
 }
 
 #[tokio::test(flavor = "multi_thread")]
