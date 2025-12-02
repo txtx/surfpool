@@ -18,6 +18,27 @@ use crate::{
     types::Framework,
 };
 
+/// Determines if subgraphs should be generated based on the anchor version.
+/// Subgraphs are only supported for Anchor >= 0.26.0
+fn should_generate_subgraphs(anchor_version: &Option<String>) -> bool {
+    if let Some(version) = anchor_version {
+        let version_parts: Vec<&str> = version.split('.').collect();
+        if version_parts.len() >= 2 {
+            if let (Ok(major), Ok(minor)) = (
+                version_parts[0].parse::<u32>(),
+                version_parts[1].parse::<u32>(),
+            ) {
+                // Disable subgraph generation for versions < 0.26.0
+                if major == 0 && minor < 26 {
+                    return false;
+                }
+            }
+        }
+    }
+    // If no version specified or parsing fails, assume subgraphs should be generated
+    true
+}
+
 pub fn try_get_programs_from_project(
     base_location: FileLocation,
     test_suite_paths: &[String],
@@ -131,7 +152,7 @@ pub fn try_get_programs_from_project(
             } else {
                 Some(clones)
             },
-            manifest.toolchain.anchor_version.clone(),
+            should_generate_subgraphs(&manifest.toolchain.anchor_version),
         )))
     } else {
         Ok(None)
