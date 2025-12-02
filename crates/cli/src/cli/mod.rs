@@ -243,7 +243,7 @@ pub struct StartSimnet {
     #[clap(long = "features-all", action=ArgAction::SetTrue, default_value = "false")]
     pub all_features: bool,
     /// A set of inputs to use for the runbook (eg. surfpool start --runbook-input myInputs.json)
-    #[arg(long = "runbook-input", short = 'i', default_value = "./txtx.yml")]
+    #[arg(long = "runbook-input", short = 'i')]
     pub runbook_input: Vec<String>,
 }
 
