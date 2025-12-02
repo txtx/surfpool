@@ -35,6 +35,7 @@ pub struct ProgramFrameworkData {
     pub accounts: Option<Vec<AccountEntry>>,
     pub accounts_dir: Option<Vec<AccountDirEntry>>,
     pub clones: Option<Vec<String>>,
+    pub generate_subgraphs: bool,
 }
 
 impl ProgramFrameworkData {
@@ -45,6 +46,7 @@ impl ProgramFrameworkData {
         accounts: Option<Vec<AccountEntry>>,
         accounts_dir: Option<Vec<AccountDirEntry>>,
         clones: Option<Vec<String>>,
+        generate_subgraphs: bool,
     ) -> Self {
         Self {
             framework,
@@ -53,6 +55,7 @@ impl ProgramFrameworkData {
             accounts,
             accounts_dir,
             clones,
+            generate_subgraphs,
         }
     }
 
@@ -64,6 +67,7 @@ impl ProgramFrameworkData {
             accounts: None,
             accounts_dir: None,
             clones: None,
+            generate_subgraphs: true,
         }
     }
 }
@@ -134,6 +138,7 @@ pub fn scaffold_in_memory_iac(
     genesis_accounts: &Option<Vec<GenesisEntry>>,
     accounts: &Option<Vec<AccountEntry>>,
     accounts_dir: &Option<Vec<AccountDirEntry>>,
+    generate_subgraphs: bool,
 ) -> Result<(String, RunbookSources, WorkspaceManifest), String> {
     let mut deployment_runbook_src: String = String::new();
 
@@ -151,15 +156,17 @@ pub fn scaffold_in_memory_iac(
                 .get_in_memory_interpolated_program_deployment_template(&program_metadata.name),
         );
 
-        if let Some(subgraph_iac) = &framework
-            .get_interpolated_subgraph_template(
-                &program_metadata.name,
-                program_metadata.idl.as_ref(),
-            )
-            .ok()
-            .flatten()
-        {
-            deployment_runbook_src.push_str(subgraph_iac);
+        if generate_subgraphs {
+            if let Some(subgraph_iac) = &framework
+                .get_interpolated_subgraph_template(
+                    &program_metadata.name,
+                    program_metadata.idl.as_ref(),
+                )
+                .ok()
+                .flatten()
+            {
+                deployment_runbook_src.push_str(subgraph_iac);
+            }
         }
     }
 
@@ -199,6 +206,7 @@ pub fn scaffold_iac_layout(
     programs: &[ProgramMetadata],
     base_location: &FileLocation,
     auto_generate_runbooks: bool,
+    generate_subgraphs: bool,
 ) -> Result<(), String> {
     let mut target_location = base_location.clone();
     target_location.append_path("target")?;
@@ -296,10 +304,12 @@ pub fn scaffold_iac_layout(
             &framework.get_interpolated_program_deployment_template(&program_metadata.name),
         );
 
-        subgraph_runbook_src = framework.get_interpolated_subgraph_template(
-            &program_metadata.name,
-            program_metadata.idl.as_ref(),
-        )?;
+        if generate_subgraphs {
+            subgraph_runbook_src = framework.get_interpolated_subgraph_template(
+                &program_metadata.name,
+                program_metadata.idl.as_ref(),
+            )?;
+        }
 
         // Configure initialize instruction
         // let args = vec![

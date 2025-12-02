@@ -452,6 +452,7 @@ async fn write_and_execute_iac(
         accounts,
         accounts_dir,
         clones,
+        generate_subgraphs,
     }) = deployment
     {
         if let Some(clones) = clones.as_ref() {
@@ -484,6 +485,7 @@ async fn write_and_execute_iac(
                 &programs,
                 &base_location,
                 cmd.skip_runbook_generation_prompts,
+                generate_subgraphs,
             )?;
         }
 
@@ -501,6 +503,7 @@ async fn write_and_execute_iac(
                 &genesis_accounts,
                 &accounts,
                 &accounts_dir,
+                generate_subgraphs,
             )?);
         } else {
             let runbooks_ids_to_execute = cmd.runbooks.clone();
