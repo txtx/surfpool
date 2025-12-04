@@ -1,8 +1,9 @@
 use rmcp::{ServiceExt, transport::stdio};
-use surfpool::Surfpool;
 
 mod helpers;
 mod surfpool;
+
+pub use surfpool::Surfpool;
 
 #[derive(PartialEq, Clone, Debug, Default)]
 pub struct McpOptions {}
