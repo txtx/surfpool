@@ -3195,6 +3195,7 @@ fn boot_simnet(
 ) {
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
             slot_time: slot_time.unwrap_or(DEFAULT_SLOT_TIME_MS),
@@ -3204,7 +3205,7 @@ fn boot_simnet(
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
-            ..Default::default()
+            ws_port,
         },
         ..SurfpoolConfig::default()
     };
