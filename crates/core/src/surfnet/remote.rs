@@ -19,6 +19,7 @@ use solana_client::{
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentConfig;
 use solana_epoch_info::EpochInfo;
+use solana_epoch_schedule::EpochSchedule;
 use solana_hash::Hash;
 use solana_loader_v3_interface::get_program_data_address;
 use solana_pubkey::Pubkey;
@@ -88,6 +89,10 @@ impl SurfnetRemoteClient {
 
     pub async fn get_epoch_info(&self) -> SurfpoolResult<EpochInfo> {
         self.client.get_epoch_info().await.map_err(Into::into)
+    }
+
+    pub async fn get_epoch_schedule(&self) -> SurfpoolResult<EpochSchedule> {
+        self.client.get_epoch_schedule().await.map_err(Into::into)
     }
 
     pub async fn get_account(
