@@ -13063,9 +13063,9 @@ dependencies = [
 
 [[package]]
 name = "txtx-addon-network-svm"
-version = "0.3.17"
+version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23a089a07536356a6ae82e87c0269497008043950939ea2743b9d97b0d3615e4"
+checksum = "7ec535676ca07b068d766aa11817ab2a63badc62aea1c7d238744801ac0c8433"
 dependencies = [
  "async-recursion",
  "bincode",

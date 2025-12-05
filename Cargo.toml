@@ -163,7 +163,7 @@ surfpool-subgraph = { path = "crates/subgraph", default-features = false }
 surfpool-types = { path = "crates/types", default-features = false }
 
 txtx-addon-kit = "0.4.10"
-txtx-addon-network-svm = { version = "0.3.17" }
+txtx-addon-network-svm = { version = "0.3.18" }
 txtx-addon-network-svm-types = { version = "0.3.16" }
 txtx-cloud = { version = "0.1.13", features = [
     "clap",
