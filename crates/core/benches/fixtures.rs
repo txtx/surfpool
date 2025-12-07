@@ -1,10 +1,12 @@
 use crossbeam_channel::Receiver;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_system_interface::instruction::transfer;
 use solana_transaction::versioned::VersionedTransaction;
+use std::path::PathBuf;
 use surfpool_core::surfnet::locker::SurfnetSvmLocker;
 use surfpool_types::SimnetEvent;
 
@@ -12,17 +14,13 @@ pub const SIMPLE_TRANSFER_LAMPORTS: u64 = 10_000_000_000;
 pub const MULTI_TRANSFER_LAMPORTS: u64 = 50_000_000_000;
 pub const TRANSFER_AMOUNT_PER_RECIPIENT: u64 = 1_000_000;
 
-/// Waits for the runloop to be ready by listening for Ready and Connected events.
-/// In offline mode (no RPC connection), Connected event may never arrive, so we
-/// proceed once Ready is received and we've waited a reasonable time.
 pub fn wait_for_ready(simnet_events_rx: &Receiver<SimnetEvent>) {
     let mut ready = false;
     let mut connected = false;
     let mut ready_time: Option<std::time::Instant> = None;
-    const MAX_WAIT_FOR_CONNECTED_SECS: u64 = 3; // Wait max 3 seconds for Connected after Ready
+    const MAX_WAIT_FOR_CONNECTED_SECS: u64 = 3;
 
     loop {
-        // Use shorter timeout if we already have Ready (to detect offline mode faster)
         let timeout = if ready {
             std::time::Duration::from_secs(1)
         } else {
@@ -38,27 +36,21 @@ pub fn wait_for_ready(simnet_events_rx: &Receiver<SimnetEvent>) {
                 connected = true;
             }
             Ok(SimnetEvent::Aborted(msg)) => panic!("Runloop aborted: {msg}"),
-            Ok(_) => {
-                // Ignore other events (Shutdown, ClockUpdate, logs, etc.)
-            }
+            Ok(_) => {}
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                // If we have Ready but no Connected after reasonable time, assume offline mode
                 if !ready {
                     panic!("Timeout waiting for Ready event after {} seconds", timeout.as_secs());
                 }
-                // Fall through to check if we've waited long enough for Connected
             }
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                 panic!("Channel disconnected while waiting for runloop");
             }
         }
 
-        // Exit if we have both Ready and Connected
         if ready && connected {
             return;
         }
 
-        // Exit if we have Ready and waited long enough (offline mode - Connected will never come)
         if ready_time
             .map(|ready_instant| ready_instant.elapsed().as_secs() >= MAX_WAIT_FOR_CONNECTED_SECS)
             .unwrap_or(false)
@@ -68,32 +60,92 @@ pub fn wait_for_ready(simnet_events_rx: &Receiver<SimnetEvent>) {
     }
 }
 
-/// Creates a transfer transaction with the specified number of instructions.
 pub fn create_transfer_transaction(
     svm_locker: &SurfnetSvmLocker,
+    payer: &Keypair,
     num_instructions: usize,
-    airdrop_amount: u64,
     transfer_amount: u64,
 ) -> String {
-    let payer = Keypair::new();
-    let recipients: Vec<Pubkey> = (0..num_instructions)
-        .map(|_| Pubkey::new_unique())
-        .collect();
+    let recipients: Vec<Pubkey> = (0..num_instructions).map(|_| Pubkey::new_unique()).collect();
+    create_transfer_transaction_with_recipients(svm_locker, payer, &recipients, transfer_amount)
+}
 
-    svm_locker.with_svm_writer(|svm| {
-        svm.airdrop(&payer.pubkey(), airdrop_amount).unwrap();
-    });
-
+pub fn create_transfer_transaction_with_recipients(
+    svm_locker: &SurfnetSvmLocker,
+    payer: &Keypair,
+    recipients: &[Pubkey],
+    transfer_amount: u64,
+) -> String {
     let latest_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-
     let instructions: Vec<_> = recipients
         .iter()
         .map(|recipient| transfer(&payer.pubkey(), recipient, transfer_amount))
         .collect();
-
-    let message =
-        Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &latest_blockhash);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
-
+    let message = Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &latest_blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[payer]).unwrap();
     bs58::encode(bincode::serialize(&tx).unwrap()).into_string()
+}
+
+pub fn create_complex_transaction_with_recipients(
+    svm_locker: &SurfnetSvmLocker,
+    payer: &Keypair,
+    recipients: &[Pubkey],
+    transfer_amount: u64,
+) -> String {
+    let latest_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let mut instructions = vec![
+        ComputeBudgetInstruction::set_compute_unit_limit(200_000),
+        ComputeBudgetInstruction::set_compute_unit_price(1),
+    ];
+    instructions.extend(
+        recipients
+            .iter()
+            .map(|recipient| transfer(&payer.pubkey(), recipient, transfer_amount)),
+    );
+    let message = Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &latest_blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[payer]).unwrap();
+    bs58::encode(bincode::serialize(&tx).unwrap()).into_string()
+}
+
+pub fn create_protocol_like_transaction_with_recipients(
+    svm_locker: &SurfnetSvmLocker,
+    payer: &Keypair,
+    intermediate_keypairs: &[Keypair],
+    final_recipients: &[Pubkey],
+    transfer_amount: u64,
+) -> String {
+    let intermediate_accounts: Vec<Pubkey> = intermediate_keypairs.iter().map(|kp| kp.pubkey()).collect();
+
+    let mut instructions = vec![
+        ComputeBudgetInstruction::set_compute_unit_limit(1_400_000),
+        ComputeBudgetInstruction::set_compute_unit_price(1000),
+    ];
+    for i in 0..final_recipients.len() {
+        instructions.push(transfer(&payer.pubkey(), &intermediate_accounts[i], transfer_amount));
+        instructions.push(transfer(&intermediate_accounts[i], &final_recipients[i], transfer_amount));
+    }
+
+    let mut signers: Vec<&Keypair> = vec![payer];
+    signers.extend(intermediate_keypairs.iter());
+    let latest_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let message = Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &latest_blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &signers).unwrap();
+    bs58::encode(bincode::serialize(&tx).unwrap()).into_string()
+}
+
+fn protocol_fixture_path(protocol: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("benches/fixtures/protocols")
+        .join(format!("{protocol}_transactions.json"))
+}
+
+pub fn load_protocol_transactions(protocol: &str) -> Option<Vec<String>> {
+    let file_path = protocol_fixture_path(protocol);
+    std::fs::read_to_string(&file_path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<Vec<String>>(&content).ok())
+}
+
+pub fn protocol_fixtures_available(protocol: &str) -> bool {
+    protocol_fixture_path(protocol).exists()
 }

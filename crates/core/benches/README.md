@@ -1,30 +1,35 @@
 # Transaction Ingestion Benchmarks
 
-Performance benchmarks for measuring Surfpool's transaction processing capabilities.
+Benchmarks for `send_transaction` performance across different transaction types.
 
-## Quick Start
+## Run
 
 ```bash
 cargo bench --bench transaction_ingestion -p surfpool-core
 ```
 
-## What We Measure
+## Benchmarks
 
-### Transaction Ingestion
-- `simple_transfer` - Single SOL transfer instruction
-- `multi_instruction_transfer` - 5 SOL transfer instructions
-- `large_transfer` - 10 SOL transfer instructions
+- `simple_transfer` - 1 instruction
+- `multi_instruction_transfer` - 5 instructions  
+- `large_transfer` - 10 instructions
+- `complex_with_compute_budget` - compute budget + transfers
+- `kamino_strategy` - protocol-like simulation (16+ instructions, high CU)
 
-### Component Overhead
-- `transaction_deserialization` - Base58 decode + bincode deserialize
-- `transaction_serialization` - Transaction creation + Base58 encode
-- `clone_overhead_string` - String cloning cost (API constraint)
-- `clone_overhead_context` - Context cloning cost (API constraint)
+Component overhead:
+- `transaction_deserialization` - decode overhead
+- `transaction_serialization` - encode overhead
+- `clone_overhead_string` - String clone cost
+- `clone_overhead_context` - Context clone cost
 
-## Understanding Results
+## Protocol Fixtures
 
-The `send_transaction` benchmarks include unavoidable API overhead from cloning `RunloopContext` and transaction strings. To calculate pure transaction processing time, subtract the clone overhead from the measured time.
+To benchmark real protocol transactions, add fixture files:
 
-## Current Limitations
+```
+crates/core/benches/fixtures/protocols/{protocol}_transactions.json
+```
 
-This initial implementation focuses on **simple SOL transfers** to establish baseline performance. Complex DeFi transactions (Kamino, Jupiter, etc.) will be added in future phases.
+Format: JSON array of base58-encoded transaction strings.
+
+The benchmark automatically detects and runs protocol benchmarks when fixtures exist.
