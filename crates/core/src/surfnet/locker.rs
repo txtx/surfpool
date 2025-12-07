@@ -34,6 +34,7 @@ use solana_client::{
 use solana_clock::{Clock, Slot, UnixTimestamp};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
+use solana_epoch_schedule::EpochSchedule;
 use solana_hash::Hash;
 use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_message::{
@@ -205,23 +206,30 @@ impl SurfnetSvmLocker {
         do_profile_instructions: bool,
         log_bytes_limit: Option<usize>,
     ) -> SurfpoolResult<EpochInfo> {
-        let mut epoch_info = if let Some(remote_client) = remote_ctx {
-            remote_client.get_epoch_info().await?
+        let (mut epoch_info, epoch_schedule) = if let Some(remote_client) = remote_ctx {
+            let epoch_info = remote_client.get_epoch_info().await?;
+            let epoch_schedule = remote_client.get_epoch_schedule().await?;
+            (epoch_info, epoch_schedule)
         } else {
-            EpochInfo {
-                epoch: 0,
-                slot_index: 0,
-                slots_in_epoch: 0,
-                absolute_slot: FINALIZATION_SLOT_THRESHOLD,
-                block_height: FINALIZATION_SLOT_THRESHOLD,
-                transaction_count: None,
-            }
+            let epoch_schedule = EpochSchedule::without_warmup();
+            (
+                EpochInfo {
+                    epoch: 0,
+                    slot_index: 0,
+                    slots_in_epoch: epoch_schedule.slots_per_epoch,
+                    absolute_slot: FINALIZATION_SLOT_THRESHOLD,
+                    block_height: FINALIZATION_SLOT_THRESHOLD,
+                    transaction_count: None,
+                },
+                epoch_schedule,
+            )
         };
         epoch_info.transaction_count = None;
 
         self.with_svm_writer(|svm_writer| {
             svm_writer.initialize(
                 epoch_info.clone(),
+                epoch_schedule.clone(),
                 slot_time,
                 remote_ctx,
                 do_profile_instructions,
@@ -3303,6 +3311,7 @@ mod tests {
 
     use solana_account::Account;
     use solana_account_decoder::UiAccountEncoding;
+    use solana_epoch_schedule::EpochSchedule;
 
     use super::*;
     use crate::{
@@ -3844,5 +3853,29 @@ mod tests {
             &serde_json::json!(999),
         );
         assert!(result.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn initializes_epoch_schedule_without_warmup_when_offline() {
+        let (surfnet_svm, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+        let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
+
+        svm_locker
+            .initialize(400, &None, false, None)
+            .await
+            .expect("initialize should succeed");
+
+        let epoch_schedule =
+            svm_locker.with_svm_reader(|svm_reader| svm_reader.inner.get_sysvar::<EpochSchedule>());
+
+        assert!(
+            !epoch_schedule.warmup,
+            "offline initialization should disable warmup to match mainnet"
+        );
+        assert_eq!(
+            epoch_schedule.get_first_slot_in_epoch(886),
+            886_u64 * 432_000,
+            "first slot should align with mainnet epoch boundaries when warmup is disabled"
+        );
     }
 }

@@ -47,6 +47,7 @@ use solana_client::{
 use solana_clock::{Clock, Slot};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
+use solana_epoch_schedule::EpochSchedule;
 use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
@@ -500,6 +501,7 @@ impl SurfnetSvm {
     pub fn initialize(
         &mut self,
         epoch_info: EpochInfo,
+        epoch_schedule: EpochSchedule,
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
@@ -517,6 +519,8 @@ impl SurfnetSvm {
         for (_, template) in registry.templates.into_iter() {
             self.register_idl(template.idl, None);
         }
+
+        self.inner.set_sysvar(&epoch_schedule);
 
         if let Some(remote_client) = remote_ctx {
             let _ = self
