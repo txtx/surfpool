@@ -1,0 +1,98 @@
+name: Performance Benchmarks
+
+on:
+  pull_request:
+    paths:
+      - 'crates/core/**'
+      - 'crates/types/**'
+      - '.github/workflows/benchmark.yml'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: Run Transaction Ingestion Benchmarks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache build artifacts
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run benchmarks
+        run: cargo bench --bench transaction_ingestion -p surfpool-core -- --output-format bencher | tee benchmark_output.txt
+
+      - name: Extract benchmark results
+        run: |
+          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Transaction Ingestion Performance" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "(simple_transfer|multi_instruction_transfer|large_transfer|clone_overhead)" benchmark_output.txt || echo "No benchmark results found" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: target/criterion
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('benchmark_output.txt', 'utf8');
+            const benchmarks = output.split('\n').filter(line =>
+              line.includes('simple_transfer') ||
+              line.includes('multi_instruction_transfer') ||
+              line.includes('large_transfer') ||
+              line.includes('clone_overhead')
+            );
+
+            const body = `## 📊 Benchmark Results
+
+            \`\`\`
+            ${benchmarks.join('\n')}
+            \`\`\`
+
+            **Note**: Times include API overhead (clone operations). See [README](https://github.com/${{ github.repository }}/blob/main/crates/core/benches/README.md) for how to calculate pure transaction processing time.
+
+            <details>
+            <summary>View full Criterion report</summary>
+
+            Download the \`benchmark-results\` artifact to see detailed HTML reports with charts and statistical analysis.
+            </details>`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

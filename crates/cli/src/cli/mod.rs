@@ -347,10 +347,15 @@ impl StartSimnet {
     }
 
     pub fn feature_config(&self) -> SvmFeatureConfig {
-        // Use mainnet defaults by default, --all-features enables everything
         let mut config = if self.all_features {
-            SvmFeatureConfig::default()
+            // Enable all SVM features (override mainnet defaults)
+            let mut cfg = SvmFeatureConfig::default();
+            for feature in SvmFeature::all() {
+                cfg = cfg.enable(feature);
+            }
+            cfg
         } else {
+            // Use mainnet defaults by default
             SvmFeatureConfig::default_mainnet_features()
         };
 

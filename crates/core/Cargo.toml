@@ -8,6 +8,7 @@ license = { workspace = true }
 repository = { workspace = true }
 keywords = { workspace = true }
 categories = { workspace = true }
+autobenches = false
 
 [lib]
 path = "src/lib.rs"
