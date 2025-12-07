@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crossbeam_channel::Receiver;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
@@ -6,7 +8,6 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_system_interface::instruction::transfer;
 use solana_transaction::versioned::VersionedTransaction;
-use std::path::PathBuf;
 use surfpool_core::surfnet::locker::SurfnetSvmLocker;
 use surfpool_types::SimnetEvent;
 
@@ -39,7 +40,10 @@ pub fn wait_for_ready(simnet_events_rx: &Receiver<SimnetEvent>) {
             Ok(_) => {}
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                 if !ready {
-                    panic!("Timeout waiting for Ready event after {} seconds", timeout.as_secs());
+                    panic!(
+                        "Timeout waiting for Ready event after {} seconds",
+                        timeout.as_secs()
+                    );
                 }
             }
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
@@ -66,7 +70,9 @@ pub fn create_transfer_transaction(
     num_instructions: usize,
     transfer_amount: u64,
 ) -> String {
-    let recipients: Vec<Pubkey> = (0..num_instructions).map(|_| Pubkey::new_unique()).collect();
+    let recipients: Vec<Pubkey> = (0..num_instructions)
+        .map(|_| Pubkey::new_unique())
+        .collect();
     create_transfer_transaction_with_recipients(svm_locker, payer, &recipients, transfer_amount)
 }
 
@@ -81,7 +87,8 @@ pub fn create_transfer_transaction_with_recipients(
         .iter()
         .map(|recipient| transfer(&payer.pubkey(), recipient, transfer_amount))
         .collect();
-    let message = Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &latest_blockhash);
+    let message =
+        Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &latest_blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[payer]).unwrap();
     bs58::encode(bincode::serialize(&tx).unwrap()).into_string()
 }
@@ -102,7 +109,8 @@ pub fn create_complex_transaction_with_recipients(
             .iter()
             .map(|recipient| transfer(&payer.pubkey(), recipient, transfer_amount)),
     );
-    let message = Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &latest_blockhash);
+    let message =
+        Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &latest_blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[payer]).unwrap();
     bs58::encode(bincode::serialize(&tx).unwrap()).into_string()
 }
@@ -114,21 +122,31 @@ pub fn create_protocol_like_transaction_with_recipients(
     final_recipients: &[Pubkey],
     transfer_amount: u64,
 ) -> String {
-    let intermediate_accounts: Vec<Pubkey> = intermediate_keypairs.iter().map(|kp| kp.pubkey()).collect();
+    let intermediate_accounts: Vec<Pubkey> =
+        intermediate_keypairs.iter().map(|kp| kp.pubkey()).collect();
 
     let mut instructions = vec![
         ComputeBudgetInstruction::set_compute_unit_limit(1_400_000),
         ComputeBudgetInstruction::set_compute_unit_price(1000),
     ];
     for i in 0..final_recipients.len() {
-        instructions.push(transfer(&payer.pubkey(), &intermediate_accounts[i], transfer_amount));
-        instructions.push(transfer(&intermediate_accounts[i], &final_recipients[i], transfer_amount));
+        instructions.push(transfer(
+            &payer.pubkey(),
+            &intermediate_accounts[i],
+            transfer_amount,
+        ));
+        instructions.push(transfer(
+            &intermediate_accounts[i],
+            &final_recipients[i],
+            transfer_amount,
+        ));
     }
 
     let mut signers: Vec<&Keypair> = vec![payer];
     signers.extend(intermediate_keypairs.iter());
     let latest_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let message = Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &latest_blockhash);
+    let message =
+        Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &latest_blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &signers).unwrap();
     bs58::encode(bincode::serialize(&tx).unwrap()).into_string()
 }

@@ -76,7 +76,7 @@ jobs:
               line.includes('clone_overhead')
             );
 
-            const body = `## 📊 Benchmark Results
+            const body = `##  Benchmark Results
 
             \`\`\`
             ${benchmarks.join('\n')}
