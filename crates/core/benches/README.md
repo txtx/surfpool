@@ -1,8 +1,8 @@
 # Transaction Ingestion Benchmarks
 
-Benchmarks for `send_transaction` performance across different transaction types.
+Performance benchmarks for `send_transaction` across different transaction types.
 
-## Run
+## Usage
 
 ```bash
 cargo bench --bench transaction_ingestion -p surfpool-core
@@ -10,26 +10,29 @@ cargo bench --bench transaction_ingestion -p surfpool-core
 
 ## Benchmarks
 
-- `simple_transfer` - 1 instruction
-- `multi_instruction_transfer` - 5 instructions  
-- `large_transfer` - 10 instructions
-- `complex_with_compute_budget` - compute budget + transfers
-- `kamino_strategy` - protocol-like simulation (16+ instructions, high CU)
+### Transaction Types
+- `simple_transfer` - Single transfer instruction
+- `multi_instruction_transfer` - 5 transfer instructions
+- `large_transfer` - 10 transfer instructions
+- `complex_with_compute_budget` - Compute budget + transfers
+- `kamino_strategy` - Protocol-like with multi-sig (12+ instructions)
 
-Component overhead:
-- `transaction_deserialization` - decode overhead
-- `transaction_serialization` - encode overhead
-- `clone_overhead_string` - String clone cost
-- `clone_overhead_context` - Context clone cost
+### Component Overhead
+- `transaction_deserialization` - Decode from base58/bincode
+- `transaction_serialization` - Encode to base58/bincode
+- `clone_overhead_string` - Transaction string clone cost
+- `clone_overhead_context` - RunloopContext clone cost
+
+## Implementation
+
+Each benchmark pre-generates a pool of 100 transactions. Transactions are rotated during measurement to isolate ingestion performance from generation overhead. After exhausting unique transactions (~100-200 iterations), duplicate submissions are handled gracefully, which does not affect statistical validity for regression tracking.
 
 ## Protocol Fixtures
 
-To benchmark real protocol transactions, add fixture files:
+Optional: Add real protocol transaction fixtures for additional benchmarks.
 
 ```
 crates/core/benches/fixtures/protocols/{protocol}_transactions.json
 ```
 
-Format: JSON array of base58-encoded transaction strings.
-
-The benchmark automatically detects and runs protocol benchmarks when fixtures exist.
+Format: JSON array of base58-encoded serialized transactions.
