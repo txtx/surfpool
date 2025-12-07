@@ -65,38 +65,3 @@ jobs:
         with:
           name: benchmark-results
           path: target/criterion
-
-      - name: Comment PR with results
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const output = fs.readFileSync('benchmark_output.txt', 'utf8');
-            const benchmarks = output.split('\n').filter(line =>
-              line.includes('simple_transfer') ||
-              line.includes('multi_instruction_transfer') ||
-              line.includes('large_transfer') ||
-              line.includes('clone_overhead')
-            );
-
-            const body = `##  Benchmark Results
-
-            \`\`\`
-            ${benchmarks.join('\n')}
-            \`\`\`
-
-            **Note**: Times include API overhead (clone operations). See [README](https://github.com/${{ github.repository }}/blob/main/crates/core/benches/README.md) for how to calculate pure transaction processing time.
-
-            <details>
-            <summary>View full Criterion report</summary>
-
-            Download the \`benchmark-results\` artifact to see detailed HTML reports with charts and statistical analysis.
-            </details>`;
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
