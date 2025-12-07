@@ -172,10 +172,6 @@ fn benchmark_send_transaction(c: &mut Criterion) {
             }
         });
 
-        println!(
-            "Pre-generating {} transaction pool for {}...",
-            pool_size, name
-        );
         let tx_pool: Vec<String> = (0..pool_size)
             .map(|i| {
                 let payer = &payers[i];
@@ -208,7 +204,6 @@ fn benchmark_send_transaction(c: &mut Criterion) {
                 }
             })
             .collect();
-        println!("Pre-generation complete. Starting benchmark...");
 
         group.bench_function(BenchmarkId::new(name, num_instructions), |b| {
             let mut idx = 0;
