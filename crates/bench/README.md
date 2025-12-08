@@ -4,6 +4,12 @@ Performance benchmarks for `send_transaction` across different transaction types
 
 ## Usage
 
+Run component benchmarks (CI):
+```bash
+cargo bench --bench transaction_ingestion -p surfpool-bench -- transaction_components
+```
+
+Run all benchmarks including send_transaction (local):
 ```bash
 cargo bench --bench transaction_ingestion -p surfpool-bench
 ```
@@ -40,6 +46,12 @@ These benchmarks isolate specific transaction processing operations to measure t
 - No runloop dependency for accurate baseline measurements
 - Same sample/warmup/measurement configuration for consistency
 
+## CI vs Local Execution
+
+**In CI:** Only component benchmarks run (deserialization, serialization, clone overhead). These complete quickly (~1 minute total) and don't depend on the runloop.
+
+**Locally:** All benchmarks including send_transaction are available for detailed performance analysis.
+
 ## Known Limitations
 
-The `send_transaction` benchmarks depend on proper runloop operation. If the runloop gets stuck or unresponsive, benchmarks may take longer but will eventually complete or timeout.
+The `send_transaction` benchmarks are skipped in CI because the runloop has limited throughput for concurrent transaction processing. When running locally, these benchmarks measure real-world `send_transaction` performance but may take several minutes to complete due to runloop processing constraints.

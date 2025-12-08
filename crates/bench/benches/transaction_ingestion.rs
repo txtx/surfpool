@@ -3,17 +3,16 @@ mod fixtures;
 use std::{
     sync::{Arc, OnceLock},
     thread::JoinHandle,
+    time::Duration,
 };
 
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use crossbeam_channel::{Receiver, unbounded};
 use fixtures::{
-    SIMPLE_TRANSFER_LAMPORTS, TRANSFER_AMOUNT_PER_RECIPIENT, MULTI_TRANSFER_LAMPORTS,
-    create_transfer_transaction, create_transfer_transaction_with_recipients,
+    MULTI_TRANSFER_LAMPORTS, SIMPLE_TRANSFER_LAMPORTS, TRANSFER_AMOUNT_PER_RECIPIENT,
     create_complex_transaction_with_recipients, create_protocol_like_transaction_with_recipients,
-    wait_for_ready,
+    create_transfer_transaction, create_transfer_transaction_with_recipients, wait_for_ready,
 };
-use std::time::Duration;
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
@@ -21,7 +20,10 @@ use solana_signer::Signer;
 use solana_system_interface::instruction::transfer;
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_core::{
-    rpc::{RunloopContext, full::{Full, SurfpoolFullRpc}},
+    rpc::{
+        RunloopContext,
+        full::{Full, SurfpoolFullRpc},
+    },
     runloops::start_local_surfnet_runloop,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
 };
@@ -32,7 +34,7 @@ use surfpool_types::{
 
 const BENCHMARK_SAMPLE_SIZE: usize = 10;
 const BENCHMARK_WARM_UP_SECS: u64 = 1;
-const BENCHMARK_MEASUREMENT_SECS: u64 = 1;
+const BENCHMARK_MEASUREMENT_MILLIS: u64 = 500;
 
 static SEND_TRANSACTION_FIXTURE: OnceLock<Arc<BenchmarkFixture>> = OnceLock::new();
 static COMPONENTS_FIXTURE: OnceLock<Arc<BenchmarkFixture>> = OnceLock::new();
@@ -127,22 +129,46 @@ fn benchmark_send_transaction(c: &mut Criterion) {
     let mut group = c.benchmark_group("transaction_ingestion");
     group.sample_size(BENCHMARK_SAMPLE_SIZE);
     group.warm_up_time(Duration::from_secs(BENCHMARK_WARM_UP_SECS));
-    group.measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECS));
+    group.measurement_time(Duration::from_millis(BENCHMARK_MEASUREMENT_MILLIS));
 
     let fixture = get_send_transaction_fixture();
 
     // Setup transaction types: (name, num_recipients, airdrop_amount, is_complex, is_protocol_like)
     let tx_types = [
         ("simple_transfer", 1, SIMPLE_TRANSFER_LAMPORTS, false, false),
-        ("multi_instruction_transfer", 5, MULTI_TRANSFER_LAMPORTS, false, false),
-        ("large_transfer", 10, MULTI_TRANSFER_LAMPORTS * 2, false, false),
-        ("complex_with_compute_budget", 5, MULTI_TRANSFER_LAMPORTS, true, false),
-        ("kamino_strategy", 5, MULTI_TRANSFER_LAMPORTS * 3, false, true),
+        (
+            "multi_instruction_transfer",
+            5,
+            MULTI_TRANSFER_LAMPORTS,
+            false,
+            false,
+        ),
+        (
+            "large_transfer",
+            10,
+            MULTI_TRANSFER_LAMPORTS * 2,
+            false,
+            false,
+        ),
+        (
+            "complex_with_compute_budget",
+            5,
+            MULTI_TRANSFER_LAMPORTS,
+            true,
+            false,
+        ),
+        (
+            "kamino_strategy",
+            5,
+            MULTI_TRANSFER_LAMPORTS * 3,
+            false,
+            true,
+        ),
     ];
 
     for (tx_type_name, num_recipients, airdrop_amount, is_complex, is_protocol_like) in tx_types {
         // Create a pool of pre-generated transactions
-        let pool_size = BENCHMARK_SAMPLE_SIZE * 5;
+        let pool_size = BENCHMARK_SAMPLE_SIZE;
         let payers: Vec<Keypair> = (0..pool_size).map(|_| Keypair::new()).collect();
         let intermediate_keypairs_pool: Vec<Vec<Keypair>> = if is_protocol_like {
             (0..pool_size)
@@ -219,7 +245,9 @@ fn benchmark_transaction_components(c: &mut Criterion) {
     let mut group = c.benchmark_group("transaction_components");
     group.sample_size(BENCHMARK_SAMPLE_SIZE);
     group.warm_up_time(std::time::Duration::from_secs(BENCHMARK_WARM_UP_SECS));
-    group.measurement_time(std::time::Duration::from_secs(BENCHMARK_MEASUREMENT_SECS));
+    group.measurement_time(std::time::Duration::from_millis(
+        BENCHMARK_MEASUREMENT_MILLIS,
+    ));
 
     let fixture = get_components_fixture();
     let payer = Keypair::new();
@@ -287,5 +315,9 @@ fn benchmark_transaction_components(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, benchmark_send_transaction, benchmark_transaction_components);
+criterion_group!(
+    benches,
+    benchmark_send_transaction,
+    benchmark_transaction_components
+);
 criterion_main!(benches);
