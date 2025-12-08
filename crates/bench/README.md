@@ -36,3 +36,9 @@ crates/bench/benches/fixtures/protocols/{protocol}_transactions.json
 ```
 
 Format: JSON array of base58-encoded serialized transactions.
+
+## Known Limitations
+
+The runloop thread runs indefinitely after benchmarks complete. This is a design characteristic of `start_local_surfnet_runloop()` which requires explicit shutdown signal support in surfpool-core. Background threads are cleaned up by the OS when the benchmark process exits.
+
+For a proper fix, surfpool-core's runloop would need to support a shutdown command or signal mechanism.

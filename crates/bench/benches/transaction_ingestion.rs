@@ -1,5 +1,6 @@
 mod fixtures;
 
+use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
@@ -32,6 +33,14 @@ use surfpool_types::{
 const BENCHMARK_SAMPLE_SIZE: usize = 10;
 const BENCHMARK_WARM_UP_SECS: u64 = 1;
 const BENCHMARK_MEASUREMENT_SECS: u64 = 2;
+
+static SHARED_FIXTURE: OnceLock<Arc<BenchmarkFixture>> = OnceLock::new();
+
+fn get_fixture() -> Arc<BenchmarkFixture> {
+    SHARED_FIXTURE
+        .get_or_init(|| Arc::new(BenchmarkFixture::new()))
+        .clone()
+}
 
 struct BenchmarkFixture {
     context: RunloopContext,
@@ -113,7 +122,7 @@ fn benchmark_send_transaction(c: &mut Criterion) {
     group.warm_up_time(std::time::Duration::from_secs(BENCHMARK_WARM_UP_SECS));
     group.measurement_time(std::time::Duration::from_secs(BENCHMARK_MEASUREMENT_SECS));
 
-    let fixture = BenchmarkFixture::new();
+    let fixture = get_fixture();
     let tx_pools = [
         ("simple_transfer", 1, SIMPLE_TRANSFER_LAMPORTS, false, false),
         (
@@ -225,7 +234,7 @@ fn benchmark_transaction_components(c: &mut Criterion) {
     group.warm_up_time(std::time::Duration::from_secs(BENCHMARK_WARM_UP_SECS));
     group.measurement_time(std::time::Duration::from_secs(BENCHMARK_MEASUREMENT_SECS));
 
-    let fixture = BenchmarkFixture::new();
+    let fixture = get_fixture();
     let payer = Keypair::new();
 
     fixture.context.svm_locker.with_svm_writer(|svm| {
@@ -297,7 +306,7 @@ fn benchmark_protocol_transactions(c: &mut Criterion) {
     group.warm_up_time(std::time::Duration::from_secs(BENCHMARK_WARM_UP_SECS));
     group.measurement_time(std::time::Duration::from_secs(BENCHMARK_MEASUREMENT_SECS));
 
-    let fixture = BenchmarkFixture::new();
+    let fixture = get_fixture();
     let protocols = ["kamino", "jupiter"];
 
     for protocol in protocols {
