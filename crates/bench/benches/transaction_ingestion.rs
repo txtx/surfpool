@@ -1,15 +1,15 @@
 mod fixtures;
 
-use std::sync::{Arc, OnceLock};
-use std::thread::JoinHandle;
+use std::{
+    sync::{Arc, OnceLock},
+    thread::JoinHandle,
+};
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use crossbeam_channel::{Receiver, unbounded};
 use fixtures::{
-    MULTI_TRANSFER_LAMPORTS, SIMPLE_TRANSFER_LAMPORTS, TRANSFER_AMOUNT_PER_RECIPIENT,
-    create_complex_transaction_with_recipients, create_protocol_like_transaction_with_recipients,
-    create_transfer_transaction, create_transfer_transaction_with_recipients,
-    load_protocol_transactions, protocol_fixtures_available, wait_for_ready,
+    SIMPLE_TRANSFER_LAMPORTS, TRANSFER_AMOUNT_PER_RECIPIENT,
+    create_transfer_transaction, wait_for_ready,
 };
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
@@ -18,10 +18,7 @@ use solana_signer::Signer;
 use solana_system_interface::instruction::transfer;
 use solana_transaction::versioned::VersionedTransaction;
 use surfpool_core::{
-    rpc::{
-        RunloopContext,
-        full::{Full, SurfpoolFullRpc},
-    },
+    rpc::RunloopContext,
     runloops::start_local_surfnet_runloop,
     surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
 };
@@ -32,19 +29,18 @@ use surfpool_types::{
 
 const BENCHMARK_SAMPLE_SIZE: usize = 10;
 const BENCHMARK_WARM_UP_SECS: u64 = 1;
-const BENCHMARK_MEASUREMENT_SECS: u64 = 2;
+const BENCHMARK_MEASUREMENT_SECS: u64 = 1;
 
-static SHARED_FIXTURE: OnceLock<Arc<BenchmarkFixture>> = OnceLock::new();
+static COMPONENTS_FIXTURE: OnceLock<Arc<BenchmarkFixture>> = OnceLock::new();
 
-fn get_fixture() -> Arc<BenchmarkFixture> {
-    SHARED_FIXTURE
+fn get_components_fixture() -> Arc<BenchmarkFixture> {
+    COMPONENTS_FIXTURE
         .get_or_init(|| Arc::new(BenchmarkFixture::new()))
         .clone()
 }
 
 struct BenchmarkFixture {
     context: RunloopContext,
-    rpc: SurfpoolFullRpc,
     runloop_handle: Option<JoinHandle<()>>,
     simnet_events_rx: Receiver<SimnetEvent>,
 }
@@ -100,7 +96,6 @@ impl BenchmarkFixture {
 
         let fixture = Self {
             context,
-            rpc: SurfpoolFullRpc,
             runloop_handle: Some(runloop_handle),
             simnet_events_rx,
         };
@@ -116,117 +111,6 @@ impl Drop for BenchmarkFixture {
     }
 }
 
-fn benchmark_send_transaction(c: &mut Criterion) {
-    let mut group = c.benchmark_group("transaction_ingestion");
-    group.sample_size(BENCHMARK_SAMPLE_SIZE);
-    group.warm_up_time(std::time::Duration::from_secs(BENCHMARK_WARM_UP_SECS));
-    group.measurement_time(std::time::Duration::from_secs(BENCHMARK_MEASUREMENT_SECS));
-
-    let fixture = get_fixture();
-    let tx_pools = [
-        ("simple_transfer", 1, SIMPLE_TRANSFER_LAMPORTS, false, false),
-        (
-            "multi_instruction_transfer",
-            5,
-            MULTI_TRANSFER_LAMPORTS,
-            false,
-            false,
-        ),
-        (
-            "large_transfer",
-            10,
-            MULTI_TRANSFER_LAMPORTS * 2,
-            false,
-            false,
-        ),
-        (
-            "complex_with_compute_budget",
-            5,
-            MULTI_TRANSFER_LAMPORTS,
-            true,
-            false,
-        ),
-        (
-            "kamino_strategy",
-            5,
-            MULTI_TRANSFER_LAMPORTS * 3,
-            false,
-            true,
-        ),
-    ];
-
-    for (name, num_instructions, airdrop_amount, is_complex, is_protocol_like) in tx_pools {
-        let pool_size = BENCHMARK_SAMPLE_SIZE * 10;
-        let payers: Vec<Keypair> = (0..pool_size).map(|_| Keypair::new()).collect();
-        let intermediate_keypairs_pool: Vec<Vec<Keypair>> = if is_protocol_like {
-            (0..pool_size)
-                .map(|_| (0..num_instructions).map(|_| Keypair::new()).collect())
-                .collect()
-        } else {
-            vec![]
-        };
-
-        fixture.context.svm_locker.with_svm_writer(|svm| {
-            for payer in &payers {
-                svm.airdrop(&payer.pubkey(), airdrop_amount).unwrap();
-            }
-            if is_protocol_like {
-                for keypairs in &intermediate_keypairs_pool {
-                    for kp in keypairs {
-                        svm.airdrop(&kp.pubkey(), TRANSFER_AMOUNT_PER_RECIPIENT * 2)
-                            .unwrap();
-                    }
-                }
-            }
-        });
-
-        let tx_pool: Vec<String> = (0..pool_size)
-            .map(|i| {
-                let payer = &payers[i];
-                let recipients: Vec<Pubkey> = (0..num_instructions)
-                    .map(|_| Pubkey::new_unique())
-                    .collect();
-                if is_protocol_like {
-                    let intermediate_keypairs = &intermediate_keypairs_pool[i];
-                    create_protocol_like_transaction_with_recipients(
-                        &fixture.context.svm_locker,
-                        payer,
-                        intermediate_keypairs,
-                        &recipients,
-                        TRANSFER_AMOUNT_PER_RECIPIENT,
-                    )
-                } else if is_complex {
-                    create_complex_transaction_with_recipients(
-                        &fixture.context.svm_locker,
-                        payer,
-                        &recipients,
-                        TRANSFER_AMOUNT_PER_RECIPIENT,
-                    )
-                } else {
-                    create_transfer_transaction_with_recipients(
-                        &fixture.context.svm_locker,
-                        payer,
-                        &recipients,
-                        TRANSFER_AMOUNT_PER_RECIPIENT,
-                    )
-                }
-            })
-            .collect();
-
-        group.bench_function(BenchmarkId::new(name, num_instructions), |b| {
-            let mut idx = 0;
-            b.iter(|| {
-                let ctx = Some(fixture.context.clone());
-                let encoded_tx = &tx_pool[idx % tx_pool.len()];
-                idx = (idx + 1) % tx_pool.len();
-                let result = fixture.rpc.send_transaction(ctx, encoded_tx.clone(), None);
-                black_box(result.ok())
-            });
-        });
-    }
-
-    group.finish();
-}
 
 fn benchmark_transaction_components(c: &mut Criterion) {
     let mut group = c.benchmark_group("transaction_components");
@@ -234,7 +118,7 @@ fn benchmark_transaction_components(c: &mut Criterion) {
     group.warm_up_time(std::time::Duration::from_secs(BENCHMARK_WARM_UP_SECS));
     group.measurement_time(std::time::Duration::from_secs(BENCHMARK_MEASUREMENT_SECS));
 
-    let fixture = get_fixture();
+    let fixture = get_components_fixture();
     let payer = Keypair::new();
 
     fixture.context.svm_locker.with_svm_writer(|svm| {
@@ -300,47 +184,9 @@ fn benchmark_transaction_components(c: &mut Criterion) {
     group.finish();
 }
 
-fn benchmark_protocol_transactions(c: &mut Criterion) {
-    let mut group = c.benchmark_group("protocol_transactions");
-    group.sample_size(BENCHMARK_SAMPLE_SIZE);
-    group.warm_up_time(std::time::Duration::from_secs(BENCHMARK_WARM_UP_SECS));
-    group.measurement_time(std::time::Duration::from_secs(BENCHMARK_MEASUREMENT_SECS));
-
-    let fixture = get_fixture();
-    let protocols = ["kamino", "jupiter"];
-
-    for protocol in protocols {
-        if !protocol_fixtures_available(protocol) {
-            continue;
-        }
-
-        let Some(tx_pool) = load_protocol_transactions(protocol) else {
-            continue;
-        };
-
-        if tx_pool.is_empty() {
-            continue;
-        }
-
-        group.bench_function(BenchmarkId::new(protocol, tx_pool.len()), |b| {
-            let mut idx = 0;
-            b.iter(|| {
-                let ctx = Some(fixture.context.clone());
-                let encoded_tx = &tx_pool[idx % tx_pool.len()];
-                idx = (idx + 1) % tx_pool.len();
-                let result = fixture.rpc.send_transaction(ctx, encoded_tx.clone(), None);
-                black_box(result.expect("Transaction should succeed"))
-            });
-        });
-    }
-
-    group.finish();
-}
 
 criterion_group!(
     benches,
-    benchmark_send_transaction,
-    benchmark_transaction_components,
-    benchmark_protocol_transactions
+    benchmark_transaction_components
 );
 criterion_main!(benches);

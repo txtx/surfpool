@@ -1,6 +1,6 @@
-# Transaction Ingestion Benchmarks
+# Transaction Processing Benchmarks
 
-Performance benchmarks for `send_transaction` across different transaction types.
+Performance benchmarks for transaction processing components.
 
 ## Usage
 
@@ -10,35 +10,18 @@ cargo bench --bench transaction_ingestion -p surfpool-bench
 
 ## Benchmarks
 
-### Transaction Types
-- `simple_transfer` - Single transfer instruction
-- `multi_instruction_transfer` - 5 transfer instructions
-- `large_transfer` - 10 transfer instructions
-- `complex_with_compute_budget` - Compute budget + transfers
-- `kamino_strategy` - Protocol-like with multi-sig (12+ instructions)
-
-### Component Overhead
+### Transaction Component Overhead
 - `transaction_deserialization` - Decode from base58/bincode
 - `transaction_serialization` - Encode to base58/bincode
 - `clone_overhead_string` - Transaction string clone cost
 - `clone_overhead_context` - RunloopContext clone cost
 
+These benchmarks measure the overhead of fundamental transaction operations without requiring the runloop infrastructure.
+
 ## Implementation
 
-Each benchmark pre-generates a pool of 100 transactions. Transactions are rotated during measurement to isolate ingestion performance from generation overhead. After exhausting unique transactions (~100-200 iterations), duplicate submissions are handled gracefully, which does not affect statistical validity for regression tracking.
+The component benchmarks isolate specific transaction processing operations to measure their individual performance characteristics. Each benchmark runs with 10 samples, 1 second warmup, and 1 second measurement time.
 
-## Protocol Fixtures
+## Future: Full Transaction Ingestion
 
-Optional: Add real protocol transaction fixtures for additional benchmarks.
-
-```
-crates/bench/benches/fixtures/protocols/{protocol}_transactions.json
-```
-
-Format: JSON array of base58-encoded serialized transactions.
-
-## Known Limitations
-
-The runloop thread runs indefinitely after benchmarks complete. This is a design characteristic of `start_local_surfnet_runloop()` which requires explicit shutdown signal support in surfpool-core. Background threads are cleaned up by the OS when the benchmark process exits.
-
-For a proper fix, surfpool-core's runloop would need to support a shutdown command or signal mechanism.
+Transaction ingestion benchmarks through the full RPC pipeline require a working runloop infrastructure. The current architecture of `start_local_surfnet_runloop()` has limitations that prevent reliable benchmarking. Once the runloop provides explicit shutdown support, comprehensive transaction ingestion benchmarks can be implemented.
