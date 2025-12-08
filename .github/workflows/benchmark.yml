@@ -58,7 +58,7 @@ jobs:
         run: |
           echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Transaction Processing Components" >> $GITHUB_STEP_SUMMARY
+          echo "### Transaction Ingestion Performance" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if grep -q "time:" benchmark.log; then
             echo '```' >> $GITHUB_STEP_SUMMARY
