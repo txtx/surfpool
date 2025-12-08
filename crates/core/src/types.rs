@@ -789,8 +789,8 @@ pub enum TimeTravelConfig {
 
 impl Default for TimeTravelConfig {
     fn default() -> Self {
-        // chrono timestamp in ms, 1 hour from now
-        Self::AbsoluteTimestamp(Utc::now().timestamp_millis() as u64 + 3600000)
+        // chrono timestamp in ms, 1 hour from now + 3600000 removed
+        Self::AbsoluteTimestamp(Utc::now().timestamp_millis() as u64)
     }
 }
 
