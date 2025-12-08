@@ -12136,6 +12136,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "surfpool-bench"
+version = "0.12.0"
+dependencies = [
+ "bincode",
+ "bs58",
+ "criterion",
+ "crossbeam-channel",
+ "hiro-system-kit",
+ "serde_json",
+ "solana-compute-budget-interface",
+ "solana-keypair",
+ "solana-message 3.0.0",
+ "solana-pubkey 3.0.0",
+ "solana-signer",
+ "solana-system-interface 2.0.0",
+ "solana-transaction",
+ "surfpool-core",
+ "surfpool-types",
+]
+
+[[package]]
 name = "surfpool-cli"
 version = "0.12.0"
 dependencies = [
@@ -12207,7 +12228,6 @@ dependencies = [
  "bs58",
  "chrono",
  "convert_case 0.8.0",
- "criterion",
  "crossbeam",
  "crossbeam-channel",
  "hex",

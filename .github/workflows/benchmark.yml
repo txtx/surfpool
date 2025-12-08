@@ -3,6 +3,7 @@ name: Performance Benchmarks
 on:
   pull_request:
     paths:
+      - 'crates/bench/**'
       - 'crates/core/**'
       - 'crates/types/**'
       - '.github/workflows/benchmark.yml'
@@ -29,6 +30,9 @@ jobs:
         with:
           components: rustfmt
 
+      - name: Install gnuplot
+        run: sudo apt-get update && sudo apt-get install -y gnuplot
+
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
@@ -48,7 +52,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run benchmarks
-        run: cargo bench --bench transaction_ingestion -p surfpool-core -- --test | tee benchmark_output.txt
+        run: cargo bench --bench transaction_ingestion -p surfpool-bench 2>&1 | tee benchmark.log
 
       - name: Extract benchmark results
         run: |
@@ -56,12 +60,20 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Transaction Ingestion Performance" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          grep -E "(simple_transfer|multi_instruction_transfer|large_transfer|clone_overhead)" benchmark_output.txt || echo "No benchmark results found" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          if grep -q "time:" benchmark.log; then
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "(^Testing|time:|change:|No change)" benchmark.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Benchmark data not captured" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Detailed HTML reports available in artifacts." >> $GITHUB_STEP_SUMMARY
 
       - name: Upload benchmark results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
           path: target/criterion
+          if-no-files-found: ignore

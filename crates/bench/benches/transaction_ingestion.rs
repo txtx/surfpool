@@ -72,13 +72,14 @@ impl BenchmarkFixture {
 
         let (subgraph_commands_tx, _) = unbounded();
 
+        let simnet_commands_tx_for_thread = simnet_commands_tx.clone();
         let runloop_handle = hiro_system_kit::thread_named("benchmark_runloop")
             .spawn(move || {
                 let future = start_local_surfnet_runloop(
                     svm_locker,
                     config,
                     subgraph_commands_tx,
-                    simnet_commands_tx,
+                    simnet_commands_tx_for_thread,
                     simnet_commands_rx,
                     geyser_events_rx,
                 );
@@ -102,9 +103,7 @@ impl BenchmarkFixture {
 
 impl Drop for BenchmarkFixture {
     fn drop(&mut self) {
-        if let Some(handle) = self.runloop_handle.take() {
-            drop(handle);
-        }
+        let _ = self.runloop_handle.take();
     }
 }
 

@@ -5,7 +5,7 @@ Performance benchmarks for `send_transaction` across different transaction types
 ## Usage
 
 ```bash
-cargo bench --bench transaction_ingestion -p surfpool-core
+cargo bench --bench transaction_ingestion -p surfpool-bench
 ```
 
 ## Benchmarks
@@ -32,7 +32,7 @@ Each benchmark pre-generates a pool of 100 transactions. Transactions are rotate
 Optional: Add real protocol transaction fixtures for additional benchmarks.
 
 ```
-crates/core/benches/fixtures/protocols/{protocol}_transactions.json
+crates/bench/benches/fixtures/protocols/{protocol}_transactions.json
 ```
 
 Format: JSON array of base58-encoded serialized transactions.

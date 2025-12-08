@@ -1,0 +1,29 @@
+[package]
+name = "surfpool-bench"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[[bench]]
+name = "transaction_ingestion"
+harness = false
+
+[dependencies]
+bincode = { workspace = true }
+bs58 = { workspace = true }
+criterion = { version = "0.5", features = ["html_reports"] }
+crossbeam-channel = { workspace = true }
+hiro-system-kit = { workspace = true }
+serde_json = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+solana-system-interface = { workspace = true }
+solana-transaction = { workspace = true }
+
+surfpool-core = { workspace = true }
+surfpool-types = { workspace = true }
