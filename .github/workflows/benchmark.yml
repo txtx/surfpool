@@ -58,11 +58,11 @@ jobs:
         run: |
           echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Transaction Ingestion Performance" >> $GITHUB_STEP_SUMMARY
+          echo "### Transaction Processing Components" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if grep -q "time:" benchmark.log; then
             echo '```' >> $GITHUB_STEP_SUMMARY
-            grep -E "(^Testing|time:|change:|No change)" benchmark.log >> $GITHUB_STEP_SUMMARY
+            grep -E "(Benchmarking|time:|change:|No change)" benchmark.log >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           else
             echo "Benchmark data not captured" >> $GITHUB_STEP_SUMMARY
