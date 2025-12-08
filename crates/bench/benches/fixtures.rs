@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crossbeam_channel::Receiver;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
@@ -149,21 +147,4 @@ pub fn create_protocol_like_transaction_with_recipients(
         Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &latest_blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message), &signers).unwrap();
     bs58::encode(bincode::serialize(&tx).unwrap()).into_string()
-}
-
-fn protocol_fixture_path(protocol: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("benches/fixtures/protocols")
-        .join(format!("{protocol}_transactions.json"))
-}
-
-pub fn load_protocol_transactions(protocol: &str) -> Option<Vec<String>> {
-    let file_path = protocol_fixture_path(protocol);
-    std::fs::read_to_string(&file_path)
-        .ok()
-        .and_then(|content| serde_json::from_str::<Vec<String>>(&content).ok())
-}
-
-pub fn protocol_fixtures_available(protocol: &str) -> bool {
-    protocol_fixture_path(protocol).exists()
 }
