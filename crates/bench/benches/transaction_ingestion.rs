@@ -8,8 +8,8 @@ use std::{
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use crossbeam_channel::{Receiver, unbounded};
 use fixtures::{
-    SIMPLE_TRANSFER_LAMPORTS, TRANSFER_AMOUNT_PER_RECIPIENT,
-    create_transfer_transaction, wait_for_ready,
+    SIMPLE_TRANSFER_LAMPORTS, TRANSFER_AMOUNT_PER_RECIPIENT, create_transfer_transaction,
+    wait_for_ready,
 };
 use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
@@ -111,7 +111,6 @@ impl Drop for BenchmarkFixture {
     }
 }
 
-
 fn benchmark_transaction_components(c: &mut Criterion) {
     let mut group = c.benchmark_group("transaction_components");
     group.sample_size(BENCHMARK_SAMPLE_SIZE);
@@ -184,9 +183,5 @@ fn benchmark_transaction_components(c: &mut Criterion) {
     group.finish();
 }
 
-
-criterion_group!(
-    benches,
-    benchmark_transaction_components
-);
+criterion_group!(benches, benchmark_transaction_components);
 criterion_main!(benches);
