@@ -14,6 +14,8 @@ use fixtures::{
     create_transfer_transaction, create_transfer_transaction_with_recipients, wait_for_ready,
 };
 use solana_keypair::Keypair;
+use solana_account::Account;
+use solana_sdk_ids::system_program;
 use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -175,14 +177,28 @@ fn benchmark_send_transaction(c: &mut Criterion) {
                         (0..num_recipients).map(|_| Pubkey::new_unique()).collect();
 
                     let encoded_tx = if is_protocol_like {
-                        let intermediate_keypairs: Vec<Keypair> =
-                            (0..num_recipients).map(|_| Keypair::new()).collect();
+                        let intermediate_keypairs: Vec<Keypair> = (0..num_recipients)
+                            .map(|_| Keypair::new())
+                            .collect();
 
                         fixture.context.svm_locker.with_svm_writer(|svm| {
-                            svm.airdrop(&payer.pubkey(), airdrop_amount).unwrap();
+                            let payer_account = Account {
+                                lamports: airdrop_amount,
+                                data: vec![],
+                                owner: system_program::id(),
+                                executable: false,
+                                rent_epoch: 0,
+                            };
+                            svm.set_account(&payer.pubkey(), payer_account).unwrap();
                             for kp in &intermediate_keypairs {
-                                svm.airdrop(&kp.pubkey(), TRANSFER_AMOUNT_PER_RECIPIENT * 2)
-                                    .unwrap();
+                                let kp_account = Account {
+                                    lamports: TRANSFER_AMOUNT_PER_RECIPIENT * 2,
+                                    data: vec![],
+                                    owner: system_program::id(),
+                                    executable: false,
+                                    rent_epoch: 0,
+                                };
+                                svm.set_account(&kp.pubkey(), kp_account).unwrap();
                             }
                         });
 
@@ -195,7 +211,14 @@ fn benchmark_send_transaction(c: &mut Criterion) {
                         )
                     } else if is_complex {
                         fixture.context.svm_locker.with_svm_writer(|svm| {
-                            svm.airdrop(&payer.pubkey(), airdrop_amount).unwrap();
+                            let payer_account = Account {
+                                lamports: airdrop_amount,
+                                data: vec![],
+                                owner: system_program::id(),
+                                executable: false,
+                                rent_epoch: 0,
+                            };
+                            svm.set_account(&payer.pubkey(), payer_account).unwrap();
                         });
 
                         create_complex_transaction_with_recipients(
@@ -206,7 +229,14 @@ fn benchmark_send_transaction(c: &mut Criterion) {
                         )
                     } else {
                         fixture.context.svm_locker.with_svm_writer(|svm| {
-                            svm.airdrop(&payer.pubkey(), airdrop_amount).unwrap();
+                            let payer_account = Account {
+                                lamports: airdrop_amount,
+                                data: vec![],
+                                owner: system_program::id(),
+                                executable: false,
+                                rent_epoch: 0,
+                            };
+                            svm.set_account(&payer.pubkey(), payer_account).unwrap();
                         });
 
                         create_transfer_transaction_with_recipients(
@@ -217,6 +247,7 @@ fn benchmark_send_transaction(c: &mut Criterion) {
                         )
                     };
 
+                    // println!("DEBUG: Setup end");
                     (encoded_tx, Some(fixture.context.clone()))
                 },
                 |(encoded_tx, ctx)| {

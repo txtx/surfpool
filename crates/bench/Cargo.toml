@@ -24,6 +24,8 @@ solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-transaction = { workspace = true }
+solana-account = { workspace = true }
+solana-sdk-ids = { workspace = true }
 
 surfpool-core = { workspace = true }
 surfpool-types = { workspace = true }
