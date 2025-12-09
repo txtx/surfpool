@@ -167,74 +167,63 @@ fn benchmark_send_transaction(c: &mut Criterion) {
     ];
 
     for (tx_type_name, num_recipients, airdrop_amount, is_complex, is_protocol_like) in tx_types {
-        // Create a pool of pre-generated transactions
-        let pool_size = BENCHMARK_SAMPLE_SIZE;
-        let payers: Vec<Keypair> = (0..pool_size).map(|_| Keypair::new()).collect();
-        let intermediate_keypairs_pool: Vec<Vec<Keypair>> = if is_protocol_like {
-            (0..pool_size)
-                .map(|_| (0..num_recipients).map(|_| Keypair::new()).collect())
-                .collect()
-        } else {
-            vec![]
-        };
-
-        // Airdrop to payers and intermediate keypairs
-        fixture.context.svm_locker.with_svm_writer(|svm| {
-            for payer in &payers {
-                svm.airdrop(&payer.pubkey(), airdrop_amount).unwrap();
-            }
-            if is_protocol_like {
-                for keypairs in &intermediate_keypairs_pool {
-                    for kp in keypairs {
-                        svm.airdrop(&kp.pubkey(), TRANSFER_AMOUNT_PER_RECIPIENT * 2)
-                            .unwrap();
-                    }
-                }
-            }
-        });
-
-        // Pre-generate transaction pool
-        let tx_pool: Vec<String> = (0..pool_size)
-            .map(|i| {
-                let payer = &payers[i];
-                let recipients: Vec<Pubkey> =
-                    (0..num_recipients).map(|_| Pubkey::new_unique()).collect();
-                if is_protocol_like {
-                    let intermediate_keypairs = &intermediate_keypairs_pool[i];
-                    create_protocol_like_transaction_with_recipients(
-                        &fixture.context.svm_locker,
-                        payer,
-                        intermediate_keypairs,
-                        &recipients,
-                        TRANSFER_AMOUNT_PER_RECIPIENT,
-                    )
-                } else if is_complex {
-                    create_complex_transaction_with_recipients(
-                        &fixture.context.svm_locker,
-                        payer,
-                        &recipients,
-                        TRANSFER_AMOUNT_PER_RECIPIENT,
-                    )
-                } else {
-                    create_transfer_transaction_with_recipients(
-                        &fixture.context.svm_locker,
-                        payer,
-                        &recipients,
-                        TRANSFER_AMOUNT_PER_RECIPIENT,
-                    )
-                }
-            })
-            .collect();
-
         group.bench_function(BenchmarkId::new(tx_type_name, num_recipients), |b| {
-            let mut idx = 0;
-            b.iter(|| {
-                let encoded_tx = &tx_pool[idx % tx_pool.len()];
-                idx = (idx + 1) % tx_pool.len();
-                let ctx = Some(fixture.context.clone());
-                let result = fixture.rpc.send_transaction(ctx, encoded_tx.clone(), None);
-                black_box(result.ok())
-            });
+            b.iter_with_setup(
+                || {
+                    let payer = Keypair::new();
+                    let recipients: Vec<Pubkey> =
+                        (0..num_recipients).map(|_| Pubkey::new_unique()).collect();
+
+                    let encoded_tx = if is_protocol_like {
+                        let intermediate_keypairs: Vec<Keypair> =
+                            (0..num_recipients).map(|_| Keypair::new()).collect();
+
+                        fixture.context.svm_locker.with_svm_writer(|svm| {
+                            svm.airdrop(&payer.pubkey(), airdrop_amount).unwrap();
+                            for kp in &intermediate_keypairs {
+                                svm.airdrop(&kp.pubkey(), TRANSFER_AMOUNT_PER_RECIPIENT * 2)
+                                    .unwrap();
+                            }
+                        });
+
+                        create_protocol_like_transaction_with_recipients(
+                            &fixture.context.svm_locker,
+                            &payer,
+                            &intermediate_keypairs,
+                            &recipients,
+                            TRANSFER_AMOUNT_PER_RECIPIENT,
+                        )
+                    } else if is_complex {
+                        fixture.context.svm_locker.with_svm_writer(|svm| {
+                            svm.airdrop(&payer.pubkey(), airdrop_amount).unwrap();
+                        });
+
+                        create_complex_transaction_with_recipients(
+                            &fixture.context.svm_locker,
+                            &payer,
+                            &recipients,
+                            TRANSFER_AMOUNT_PER_RECIPIENT,
+                        )
+                    } else {
+                        fixture.context.svm_locker.with_svm_writer(|svm| {
+                            svm.airdrop(&payer.pubkey(), airdrop_amount).unwrap();
+                        });
+
+                        create_transfer_transaction_with_recipients(
+                            &fixture.context.svm_locker,
+                            &payer,
+                            &recipients,
+                            TRANSFER_AMOUNT_PER_RECIPIENT,
+                        )
+                    };
+
+                    (encoded_tx, Some(fixture.context.clone()))
+                },
+                |(encoded_tx, ctx)| {
+                    let result = fixture.rpc.send_transaction(ctx, encoded_tx.clone(), None);
+                    black_box(result.unwrap())
+                },
+            );
         });
     }
 

@@ -52,7 +52,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run benchmarks
-        run: cargo bench --bench transaction_ingestion -p surfpool-bench -- transaction_components 2>&1 | tee benchmark.log
+        run: cargo bench --bench transaction_ingestion -p surfpool-bench 2>&1 | tee benchmark.log
 
       - name: Extract benchmark results
         run: |
