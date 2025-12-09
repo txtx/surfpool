@@ -54,78 +54,20 @@ fn get_components_fixture() -> Arc<BenchmarkFixture> {
 }
 
 struct BenchmarkFixture {
-    context: RunloopContext,
-    rpc: SurfpoolFullRpc,
-    runloop_handle: Option<JoinHandle<()>>,
-    simnet_events_rx: Receiver<SimnetEvent>,
+    svm_locker: SurfnetSvmLocker,
 }
 
 impl BenchmarkFixture {
     fn new() -> Self {
-        let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+        let (surfnet_svm, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
         let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
-        let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-        let (plugin_manager_commands_tx, _) = unbounded();
 
-        let context = RunloopContext {
-            simnet_commands_tx: simnet_commands_tx.clone(),
-            plugin_manager_commands_tx,
-            id: None,
-            svm_locker: svm_locker.clone(),
-            remote_rpc_client: None,
-        };
-
-        let config = SurfpoolConfig {
-            simnets: vec![SimnetConfig {
-                block_production_mode: BlockProductionMode::Manual,
-                offline_mode: true,
-                remote_rpc_url: None,
-                ..SimnetConfig::default()
-            }],
-            rpc: RpcConfig {
-                bind_port: 0,
-                ws_port: 0,
-                ..RpcConfig::default()
-            },
-            ..SurfpoolConfig::default()
-        };
-
-        let (subgraph_commands_tx, _) = unbounded();
-
-        let simnet_commands_tx_for_thread = simnet_commands_tx.clone();
-        let runloop_handle = hiro_system_kit::thread_named("benchmark_runloop")
-            .spawn(move || {
-                let future = start_local_surfnet_runloop(
-                    svm_locker,
-                    config,
-                    subgraph_commands_tx,
-                    simnet_commands_tx_for_thread,
-                    simnet_commands_rx,
-                    geyser_events_rx,
-                );
-                if let Err(e) = hiro_system_kit::nestable_block_on(future) {
-                    eprintln!("Benchmark runloop error: {e:?}");
-                }
-            })
-            .expect("Failed to spawn benchmark runloop thread");
-
-        let fixture = Self {
-            context,
-            rpc: SurfpoolFullRpc,
-            runloop_handle: Some(runloop_handle),
-            simnet_events_rx,
-        };
-
-        wait_for_ready(&fixture.simnet_events_rx);
-        fixture
+        Self { svm_locker }
     }
 }
 
-impl Drop for BenchmarkFixture {
-    fn drop(&mut self) {
-        let _ = self.runloop_handle.take();
-    }
-}
+
+
 
 fn benchmark_send_transaction(c: &mut Criterion) {
     let mut group = c.benchmark_group("transaction_ingestion");
@@ -181,7 +123,7 @@ fn benchmark_send_transaction(c: &mut Criterion) {
                             .map(|_| Keypair::new())
                             .collect();
 
-                        fixture.context.svm_locker.with_svm_writer(|svm| {
+                        fixture.svm_locker.with_svm_writer(|svm| {
                             let payer_account = Account {
                                 lamports: airdrop_amount,
                                 data: vec![],
@@ -203,14 +145,14 @@ fn benchmark_send_transaction(c: &mut Criterion) {
                         });
 
                         create_protocol_like_transaction_with_recipients(
-                            &fixture.context.svm_locker,
+                            &fixture.svm_locker,
                             &payer,
                             &intermediate_keypairs,
                             &recipients,
                             TRANSFER_AMOUNT_PER_RECIPIENT,
                         )
                     } else if is_complex {
-                        fixture.context.svm_locker.with_svm_writer(|svm| {
+                        fixture.svm_locker.with_svm_writer(|svm| {
                             let payer_account = Account {
                                 lamports: airdrop_amount,
                                 data: vec![],
@@ -222,13 +164,13 @@ fn benchmark_send_transaction(c: &mut Criterion) {
                         });
 
                         create_complex_transaction_with_recipients(
-                            &fixture.context.svm_locker,
+                            &fixture.svm_locker,
                             &payer,
                             &recipients,
                             TRANSFER_AMOUNT_PER_RECIPIENT,
                         )
                     } else {
-                        fixture.context.svm_locker.with_svm_writer(|svm| {
+                        fixture.svm_locker.with_svm_writer(|svm| {
                             let payer_account = Account {
                                 lamports: airdrop_amount,
                                 data: vec![],
@@ -240,18 +182,22 @@ fn benchmark_send_transaction(c: &mut Criterion) {
                         });
 
                         create_transfer_transaction_with_recipients(
-                            &fixture.context.svm_locker,
+                            &fixture.svm_locker,
                             &payer,
                             &recipients,
                             TRANSFER_AMOUNT_PER_RECIPIENT,
                         )
                     };
 
-                    // println!("DEBUG: Setup end");
-                    (encoded_tx, Some(fixture.context.clone()))
+                    (encoded_tx, payer)
                 },
-                |(encoded_tx, ctx)| {
-                    let result = fixture.rpc.send_transaction(ctx, encoded_tx.clone(), None);
+                |(encoded_tx, _payer)| {
+                    let decoded = bs58::decode(&encoded_tx).into_vec().expect("Valid base58");
+                    let tx: VersionedTransaction = bincode::deserialize(&decoded).expect("Valid transaction");
+                    
+                    let result = fixture.svm_locker.with_svm_writer(|svm| {
+                        svm.send_transaction(tx, false, false)
+                    });
                     black_box(result.unwrap())
                 },
             );
@@ -272,15 +218,21 @@ fn benchmark_transaction_components(c: &mut Criterion) {
     let fixture = get_components_fixture();
     let payer = Keypair::new();
 
-    fixture.context.svm_locker.with_svm_writer(|svm| {
-        svm.airdrop(&payer.pubkey(), SIMPLE_TRANSFER_LAMPORTS)
-            .unwrap();
+    fixture.svm_locker.with_svm_writer(|svm| {
+        let payer_account = Account {
+            lamports: SIMPLE_TRANSFER_LAMPORTS,
+            data: vec![],
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        svm.set_account(&payer.pubkey(), payer_account).unwrap();
     });
 
     group.bench_function("transaction_deserialization", |b| {
         b.iter(|| {
             let encoded_tx = create_transfer_transaction(
-                &fixture.context.svm_locker,
+                &fixture.svm_locker,
                 &payer,
                 1,
                 TRANSFER_AMOUNT_PER_RECIPIENT,
@@ -296,13 +248,18 @@ fn benchmark_transaction_components(c: &mut Criterion) {
         let payer = Keypair::new();
         let recipient = Pubkey::new_unique();
 
-        fixture.context.svm_locker.with_svm_writer(|svm| {
-            svm.airdrop(&payer.pubkey(), SIMPLE_TRANSFER_LAMPORTS)
-                .unwrap();
+        fixture.svm_locker.with_svm_writer(|svm| {
+            let payer_account = Account {
+                lamports: SIMPLE_TRANSFER_LAMPORTS,
+                data: vec![],
+                owner: system_program::id(),
+                executable: false,
+                rent_epoch: 0,
+            };
+            svm.set_account(&payer.pubkey(), payer_account).unwrap();
         });
 
         let latest_blockhash = fixture
-            .context
             .svm_locker
             .with_svm_reader(|svm| svm.latest_blockhash());
         let instruction = transfer(&payer.pubkey(), &recipient, TRANSFER_AMOUNT_PER_RECIPIENT);
@@ -319,7 +276,7 @@ fn benchmark_transaction_components(c: &mut Criterion) {
 
     group.bench_function("clone_overhead_string", |b| {
         let sample_tx = create_transfer_transaction(
-            &fixture.context.svm_locker,
+            &fixture.svm_locker,
             &payer,
             1,
             TRANSFER_AMOUNT_PER_RECIPIENT,
@@ -327,9 +284,9 @@ fn benchmark_transaction_components(c: &mut Criterion) {
         b.iter(|| black_box(sample_tx.clone()));
     });
 
-    group.bench_function("clone_overhead_context", |b| {
-        let ctx = Some(fixture.context.clone());
-        b.iter(|| black_box(ctx.clone()));
+    group.bench_function("clone_overhead_svm_locker", |b| {
+        let locker = fixture.svm_locker.clone();
+        b.iter(|| black_box(locker.clone()));
     });
 
     group.finish();
