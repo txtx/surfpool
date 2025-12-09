@@ -34,7 +34,7 @@ use surfpool_types::{
 
 const BENCHMARK_SAMPLE_SIZE: usize = 10;
 const BENCHMARK_WARM_UP_SECS: u64 = 1;
-const BENCHMARK_MEASUREMENT_MILLIS: u64 = 500;
+const BENCHMARK_MEASUREMENT_MILLIS: u64 = 50;
 
 static SEND_TRANSACTION_FIXTURE: OnceLock<Arc<BenchmarkFixture>> = OnceLock::new();
 static COMPONENTS_FIXTURE: OnceLock<Arc<BenchmarkFixture>> = OnceLock::new();
