@@ -2,37 +2,24 @@ mod fixtures;
 
 use std::{
     sync::{Arc, OnceLock},
-    thread::JoinHandle,
     time::Duration,
 };
 
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
-use crossbeam_channel::{Receiver, unbounded};
 use fixtures::{
     MULTI_TRANSFER_LAMPORTS, SIMPLE_TRANSFER_LAMPORTS, TRANSFER_AMOUNT_PER_RECIPIENT,
     create_complex_transaction_with_recipients, create_protocol_like_transaction_with_recipients,
-    create_transfer_transaction, create_transfer_transaction_with_recipients, wait_for_ready,
+    create_transfer_transaction, create_transfer_transaction_with_recipients,
 };
-use solana_keypair::Keypair;
 use solana_account::Account;
-use solana_sdk_ids::system_program;
+use solana_keypair::Keypair;
 use solana_message::{Message, VersionedMessage};
 use solana_pubkey::Pubkey;
+use solana_sdk_ids::system_program;
 use solana_signer::Signer;
 use solana_system_interface::instruction::transfer;
 use solana_transaction::versioned::VersionedTransaction;
-use surfpool_core::{
-    rpc::{
-        RunloopContext,
-        full::{Full, SurfpoolFullRpc},
-    },
-    runloops::start_local_surfnet_runloop,
-    surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
-};
-use surfpool_types::{
-    SimnetEvent, SurfpoolConfig,
-    types::{BlockProductionMode, RpcConfig, SimnetConfig},
-};
+use surfpool_core::surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm};
 
 const BENCHMARK_SAMPLE_SIZE: usize = 10;
 const BENCHMARK_WARM_UP_SECS: u64 = 1;
@@ -65,9 +52,6 @@ impl BenchmarkFixture {
         Self { svm_locker }
     }
 }
-
-
-
 
 fn benchmark_send_transaction(c: &mut Criterion) {
     let mut group = c.benchmark_group("transaction_ingestion");
@@ -119,9 +103,8 @@ fn benchmark_send_transaction(c: &mut Criterion) {
                         (0..num_recipients).map(|_| Pubkey::new_unique()).collect();
 
                     let encoded_tx = if is_protocol_like {
-                        let intermediate_keypairs: Vec<Keypair> = (0..num_recipients)
-                            .map(|_| Keypair::new())
-                            .collect();
+                        let intermediate_keypairs: Vec<Keypair> =
+                            (0..num_recipients).map(|_| Keypair::new()).collect();
 
                         fixture.svm_locker.with_svm_writer(|svm| {
                             let payer_account = Account {
@@ -193,11 +176,12 @@ fn benchmark_send_transaction(c: &mut Criterion) {
                 },
                 |(encoded_tx, _payer)| {
                     let decoded = bs58::decode(&encoded_tx).into_vec().expect("Valid base58");
-                    let tx: VersionedTransaction = bincode::deserialize(&decoded).expect("Valid transaction");
-                    
-                    let result = fixture.svm_locker.with_svm_writer(|svm| {
-                        svm.send_transaction(tx, false, false)
-                    });
+                    let tx: VersionedTransaction =
+                        bincode::deserialize(&decoded).expect("Valid transaction");
+
+                    let result = fixture
+                        .svm_locker
+                        .with_svm_writer(|svm| svm.send_transaction(tx, false, false));
                     black_box(result.unwrap())
                 },
             );
