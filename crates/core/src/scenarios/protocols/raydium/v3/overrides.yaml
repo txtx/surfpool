@@ -8,30 +8,126 @@ tags:
   - concentrated-liquidity
   - defi
 
+# Protocol-specific constants that can be referenced by templates
+constants:
+  # Raydium CLMM AMM Config index (for dynamic derivation)
+  # The AMM config PDA is derived as: ["amm_config", index.to_be_bytes()]
+  amm_config_index:
+    label: Fee Tier (by index)
+    description: |
+      AMM config index for dynamic PDA derivation.
+      The config address is derived from ["amm_config", index.to_be_bytes()].
+    options:
+      - id: ultra_tight
+        label: Ultra Tight (1 bps) - Index 0
+        description: Best for stablecoin pairs like USDC/USDT with minimal price movement
+        value: "0"
+        metadata:
+          index: 0
+          tick_spacing: 1
+          fee_rate_bps: 1
+          derived_address: 4BLNHtVe942GSs4teSZqGX24xwKNkqU7bGgNn3iUiUpw
+      - id: standard
+        label: Standard (25 bps) - Index 1
+        description: Most common tier for pairs like SOL/USDC
+        value: "1"
+        metadata:
+          index: 1
+          tick_spacing: 60
+          fee_rate_bps: 25
+          derived_address: E64NGkDLLCdQ2yFNPcavaKptrEgmiQaNykUuLC1Qgwyp
+      - id: tight
+        label: Tight (5 bps) - Index 2
+        description: For correlated assets with small price deviations
+        value: "2"
+        metadata:
+          index: 2
+          tick_spacing: 10
+          fee_rate_bps: 5
+          derived_address: HfERMT5DRA6C1TAqecrJQFpmkf3wsWTMncqnj3RDg5aw
+      - id: wide
+        label: Wide (100 bps) - Index 3
+        description: For volatile or exotic token pairs
+        value: "3"
+        metadata:
+          index: 3
+          tick_spacing: 100
+          fee_rate_bps: 100
+          derived_address: A1BBtTYJd4i3xU8D6Tc2FzU6ZN4oXZWXKZnCxwbHXr8x
+      - id: index_8
+        label: Index 8 (used by main SOL/USDC pool)
+        description: The config used by the primary SOL/USDC CLMM pool
+        value: "8"
+        metadata:
+          index: 8
+          derived_address: 3h2e43PunVA5K34vwKCLHWhZF4aZpyaC9RmxvshGAQpL
+
+  # Token mints loaded from verified tokens registry
+  token_mint:
+    label: Token
+    description: Select a token mint address from verified tokens
+    source: verified_tokens
+
 templates:
-  - id: raydium-clmm-sol-usdc
-    name: Override SOL/USDC CLMM Pool
-    description: Override Raydium CLMM v3 SOL/USDC pool state with simulated values
+  - id: raydium-clmm-custom
+    name: Override Any CLMM Pool (Custom)
+    description: |
+      Override any Raydium CLMM v3 pool by specifying the config index and token mints.
+      Both the AMM config address AND the pool address are dynamically derived:
+      - AMM Config: PDA from ["amm_config", config_index.to_be_bytes()]
+      - Pool: PDA from ["pool", amm_config, token_mint_0, token_mint_1]
     idl_account_name: PoolState
-    properties: ["liquidity", "sqrt_price_x64", "tick_current"]
-    address:
-      type: pubkey
-      value: 3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv
+    properties:
+      - path: liquidity
+        label: Liquidity
+        description: Total liquidity in the current tick range
+      - path: sqrt_price_x64
+        label: Square Root Price (Q64.64)
+        description: Current price as sqrt(price) * 2^64
+      - path: tick_current
+        label: Current Tick
+        description: Current tick index representing the price
+      - path: config_index
+        type: constant_ref
+        label: Fee Tier
+        constant: amm_config_index
+      - path: token_mint_0
+        type: constant_ref
+        label: Token 0 Mint
+        constant: token_mint
+      - path: token_mint_1
+        type: constant_ref
+        label: Token 1 Mint
+        constant: token_mint
+    llm_context: |
+      CRITICAL: token_mint_0 and token_mint_1 must be SPL TOKEN MINT addresses, NOT program IDs!
 
-  - id: raydium-clmm-btc-usdc
-    name: Override BTC/USDC CLMM Pool
-    description: Override Raydium CLMM v3 BTC/USDC pool state with simulated values
-    idl_account_name: PoolState
-    properties: ["liquidity", "sqrt_price_x64", "tick_current"]
-    address:
-      type: pubkey
-      value: 6kbC5epG18DF2DwPEW34tBy5pGFS7pEGALR3v5MGxgc5
+      CORRECT examples of token mints:
+      - SOL (wrapped): So11111111111111111111111111111111111111112
+      - USDC: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+      - JTO: jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL
 
-  - id: raydium-clmm-eth-usdc
-    name: Override ETH/USDC CLMM Pool
-    description: Override Raydium CLMM v3 ETH/USDC pool state with simulated values
-    idl_account_name: PoolState
-    properties: ["liquidity", "sqrt_price_x64", "tick_current"]
+      WRONG - these are PROGRAM IDs, not token mints:
+      - 675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8 (Raydium AMM v4)
+      - CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK (Raydium CLMM)
+
+      Always use get_token_address tool to look up token mints by symbol (e.g., "SOL", "USDC", "JTO").
+      The pool PDA is derived using token mints in specific order, so using wrong addresses will derive the wrong pool.
     address:
-      type: pubkey
-      value: AoPebtuJC4f2RweZSxcVCcdeTgaEXY64Uho8b5HdPxAR
+      type: pda
+      program_id: CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK
+      seeds:
+        - type: string
+          value: pool
+        # Dynamically derive the AMM config PDA from the index
+        - type: derived_pda
+          program_id: CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK
+          seeds:
+            - type: string
+              value: amm_config
+            - type: u16_be_ref
+              value: config_index
+        - type: property_ref
+          value: token_mint_0
+        - type: property_ref
+          value: token_mint_1

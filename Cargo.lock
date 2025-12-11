@@ -114,6 +114,7 @@ version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92589714878ca59a7626ea19734f0e07a6a875197eec751bb5d3f99e64998c63"
 dependencies = [
+ "actix-macros",
  "futures-core",
  "tokio",
 ]
@@ -1200,6 +1201,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa79dedbb091f449f1f39e53edf88d5dbe95f895dae6135a8d7b881fb5af73f5"
 dependencies = [
  "byte-tools",
+]
+
+[[package]]
+name = "bon"
+version = "3.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebeb9aaf9329dff6ceb65c689ca3db33dbf15f324909c60e4e5eef5701ce31b1"
+dependencies = [
+ "bon-macros",
+ "rustversion",
+]
+
+[[package]]
+name = "bon-macros"
+version = "3.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77e9d642a7e3a318e37c2c9427b5a6a48aa1ad55dcd986f3034ab2239045a645"
+dependencies = [
+ "darling 0.21.3",
+ "ident_case",
+ "prettyplease 0.2.37",
+ "proc-macro2",
+ "quote",
+ "rustversion",
+ "syn 2.0.106",
 ]
 
 [[package]]
@@ -5972,6 +5998,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "prettyplease"
+version = "0.2.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
+dependencies = [
+ "proc-macro2",
+ "syn 2.0.106",
+]
+
+[[package]]
 name = "primitive-types"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6076,7 +6112,7 @@ dependencies = [
  "log 0.4.28",
  "multimap",
  "petgraph 0.6.5",
- "prettyplease",
+ "prettyplease 0.1.25",
  "prost",
  "prost-types",
  "regex",
@@ -6670,6 +6706,29 @@ dependencies = [
  "tower-service",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "rmcp-actix-web"
+version = "0.8.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c7597344af747d3c50681254ca7be9324f585f6fc438618bca66d0de3395e7b"
+dependencies = [
+ "actix-rt",
+ "actix-web",
+ "async-stream",
+ "bon",
+ "bytes 1.10.1",
+ "futures 0.3.31",
+ "http 1.3.1",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "sse-stream",
+ "tokio",
+ "tokio-stream",
+ "tokio-util 0.7.16",
+ "tracing",
 ]
 
 [[package]]
@@ -12045,6 +12104,8 @@ dependencies = [
  "mustache",
  "notify",
  "ratatui",
+ "rmcp",
+ "rmcp-actix-web",
  "rust-embed",
  "serde",
  "serde_json",
@@ -12149,6 +12210,7 @@ dependencies = [
  "spl-token-interface",
  "surfpool-subgraph",
  "surfpool-types",
+ "tempfile",
  "test-case",
  "tokio",
  "txtx-addon-kit",
@@ -12256,9 +12318,11 @@ name = "surfpool-types"
 version = "0.12.0"
 dependencies = [
  "anchor-lang-idl",
+ "base64 0.22.1",
  "blake3",
  "chrono",
  "crossbeam-channel",
+ "hex",
  "once_cell",
  "schemars 1.0.4",
  "schemars_derive",
@@ -12859,7 +12923,7 @@ version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6fdaae4c2c638bb70fe42803a26fbd6fc6ac8c72f5c59f67ecc2a2dcabf4b07"
 dependencies = [
- "prettyplease",
+ "prettyplease 0.1.25",
  "proc-macro2",
  "prost-build",
  "quote",

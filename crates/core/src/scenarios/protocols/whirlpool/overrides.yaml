@@ -44,3 +44,20 @@ templates:
     address:
       type: pubkey
       value: 5Z66YYYaTmmx1R4mATAGLSc8aV4Vfy5tNdJQzk1GP9RF
+
+  - id: whirlpool-popcat-sol
+    name: Override POPCAT/SOL Whirlpool
+    description: Override Whirlpool POPCAT/SOL pool state for liquidation arbitrage
+    idl_account_name: Whirlpool
+    properties: ["liquidity", "sqrt_price", "tick_current_index", "fee_rate"]
+    address:
+      type: pubkey
+      value: Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE
+
+  - id: whirlpool-custom
+    name: Override Custom Whirlpool
+    description: Override any Whirlpool pool state with custom address
+    idl_account_name: Whirlpool
+    properties: ["liquidity", "sqrt_price", "tick_current_index", "fee_rate"]
+    address:
+      type: pubkey

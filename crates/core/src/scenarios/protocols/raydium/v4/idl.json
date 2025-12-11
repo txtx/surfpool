@@ -1,0 +1,455 @@
+{
+  "address": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+  "metadata": {
+    "name": "raydium_amm",
+    "version": "0.3.0",
+    "spec": "0.1.0",
+    "description": "Raydium AMM v4 - Classic constant product AMM"
+  },
+  "instructions": [],
+  "accounts": [
+    {
+      "name": "AmmInfo",
+      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+    },
+    {
+      "name": "TargetOrders",
+      "discriminator": [0, 0, 0, 0, 0, 0, 0, 1]
+    },
+    {
+      "name": "Fees",
+      "discriminator": [0, 0, 0, 0, 0, 0, 0, 2]
+    }
+  ],
+  "types": [
+    {
+      "name": "Fees",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "min_separate_numerator",
+            "type": "u64"
+          },
+          {
+            "name": "min_separate_denominator",
+            "type": "u64"
+          },
+          {
+            "name": "trade_fee_numerator",
+            "type": "u64"
+          },
+          {
+            "name": "trade_fee_denominator",
+            "type": "u64"
+          },
+          {
+            "name": "pnl_numerator",
+            "type": "u64"
+          },
+          {
+            "name": "pnl_denominator",
+            "type": "u64"
+          },
+          {
+            "name": "swap_fee_numerator",
+            "type": "u64"
+          },
+          {
+            "name": "swap_fee_denominator",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OutPutData",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "need_take_pnl_coin",
+            "type": "u64"
+          },
+          {
+            "name": "need_take_pnl_pc",
+            "type": "u64"
+          },
+          {
+            "name": "total_pnl_pc",
+            "type": "u64"
+          },
+          {
+            "name": "total_pnl_coin",
+            "type": "u64"
+          },
+          {
+            "name": "pool_open_time",
+            "type": "u64"
+          },
+          {
+            "name": "punish_pc_amount",
+            "type": "u64"
+          },
+          {
+            "name": "punish_coin_amount",
+            "type": "u64"
+          },
+          {
+            "name": "orderbook_to_init_time",
+            "type": "u64"
+          },
+          {
+            "name": "swap_coin_in_amount",
+            "type": "u128"
+          },
+          {
+            "name": "swap_pc_out_amount",
+            "type": "u128"
+          },
+          {
+            "name": "swap_take_pc_fee",
+            "type": "u64"
+          },
+          {
+            "name": "swap_pc_in_amount",
+            "type": "u128"
+          },
+          {
+            "name": "swap_coin_out_amount",
+            "type": "u128"
+          },
+          {
+            "name": "swap_take_coin_fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AmmInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "status",
+            "type": "u64"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "order_num",
+            "type": "u64"
+          },
+          {
+            "name": "depth",
+            "type": "u64"
+          },
+          {
+            "name": "coin_decimals",
+            "type": "u64"
+          },
+          {
+            "name": "pc_decimals",
+            "type": "u64"
+          },
+          {
+            "name": "state",
+            "type": "u64"
+          },
+          {
+            "name": "reset_flag",
+            "type": "u64"
+          },
+          {
+            "name": "min_size",
+            "type": "u64"
+          },
+          {
+            "name": "vol_max_cut_ratio",
+            "type": "u64"
+          },
+          {
+            "name": "amount_wave",
+            "type": "u64"
+          },
+          {
+            "name": "coin_lot_size",
+            "type": "u64"
+          },
+          {
+            "name": "pc_lot_size",
+            "type": "u64"
+          },
+          {
+            "name": "min_price_multiplier",
+            "type": "u64"
+          },
+          {
+            "name": "max_price_multiplier",
+            "type": "u64"
+          },
+          {
+            "name": "sys_decimal_value",
+            "type": "u64"
+          },
+          {
+            "name": "fees",
+            "type": {
+              "defined": {
+                "name": "Fees"
+              }
+            }
+          },
+          {
+            "name": "out_put",
+            "type": {
+              "defined": {
+                "name": "OutPutData"
+              }
+            }
+          },
+          {
+            "name": "token_coin",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_pc",
+            "type": "pubkey"
+          },
+          {
+            "name": "coin_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "pc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "lp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "open_orders",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "serum_dex",
+            "type": "pubkey"
+          },
+          {
+            "name": "target_orders",
+            "type": "pubkey"
+          },
+          {
+            "name": "withdraw_queue",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_temp_lp",
+            "type": "pubkey"
+          },
+          {
+            "name": "amm_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "lp_amount",
+            "type": "u64"
+          },
+          {
+            "name": "client_order_id",
+            "type": "u64"
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TargetOrder",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "vol",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TargetOrders",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "buy_orders",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "TargetOrder"
+                  }
+                },
+                50
+              ]
+            }
+          },
+          {
+            "name": "padding1",
+            "type": {
+              "array": [
+                "u64",
+                8
+              ]
+            }
+          },
+          {
+            "name": "target_x",
+            "type": "u128"
+          },
+          {
+            "name": "target_y",
+            "type": "u128"
+          },
+          {
+            "name": "plan_x_buy",
+            "type": "u128"
+          },
+          {
+            "name": "plan_y_buy",
+            "type": "u128"
+          },
+          {
+            "name": "plan_x_sell",
+            "type": "u128"
+          },
+          {
+            "name": "plan_y_sell",
+            "type": "u128"
+          },
+          {
+            "name": "placed_x",
+            "type": "u128"
+          },
+          {
+            "name": "placed_y",
+            "type": "u128"
+          },
+          {
+            "name": "calc_pnl_x",
+            "type": "u128"
+          },
+          {
+            "name": "calc_pnl_y",
+            "type": "u128"
+          },
+          {
+            "name": "sell_orders",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "TargetOrder"
+                  }
+                },
+                50
+              ]
+            }
+          },
+          {
+            "name": "padding2",
+            "type": {
+              "array": [
+                "u64",
+                6
+              ]
+            }
+          },
+          {
+            "name": "replace_buy_client_id",
+            "type": {
+              "array": [
+                "u64",
+                10
+              ]
+            }
+          },
+          {
+            "name": "replace_sell_client_id",
+            "type": {
+              "array": [
+                "u64",
+                10
+              ]
+            }
+          },
+          {
+            "name": "last_order_numerator",
+            "type": "u64"
+          },
+          {
+            "name": "last_order_denominator",
+            "type": "u64"
+          },
+          {
+            "name": "plan_orders_cur",
+            "type": "u64"
+          },
+          {
+            "name": "place_orders_cur",
+            "type": "u64"
+          },
+          {
+            "name": "valid_buy_order_num",
+            "type": "u64"
+          },
+          {
+            "name": "valid_sell_order_num",
+            "type": "u64"
+          },
+          {
+            "name": "padding3",
+            "type": {
+              "array": [
+                "u64",
+                10
+              ]
+            }
+          },
+          {
+            "name": "free_slot_bits",
+            "type": "u128"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 protocol: "Switchboard"
-version: "on-demand"
+version: "v2"
 idl_file_path: "idl.json"
 tags:
   - oracle
