@@ -4,6 +4,7 @@ use std::{
 };
 
 use dialoguer::{Confirm, Input, MultiSelect, console::Style, theme::ColorfulTheme};
+use log::debug;
 use surfpool_types::{DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT};
 use txtx_addon_network_svm::templates::{
     AccountDirEntry, AccountEntry, GenesisEntry, get_interpolated_addon_template,
@@ -121,13 +122,15 @@ pub async fn detect_program_frameworks(
 pub struct ProgramMetadata {
     name: String,
     idl: Option<String>,
+    so_exists: bool,
 }
 
 impl ProgramMetadata {
-    pub fn new(name: &str, idl: &Option<String>) -> Self {
+    pub fn new(name: &str, idl: &Option<String>, so_exists: bool) -> Self {
         Self {
             name: name.to_string(),
             idl: idl.clone(),
+            so_exists,
         }
     }
 }
@@ -150,23 +153,31 @@ pub fn scaffold_in_memory_iac(
         "\"{}\"",
         *DEFAULT_SOLANA_KEYPAIR_PATH
     )));
-    for program_metadata in programs.iter() {
-        deployment_runbook_src.push_str(
-            &framework
-                .get_in_memory_interpolated_program_deployment_template(&program_metadata.name),
-        );
 
-        if generate_subgraphs {
-            if let Some(subgraph_iac) = &framework
-                .get_interpolated_subgraph_template(
-                    &program_metadata.name,
-                    program_metadata.idl.as_ref(),
-                )
-                .ok()
-                .flatten()
-            {
-                deployment_runbook_src.push_str(subgraph_iac);
+    for program_metadata in programs.iter() {
+        if program_metadata.so_exists {
+            deployment_runbook_src.push_str(
+                &framework
+                    .get_in_memory_interpolated_program_deployment_template(&program_metadata.name),
+            );
+
+            if generate_subgraphs {
+                if let Some(subgraph_iac) = &framework
+                    .get_interpolated_subgraph_template(
+                        &program_metadata.name,
+                        program_metadata.idl.as_ref(),
+                    )
+                    .ok()
+                    .flatten()
+                {
+                    deployment_runbook_src.push_str(subgraph_iac);
+                }
             }
+        } else {
+            debug!(
+                "Skipping program {} deployment in in-memory IaC since the .so file was not found",
+                program_metadata.name
+            );
         }
     }
 
