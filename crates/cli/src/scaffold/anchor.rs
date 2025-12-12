@@ -57,7 +57,17 @@ pub fn try_get_programs_from_project(
         target_location.append_path("target")?;
         if let Some((_, deployments)) = manifest.programs.iter().next() {
             for (program_name, deployment) in deployments.iter() {
-                programs.push(ProgramMetadata::new(program_name, &deployment.idl));
+                let so_exists = {
+                    let mut so_path = target_location.clone();
+                    so_path.append_path("deploy")?;
+                    so_path.append_path(&format!("{}.so", program_name))?;
+                    so_path.exists()
+                };
+                programs.push(ProgramMetadata::new(
+                    program_name,
+                    &deployment.idl,
+                    so_exists,
+                ));
             }
         }
         let mut genesis_entries = manifest
