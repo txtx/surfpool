@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
+use convert_case::{Case, Casing};
 use serde::{Deserialize, Serialize};
 use txtx_addon_network_svm::templates::{AccountDirEntry, AccountEntry};
 use txtx_core::kit::helpers::fs::FileLocation;
@@ -17,8 +18,6 @@ use crate::{
     scaffold::{GenesisEntry, ProgramFrameworkData},
     types::Framework,
 };
-
-use convert_case::{Case, Casing};
 
 /// Determines if subgraphs should be generated based on the anchor version.
 /// Subgraphs are only supported for Anchor >= 0.26.0
