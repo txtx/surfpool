@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
+use convert_case::{Case, Casing};
 use serde::{Deserialize, Serialize};
 use txtx_addon_network_svm::templates::{AccountDirEntry, AccountEntry};
 use txtx_core::kit::helpers::fs::FileLocation;
@@ -57,7 +58,17 @@ pub fn try_get_programs_from_project(
         target_location.append_path("target")?;
         if let Some((_, deployments)) = manifest.programs.iter().next() {
             for (program_name, deployment) in deployments.iter() {
-                programs.push(ProgramMetadata::new(program_name, &deployment.idl));
+                let so_exists = {
+                    let mut so_path = target_location.clone();
+                    so_path.append_path("deploy")?;
+                    so_path.append_path(&format!("{}.so", program_name))?;
+                    so_path.exists()
+                };
+                programs.push(ProgramMetadata::new(
+                    program_name,
+                    &deployment.idl,
+                    so_exists,
+                ));
             }
         }
         let mut genesis_entries = manifest
@@ -429,7 +440,7 @@ pub struct AnchorProgramDeployment {
 impl AnchorProgramDeployment {
     pub fn new(
         program_name: &str,
-        program_id: &serde_json::Value,
+        value: &serde_json::Value,
         base_location: &FileLocation,
     ) -> Result<Self> {
         let mut idl_location = base_location.clone();
@@ -443,7 +454,7 @@ impl AnchorProgramDeployment {
         } else {
             None
         };
-        match &program_id {
+        match &value {
             serde_json::Value::String(address) => Ok(AnchorProgramDeployment {
                 address: address.clone(),
                 path: None,
@@ -451,8 +462,18 @@ impl AnchorProgramDeployment {
             }),
 
             serde_json::Value::Object(_) => {
-                let dep: AnchorProgramDeployment = serde_json::from_value(program_id.clone())
+                let dep: AnchorProgramDeployment = serde_json::from_value(value.clone())
                     .map_err(|_| anyhow!("Unable to read Anchor.toml"))?;
+                let idl = if let Some(ref dep_idl) = dep.idl {
+                    let mut idl_path = base_location.clone();
+                    idl_path.append_path(dep_idl).map_err(|e| {
+                        anyhow!("failed to construct path to program idl file for reading: {e}")
+                    })?;
+                    let idl_content = idl_path.read_content_as_utf8().ok();
+                    idl_content
+                } else {
+                    idl
+                };
                 Ok(AnchorProgramDeployment {
                     address: dep.address,
                     idl,
@@ -633,10 +654,10 @@ fn deser_programs(
             let cluster: Cluster = cluster.parse()?;
             let programs = programs
                 .iter()
-                .map(|(name, program_id)| {
+                .map(|(name, value)| {
                     Ok((
-                        name.clone(),
-                        AnchorProgramDeployment::new(name, program_id, base_location)?,
+                        name.to_case(Case::Snake),
+                        AnchorProgramDeployment::new(name, value, base_location)?,
                     ))
                 })
                 .collect::<Result<BTreeMap<String, AnchorProgramDeployment>>>()?;

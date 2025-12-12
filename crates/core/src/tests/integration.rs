@@ -5451,3 +5451,821 @@ async fn test_ws_logs_subscribe_logs_content() {
         println!("  Log {}: {}", i + 1, log);
     }
 }
+
+/// Token-2022 lifecycle:
+/// create mint → initialize → create ATA → mint → transfer → burn → close account
+#[tokio::test(flavor = "multi_thread")]
+async fn test_token2022_full_lifecycle() {
+    use solana_system_interface::instruction as system_instruction;
+    use spl_token_2022_interface::instruction::{
+        burn, close_account, initialize_mint2, mint_to, transfer_checked,
+    };
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let recipient = Keypair::new();
+    let mint = Keypair::new();
+    let decimals = 6u8;
+
+    svm_locker
+        .airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap();
+    svm_locker
+        .airdrop(&recipient.pubkey(), 1 * LAMPORTS_PER_SOL)
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    let mint_rent =
+        svm_locker.with_svm_reader(|svm| svm.inner.minimum_balance_for_rent_exemption(82));
+
+    let create_mint_ix = system_instruction::create_account(
+        &payer.pubkey(),
+        &mint.pubkey(),
+        mint_rent,
+        82,
+        &spl_token_2022_interface::id(),
+    );
+
+    let init_mint_ix = initialize_mint2(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &payer.pubkey(),       // mint authority
+        Some(&payer.pubkey()), // freeze authority
+        decimals,
+    )
+    .unwrap();
+
+    let payer_ata =
+        spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+            &payer.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let recipient_ata =
+        spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+            &recipient.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let create_payer_ata_ix =
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
+            &payer.pubkey(),
+            &payer.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let create_recipient_ata_ix =
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
+            &payer.pubkey(),
+            &recipient.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let mint_amount = 1_000_000u64;
+    let mint_to_ix = mint_to(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &payer_ata,
+        &payer.pubkey(),
+        &[&payer.pubkey()],
+        mint_amount,
+    )
+    .unwrap();
+
+    let setup_msg = Message::new_with_blockhash(
+        &[
+            create_mint_ix,
+            init_mint_ix,
+            create_payer_ata_ix,
+            create_recipient_ata_ix,
+            mint_to_ix,
+        ],
+        Some(&payer.pubkey()),
+        &recent_blockhash,
+    );
+    let setup_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(setup_msg), &[&payer, &mint])
+            .unwrap();
+
+    let setup_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(setup_tx, false, false));
+    assert!(
+        setup_result.is_ok(),
+        "Setup transaction failed: {:?}",
+        setup_result.err()
+    );
+
+    let transfer_amount = 500_000u64;
+    let transfer_ix = transfer_checked(
+        &spl_token_2022_interface::id(),
+        &payer_ata,
+        &mint.pubkey(),
+        &recipient_ata,
+        &payer.pubkey(),
+        &[&payer.pubkey()],
+        transfer_amount,
+        decimals,
+    )
+    .unwrap();
+
+    let transfer_msg =
+        Message::new_with_blockhash(&[transfer_ix], Some(&payer.pubkey()), &recent_blockhash);
+    let transfer_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(transfer_msg), &[&payer]).unwrap();
+
+    let transfer_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(transfer_tx, false, false));
+    assert!(
+        transfer_result.is_ok(),
+        "Transfer transaction failed: {:?}",
+        transfer_result.err()
+    );
+
+    let burn_amount = 200_000u64;
+    let burn_ix = burn(
+        &spl_token_2022_interface::id(),
+        &recipient_ata,
+        &mint.pubkey(),
+        &recipient.pubkey(),
+        &[&recipient.pubkey()],
+        burn_amount,
+    )
+    .unwrap();
+
+    let burn_msg =
+        Message::new_with_blockhash(&[burn_ix], Some(&recipient.pubkey()), &recent_blockhash);
+    let burn_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(burn_msg), &[&recipient]).unwrap();
+
+    let burn_result = svm_locker.with_svm_writer(|svm| svm.send_transaction(burn_tx, false, false));
+    assert!(
+        burn_result.is_ok(),
+        "Burn transaction failed: {:?}",
+        burn_result.err()
+    );
+
+    let remaining = transfer_amount - burn_amount;
+    let transfer_back_ix = transfer_checked(
+        &spl_token_2022_interface::id(),
+        &recipient_ata,
+        &mint.pubkey(),
+        &payer_ata,
+        &recipient.pubkey(),
+        &[&recipient.pubkey()],
+        remaining,
+        decimals,
+    )
+    .unwrap();
+
+    let close_ix = close_account(
+        &spl_token_2022_interface::id(),
+        &recipient_ata,
+        &recipient.pubkey(), // destination for rent
+        &recipient.pubkey(), // owner
+        &[&recipient.pubkey()],
+    )
+    .unwrap();
+
+    let close_msg = Message::new_with_blockhash(
+        &[transfer_back_ix, close_ix],
+        Some(&recipient.pubkey()),
+        &recent_blockhash,
+    );
+    let close_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(close_msg), &[&recipient]).unwrap();
+
+    let close_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(close_tx, false, false));
+    assert!(
+        close_result.is_ok(),
+        "Close transaction failed: {:?}",
+        close_result.err()
+    );
+
+    let recipient_account = svm_locker
+        .get_account_local(&recipient_ata)
+        .inner
+        .map_account()
+        .ok();
+    assert!(
+        recipient_account.is_none() || recipient_account.as_ref().map(|a| a.lamports) == Some(0),
+        "Recipient ATA should be closed"
+    );
+
+    let expected_balance = mint_amount - burn_amount;
+    let _ = expected_balance;
+}
+
+/// Token-2022 error cases: transfer/burn > balance and close with balance.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_token2022_error_cases() {
+    use solana_system_interface::instruction as system_instruction;
+    use spl_token_2022_interface::instruction::{
+        burn, close_account, initialize_mint2, mint_to, transfer_checked,
+    };
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let recipient = Keypair::new();
+    let mint = Keypair::new();
+    let decimals = 6u8;
+
+    svm_locker
+        .airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap();
+    svm_locker
+        .airdrop(&recipient.pubkey(), 1 * LAMPORTS_PER_SOL)
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    let mint_rent =
+        svm_locker.with_svm_reader(|svm| svm.inner.minimum_balance_for_rent_exemption(82));
+
+    let create_mint_ix = system_instruction::create_account(
+        &payer.pubkey(),
+        &mint.pubkey(),
+        mint_rent,
+        82,
+        &spl_token_2022_interface::id(),
+    );
+
+    let init_mint_ix = initialize_mint2(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &payer.pubkey(),
+        Some(&payer.pubkey()),
+        decimals,
+    )
+    .unwrap();
+
+    let payer_ata =
+        spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+            &payer.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let recipient_ata =
+        spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+            &recipient.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let create_payer_ata_ix =
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
+            &payer.pubkey(),
+            &payer.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let create_recipient_ata_ix =
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
+            &payer.pubkey(),
+            &recipient.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let mint_amount = 1_000_000u64;
+    let mint_to_ix = mint_to(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &payer_ata,
+        &payer.pubkey(),
+        &[&payer.pubkey()],
+        mint_amount,
+    )
+    .unwrap();
+
+    let setup_msg = Message::new_with_blockhash(
+        &[
+            create_mint_ix,
+            init_mint_ix,
+            create_payer_ata_ix,
+            create_recipient_ata_ix,
+            mint_to_ix,
+        ],
+        Some(&payer.pubkey()),
+        &recent_blockhash,
+    );
+    let setup_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(setup_msg), &[&payer, &mint])
+            .unwrap();
+
+    let setup_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(setup_tx, false, false));
+    assert!(
+        setup_result.is_ok(),
+        "Setup failed: {:?}",
+        setup_result.err()
+    );
+
+    let excessive_transfer = mint_amount + 1;
+    let bad_transfer_ix = transfer_checked(
+        &spl_token_2022_interface::id(),
+        &payer_ata,
+        &mint.pubkey(),
+        &recipient_ata,
+        &payer.pubkey(),
+        &[&payer.pubkey()],
+        excessive_transfer,
+        decimals,
+    )
+    .unwrap();
+
+    let bad_transfer_msg =
+        Message::new_with_blockhash(&[bad_transfer_ix], Some(&payer.pubkey()), &recent_blockhash);
+    let bad_transfer_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(bad_transfer_msg), &[&payer])
+            .unwrap();
+
+    let transfer_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(bad_transfer_tx, false, false));
+    assert!(
+        transfer_result.is_err(),
+        "Transfer exceeding balance should fail"
+    );
+
+    let excessive_burn = mint_amount + 1;
+    let bad_burn_ix = burn(
+        &spl_token_2022_interface::id(),
+        &payer_ata,
+        &mint.pubkey(),
+        &payer.pubkey(),
+        &[&payer.pubkey()],
+        excessive_burn,
+    )
+    .unwrap();
+
+    let bad_burn_msg =
+        Message::new_with_blockhash(&[bad_burn_ix], Some(&payer.pubkey()), &recent_blockhash);
+    let bad_burn_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(bad_burn_msg), &[&payer]).unwrap();
+
+    let burn_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(bad_burn_tx, false, false));
+    assert!(burn_result.is_err(), "Burn exceeding balance should fail");
+
+    let bad_close_ix = close_account(
+        &spl_token_2022_interface::id(),
+        &payer_ata,
+        &payer.pubkey(),
+        &payer.pubkey(),
+        &[&payer.pubkey()],
+    )
+    .unwrap();
+
+    let bad_close_msg =
+        Message::new_with_blockhash(&[bad_close_ix], Some(&payer.pubkey()), &recent_blockhash);
+    let bad_close_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(bad_close_msg), &[&payer]).unwrap();
+
+    let close_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(bad_close_tx, false, false));
+    assert!(
+        close_result.is_err(),
+        "Close account with balance should fail"
+    );
+}
+
+/// Token-2022 delegate operations: approve, delegated transfer, revoke.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_token2022_delegate_operations() {
+    use solana_system_interface::instruction as system_instruction;
+    use spl_token_2022_interface::instruction::{
+        approve, initialize_mint2, mint_to, revoke, transfer_checked,
+    };
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let owner = Keypair::new();
+    let delegate = Keypair::new();
+    let recipient = Keypair::new();
+    let mint = Keypair::new();
+    let decimals = 6u8;
+
+    svm_locker
+        .airdrop(&owner.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap();
+    svm_locker
+        .airdrop(&delegate.pubkey(), 1 * LAMPORTS_PER_SOL)
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    let mint_rent =
+        svm_locker.with_svm_reader(|svm| svm.inner.minimum_balance_for_rent_exemption(82));
+
+    let create_mint_ix = system_instruction::create_account(
+        &owner.pubkey(),
+        &mint.pubkey(),
+        mint_rent,
+        82,
+        &spl_token_2022_interface::id(),
+    );
+
+    let init_mint_ix = initialize_mint2(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &owner.pubkey(),
+        None, // no freeze authority needed
+        decimals,
+    )
+    .unwrap();
+
+    let owner_ata =
+        spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+            &owner.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let recipient_ata =
+        spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+            &recipient.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let create_owner_ata_ix =
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
+            &owner.pubkey(),
+            &owner.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let create_recipient_ata_ix =
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
+            &owner.pubkey(),
+            &recipient.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let mint_amount = 1_000_000u64;
+    let mint_to_ix = mint_to(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &owner_ata,
+        &owner.pubkey(),
+        &[&owner.pubkey()],
+        mint_amount,
+    )
+    .unwrap();
+
+    let setup_msg = Message::new_with_blockhash(
+        &[
+            create_mint_ix,
+            init_mint_ix,
+            create_owner_ata_ix,
+            create_recipient_ata_ix,
+            mint_to_ix,
+        ],
+        Some(&owner.pubkey()),
+        &recent_blockhash,
+    );
+    let setup_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(setup_msg), &[&owner, &mint])
+            .unwrap();
+
+    let setup_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(setup_tx, false, false));
+    assert!(
+        setup_result.is_ok(),
+        "Setup failed: {:?}",
+        setup_result.err()
+    );
+
+    let delegate_amount = 500_000u64;
+    let approve_ix = approve(
+        &spl_token_2022_interface::id(),
+        &owner_ata,
+        &delegate.pubkey(),
+        &owner.pubkey(),
+        &[&owner.pubkey()],
+        delegate_amount,
+    )
+    .unwrap();
+
+    let approve_msg =
+        Message::new_with_blockhash(&[approve_ix], Some(&owner.pubkey()), &recent_blockhash);
+    let approve_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(approve_msg), &[&owner]).unwrap();
+
+    let approve_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(approve_tx, false, false));
+    assert!(
+        approve_result.is_ok(),
+        "Approve failed: {:?}",
+        approve_result.err()
+    );
+
+    let transfer_amount = 200_000u64;
+    let delegated_transfer_ix = transfer_checked(
+        &spl_token_2022_interface::id(),
+        &owner_ata,
+        &mint.pubkey(),
+        &recipient_ata,
+        &delegate.pubkey(), // delegate is the authority
+        &[&delegate.pubkey()],
+        transfer_amount,
+        decimals,
+    )
+    .unwrap();
+
+    let delegated_transfer_msg = Message::new_with_blockhash(
+        &[delegated_transfer_ix],
+        Some(&delegate.pubkey()),
+        &recent_blockhash,
+    );
+    let delegated_transfer_tx = VersionedTransaction::try_new(
+        VersionedMessage::Legacy(delegated_transfer_msg),
+        &[&delegate],
+    )
+    .unwrap();
+
+    let delegated_transfer_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(delegated_transfer_tx, false, false));
+    assert!(
+        delegated_transfer_result.is_ok(),
+        "Delegated transfer failed: {:?}",
+        delegated_transfer_result.err()
+    );
+
+    let revoke_ix = revoke(
+        &spl_token_2022_interface::id(),
+        &owner_ata,
+        &owner.pubkey(),
+        &[&owner.pubkey()],
+    )
+    .unwrap();
+
+    let revoke_msg =
+        Message::new_with_blockhash(&[revoke_ix], Some(&owner.pubkey()), &recent_blockhash);
+    let revoke_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(revoke_msg), &[&owner]).unwrap();
+
+    let revoke_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(revoke_tx, false, false));
+    assert!(
+        revoke_result.is_ok(),
+        "Revoke failed: {:?}",
+        revoke_result.err()
+    );
+
+    let post_revoke_transfer_ix = transfer_checked(
+        &spl_token_2022_interface::id(),
+        &owner_ata,
+        &mint.pubkey(),
+        &recipient_ata,
+        &delegate.pubkey(),
+        &[&delegate.pubkey()],
+        100_000u64,
+        decimals,
+    )
+    .unwrap();
+
+    let post_revoke_msg = Message::new_with_blockhash(
+        &[post_revoke_transfer_ix],
+        Some(&delegate.pubkey()),
+        &recent_blockhash,
+    );
+    let post_revoke_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(post_revoke_msg), &[&delegate])
+            .unwrap();
+
+    let post_revoke_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(post_revoke_tx, false, false));
+    assert!(
+        post_revoke_result.is_err(),
+        "Transfer after revoke should fail"
+    );
+}
+
+/// Token-2022 freeze/thaw operations.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_token2022_freeze_thaw() {
+    use solana_system_interface::instruction as system_instruction;
+    use spl_token_2022_interface::instruction::{
+        freeze_account, initialize_mint2, mint_to, thaw_account, transfer_checked,
+    };
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let owner = Keypair::new();
+    let recipient = Keypair::new();
+    let mint = Keypair::new();
+    let decimals = 6u8;
+
+    svm_locker
+        .airdrop(&owner.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    let mint_rent =
+        svm_locker.with_svm_reader(|svm| svm.inner.minimum_balance_for_rent_exemption(82));
+
+    let create_mint_ix = system_instruction::create_account(
+        &owner.pubkey(),
+        &mint.pubkey(),
+        mint_rent,
+        82,
+        &spl_token_2022_interface::id(),
+    );
+
+    let init_mint_ix = initialize_mint2(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &owner.pubkey(),
+        Some(&owner.pubkey()), // freeze authority = owner
+        decimals,
+    )
+    .unwrap();
+
+    let owner_ata =
+        spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+            &owner.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let recipient_ata =
+        spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+            &recipient.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let create_owner_ata_ix =
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
+            &owner.pubkey(),
+            &owner.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let create_recipient_ata_ix =
+        spl_associated_token_account_interface::instruction::create_associated_token_account(
+            &owner.pubkey(),
+            &recipient.pubkey(),
+            &mint.pubkey(),
+            &spl_token_2022_interface::id(),
+        );
+
+    let mint_amount = 1_000_000u64;
+    let mint_to_ix = mint_to(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &owner_ata,
+        &owner.pubkey(),
+        &[&owner.pubkey()],
+        mint_amount,
+    )
+    .unwrap();
+
+    let setup_msg = Message::new_with_blockhash(
+        &[
+            create_mint_ix,
+            init_mint_ix,
+            create_owner_ata_ix,
+            create_recipient_ata_ix,
+            mint_to_ix,
+        ],
+        Some(&owner.pubkey()),
+        &recent_blockhash,
+    );
+    let setup_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(setup_msg), &[&owner, &mint])
+            .unwrap();
+
+    let setup_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(setup_tx, false, false));
+    assert!(
+        setup_result.is_ok(),
+        "Setup failed: {:?}",
+        setup_result.err()
+    );
+
+    let freeze_ix = freeze_account(
+        &spl_token_2022_interface::id(),
+        &owner_ata,
+        &mint.pubkey(),
+        &owner.pubkey(), // freeze authority
+        &[&owner.pubkey()],
+    )
+    .unwrap();
+
+    let freeze_msg =
+        Message::new_with_blockhash(&[freeze_ix], Some(&owner.pubkey()), &recent_blockhash);
+    let freeze_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(freeze_msg), &[&owner]).unwrap();
+
+    let freeze_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(freeze_tx, false, false));
+    assert!(
+        freeze_result.is_ok(),
+        "Freeze failed: {:?}",
+        freeze_result.err()
+    );
+
+    let transfer_amount = 100_000u64;
+    let frozen_transfer_ix = transfer_checked(
+        &spl_token_2022_interface::id(),
+        &owner_ata,
+        &mint.pubkey(),
+        &recipient_ata,
+        &owner.pubkey(),
+        &[&owner.pubkey()],
+        transfer_amount,
+        decimals,
+    )
+    .unwrap();
+
+    let frozen_transfer_msg = Message::new_with_blockhash(
+        &[frozen_transfer_ix],
+        Some(&owner.pubkey()),
+        &recent_blockhash,
+    );
+    let frozen_transfer_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(frozen_transfer_msg), &[&owner])
+            .unwrap();
+
+    let frozen_transfer_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(frozen_transfer_tx, false, false));
+    assert!(
+        frozen_transfer_result.is_err(),
+        "Transfer from frozen account should fail"
+    );
+
+    let fresh_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    let thaw_ix = thaw_account(
+        &spl_token_2022_interface::id(),
+        &owner_ata,
+        &mint.pubkey(),
+        &owner.pubkey(), // freeze authority
+        &[&owner.pubkey()],
+    )
+    .unwrap();
+
+    let thaw_msg = Message::new_with_blockhash(&[thaw_ix], Some(&owner.pubkey()), &fresh_blockhash);
+    let thaw_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(thaw_msg), &[&owner]).unwrap();
+
+    let thaw_result = svm_locker.with_svm_writer(|svm| svm.send_transaction(thaw_tx, false, false));
+    assert!(thaw_result.is_ok(), "Thaw failed: {:?}", thaw_result.err());
+    println!("✓ Step 3: Account thawed");
+
+    // === Step 4: Verify transfer works after thaw ===
+    // Use a different amount to ensure unique transaction signature
+    let post_thaw_amount = 50_000u64; // Different from step 2's amount
+    let post_thaw_transfer_ix = transfer_checked(
+        &spl_token_2022_interface::id(),
+        &owner_ata,
+        &mint.pubkey(),
+        &recipient_ata,
+        &owner.pubkey(),
+        &[&owner.pubkey()],
+        post_thaw_amount,
+        decimals,
+    )
+    .unwrap();
+
+    let post_thaw_msg = Message::new_with_blockhash(
+        &[post_thaw_transfer_ix],
+        Some(&owner.pubkey()),
+        &fresh_blockhash,
+    );
+    let post_thaw_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(post_thaw_msg), &[&owner]).unwrap();
+
+    let post_thaw_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(post_thaw_tx, false, false));
+    assert!(
+        post_thaw_result.is_ok(),
+        "Transfer after thaw failed: {:?}",
+        post_thaw_result.err()
+    );
+    println!(
+        "✓ Step 4: Transfer after thaw succeeded ({} tokens)",
+        post_thaw_amount
+    );
+
+    println!("✓ All freeze/thaw operations work correctly!");
+}

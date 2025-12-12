@@ -42,7 +42,17 @@ pub fn get_program_metadata_from_manifest_with_dep(
         None
     };
 
-    Ok(Some(ProgramMetadata::new(&program_name, &idl)))
+    let so_exists = {
+        let mut so_path = base_location.clone();
+        so_path
+            .append_path(&format!("target/deploy/{}.so", program_name))
+            .map_err(|e| {
+                anyhow!("failed to construct path to program .so file for existence check: {e}")
+            })?;
+        so_path.exists()
+    };
+
+    Ok(Some(ProgramMetadata::new(&program_name, &idl, so_exists)))
 }
 
 #[derive(Debug, Clone, Deserialize)]
