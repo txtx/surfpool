@@ -1647,7 +1647,14 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         config: Option<TimeTravelConfig>,
     ) -> Result<EpochInfo> {
         let key = meta.as_ref().map(|ctx| ctx.id.clone()).unwrap_or_default();
-        let time_travel_config = config.unwrap_or_default();
+        let mut time_travel_config = config.unwrap_or_default();
+        // FIX: Convert timestamp from seconds to milliseconds if needed
+        if let TimeTravelConfig::AbsoluteTimestamp(ref mut ts) = time_travel_config {
+         // comment If timestamp is in seconds (< 10 billion), convert to milliseconds
+        if *ts < 10_000_000_000 {
+            *ts *= 1000;
+        }
+         }
         let simnet_command_tx = meta.get_surfnet_command_tx()?;
         let svm_locker = meta.get_svm_locker()?;
 
