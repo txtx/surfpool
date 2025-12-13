@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    str::FromStr,
     sync::Arc,
     time::SystemTime,
 };
@@ -52,10 +53,10 @@ use solana_transaction_status::{
     UiTransactionEncoding,
 };
 use surfpool_types::{
-    AccountSnapshot, ComputeUnitsEstimationResult, ExecutionCapture, ExportSnapshotConfig, Idl,
-    KeyedProfileResult, ProfileResult, RpcProfileResultConfig, RunbookExecutionStatusReport,
-    SimnetCommand, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
-    UiKeyedProfileResult, UuidOrSignature, VersionedIdl,
+    ComputeUnitsEstimationResult, ExecutionCapture, ExportSnapshotConfig, Idl, KeyedProfileResult,
+    ProfileResult, RpcProfileResultConfig, RunbookExecutionStatusReport, Scenario, SimnetCommand,
+    SimnetEvent, SnapshotResult, TimeseriesSurfnetSnapshot, TransactionConfirmationStatus,
+    TransactionStatusEvent, UiKeyedProfileResult, UuidOrSignature, VersionedIdl,
 };
 use tokio::sync::RwLock;
 use txtx_addon_kit::indexmap::IndexSet;
@@ -2834,15 +2835,12 @@ impl SurfnetSvmLocker {
     }
 
     /// Confirms the current block on the underlying SVM, returning `Ok(())` or an error.
-    pub async fn confirm_current_block(
-        &self,
-        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
-    ) -> SurfpoolResult<()> {
+    pub async fn confirm_current_block(&self) -> SurfpoolResult<()> {
         // Acquire write lock once and do both operations atomically
         // This prevents lock contention and potential deadlocks from mixing blocking and async locks
         let mut svm_writer = self.0.write().await;
         svm_writer.confirm_current_block()?;
-        svm_writer.materialize_overrides(remote_ctx).await
+        svm_writer.apply_overrides()
     }
 
     /// Subscribes for signature updates (confirmed/finalized) and returns a receiver of events.
@@ -2908,11 +2906,101 @@ impl SurfnetSvmLocker {
         });
     }
 
-    pub fn export_snapshot(
-        &self,
-        config: ExportSnapshotConfig,
-    ) -> BTreeMap<String, AccountSnapshot> {
+    pub fn export_snapshot(&self, config: ExportSnapshotConfig) -> SnapshotResult {
         self.with_svm_reader(|svm_reader| svm_reader.export_snapshot(config))
+    }
+
+    pub async fn fetch_scenario_override_accounts(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+        scenario: &Scenario,
+    ) -> SurfpoolResult<()> {
+        for override_instance in scenario.overrides.iter() {
+            if !override_instance.enabled {
+                debug!("Skipping disabled override: {}", override_instance.id);
+                continue;
+            }
+            // Resolve account address
+            let account_pubkey = match &override_instance.account {
+                surfpool_types::AccountAddress::Pubkey(pubkey_str) => {
+                    match Pubkey::from_str(pubkey_str) {
+                        Ok(pubkey) => pubkey,
+                        Err(e) => {
+                            warn!(
+                                "Failed to parse pubkey '{}' for override {}: {}",
+                                pubkey_str, override_instance.id, e
+                            );
+                            continue;
+                        }
+                    }
+                }
+                surfpool_types::AccountAddress::Pda {
+                    program_id: _,
+                    seeds: _,
+                } => unimplemented!(),
+            };
+
+            // Fetch fresh account data from remote if requested
+            if override_instance.fetch_before_use {
+                if let Some((client, _)) = remote_ctx {
+                    debug!(
+                        "Fetching fresh account data for {} from remote",
+                        account_pubkey
+                    );
+
+                    match client
+                        .get_account(&account_pubkey, CommitmentConfig::confirmed())
+                        .await
+                    {
+                        Ok(GetAccountResult::FoundAccount(_pubkey, remote_account, _)) => {
+                            debug!(
+                                "Fetched account {} from remote: {} lamports, {} bytes",
+                                account_pubkey,
+                                remote_account.lamports(),
+                                remote_account.data().len()
+                            );
+
+                            // Set the fresh account data in the SVM
+                            self.with_svm_writer(|svm_writer| {
+                                if let Err(e) =
+                                    svm_writer.set_account(&account_pubkey, remote_account)
+                                {
+                                    warn!(
+                                        "Failed to set account {} from remote: {}",
+                                        account_pubkey, e
+                                    );
+                                }
+                            });
+                        }
+                        Ok(GetAccountResult::None(_)) => {
+                            debug!("Account {} not found on remote", account_pubkey);
+                        }
+                        Ok(_) => {
+                            debug!("Account {} fetched (other variant)", account_pubkey);
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to fetch account {} from remote: {}",
+                                account_pubkey, e
+                            );
+                        }
+                    }
+                } else {
+                    debug!(
+                        "fetch_before_use enabled but no remote client available for override {}",
+                        override_instance.id
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn export_scenario_snapshot(
+        &self,
+        scenario_id: String,
+        config: ExportSnapshotConfig,
+    ) -> SurfpoolResult<TimeseriesSurfnetSnapshot> {
+        self.with_svm_writer(|svm_writer| svm_writer.snapshot_overrides(scenario_id, config))
     }
 
     pub fn get_start_time(&self) -> SystemTime {

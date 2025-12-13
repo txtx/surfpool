@@ -2626,7 +2626,7 @@ mod tests {
         setup
             .context
             .svm_locker
-            .confirm_current_block(&None)
+            .confirm_current_block()
             .await
             .unwrap();
         let res = setup
@@ -3386,7 +3386,7 @@ mod tests {
             setup
                 .context
                 .svm_locker
-                .confirm_current_block(&None)
+                .confirm_current_block()
                 .await
                 .unwrap();
         }
@@ -3431,7 +3431,7 @@ mod tests {
             setup
                 .context
                 .svm_locker
-                .confirm_current_block(&None)
+                .confirm_current_block()
                 .await
                 .unwrap();
         }
