@@ -148,6 +148,7 @@ spl-associated-token-account-interface = { version = "2.0.0", default-features =
 spl-token-2022-interface = { version = "2.0.0", default-features = false }
 spl-token-interface = { version = "2.0.0", default-features = false }
 test-case = "^3.3.1"
+thiserror = "2.0"
 tokio = { version = "1.43.0", default-features = false }
 tokio-tungstenite = { version = "=0.20.1", default-features = false }
 toml = { version = "0.8.23", default-features = false }
