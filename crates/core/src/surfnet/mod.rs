@@ -59,7 +59,7 @@ impl BlockIdentifier {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockHeader {
     pub hash: String,
     pub previous_blockhash: String,

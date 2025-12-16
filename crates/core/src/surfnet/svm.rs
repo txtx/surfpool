@@ -101,6 +101,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
     scenarios::TemplateRegistry,
+    storage::{SqliteStorage, Storage, StorageConstructor},
     surfnet::{LogsSubscriptionData, locker::is_supported_token_program},
     types::{
         GeyserAccountUpdate, MintAccount, SurfnetTransactionStatus, SyntheticBlockhash,
@@ -218,7 +219,7 @@ pub struct SurfnetSvm {
     pub inner: LiteSVM,
     pub remote_rpc_url: Option<String>,
     pub chain_tip: BlockIdentifier,
-    pub blocks: HashMap<Slot, BlockHeader>,
+    pub blocks: Box<dyn Storage<u64, BlockHeader>>,
     pub transactions: HashMap<Signature, SurfnetTransactionStatus>,
     pub transactions_queued_for_confirmation: VecDeque<(
         VersionedTransaction,
@@ -316,11 +317,13 @@ impl SurfnetSvm {
         let token_mints =
             HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
 
+        let blocks_db = Box::new(SqliteStorage::connect(Some("surfnet.sqlite"), "blocks").unwrap());
+
         let mut svm = Self {
             inner,
             remote_rpc_url: None,
             chain_tip: BlockIdentifier::zero(),
-            blocks: HashMap::new(),
+            blocks: blocks_db,
             transactions: HashMap::new(),
             perf_samples: VecDeque::new(),
             transactions_processed: 0,
@@ -1022,7 +1025,7 @@ impl SurfnetSvm {
             HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
 
         self.inner = inner;
-        self.blocks.clear();
+        self.blocks.clear()?;
         self.transactions.clear();
         self.transactions_queued_for_confirmation.clear();
         self.transactions_queued_for_finalization.clear();
@@ -1476,7 +1479,7 @@ impl SurfnetSvm {
         let num_transactions = confirmed_signatures.len() as u64;
         self.updated_at += self.slot_time;
 
-        self.blocks.insert(
+        self.blocks.store(
             slot,
             BlockHeader {
                 hash: self.chain_tip.hash.clone(),
@@ -1486,7 +1489,7 @@ impl SurfnetSvm {
                 parent_slot: slot,
                 signatures: confirmed_signatures,
             },
-        );
+        )?;
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
         }
@@ -1968,7 +1971,7 @@ impl SurfnetSvm {
         slot: Slot,
         config: &RpcBlockConfig,
     ) -> SurfpoolResult<Option<UiConfirmedBlock>> {
-        let Some(block) = self.blocks.get(&slot) else {
+        let Some(block) = self.blocks.get(&slot)? else {
             return Ok(None);
         };
 
@@ -2042,6 +2045,7 @@ impl SurfnetSvm {
     pub fn blockhash_for_slot(&self, slot: Slot) -> Option<Hash> {
         self.blocks
             .get(&slot)
+            .unwrap()
             .and_then(|header| header.hash.parse().ok())
     }
 

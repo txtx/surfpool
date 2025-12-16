@@ -473,12 +473,13 @@ impl AccountsData for SurfpoolAccountsDataRpc {
         // get the info we need and free up lock before validation
         let (current_slot, block_exists) = meta
             .with_svm_reader(|svm_reader| {
-                (
-                    svm_reader.get_latest_absolute_slot(),
-                    svm_reader.blocks.contains_key(&block),
-                )
+                svm_reader
+                    .blocks
+                    .contains_key(&block)
+                    .map_err(SurfpoolError::from)
+                    .map(|exists| (svm_reader.get_latest_absolute_slot(), exists))
             })
-            .map_err(Into::<jsonrpc_core::Error>::into)?;
+            .map_err(Into::<jsonrpc_core::Error>::into)??;
 
         // block is valid if it exists in our block history or it's not too far in the future
         if !block_exists && block > current_slot {
@@ -816,17 +817,20 @@ mod tests {
         setup.context.svm_locker.with_svm_writer(|svm_writer| {
             use crate::surfnet::BlockHeader;
 
-            svm_writer.blocks.insert(
-                test_slot,
-                BlockHeader {
-                    hash: SyntheticBlockhash::new(test_slot).to_string(),
-                    previous_blockhash: SyntheticBlockhash::new(test_slot - 1).to_string(),
-                    parent_slot: test_slot - 1,
-                    block_time: chrono::Utc::now().timestamp_millis(),
-                    block_height: test_slot,
-                    signatures: vec![],
-                },
-            );
+            svm_writer
+                .blocks
+                .store(
+                    test_slot,
+                    BlockHeader {
+                        hash: SyntheticBlockhash::new(test_slot).to_string(),
+                        previous_blockhash: SyntheticBlockhash::new(test_slot - 1).to_string(),
+                        parent_slot: test_slot - 1,
+                        block_time: chrono::Utc::now().timestamp_millis(),
+                        block_height: test_slot,
+                        signatures: vec![],
+                    },
+                )
+                .unwrap();
         });
 
         let result = setup

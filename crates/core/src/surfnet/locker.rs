@@ -760,7 +760,7 @@ impl SurfnetSvmLocker {
             let slot = transaction_with_status_meta.slot;
             let block_time = svm_reader
                 .blocks
-                .get(&slot)
+                .get(&slot)?
                 .map(|b| (b.block_time / 1_000) as UnixTimestamp)
                 .unwrap_or(0);
             let encoded = transaction_with_status_meta.encode(
@@ -2681,7 +2681,7 @@ impl SurfnetSvmLocker {
 
 impl SurfnetSvmLocker {
     pub fn get_first_local_slot(&self) -> Option<Slot> {
-        self.with_svm_reader(|svm_reader| svm_reader.blocks.keys().min().copied())
+        self.with_svm_reader(|svm_reader| svm_reader.blocks.keys().unwrap().into_iter().min())
     }
 
     pub async fn get_block(
