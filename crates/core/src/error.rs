@@ -9,6 +9,8 @@ use solana_clock::Slot;
 use solana_pubkey::Pubkey;
 use solana_transaction_status::EncodeError;
 
+use crate::storage::StorageError;
+
 pub type SurfpoolResult<T> = std::result::Result<T, SurfpoolError>;
 
 #[derive(Debug, Clone)]
@@ -445,5 +447,13 @@ impl SurfpoolError {
         let mut error = Error::internal_error();
         error.message = format!("Expected profile not found for key {key}");
         Self(error)
+    }
+}
+
+impl From<StorageError> for SurfpoolError {
+    fn from(e: StorageError) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!("Storage error: {}", e.to_string())));
+        SurfpoolError(error)
     }
 }

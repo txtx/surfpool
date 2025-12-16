@@ -15,6 +15,7 @@ pub mod helpers;
 pub mod rpc;
 pub mod runloops;
 pub mod scenarios;
+pub mod storage;
 pub mod surfnet;
 pub mod types;
 
