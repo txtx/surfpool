@@ -2957,7 +2957,10 @@ mod tests {
             Ok(event) => match event {
                 SimnetEvent::AccountUpdate(_, account_pubkey) => {
                     assert_eq!(pubkey, &account_pubkey);
-                    assert_eq!(svm.get_account(&pubkey).as_ref(), Some(expected_account));
+                    assert_eq!(
+                        svm.get_account(&pubkey).unwrap().as_ref(),
+                        Some(expected_account)
+                    );
                     true
                 }
                 event => {
@@ -3041,27 +3044,27 @@ mod tests {
 
         // GetAccountResult::None should be a noop when writing account updates
         {
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.inner.get_all_accounts().unwrap();
             let empty_update = GetAccountResult::None(pubkey);
             svm.write_account_update(empty_update);
-            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
+            assert_eq!(svm.inner.get_all_accounts().unwrap(), index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to false should be a noop
         {
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.inner.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), false);
             svm.write_account_update(found_update);
-            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
+            assert_eq!(svm.inner.get_all_accounts().unwrap(), index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to true should update the account
         {
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.inner.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), true);
             svm.write_account_update(found_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.inner.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(&events_rx, &svm, &pubkey, &account) {
@@ -3095,7 +3098,7 @@ mod tests {
                 rent_epoch: 0,
             };
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.inner.get_all_accounts().unwrap();
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
@@ -3119,7 +3122,7 @@ mod tests {
                 );
             }
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.inner.get_all_accounts().unwrap().len(),
                 index_before.len() + 2
             );
         }
@@ -3129,14 +3132,14 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.inner.get_all_accounts().unwrap();
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, Some(program_data_account.clone())),
             );
             svm.write_account_update(found_program_account_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.inner.get_all_accounts().unwrap().len(),
                 index_before.len() + 2
             );
             if !expect_account_update_event(
@@ -3163,7 +3166,7 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.inner.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(
                 program_data_address,
                 program_data_account.clone(),
@@ -3171,7 +3174,7 @@ mod tests {
             );
             svm.write_account_update(found_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.inner.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(
@@ -3185,14 +3188,14 @@ mod tests {
                 );
             }
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.inner.get_all_accounts().unwrap();
             let program_account_found_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
             );
             svm.write_account_update(program_account_found_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.inner.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
@@ -3611,6 +3614,7 @@ mod tests {
         assert!(
             svm.inner
                 .get_account(&spl_token_interface::native_mint::ID)
+                .unwrap()
                 .is_some()
         );
 
@@ -3621,6 +3625,7 @@ mod tests {
         assert!(
             svm.inner
                 .get_account(&spl_token_interface::native_mint::ID)
+                .unwrap()
                 .is_some()
         );
     }
@@ -3709,7 +3714,10 @@ mod tests {
 
         svm.set_account(&token_account_pubkey, account).unwrap();
 
-        assert_eq!(svm.get_token_accounts_by_owner(&token_owner).len(), 1);
+        assert_eq!(
+            svm.get_token_accounts_by_owner(&token_owner).unwrap().len(),
+            1
+        );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 1);
         assert!(!svm.closed_accounts.contains(&token_account_pubkey));
 
@@ -3719,7 +3727,10 @@ mod tests {
 
         assert!(svm.closed_accounts.contains(&token_account_pubkey));
 
-        assert_eq!(svm.get_token_accounts_by_owner(&token_owner).len(), 0);
+        assert_eq!(
+            svm.get_token_accounts_by_owner(&token_owner).unwrap().len(),
+            0
+        );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 0);
         assert!(svm.token_accounts.get(&token_account_pubkey).is_none());
     }
