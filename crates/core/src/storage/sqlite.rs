@@ -69,21 +69,21 @@ where
     }
 
     fn serialize_key(&self, key: &K) -> StorageResult<String> {
-        debug!("Serializing key for table '{}'", self.table_name);
+        trace!("Serializing key for table '{}'", self.table_name);
         let result =
             serde_json::to_string(key).map_err(|e| StorageError::SerializeKeyError(NAME.into(), e));
         if let Ok(ref serialized) = result {
-            debug!("Key serialized successfully: {}", serialized);
+            trace!("Key serialized successfully: {}", serialized);
         }
         result
     }
 
     fn serialize_value(&self, value: &V) -> StorageResult<String> {
-        debug!("Serializing value for table '{}'", self.table_name);
+        trace!("Serializing value for table '{}'", self.table_name);
         let result = serde_json::to_string(value)
             .map_err(|e| StorageError::SerializeValueError(NAME.into(), e));
         if let Ok(ref serialized) = result {
-            debug!(
+            trace!(
                 "Value serialized successfully, length: {} chars",
                 serialized.len()
             );
@@ -92,7 +92,7 @@ where
     }
 
     fn deserialize_value(&self, value_str: &str) -> StorageResult<V> {
-        debug!(
+        trace!(
             "Deserializing value from table '{}', input length: {} chars",
             self.table_name,
             value_str.len()
@@ -100,7 +100,7 @@ where
         let result = serde_json::from_str(value_str)
             .map_err(|e| StorageError::DeserializeValueError(NAME.into(), e));
         if result.is_ok() {
-            debug!("Value deserialized successfully");
+            trace!("Value deserialized successfully");
         }
         result
     }
@@ -113,7 +113,7 @@ where
         ))
         .bind::<Text, _>(key_str);
 
-        debug!("Getting connection from pool for loading value");
+        trace!("Getting connection from pool for loading value");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
 
         let records = query
@@ -149,7 +149,7 @@ where
         .bind::<Text, _>(&key_str)
         .bind::<Text, _>(&value_str);
 
-        debug!("Getting connection from pool for store operation");
+        trace!("Getting connection from pool for store operation");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
 
         query
@@ -178,7 +178,7 @@ where
             let delete_query = sql_query(format!("DELETE FROM {} WHERE key = ?", self.table_name))
                 .bind::<Text, _>(&key_str);
 
-            debug!("Getting connection from pool for delete operation");
+            trace!("Getting connection from pool for delete operation");
             let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
 
             delete_query
@@ -200,7 +200,7 @@ where
         debug!("Clearing all data from table '{}'", self.table_name);
         let delete_query = sql_query(format!("DELETE FROM {}", self.table_name));
 
-        debug!("Getting connection from pool for clear operation");
+        trace!("Getting connection from pool for clear operation");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
 
         delete_query
@@ -215,7 +215,7 @@ where
         debug!("Fetching all keys from table '{}'", self.table_name);
         let query = sql_query(format!("SELECT key FROM {}", self.table_name));
 
-        debug!("Getting connection from pool for keys operation");
+        trace!("Getting connection from pool for keys operation");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
 
         let records = query
@@ -248,7 +248,7 @@ where
         );
         let query = sql_query(format!("SELECT key, value FROM {}", self.table_name));
 
-        debug!("Getting connection from pool for into_iter operation");
+        trace!("Getting connection from pool for into_iter operation");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
 
         let records = query
@@ -293,7 +293,7 @@ where
             database_url, table_name
         );
         let manager = ConnectionManager::<diesel::SqliteConnection>::new(database_url);
-        debug!("Creating connection pool");
+        trace!("Creating connection pool");
         let pool =
             Pool::new(manager).map_err(|e| StorageError::PooledConnectionError(NAME.into(), e))?;
 
