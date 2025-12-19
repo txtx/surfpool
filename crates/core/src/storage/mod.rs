@@ -1,10 +1,9 @@
-// mod hash_map;
+mod hash_map;
 #[cfg(feature = "sqlite")]
 mod sqlite;
-// pub use hash_map::HashMap as StorageHashMap;
+pub use hash_map::HashMap as StorageHashMap;
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteStorage;
-use surfpool_db::diesel::ConnectionError;
 
 use crate::error::SurfpoolError;
 
