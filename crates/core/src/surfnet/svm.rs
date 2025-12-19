@@ -1594,30 +1594,30 @@ impl SurfnetSvm {
         idl: &Idl,
         overrides: &HashMap<String, serde_json::Value>,
     ) -> SurfpoolResult<Vec<u8>> {
+        // Find the account type using the discriminator
+        let account_def = idl
+            .accounts
+            .iter()
+            .find(|acc| find_discriminator(&account_data, &acc.discriminator))
+            .ok_or_else(|| {
+                SurfpoolError::internal(format!(
+                    "Account with discriminator '{:?}' not found in IDL",
+                    &account_data[..8] // assuming 8-byte discriminator for error message only
+                ))
+            })?;
+
         // Validate account data size
-        if account_data.len() < 8 {
+        if account_data.len() <= account_def.discriminator.len() {
             return Err(SurfpoolError::invalid_account_data(
                 account_pubkey,
-                "Account data too small to be an Anchor account (need at least 8 bytes for discriminator)",
+                "Account data too small to contain discriminator and data".to_string(),
                 Some("Data length too small"),
             ));
         }
 
         // Split discriminator and data
-        let discriminator = &account_data[..8];
-        let serialized_data = &account_data[8..];
-
-        // Find the account type using the discriminator
-        let account_def = idl
-            .accounts
-            .iter()
-            .find(|acc| acc.discriminator.eq(discriminator))
-            .ok_or_else(|| {
-                SurfpoolError::internal(format!(
-                    "Account with discriminator '{:?}' not found in IDL",
-                    discriminator
-                ))
-            })?;
+        let discriminator = &account_data[..account_def.discriminator.len()];
+        let serialized_data = &account_data[account_def.discriminator.len()..];
 
         // Find the corresponding type definition
         let account_type = idl
@@ -1687,7 +1687,7 @@ impl SurfnetSvm {
 
         // Reconstruct the account data with discriminator and preserve any trailing bytes
         let mut new_account_data =
-            Vec::with_capacity(8 + re_encoded_data.len() + leftover_bytes.len());
+            Vec::with_capacity(discriminator.len() + re_encoded_data.len() + leftover_bytes.len());
         new_account_data.extend_from_slice(discriminator);
         new_account_data.extend_from_slice(&re_encoded_data);
         new_account_data.extend_from_slice(leftover_bytes);
@@ -2298,17 +2298,17 @@ impl SurfnetSvm {
                         }
                     })
                     .collect::<Vec<_>>();
+
                 // if we have none in this loop, it means the only IDLs registered for this pubkey are for a
                 // future slot, for some reason. if we have some, we'll try each one in this loop, starting
                 // with the most recent one, to see if the account data can be parsed to the IDL type
                 for idl in &ordered_available_idls {
                     // If we have a valid IDL, use it to parse the account data
                     let data = account.data();
-                    let discriminator = &data[..8];
                     if let Some(matching_account) = idl
                         .accounts
                         .iter()
-                        .find(|a| a.discriminator.eq(&discriminator))
+                        .find(|a| find_discriminator(data, &a.discriminator))
                     {
                         // If we found a matching account, we can look up the type to parse the account
                         if let Some(account_type) =
