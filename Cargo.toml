@@ -139,6 +139,7 @@ solana-signer = { version = "3.0.0", default-features = false }
 solana-slot-hashes = { version = "3.0.0", default-features = false }
 solana-system-interface = { version = "2.0.0", default-features = false }
 solana-sysvar = { version = "3.0.0", default-features = false }
+solana-sysvar-id = { version = "3.0.0", default-features = false }
 solana-transaction = { version = "3.0.0", default-features = false }
 solana-transaction-context = { version = "3.0.0", default-features = false }
 solana-transaction-error = { version = "3.0.0", default-features = false }
