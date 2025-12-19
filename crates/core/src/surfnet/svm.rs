@@ -329,12 +329,30 @@ impl SurfnetSvm {
         let token_mints =
             HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
 
-        let blocks_db = Box::new(SqliteStorage::connect(Some("surfnet.sqlite"), "blocks").unwrap());
+        let blocks_db = if let Some(database_url) = database_url {
+            Box::new(SqliteStorage::connect(database_url, "blocks")?)
+                as Box<dyn Storage<u64, BlockHeader>>
+        } else {
+            Box::new(crate::storage::StorageHashMap::new()) as Box<dyn Storage<u64, BlockHeader>>
+        };
+
+        let chain_tip = if let Some((_, block)) = blocks_db
+            .into_iter()
+            .unwrap()
+            .max_by_key(|(slot, _): &(u64, BlockHeader)| *slot)
+        {
+            BlockIdentifier {
+                index: block.block_height,
+                hash: block.hash,
+            }
+        } else {
+            BlockIdentifier::zero()
+        };
 
         let mut svm = Self {
             inner,
             remote_rpc_url: None,
-            chain_tip: BlockIdentifier::zero(),
+            chain_tip,
             blocks: blocks_db,
             transactions: HashMap::new(),
             perf_samples: VecDeque::new(),
