@@ -148,6 +148,7 @@ solana-version = { version = "3.0.0", default-features = false }
 spl-associated-token-account-interface = { version = "2.0.0", default-features = false }
 spl-token-2022-interface = { version = "2.0.0", default-features = false }
 spl-token-interface = { version = "2.0.0", default-features = false }
+tempfile = "3.23.0"
 test-case = "^3.3.1"
 thiserror = "2.0"
 tokio = { version = "1.43.0", default-features = false }
