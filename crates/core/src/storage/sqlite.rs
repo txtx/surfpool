@@ -62,7 +62,7 @@ where
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
 
         conn.batch_execute(&create_table_sql)
-            .map_err(|e| StorageError::QueryError(self.table_name.clone(), e))?;
+            .map_err(|e| StorageError::create_table(&self.table_name, NAME, e))?;
 
         debug!("Successfully ensured table '{}' exists", self.table_name);
         Ok(())
@@ -118,7 +118,7 @@ where
 
         let records = query
             .load::<ValueRecord>(&mut *conn)
-            .map_err(|e| StorageError::QueryError(self.table_name.clone(), e))?;
+            .map_err(|e| StorageError::get(&self.table_name, NAME, key_str, e))?;
 
         if let Some(record) = records.into_iter().next() {
             debug!("Found record for key: {}", key_str);
@@ -154,7 +154,7 @@ where
 
         query
             .execute(&mut *conn)
-            .map_err(|e| StorageError::QueryError(self.table_name.clone(), e))?;
+            .map_err(|e| StorageError::store(&self.table_name, NAME, &key_str, e))?;
 
         debug!("Value stored successfully in table '{}'", self.table_name);
         Ok(())
@@ -183,7 +183,7 @@ where
 
             delete_query
                 .execute(&mut *conn)
-                .map_err(|e| StorageError::QueryError(self.table_name.clone(), e))?;
+                .map_err(|e| StorageError::delete(&self.table_name, NAME, &key_str, e))?;
 
             debug!(
                 "Value taken and removed successfully from table '{}'",
@@ -205,7 +205,7 @@ where
 
         delete_query
             .execute(&mut *conn)
-            .map_err(|e| StorageError::QueryError(self.table_name.clone(), e))?;
+            .map_err(|e| StorageError::delete(&self.table_name, NAME, "*all*", e))?;
 
         debug!("Table '{}' cleared successfully", self.table_name);
         Ok(())
@@ -220,7 +220,7 @@ where
 
         let records = query
             .load::<KeyRecord>(&mut *conn)
-            .map_err(|e| StorageError::QueryError(self.table_name.clone(), e))?;
+            .map_err(|e| StorageError::get_all_keys(&self.table_name, NAME, e))?;
 
         let mut keys = Vec::new();
         for record in records {
@@ -253,7 +253,7 @@ where
 
         let records = query
             .load::<KvRecord>(&mut *conn)
-            .map_err(|e| StorageError::QueryError(self.table_name.clone(), e))?;
+            .map_err(|e| StorageError::get_all_key_value_pairs(&self.table_name, NAME, e))?;
 
         let iter = records.into_iter().filter_map(move |record| {
             let key: K = match serde_json::from_str(&record.key) {
