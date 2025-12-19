@@ -2710,12 +2710,17 @@ mod tests {
         let sig = Signature::from_str(res.as_str()).unwrap();
         let state_reader = setup.context.svm_locker.0.blocking_read();
         assert_eq!(
-            state_reader.inner.get_account(&pk).unwrap().lamports,
+            state_reader
+                .inner
+                .get_account(&pk)
+                .unwrap()
+                .unwrap()
+                .lamports,
             lamports,
             "airdropped amount is incorrect"
         );
         assert!(
-            state_reader.inner.get_transaction(&sig).is_some(),
+            state_reader.get_transaction(&sig).unwrap().is_some(),
             "transaction is not found in the SVM"
         );
         assert!(

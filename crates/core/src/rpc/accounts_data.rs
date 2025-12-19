@@ -1082,6 +1082,7 @@ mod tests {
             .context
             .svm_locker
             .airdrop(&fee_payer.pubkey(), 1_000_000_000)
+            .unwrap()
             .unwrap();
 
         // Airdrop 1 SOL to recipient for rent exemption
@@ -1089,6 +1090,7 @@ mod tests {
             .context
             .svm_locker
             .airdrop(&recipient.pubkey(), 1_000_000_000)
+            .unwrap()
             .unwrap();
 
         // Generate keypair to use as address of mint
@@ -1295,6 +1297,7 @@ mod tests {
             .context
             .svm_locker
             .airdrop(&fee_payer.pubkey(), 1_000_000_000)
+            .unwrap()
             .unwrap();
 
         // Airdrop 1 SOL to recipient for rent exemption
@@ -1302,6 +1305,7 @@ mod tests {
             .context
             .svm_locker
             .airdrop(&recipient.pubkey(), 1_000_000_000)
+            .unwrap()
             .unwrap();
 
         // Generate keypair to use as address of mint

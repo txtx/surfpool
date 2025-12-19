@@ -1866,6 +1866,7 @@ mod tests {
             .context
             .svm_locker
             .airdrop(&payer.pubkey(), 1_000_000_000)
+            .unwrap()
             .unwrap();
 
         // Airdrop 1 SOL to recipient for rent exemption
@@ -1873,6 +1874,7 @@ mod tests {
             .context
             .svm_locker
             .airdrop(&recipient.pubkey(), 1_000_000_000)
+            .unwrap()
             .unwrap();
 
         // Generate keypair to use as address of mint
@@ -3056,10 +3058,9 @@ mod tests {
         let program_data_address =
             solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
 
-        let program_account_before = client
-            .context
-            .svm_locker
-            .with_svm_reader(|svm_reader| svm_reader.inner.get_account(&program_id.pubkey()));
+        let program_account_before = client.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader.inner.get_account(&program_id.pubkey()).unwrap()
+        });
         assert!(
             program_account_before.is_none(),
             "Program account should not exist initially"
@@ -3085,10 +3086,9 @@ mod tests {
         );
 
         // Verify program account was created
-        let program_account = client
-            .context
-            .svm_locker
-            .with_svm_reader(|svm_reader| svm_reader.inner.get_account(&program_id.pubkey()));
+        let program_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader.inner.get_account(&program_id.pubkey()).unwrap()
+        });
         assert!(
             program_account.is_some(),
             "Program account should be created"
@@ -3105,10 +3105,9 @@ mod tests {
         );
 
         // Verify program data account was created
-        let program_data_account = client
-            .context
-            .svm_locker
-            .with_svm_reader(|svm_reader| svm_reader.inner.get_account(&program_data_address));
+        let program_data_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader.inner.get_account(&program_data_address).unwrap()
+        });
         assert!(
             program_data_account.is_some(),
             "Program data account should be created"
@@ -3157,7 +3156,11 @@ mod tests {
         let program_data_address =
             solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
         let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         let metadata_size =
@@ -3202,7 +3205,11 @@ mod tests {
         let program_data_address =
             solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
         let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         let metadata_size =
@@ -3255,7 +3262,11 @@ mod tests {
         let program_data_address =
             solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
         let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         let metadata_size =
@@ -3314,7 +3325,11 @@ mod tests {
         let program_data_address =
             solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
         let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         let metadata_size =
@@ -3378,7 +3393,11 @@ mod tests {
         let program_data_address =
             solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
         let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         let metadata_size =
@@ -3427,7 +3446,11 @@ mod tests {
         let program_data_address =
             solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
         let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         let metadata_size =
@@ -3463,7 +3486,11 @@ mod tests {
         let program_data_address =
             solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
         let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         let metadata_size =
@@ -3528,7 +3555,11 @@ mod tests {
         let program_data_address =
             solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
         let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         let metadata_size =
@@ -3631,6 +3662,7 @@ mod tests {
                 .inner
                 .get_account(&program_data_address)
                 .unwrap()
+                .unwrap()
                 .lamports
         });
 
@@ -3653,6 +3685,7 @@ mod tests {
                 .inner
                 .get_account(&program_data_address)
                 .unwrap()
+                .unwrap()
                 .lamports
         });
 
@@ -3663,7 +3696,11 @@ mod tests {
 
         // Verify rent exemption
         let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         let required_lamports = client.context.svm_locker.with_svm_reader(|svm_reader| {
@@ -3705,7 +3742,11 @@ mod tests {
 
         // Check program account ownership
         let program_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_id.pubkey()).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_id.pubkey())
+                .unwrap()
+                .unwrap()
         });
         assert_eq!(
             program_account.owner,
@@ -3719,7 +3760,11 @@ mod tests {
 
         // Check program data account ownership
         let program_data_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
         assert_eq!(
             program_data_account.owner,
@@ -3776,7 +3821,11 @@ mod tests {
 
         // Get initial metadata
         let initial_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         let metadata_size =
@@ -3799,7 +3848,11 @@ mod tests {
 
         // Verify metadata is preserved
         let final_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         let final_metadata = final_account.data[..metadata_size].to_vec();
@@ -3837,7 +3890,11 @@ mod tests {
             solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
 
         let first_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         // Second write (same data, same offset)
@@ -3854,7 +3911,11 @@ mod tests {
             .unwrap();
 
         let second_account = client.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.inner.get_account(&program_data_address).unwrap()
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
         });
 
         assert_eq!(

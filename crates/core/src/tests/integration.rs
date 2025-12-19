@@ -702,6 +702,7 @@ async fn test_surfnet_estimate_compute_units() {
 
     svm_instance
         .airdrop(&payer.pubkey(), lamports_to_send * 2)
+        .unwrap()
         .unwrap();
 
     let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
@@ -913,7 +914,7 @@ async fn test_surfnet_estimate_compute_units() {
         response_no_tag_again.is_ok(),
         "RPC call with None tag (again) failed"
     );
-    let rpc_response_no_tag_again_value = response_no_tag_again.unwrap().value;
+    let _rpc_response_no_tag_again_value = response_no_tag_again.unwrap().value;
 
     println!("Retrieving profile results for tag: {} again", tag1);
     let results_response_tag1_again =
@@ -946,6 +947,7 @@ async fn test_surfnet_estimate_compute_units() {
     let (mut svm_for_send, simnet_rx_for_send, _geyser_rx_for_send) = SurfnetSvm::new();
     svm_for_send
         .airdrop(&payer.pubkey(), lamports_to_send * 2)
+        .unwrap()
         .unwrap();
 
     let latest_blockhash_for_send = svm_for_send.latest_blockhash();
@@ -988,6 +990,7 @@ async fn test_get_transaction_profile() {
 
     svm_instance
         .airdrop(&payer.pubkey(), lamports_to_send * 2)
+        .unwrap()
         .unwrap();
 
     // Create a transaction to profile
@@ -1466,6 +1469,7 @@ async fn test_profile_transaction_basic() {
     // Airdrop SOL to payer
     svm_locker
         .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 2))
+        .unwrap()
         .unwrap();
 
     // Create a simple transfer transaction
@@ -1545,6 +1549,7 @@ async fn test_profile_transaction_multi_instruction_basic() {
 
     svm_locker
         .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 4))
+        .unwrap()
         .unwrap();
 
     // Create a multi-instruction transaction: 3 transfers to different recipients
@@ -1941,6 +1946,7 @@ async fn test_profile_transaction_with_tag() {
     // Airdrop SOL to payer
     svm_locker
         .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 3))
+        .unwrap()
         .unwrap();
 
     // Create a simple transfer transaction
@@ -2100,6 +2106,7 @@ async fn test_profile_transaction_token_transfer() {
     // Airdrop SOL to payer
     svm_locker
         .airdrop(&payer.pubkey(), lamports_to_send)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -2132,7 +2139,7 @@ async fn test_profile_transaction_token_transfer() {
         &spl_token_2022_interface::id(),
     );
     println!("Source ATA: {}", source_ata);
-    let dest_ata = spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+    let _dest_ata = spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
         &recipient,
         &mint.pubkey(),
         &spl_token_2022_interface::id(),
@@ -2146,7 +2153,7 @@ async fn test_profile_transaction_token_transfer() {
             &spl_token_2022_interface::id(),
         );
 
-    let create_dest_ata_ix =
+    let _create_dest_ata_ix =
         spl_associated_token_account_interface::instruction::create_associated_token_account(
             &payer.pubkey(),
             &recipient,
@@ -2156,7 +2163,7 @@ async fn test_profile_transaction_token_transfer() {
 
     // Mint tokens
     let mint_amount = 100_00; // 100 tokens with 2 decimals
-    let mint_to_ix = spl_token_2022_interface::instruction::mint_to(
+    let _mint_to_ix = spl_token_2022_interface::instruction::mint_to(
         &spl_token_2022_interface::id(),
         &mint.pubkey(),
         &source_ata,
@@ -2531,6 +2538,7 @@ async fn test_profile_transaction_insufficient_funds() {
 
     svm_locker
         .airdrop(&payer.pubkey(), insufficient_funds)
+        .unwrap()
         .unwrap();
 
     // Create a transfer transaction that will fail due to insufficient funds
@@ -2597,6 +2605,7 @@ async fn test_profile_transaction_multi_instruction_failure() {
     // Airdrop SOL to payer
     svm_locker
         .airdrop(&payer.pubkey(), lamports_to_send * 3)
+        .unwrap()
         .unwrap();
 
     // Create a multi-instruction transaction where the second instruction will fail
@@ -2675,6 +2684,7 @@ async fn test_profile_transaction_with_encoding() {
     // Airdrop SOL to payer
     svm_locker
         .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 2))
+        .unwrap()
         .unwrap();
 
     // Create a simple transfer transaction
@@ -2742,6 +2752,7 @@ async fn test_profile_transaction_with_tag_and_retrieval() {
     // Airdrop SOL to payer
     svm_locker
         .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 3))
+        .unwrap()
         .unwrap();
 
     // Create a simple transfer transaction
@@ -2840,6 +2851,7 @@ async fn test_profile_transaction_empty_instruction() {
     // Airdrop SOL to payer
     svm_locker
         .airdrop(&payer.pubkey(), lamports_to_send)
+        .unwrap()
         .unwrap();
 
     // Create a transaction with no instructions
@@ -2896,6 +2908,7 @@ async fn test_profile_transaction_versioned_message() {
     // Airdrop SOL to payer
     svm_locker
         .airdrop(&payer.pubkey(), 2 * lamports_to_send)
+        .unwrap()
         .unwrap();
 
     svm_locker.confirm_current_block(&None).await.unwrap();
@@ -2967,6 +2980,7 @@ async fn test_get_local_signatures_without_limit() {
 
     svm_locker_for_context
         .airdrop(&payer.pubkey(), lamports_to_send * 2)
+        .unwrap()
         .unwrap();
 
     svm_locker_for_context
@@ -3066,6 +3080,7 @@ async fn test_get_local_signatures_with_limit() {
 
     svm_locker_for_context
         .airdrop(&payer.pubkey(), lamports_to_send * 10)
+        .unwrap()
         .unwrap();
 
     svm_locker_for_context
@@ -3546,8 +3561,14 @@ async fn test_ix_profiling_with_alt_tx() {
     let p1 = Keypair::new();
     let p2 = Keypair::new();
 
-    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap();
-    svm_locker.airdrop(&p2.pubkey(), LAMPORTS_PER_SOL).unwrap();
+    svm_locker
+        .airdrop(&p1.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
+    svm_locker
+        .airdrop(&p2.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
 
@@ -3825,7 +3846,10 @@ async fn it_should_delete_accounts_with_no_lamports() {
     let p1 = Keypair::new();
     let p2 = Keypair::new();
 
-    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap();
+    svm_locker
+        .airdrop(&p1.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
 
@@ -3871,7 +3895,10 @@ async fn test_compute_budget_profiling() {
     let p1 = Keypair::new();
     let p2 = Keypair::new();
 
-    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap();
+    svm_locker
+        .airdrop(&p1.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
 
@@ -3933,7 +3960,10 @@ fn test_reset_account() {
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
     let p1 = Keypair::new();
     println!("P1 pubkey: {}", p1.pubkey());
-    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap(); // account is created in the SVM
+    svm_locker
+        .airdrop(&p1.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap(); // account is created in the SVM.unwrap()
     println!("Airdropped SOL to p1");
 
     println!(
@@ -4011,7 +4041,10 @@ async fn test_reset_streamed_account() {
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
     let p1 = Keypair::new();
     println!("P1 pubkey: {}", p1.pubkey());
-    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap(); // account is created in the SVM
+    svm_locker
+        .airdrop(&p1.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap(); // account is created in the SVM.unwrap()
     println!("Airdropped SOL to p1");
 
     let _ = svm_locker.confirm_current_block(&None).await;
@@ -4335,6 +4368,7 @@ async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionTyp
     let lamports_to_send = 100_000;
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -4401,7 +4435,10 @@ async fn test_ws_signature_subscribe_failed_transaction() {
     // create a test transaction that will fail (insufficient funds)
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
-    svm_locker.airdrop(&payer.pubkey(), 10_000).unwrap(); // airdrop a very small amount
+    svm_locker
+        .airdrop(&payer.pubkey(), 10_000)
+        .unwrap()
+        .unwrap(); // airdrop a very small amount.unwrap()
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
     let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, LAMPORTS_PER_SOL); // Try to send more than we have
@@ -4459,6 +4496,7 @@ async fn test_ws_signature_subscribe_multiple_subscribers() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -4532,6 +4570,7 @@ async fn test_ws_signature_subscribe_before_transaction_exists() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -4592,6 +4631,7 @@ async fn test_ws_account_subscribe_balance_change() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to payer account updates
@@ -4649,6 +4689,7 @@ async fn test_ws_account_subscribe_multiple_changes() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to payer account updates
@@ -4710,9 +4751,11 @@ async fn test_ws_account_subscribe_multiple_subscribers() {
     let sender = Keypair::new();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
     svm_locker
         .airdrop(&sender.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // create multiple subscriptions to the same account
@@ -4774,6 +4817,7 @@ async fn test_ws_account_subscribe_new_account_creation() {
     let new_account = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to an account that doesn't exist yet
@@ -4835,6 +4879,7 @@ async fn test_ws_account_subscribe_account_closure() {
     // give the account some funds
     svm_locker
         .airdrop(&account_to_close.pubkey(), 10_000)
+        .unwrap()
         .unwrap();
 
     // subscribe to the account
@@ -5005,6 +5050,7 @@ async fn test_ws_logs_subscribe_all_transactions() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to all transaction logs
@@ -5069,6 +5115,7 @@ async fn test_ws_logs_subscribe_mentions_account() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to logs mentioning the system program
@@ -5148,6 +5195,7 @@ async fn test_ws_logs_subscribe_confirmed_commitment() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -5210,6 +5258,7 @@ async fn test_ws_logs_subscribe_finalized_commitment() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -5269,7 +5318,7 @@ async fn test_ws_logs_subscribe_failed_transaction() {
     // create test accounts
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
-    svm_locker.airdrop(&payer.pubkey(), 5_000).unwrap();
+    svm_locker.airdrop(&payer.pubkey(), 5_000).unwrap().unwrap();
 
     // subscribe to all logs
     let logs_rx = svm_locker
@@ -5341,6 +5390,7 @@ async fn test_ws_logs_subscribe_multiple_subscribers() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -5399,6 +5449,7 @@ async fn test_ws_logs_subscribe_logs_content() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to all logs
@@ -5471,9 +5522,11 @@ async fn test_token2022_full_lifecycle() {
 
     svm_locker
         .airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
     svm_locker
         .airdrop(&recipient.pubkey(), 1 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -5681,9 +5734,11 @@ async fn test_token2022_error_cases() {
 
     svm_locker
         .airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
     svm_locker
         .airdrop(&recipient.pubkey(), 1 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -5859,9 +5914,11 @@ async fn test_token2022_delegate_operations() {
 
     svm_locker
         .airdrop(&owner.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
     svm_locker
         .airdrop(&delegate.pubkey(), 1 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -6074,6 +6131,7 @@ async fn test_token2022_freeze_thaw() {
 
     svm_locker
         .airdrop(&owner.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
