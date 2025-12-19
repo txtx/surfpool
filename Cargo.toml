@@ -123,6 +123,7 @@ solana-instruction = { version = "3.0.0", default-features = false }
 solana-keypair = { version = "3.0.0", default-features = false }
 solana-loader-v3-interface = { version = "6.1.0", default-features = false }
 solana-message = { version = "3.0.0", default-features = false }
+solana-nonce = { version = "3.0.0", default-features = false }
 solana-packet = { version = "3.0.0", default-features = false }
 solana-program-option = { version = "3.0.0", default-features = false }
 solana-program-pack = { version = "3.0.0", default-features = false }
