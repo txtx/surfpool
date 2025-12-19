@@ -60,7 +60,9 @@ pub async fn handle_start_local_surfnet_command(
     }
 
     // We start the simnet as soon as possible, as it needs to be ready for deployments
-    let (mut surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (mut surfnet_svm, simnet_events_rx, geyser_events_rx) =
+        SurfnetSvm::new_with_db(cmd.db.as_deref())
+            .map_err(|e| format!("Failed to initialize Surfnet SVM: {}", e))?;
 
     // Apply feature configuration from CLI flags
     let feature_config = cmd.feature_config();
