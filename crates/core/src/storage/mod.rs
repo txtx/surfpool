@@ -147,3 +147,51 @@ pub trait StorageConstructor<K, V>: Storage<K, V> + Clone {
     where
         Self: Sized;
 }
+
+#[cfg(test)]
+pub mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    pub enum TestType {
+        NoDb,
+        InMemorySqlite,
+        OnDiskSqlite(String), // Include TempDir to keep it alive
+    }
+
+    impl TestType {
+        pub fn sqlite() -> Self {
+            let database_url = crate::storage::tests::create_tmp_sqlite_storage();
+            TestType::OnDiskSqlite(database_url)
+        }
+        pub fn no_db() -> Self {
+            TestType::NoDb
+        }
+        pub fn in_memory() -> Self {
+            TestType::InMemorySqlite
+        }
+
+        pub fn dispose(self) {
+            if let TestType::OnDiskSqlite(db_path) = self {
+                // Delete file at db_path
+                let _ = std::fs::remove_file(db_path);
+            }
+        }
+    }
+
+    pub fn create_tmp_sqlite_storage() -> String {
+        // let temp_dir = tempfile::tempdir().expect("Failed to create temp dir for SqliteStorage");
+        let write_permissions = std::fs::Permissions::from_mode(0o600);
+        let file = tempfile::Builder::new()
+            .permissions(write_permissions)
+            .suffix(".sqlite")
+            .tempfile()
+            .expect("Failed to create temp file for SqliteStorage");
+        let database_url = file.path().to_path_buf();
+
+        // Use a simple path without creating the file beforehand
+        // Let SQLite create the database file itself
+        let database_url = database_url.to_str().unwrap().to_string();
+        println!("Created temporary Sqlite database at: {}", database_url);
+        database_url
+    }
+}
