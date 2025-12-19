@@ -284,10 +284,22 @@ pub const FEATURE: Feature = Feature {
 };
 
 impl SurfnetSvm {
+    pub fn new() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
+        Self::_new(None).unwrap()
+    }
+
+    pub fn new_with_db(
+        database_url: Option<&str>,
+    ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
+        Self::_new(database_url)
+    }
+
     /// Creates a new instance of `SurfnetSvm`.
     ///
     /// Returns a tuple containing the SVM instance, a receiver for simulation events, and a receiver for Geyser plugin events.
-    pub fn new() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
+    fn _new(
+        database_url: Option<&str>,
+    ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
 
@@ -378,7 +390,7 @@ impl SurfnetSvm {
         // Generate the initial synthetic blockhash
         svm.chain_tip = svm.new_blockhash();
 
-        (svm, simnet_events_rx, geyser_events_rx)
+        Ok((svm, simnet_events_rx, geyser_events_rx))
     }
 
     /// Applies the SVM feature configuration to the internal feature set.
