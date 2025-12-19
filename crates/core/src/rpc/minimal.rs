@@ -693,9 +693,8 @@ impl Minimal for SurfpoolMinimalRpc {
         let config = config.unwrap_or_default();
 
         if let Some(target_slot) = config.min_context_slot {
-            let block_exists = meta
-                .with_svm_reader(|svm_reader| svm_reader.blocks.contains_key(&target_slot))
-                .map_err(Into::<jsonrpc_core::Error>::into)??;
+            let block_exists =
+                meta.with_svm_reader(|svm_reader| svm_reader.blocks.contains_key(&target_slot))??;
 
             if !block_exists {
                 return Err(jsonrpc_core::Error::invalid_params(format!(
