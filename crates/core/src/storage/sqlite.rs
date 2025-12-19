@@ -286,8 +286,7 @@ where
     K: Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
     V: Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
 {
-    fn connect(database_url: Option<&str>, table_name: &str) -> StorageResult<Self> {
-        let database_url = database_url.unwrap_or(":memory:");
+    fn connect(database_url: &str, table_name: &str) -> StorageResult<Self> {
         debug!(
             "Connecting to SQLite database: {} with table: {}",
             database_url, table_name

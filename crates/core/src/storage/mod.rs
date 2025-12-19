@@ -144,7 +144,7 @@ impl<K, V> Clone for Box<dyn Storage<K, V>> {
 
 // Separate trait for construction - this doesn't need to be dyn-compatible
 pub trait StorageConstructor<K, V>: Storage<K, V> + Clone {
-    fn connect(database_url: Option<&str>, table_name: &str) -> StorageResult<Self>
+    fn connect(database_url: &str, table_name: &str) -> StorageResult<Self>
     where
         Self: Sized;
 }
