@@ -120,7 +120,7 @@ enum Command {
     /// Run, runbook, run!
     #[clap(name = "run", bin_name = "run")]
     Run(ExecuteRunbook),
-    /// List runbooks present in the current direcoty
+    /// List runbooks present in the current directory
     #[clap(name = "ls", bin_name = "ls")]
     List(ListRunbooks),
     /// Txtx cloud commands
