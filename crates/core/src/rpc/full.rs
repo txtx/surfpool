@@ -53,6 +53,15 @@ use crate::{
 
 const MAX_PRIORITIZATION_FEE_BLOCKS_CACHE: usize = 150;
 
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SurfpoolRpcSendTransactionConfig {
+    #[serde(flatten)]
+    pub base: RpcSendTransactionConfig,
+    /// skip sign verification for this txn (overrides global config)
+    pub skip_sig_verify: Option<bool>,
+}
+
 #[rpc]
 pub trait Full {
     type Metadata;
@@ -511,7 +520,7 @@ pub trait Full {
         &self,
         meta: Self::Metadata,
         data: String,
-        config: Option<RpcSendTransactionConfig>,
+        config: Option<SurfpoolRpcSendTransactionConfig>,
     ) -> Result<String>;
 
     /// Simulates a transaction without sending it to the network.
@@ -1535,10 +1544,10 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         data: String,
-        config: Option<RpcSendTransactionConfig>,
+        config: Option<SurfpoolRpcSendTransactionConfig>,
     ) -> Result<String> {
         let config = config.unwrap_or_default();
-        let tx_encoding = config.encoding.unwrap_or(UiTransactionEncoding::Base58);
+        let tx_encoding = config.base.encoding.unwrap_or(UiTransactionEncoding::Base58);
         let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
             Error::invalid_params(format!(
                 "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
@@ -1563,7 +1572,8 @@ impl Full for SurfpoolFullRpc {
                 ctx.id,
                 unsanitized_tx,
                 status_update_tx,
-                config.skip_preflight,
+                config.base.skip_preflight,
+                config.skip_sig_verify,
             ))
             .map_err(|_| RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
@@ -2495,7 +2505,7 @@ mod tests {
             .unwrap();
         loop {
             match mempool_rx.recv() {
-                Ok(SimnetCommand::ProcessTransaction(_, tx, status_tx, _)) => {
+                Ok(SimnetCommand::ProcessTransaction(_, tx, status_tx, _, _)) => {
                     let mut writer = setup.context.svm_locker.0.write().await;
                     let slot = writer.get_latest_absolute_slot();
                     writer.transactions_queued_for_confirmation.push_back((
