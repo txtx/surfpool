@@ -1547,7 +1547,10 @@ impl Full for SurfpoolFullRpc {
         config: Option<SurfpoolRpcSendTransactionConfig>,
     ) -> Result<String> {
         let config = config.unwrap_or_default();
-        let tx_encoding = config.base.encoding.unwrap_or(UiTransactionEncoding::Base58);
+        let tx_encoding = config
+            .base
+            .encoding
+            .unwrap_or(UiTransactionEncoding::Base58);
         let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
             Error::invalid_params(format!(
                 "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
