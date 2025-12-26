@@ -36,7 +36,8 @@ use solana_transaction::sanitized::{MessageHash, SanitizedTransaction};
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
     BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_RPC_URL, DataIndexingCommand,
-    SimnetCommand, SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
+    SimnetCommand, SimnetConfig, SimnetEvent, SubgraphCommand, SubgraphPluginConfig,
+    SurfpoolConfig,
 };
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use txtx_addon_kit::helpers::fs::FileLocation;
@@ -148,6 +149,7 @@ pub async fn start_local_surfnet_runloop(
         block_production_mode,
         &remote_rpc_client,
         simnet_config.expiry.map(|e| e * 1000),
+        &simnet_config,
     )
     .await
 }
@@ -162,6 +164,7 @@ pub async fn start_block_production_runloop(
     mut block_production_mode: BlockProductionMode,
     remote_rpc_client: &Option<SurfnetRemoteClient>,
     expiry_duration_ms: Option<u64>,
+    simnet_config: &SimnetConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let remote_client_with_commitment = remote_rpc_client.as_ref().map(|c| {
         (
@@ -171,7 +174,7 @@ pub async fn start_block_production_runloop(
     });
     let mut next_scheduled_expiry_check: Option<u64> =
         expiry_duration_ms.map(|expiry_val| Utc::now().timestamp_millis() as u64 + expiry_val);
-    let sigverify = true; // always verify signatures during block production
+    let global_skip_sig_verify = simnet_config.skip_signature_verification;
     loop {
         let mut do_produce_block = false;
 
@@ -306,7 +309,9 @@ pub async fn start_block_production_runloop(
                         block_production_mode = update;
                         continue
                     }
-                    SimnetCommand::ProcessTransaction(_key, transaction, status_tx, skip_preflight) => {
+                    SimnetCommand::ProcessTransaction(_key, transaction, status_tx, skip_preflight, skip_sig_verify_override) => {
+                       let skip_sig_verify = skip_sig_verify_override.unwrap_or(global_skip_sig_verify);
+                       let sigverify = !skip_sig_verify;
                        if let Err(e) = svm_locker.process_transaction(&remote_client_with_commitment, transaction, status_tx, skip_preflight, sigverify).await {
                             let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!("Failed to process transaction: {}", e)));
                        }
