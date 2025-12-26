@@ -4460,4 +4460,176 @@ mod tests {
             })
         )
     }
+
+    /// tests for skip_sig_verify feature
+    mod test_skip_sig_verify {
+        use solana_client::rpc_config::RpcSendTransactionConfig;
+        use solana_signature::Signature;
+
+        use super::*;
+
+        fn build_transaction_with_invalid_signature(
+            payer: &Keypair,
+            recipient: &Pubkey,
+            recent_blockhash: &Hash,
+        ) -> VersionedTransaction {
+            let msg = VersionedMessage::Legacy(LegacyMessage::new_with_blockhash(
+                &[system_instruction::transfer(
+                    &payer.pubkey(),
+                    recipient,
+                    LAMPORTS_PER_SOL,
+                )],
+                Some(&payer.pubkey()),
+                recent_blockhash,
+            ));
+
+            VersionedTransaction {
+                signatures: vec![Signature::new_unique()],
+                message: msg,
+            }
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_send_transaction_with_skip_sig_verify_succeeds() {
+            let payer = Keypair::new();
+            let recipient = Pubkey::new_unique();
+            let (mempool_tx, mempool_rx) = crossbeam_channel::unbounded();
+            let setup = TestSetup::new_with_mempool(SurfpoolFullRpc, mempool_tx);
+            let recent_blockhash = setup
+                .context
+                .svm_locker
+                .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+
+            let _ = setup
+                .context
+                .svm_locker
+                .0
+                .write()
+                .await
+                .airdrop(&payer.pubkey(), 2 * LAMPORTS_PER_SOL);
+
+            let tx =
+                build_transaction_with_invalid_signature(&payer, &recipient, &recent_blockhash);
+            let tx_encoded = bs58::encode(bincode::serialize(&tx).unwrap()).into_string();
+
+            let config = SurfpoolRpcSendTransactionConfig {
+                base: RpcSendTransactionConfig::default(),
+                skip_sig_verify: Some(true),
+            };
+
+            let setup_clone = setup.clone();
+            let handle = hiro_system_kit::thread_named("send_tx_skip_verify")
+                .spawn(move || {
+                    setup_clone.rpc.send_transaction(
+                        Some(setup_clone.context),
+                        tx_encoded,
+                        Some(config),
+                    )
+                })
+                .unwrap();
+
+            loop {
+                match mempool_rx.recv() {
+                    Ok(SimnetCommand::ProcessTransaction(_, tx, status_tx, _, _)) => {
+                        let mut writer = setup.context.svm_locker.0.write().await;
+                        let slot = writer.get_latest_absolute_slot();
+                        writer.transactions_queued_for_confirmation.push_back((
+                            tx.clone(),
+                            status_tx.clone(),
+                            None,
+                        ));
+                        let sig = tx.signatures[0];
+                        let tx_with_status_meta = TransactionWithStatusMeta {
+                            slot,
+                            transaction: tx,
+                            ..Default::default()
+                        };
+                        let mutated_accounts = std::collections::HashSet::new();
+                        writer.transactions.insert(
+                            sig,
+                            SurfnetTransactionStatus::processed(
+                                tx_with_status_meta,
+                                mutated_accounts,
+                            ),
+                        );
+                        status_tx
+                            .send(TransactionStatusEvent::Success(
+                                TransactionConfirmationStatus::Processed,
+                            ))
+                            .unwrap();
+                        break;
+                    }
+                    _ => continue,
+                }
+            }
+
+            let result = handle.join().unwrap();
+            assert!(
+                result.is_ok(),
+                "Transaction with skip_sig_verify=true should succeed: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn test_surfpool_rpc_send_transaction_config_json_serialization() {
+            // Test that the config serializes correctly with serde flatten
+            let config = SurfpoolRpcSendTransactionConfig {
+                base: RpcSendTransactionConfig {
+                    skip_preflight: true,
+                    ..Default::default()
+                },
+                skip_sig_verify: Some(true),
+            };
+
+            let json = serde_json::to_string(&config).unwrap();
+            assert!(json.contains("skipSigVerify"));
+            assert!(json.contains("skipPreflight"));
+
+            // Verify it can be deserialized back
+            let parsed: SurfpoolRpcSendTransactionConfig = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed.skip_sig_verify, Some(true));
+            assert!(parsed.base.skip_preflight);
+        }
+
+        #[test]
+        fn test_surfpool_rpc_send_transaction_config_backwards_compatible() {
+            // Test that a standard Solana RPC config can be parsed (skip_sig_verify absent)
+            let json = r#"{"skipPreflight": true}"#;
+            let parsed: SurfpoolRpcSendTransactionConfig = serde_json::from_str(json).unwrap();
+            assert!(parsed.base.skip_preflight);
+            assert!(
+                parsed.skip_sig_verify.is_none(),
+                "skip_sig_verify should be None when not provided"
+            );
+        }
+
+        #[test]
+        fn test_surfpool_rpc_send_transaction_config_defaults() {
+            let config = SurfpoolRpcSendTransactionConfig::default();
+            assert!(
+                config.skip_sig_verify.is_none(),
+                "skip_sig_verify should default to None"
+            );
+            assert!(
+                !config.base.skip_preflight,
+                "skip_preflight should default to false"
+            );
+        }
+
+        #[test]
+        fn test_surfpool_rpc_send_transaction_config_with_skip_sig_verify() {
+            let config = SurfpoolRpcSendTransactionConfig {
+                base: RpcSendTransactionConfig::default(),
+                skip_sig_verify: Some(true),
+            };
+            assert_eq!(config.skip_sig_verify, Some(true));
+
+            let config_false = SurfpoolRpcSendTransactionConfig {
+                base: RpcSendTransactionConfig::default(),
+                skip_sig_verify: Some(false),
+            };
+            assert_eq!(config_false.skip_sig_verify, Some(false));
+        }
+    }
 }
