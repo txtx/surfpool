@@ -491,6 +491,7 @@ pub enum SimnetCommand {
         VersionedTransaction,
         Sender<TransactionStatusEvent>,
         bool,
+        Option<bool>,
     ),
     Terminate(Option<(Hash, String)>),
     StartRunbookExecution(String),
@@ -547,6 +548,7 @@ pub struct SimnetConfig {
     pub max_profiles: usize,
     pub log_bytes_limit: Option<usize>,
     pub feature_config: SvmFeatureConfig,
+    pub skip_signature_verification: bool,
 }
 
 impl Default for SimnetConfig {
@@ -563,6 +565,7 @@ impl Default for SimnetConfig {
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             log_bytes_limit: Some(10_000),
             feature_config: SvmFeatureConfig::default(),
+            skip_signature_verification: false,
         }
     }
 }
