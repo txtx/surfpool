@@ -17,6 +17,7 @@ anchor-lang-idl = { workspace = true }
 blake3 = { workspace = true }
 chrono = { workspace = true }
 crossbeam-channel = { workspace = true }
+mpl-core = { workspace = true }
 once_cell = { workspace = true }
 schemars = { workspace = true }
 schemars_derive = { workspace = true }
