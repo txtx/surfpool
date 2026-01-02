@@ -458,8 +458,8 @@ impl SurfnetSvmLocker {
     pub fn get_largest_accounts_local(
         &self,
         config: RpcLargestAccountsConfig,
-    ) -> SvmAccessContext<Vec<RpcAccountBalance>> {
-        self.with_contextualized_svm_reader(|svm_reader| {
+    ) -> SurfpoolContextualizedResult<Vec<RpcAccountBalance>> {
+        let res: Vec<RpcAccountBalance> = self.with_svm_reader(|svm_reader| {
             let non_circulating_accounts: Vec<_> = svm_reader
                 .non_circulating_accounts
                 .iter()
@@ -467,7 +467,8 @@ impl SurfnetSvmLocker {
                 .collect();
 
             let ordered_accounts = svm_reader
-                .iter_accounts()
+                .get_all_accounts()?
+                .into_iter()
                 .sorted_by(|a, b| b.1.lamports().cmp(&a.1.lamports()))
                 .collect::<Vec<_>>();
             let ordered_filtered_accounts = match config.filter {
@@ -482,15 +483,18 @@ impl SurfnetSvmLocker {
                 None => ordered_accounts,
             };
 
-            ordered_filtered_accounts
-                .iter()
-                .take(20)
-                .map(|(pubkey, account)| RpcAccountBalance {
-                    address: pubkey.to_string(),
-                    lamports: account.lamports(),
-                })
-                .collect()
-        })
+            Ok::<Vec<RpcAccountBalance>, SurfpoolError>(
+                ordered_filtered_accounts
+                    .iter()
+                    .take(20)
+                    .map(|(pubkey, account)| RpcAccountBalance {
+                        address: pubkey.to_string(),
+                        lamports: account.lamports(),
+                    })
+                    .collect(),
+            )
+        })?;
+        Ok(self.with_contextualized_svm_reader(|_| res.to_owned()))
     }
 
     pub async fn get_largest_accounts_local_then_remote(
@@ -559,7 +563,7 @@ impl SurfnetSvmLocker {
 
         // now that our local cache is aware of all large remote accounts, we can get the largest accounts locally
         // and filter according to the config
-        Ok(self.get_largest_accounts_local(config))
+        self.get_largest_accounts_local(config)
     }
 
     pub async fn get_largest_accounts(
@@ -567,14 +571,12 @@ impl SurfnetSvmLocker {
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
         config: RpcLargestAccountsConfig,
     ) -> SurfpoolContextualizedResult<Vec<RpcAccountBalance>> {
-        let results = if let Some((remote_client, commitment_config)) = remote_ctx {
+        if let Some((remote_client, commitment_config)) = remote_ctx {
             self.get_largest_accounts_local_then_remote(remote_client, config, *commitment_config)
-                .await?
+                .await
         } else {
             self.get_largest_accounts_local(config)
-        };
-
-        Ok(results)
+        }
     }
 
     pub fn account_to_rpc_keyed_account<T: ReadableAccount + Send + Sync>(
@@ -2953,7 +2955,7 @@ impl SurfnetSvmLocker {
     pub fn export_snapshot(
         &self,
         config: ExportSnapshotConfig,
-    ) -> BTreeMap<String, AccountSnapshot> {
+    ) -> SurfpoolResult<BTreeMap<String, AccountSnapshot>> {
         self.with_svm_reader(|svm_reader| svm_reader.export_snapshot(config))
     }
 

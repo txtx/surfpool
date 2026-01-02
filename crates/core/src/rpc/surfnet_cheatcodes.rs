@@ -1797,7 +1797,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
     ) -> Result<RpcResponse<BTreeMap<String, AccountSnapshot>>> {
         let config = config.unwrap_or_default();
         let svm_locker = meta.get_svm_locker()?;
-        let snapshot = svm_locker.export_snapshot(config);
+        let snapshot = svm_locker.export_snapshot(config)?;
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: snapshot,

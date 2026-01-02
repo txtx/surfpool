@@ -2597,9 +2597,8 @@ impl SurfnetSvm {
         self.inner.get_account(pubkey)
     }
 
-    pub fn iter_accounts(&self) -> std::collections::hash_map::Iter<'_, Pubkey, AccountSharedData> {
-        todo!()
-        // self.inner.accounts_db().inner.iter()
+    pub fn get_all_accounts(&self) -> SurfpoolResult<Vec<(Pubkey, AccountSharedData)>> {
+        self.inner.get_all_accounts()
     }
 
     pub fn get_transaction(
@@ -2634,7 +2633,7 @@ impl SurfnetSvm {
     pub fn export_snapshot(
         &self,
         config: ExportSnapshotConfig,
-    ) -> BTreeMap<String, AccountSnapshot> {
+    ) -> SurfpoolResult<BTreeMap<String, AccountSnapshot>> {
         let mut fixtures = BTreeMap::new();
         let encoding = if config.include_parsed_accounts.unwrap_or_default() {
             UiAccountEncoding::JsonParsed
@@ -2704,7 +2703,7 @@ impl SurfnetSvm {
         match &config.scope {
             ExportSnapshotScope::Network => {
                 // Export all network accounts (current behavior)
-                for (pubkey, account_shared_data) in self.iter_accounts() {
+                for (pubkey, account_shared_data) in self.get_all_accounts()? {
                     let account = Account::from(account_shared_data.clone());
                     process_account(&pubkey, &account);
                 }
@@ -2732,7 +2731,7 @@ impl SurfnetSvm {
             }
         }
 
-        fixtures
+        Ok(fixtures)
     }
 
     /// Registers a scenario for execution by scheduling its overrides
