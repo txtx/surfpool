@@ -844,7 +844,9 @@ impl SurfnetSvm {
 
             trace!("Nonce account pubkey: {:?}", nonce_account_pubkey,);
 
-            let Some(nonce_account) = self.get_account(nonce_account_pubkey) else {
+            // Here we're swallowing errors in the storage - if we fail to fetch the account because of a storage error,
+            // we're just considering the blockhash to be invalid.
+            let Ok(Some(nonce_account)) = self.get_account(nonce_account_pubkey) else {
                 return false;
             };
             trace!("Nonce account: {:?}", nonce_account);
@@ -3120,27 +3122,27 @@ mod tests {
 
         // GetAccountResult::None should be a noop when writing account updates
         {
-            let index_before = svm.inner.get_all_accounts().unwrap();
+            let index_before = svm.get_all_accounts().unwrap();
             let empty_update = GetAccountResult::None(pubkey);
             svm.write_account_update(empty_update);
-            assert_eq!(svm.inner.get_all_accounts().unwrap(), index_before);
+            assert_eq!(svm.get_all_accounts().unwrap(), index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to false should be a noop
         {
-            let index_before = svm.inner.get_all_accounts().unwrap();
+            let index_before = svm.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), false);
             svm.write_account_update(found_update);
-            assert_eq!(svm.inner.get_all_accounts().unwrap(), index_before);
+            assert_eq!(svm.get_all_accounts().unwrap(), index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to true should update the account
         {
-            let index_before = svm.inner.get_all_accounts().unwrap();
+            let index_before = svm.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), true);
             svm.write_account_update(found_update);
             assert_eq!(
-                svm.inner.get_all_accounts().unwrap().len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(&events_rx, &svm, &pubkey, &account) {
@@ -3174,7 +3176,7 @@ mod tests {
                 rent_epoch: 0,
             };
 
-            let index_before = svm.inner.get_all_accounts().unwrap();
+            let index_before = svm.get_all_accounts().unwrap();
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
@@ -3198,7 +3200,7 @@ mod tests {
                 );
             }
             assert_eq!(
-                svm.inner.get_all_accounts().unwrap().len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 2
             );
         }
@@ -3208,14 +3210,14 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.inner.get_all_accounts().unwrap();
+            let index_before = svm.get_all_accounts().unwrap();
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, Some(program_data_account.clone())),
             );
             svm.write_account_update(found_program_account_update);
             assert_eq!(
-                svm.inner.get_all_accounts().unwrap().len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 2
             );
             if !expect_account_update_event(
@@ -3242,7 +3244,7 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.inner.get_all_accounts().unwrap();
+            let index_before = svm.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(
                 program_data_address,
                 program_data_account.clone(),
@@ -3250,7 +3252,7 @@ mod tests {
             );
             svm.write_account_update(found_update);
             assert_eq!(
-                svm.inner.get_all_accounts().unwrap().len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(
@@ -3264,14 +3266,14 @@ mod tests {
                 );
             }
 
-            let index_before = svm.inner.get_all_accounts().unwrap();
+            let index_before = svm.get_all_accounts().unwrap();
             let program_account_found_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
             );
             svm.write_account_update(program_account_found_update);
             assert_eq!(
-                svm.inner.get_all_accounts().unwrap().len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
@@ -3742,9 +3744,9 @@ mod tests {
 
         svm.set_account(&account_pubkey, account.clone()).unwrap();
 
-        assert!(svm.get_account(&account_pubkey).is_some());
+        assert!(svm.get_account(&account_pubkey).unwrap().is_some());
         assert!(!svm.closed_accounts.contains(&account_pubkey));
-        assert_eq!(svm.get_account_owned_by(&owner).len(), 1);
+        assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 1);
 
         let empty_account = Account::default();
         svm.update_account_registries(&account_pubkey, &empty_account)
@@ -3752,9 +3754,9 @@ mod tests {
 
         assert!(svm.closed_accounts.contains(&account_pubkey));
 
-        assert_eq!(svm.get_account_owned_by(&owner).len(), 0);
+        assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 0);
 
-        let owned_accounts = svm.get_account_owned_by(&owner);
+        let owned_accounts = svm.get_account_owned_by(&owner).unwrap();
         assert!(!owned_accounts.iter().any(|(pk, _)| *pk == account_pubkey));
     }
 

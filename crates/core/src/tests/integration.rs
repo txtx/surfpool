@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc, thread::sleep, time::Duration};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use base64::Engine;
 use crossbeam_channel::{unbounded, unbounded as crossbeam_unbounded};
@@ -6354,6 +6354,7 @@ fn test_nonce_accounts() {
 
     svm_locker
         .airdrop(&payer.pubkey(), 5 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let nonce_rent = svm_locker.with_svm_reader(|svm_reader| {
