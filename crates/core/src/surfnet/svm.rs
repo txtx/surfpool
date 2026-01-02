@@ -2785,12 +2785,17 @@ mod tests {
     use solana_loader_v3_interface::get_program_data_address;
     use solana_program_pack::Pack;
     use spl_token_interface::state::{Account as TokenAccount, AccountState};
+    use test_case::test_case;
+
+    use crate::storage::tests::TestType;
 
     use super::*;
 
-    #[test]
-    fn test_synthetic_blockhash_generation() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_synthetic_blockhash_generation(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Test with different chain tip indices
         let test_cases = vec![0, 1, 42, 255, 1000, 0x12345678];
@@ -2849,9 +2854,11 @@ mod tests {
         println!("Generated hash: {}", hash_str);
     }
 
-    #[test]
-    fn test_blockhash_consistency_across_calls() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_blockhash_consistency_across_calls(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Set a specific chain tip
         svm.chain_tip = BlockIdentifier::new(123, "initial_hash");
@@ -2881,9 +2888,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_token_account_indexing() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_token_account_indexing(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let owner = Pubkey::new_unique();
         let delegate = Pubkey::new_unique();
@@ -2933,9 +2942,11 @@ mod tests {
         assert_eq!(mint_accounts[0].0, token_account_pubkey);
     }
 
-    #[test]
-    fn test_account_update_removes_old_indexes() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_account_update_removes_old_indexes(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let owner = Pubkey::new_unique();
         let old_delegate = Pubkey::new_unique();
@@ -3003,9 +3014,11 @@ mod tests {
         assert_eq!(svm.get_parsed_token_accounts_by_owner(&owner).len(), 1);
     }
 
-    #[test]
-    fn test_non_token_accounts_not_indexed() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_non_token_accounts_not_indexed(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let system_account_pubkey = Pubkey::new_unique();
         let account = Account {
@@ -3107,9 +3120,11 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_inserting_account_updates() {
-        let (mut svm, events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_inserting_account_updates(test_type: TestType) {
+        let (mut svm, events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let pubkey = Pubkey::new_unique();
         let account = Account {
@@ -3284,9 +3299,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_encode_ui_account() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_encode_ui_account(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let idl_v1: Idl =
             serde_json::from_slice(&include_bytes!("../tests/assets/idl_v1.json").to_vec())
@@ -3512,18 +3529,22 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_profiling_map_capacity_default() {
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_profiling_map_capacity_default(test_type: TestType) {
+        let (svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
         assert_eq!(
             svm.executed_transaction_profiles.capacity(),
             DEFAULT_PROFILING_MAP_CAPACITY
         );
     }
 
-    #[test]
-    fn test_profiling_map_capacity_set() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_profiling_map_capacity_set(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
         svm.set_profiling_map_capacity(10);
         assert_eq!(svm.executed_transaction_profiles.capacity(), 10);
     }
@@ -3558,18 +3579,22 @@ mod tests {
         assert_ne!(loader_v4_id, disable_fees_id);
     }
 
-    #[test]
-    fn test_apply_feature_config_empty() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_apply_feature_config_empty(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
         let config = SvmFeatureConfig::new();
 
         // Should not panic with empty config
         svm.apply_feature_config(&config);
     }
 
-    #[test]
-    fn test_apply_feature_config_enable_feature() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_apply_feature_config_enable_feature(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Disable a feature first
         let feature_id = enable_loader_v4::id();
@@ -3583,9 +3608,11 @@ mod tests {
         assert!(svm.feature_set.is_active(&feature_id));
     }
 
-    #[test]
-    fn test_apply_feature_config_disable_feature() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_apply_feature_config_disable_feature(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Feature should be active by default (all_enabled)
         let feature_id = disable_fees_sysvar::id();
@@ -3598,9 +3625,11 @@ mod tests {
         assert!(!svm.feature_set.is_active(&feature_id));
     }
 
-    #[test]
-    fn test_apply_feature_config_mainnet_defaults() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_apply_feature_config_mainnet_defaults(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
         let config = SvmFeatureConfig::default_mainnet_features();
 
         svm.apply_feature_config(&config);
@@ -3642,9 +3671,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_apply_feature_config_mainnet_with_override() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_apply_feature_config_mainnet_with_override(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Start with mainnet defaults, but enable loader v4
         let config =
@@ -3663,9 +3694,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_apply_feature_config_multiple_changes() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_apply_feature_config_multiple_changes(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let config = SvmFeatureConfig::new()
             .enable(SvmFeature::EnableLoaderV4)
@@ -3684,9 +3717,11 @@ mod tests {
         assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
     }
 
-    #[test]
-    fn test_apply_feature_config_preserves_native_mint() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_apply_feature_config_preserves_native_mint(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Native mint should exist before
         assert!(
@@ -3708,9 +3743,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_apply_feature_config_idempotent() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_apply_feature_config_idempotent(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let config = SvmFeatureConfig::new()
             .enable(SvmFeature::EnableLoaderV4)
@@ -3727,9 +3764,11 @@ mod tests {
 
     // Garbage collection tests
 
-    #[test]
-    fn test_garbage_collected_account_tracking() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_garbage_collected_account_tracking(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let owner = Pubkey::new_unique();
         let account_pubkey = Pubkey::new_unique();
@@ -3760,9 +3799,11 @@ mod tests {
         assert!(!owned_accounts.iter().any(|(pk, _)| *pk == account_pubkey));
     }
 
-    #[test]
-    fn test_garbage_collected_token_account_cleanup() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    fn test_garbage_collected_token_account_cleanup(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let token_owner = Pubkey::new_unique();
         let delegate = Pubkey::new_unique();

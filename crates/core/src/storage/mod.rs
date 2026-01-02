@@ -152,13 +152,28 @@ pub trait StorageConstructor<K, V>: Storage<K, V> + Clone {
 pub mod tests {
     use std::os::unix::fs::PermissionsExt;
 
+    use crossbeam_channel::Receiver;
+    use surfpool_types::SimnetEvent;
+
+    use crate::surfnet::{GeyserEvent, svm::SurfnetSvm};
+
     pub enum TestType {
         NoDb,
         InMemorySqlite,
-        OnDiskSqlite(String), // Include TempDir to keep it alive
+        OnDiskSqlite(String),
     }
 
     impl TestType {
+        pub fn initialize_svm(&self) -> (SurfnetSvm, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
+            match &self {
+                TestType::NoDb => SurfnetSvm::new(),
+                TestType::InMemorySqlite => SurfnetSvm::new_with_db(Some(":memory:")).unwrap(),
+                TestType::OnDiskSqlite(db_path) => {
+                    SurfnetSvm::new_with_db(Some(db_path.as_ref())).unwrap()
+                }
+            }
+        }
+
         pub fn sqlite() -> Self {
             let database_url = crate::storage::tests::create_tmp_sqlite_storage();
             TestType::OnDiskSqlite(database_url)
@@ -169,10 +184,12 @@ pub mod tests {
         pub fn in_memory() -> Self {
             TestType::InMemorySqlite
         }
+    }
 
-        pub fn dispose(self) {
+    impl Drop for TestType {
+        fn drop(&mut self) {
             if let TestType::OnDiskSqlite(db_path) = self {
-                // Delete file at db_path
+                // Delete file at db_path when TestType goes out of scope
                 let _ = std::fs::remove_file(db_path);
             }
         }
