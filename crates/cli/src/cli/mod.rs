@@ -245,6 +245,9 @@ pub struct StartSimnet {
     /// A set of inputs to use for the runbook (eg. surfpool start --runbook-input myInputs.json)
     #[arg(long = "runbook-input", short = 'i')]
     pub runbook_input: Vec<String>,
+    /// Surfnet database connection URL for persistent Surfnets. For an in-memory sqlite database, use ":memory:". For an on-disk sqlite database, use a filename ending in '.sqlite'.
+    #[arg(long = "db")]
+    pub db: Option<String>,
 }
 
 fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {

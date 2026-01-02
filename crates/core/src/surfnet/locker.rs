@@ -237,20 +237,19 @@ impl SurfnetSvmLocker {
     /// Retrieves a local account from the SVM cache, returning a contextualized result.
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
-            match svm_reader.inner.get_account(pubkey) {
-                Some(account) => GetAccountResult::FoundAccount(
-                    *pubkey, account,
-                    // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                    false,
-                ),
-                None => match svm_reader.get_account_from_feature_set(pubkey) {
+            let result = svm_reader.inner.get_account_result(pubkey).unwrap();
+
+            if result.is_none() {
+                return match svm_reader.get_account_from_feature_set(pubkey) {
                     Some(account) => GetAccountResult::FoundAccount(
                         *pubkey, account,
                         // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
                         false,
                     ),
                     None => GetAccountResult::None(*pubkey),
-                },
+                };
+            } else {
+                return result;
             }
         })
     }
@@ -312,22 +311,18 @@ impl SurfnetSvmLocker {
             let mut accounts = vec![];
 
             for pubkey in pubkeys {
-                let res = match svm_reader.inner.get_account(pubkey) {
-                    Some(account) => GetAccountResult::FoundAccount(
-                        *pubkey, account,
-                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                        false,
-                    ),
-                    None => match svm_reader.get_account_from_feature_set(pubkey) {
+                let mut result = svm_reader.inner.get_account_result(pubkey).unwrap();
+                if result.is_none() {
+                    result = match svm_reader.get_account_from_feature_set(pubkey) {
                         Some(account) => GetAccountResult::FoundAccount(
                             *pubkey, account,
                             // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
                             false,
                         ),
                         None => GetAccountResult::None(*pubkey),
-                    },
+                    }
                 };
-                accounts.push(res);
+                accounts.push(result);
             }
             accounts
         })
@@ -463,8 +458,8 @@ impl SurfnetSvmLocker {
     pub fn get_largest_accounts_local(
         &self,
         config: RpcLargestAccountsConfig,
-    ) -> SvmAccessContext<Vec<RpcAccountBalance>> {
-        self.with_contextualized_svm_reader(|svm_reader| {
+    ) -> SurfpoolContextualizedResult<Vec<RpcAccountBalance>> {
+        let res: Vec<RpcAccountBalance> = self.with_svm_reader(|svm_reader| {
             let non_circulating_accounts: Vec<_> = svm_reader
                 .non_circulating_accounts
                 .iter()
@@ -472,7 +467,8 @@ impl SurfnetSvmLocker {
                 .collect();
 
             let ordered_accounts = svm_reader
-                .iter_accounts()
+                .get_all_accounts()?
+                .into_iter()
                 .sorted_by(|a, b| b.1.lamports().cmp(&a.1.lamports()))
                 .collect::<Vec<_>>();
             let ordered_filtered_accounts = match config.filter {
@@ -487,15 +483,18 @@ impl SurfnetSvmLocker {
                 None => ordered_accounts,
             };
 
-            ordered_filtered_accounts
-                .iter()
-                .take(20)
-                .map(|(pubkey, account)| RpcAccountBalance {
-                    address: pubkey.to_string(),
-                    lamports: account.lamports(),
-                })
-                .collect()
-        })
+            Ok::<Vec<RpcAccountBalance>, SurfpoolError>(
+                ordered_filtered_accounts
+                    .iter()
+                    .take(20)
+                    .map(|(pubkey, account)| RpcAccountBalance {
+                        address: pubkey.to_string(),
+                        lamports: account.lamports(),
+                    })
+                    .collect(),
+            )
+        })?;
+        Ok(self.with_contextualized_svm_reader(|_| res.to_owned()))
     }
 
     pub async fn get_largest_accounts_local_then_remote(
@@ -564,7 +563,7 @@ impl SurfnetSvmLocker {
 
         // now that our local cache is aware of all large remote accounts, we can get the largest accounts locally
         // and filter according to the config
-        Ok(self.get_largest_accounts_local(config))
+        self.get_largest_accounts_local(config)
     }
 
     pub async fn get_largest_accounts(
@@ -572,14 +571,12 @@ impl SurfnetSvmLocker {
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
         config: RpcLargestAccountsConfig,
     ) -> SurfpoolContextualizedResult<Vec<RpcAccountBalance>> {
-        let results = if let Some((remote_client, commitment_config)) = remote_ctx {
+        if let Some((remote_client, commitment_config)) = remote_ctx {
             self.get_largest_accounts_local_then_remote(remote_client, config, *commitment_config)
-                .await?
+                .await
         } else {
             self.get_largest_accounts_local(config)
-        };
-
-        Ok(results)
+        }
     }
 
     pub fn account_to_rpc_keyed_account<T: ReadableAccount + Send + Sync>(
@@ -760,7 +757,7 @@ impl SurfnetSvmLocker {
             let slot = transaction_with_status_meta.slot;
             let block_time = svm_reader
                 .blocks
-                .get(&slot)
+                .get(&slot)?
                 .map(|b| (b.block_time / 1_000) as UnixTimestamp)
                 .unwrap_or(0);
             let encoded = transaction_with_status_meta.encode(
@@ -999,7 +996,7 @@ impl SurfnetSvmLocker {
                 let accounts_before = transaction_accounts
                     .iter()
                     .map(|p| svm_reader.inner.get_account(p))
-                    .collect::<Vec<Option<Account>>>();
+                    .collect::<Result<Vec<Option<Account>>, SurfpoolError>>()?;
 
                 let token_accounts_before = transaction_accounts
                     .iter()
@@ -1012,13 +1009,19 @@ impl SurfnetSvmLocker {
                     .map(|(i, ta)| {
                         svm_reader
                             .get_account(&transaction_accounts[*i])
-                            .map(|a| a.owner)
-                            .unwrap_or(ta.token_program_id())
+                            .map(|res| res.map(|a| a.owner).unwrap_or(ta.token_program_id()))
                     })
-                    .collect::<Vec<_>>()
-                    .clone();
-                (accounts_before, token_accounts_before, token_programs)
-            });
+                    .collect::<Result<Vec<_>, SurfpoolError>>()?;
+
+                Ok::<
+                    (
+                        Vec<Option<Account>>,
+                        Vec<(usize, TokenAccount)>,
+                        Vec<Pubkey>,
+                    ),
+                    SurfpoolError,
+                >((accounts_before, token_accounts_before, token_programs))
+            })?;
 
         let loaded_addresses = tx_loaded_addresses.as_ref().map(|l| l.loaded_addresses());
 
@@ -1247,7 +1250,7 @@ impl SurfnetSvmLocker {
         pre_execution_capture: ExecutionCapture,
         status_tx: Sender<TransactionStatusEvent>,
         do_propagate: bool,
-    ) -> ProfileResult {
+    ) -> SurfpoolResult<ProfileResult> {
         let FailedTransactionMetadata { err, meta } = failed_transaction_metadata;
 
         let cus = meta.compute_units_consumed;
@@ -1258,7 +1261,7 @@ impl SurfnetSvmLocker {
         let accounts_after = pubkeys_from_message
             .iter()
             .map(|p| self.with_svm_reader(|svm_reader| svm_reader.inner.get_account(p)))
-            .collect::<Vec<Option<Account>>>();
+            .collect::<SurfpoolResult<Vec<Option<Account>>>>()?;
 
         for (pubkey, (before, after)) in pubkeys_from_message
             .iter()
@@ -1352,13 +1355,13 @@ impl SurfnetSvmLocker {
                     ));
             });
         }
-        ProfileResult::new(
+        Ok(ProfileResult::new(
             pre_execution_capture,
             BTreeMap::new(),
             cus,
             Some(log_messages),
             Some(err_string),
-        )
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1384,7 +1387,7 @@ impl SurfnetSvmLocker {
             let accounts_after = pubkeys_from_message
                 .iter()
                 .map(|p| svm_writer.inner.get_account(p))
-                .collect::<Vec<Option<Account>>>();
+                .collect::<SurfpoolResult<Vec<Option<Account>>>>()?;
 
             let (sanitized_transaction, versioned_transaction) = if do_propagate {
                 (
@@ -1590,7 +1593,7 @@ impl SurfnetSvmLocker {
                 pre_execution_capture,
                 status_tx.clone(),
                 do_propagate,
-            ),
+            )?,
         };
         Ok(res)
     }
@@ -1759,7 +1762,7 @@ impl SurfnetSvmLocker {
             self.get_token_accounts_by_owner_local_then_remote(owner, filter, remote_client, config)
                 .await
         } else {
-            Ok(self.get_token_accounts_by_owner_local(owner, filter, config))
+            self.get_token_accounts_by_owner_local(owner, filter, config)
         }
     }
 
@@ -1768,29 +1771,50 @@ impl SurfnetSvmLocker {
         owner: Pubkey,
         filter: &TokenAccountsFilter,
         config: &RpcAccountInfoConfig,
-    ) -> SvmAccessContext<Vec<RpcKeyedAccount>> {
-        self.with_contextualized_svm_reader(|svm_reader| {
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        let result = self.with_contextualized_svm_reader(|svm_reader| {
             svm_reader
                 .get_parsed_token_accounts_by_owner(&owner)
                 .iter()
                 .filter_map(|(pubkey, token_account)| {
-                    let account = svm_reader.get_account(pubkey)?;
-                    if match filter {
-                        TokenAccountsFilter::Mint(mint) => token_account.mint().eq(mint),
-                        TokenAccountsFilter::ProgramId(program_id) => account.owner.eq(program_id),
-                    } {
-                        Some(svm_reader.account_to_rpc_keyed_account(
-                            pubkey,
-                            &account,
-                            config,
-                            Some(token_account.mint()),
-                        ))
-                    } else {
-                        None
-                    }
+                    svm_reader
+                        .get_account(pubkey)
+                        .map(|res| {
+                            let Some(account) = res else {
+                                return None;
+                            };
+                            if match filter {
+                                TokenAccountsFilter::Mint(mint) => token_account.mint().eq(mint),
+                                TokenAccountsFilter::ProgramId(program_id) => {
+                                    account.owner.eq(program_id)
+                                }
+                            } {
+                                Some(svm_reader.account_to_rpc_keyed_account(
+                                    pubkey,
+                                    &account,
+                                    config,
+                                    Some(token_account.mint()),
+                                ))
+                            } else {
+                                None
+                            }
+                        })
+                        .transpose()
                 })
-                .collect::<Vec<_>>()
-        })
+                .collect::<SurfpoolResult<Vec<_>>>()
+        });
+        let SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: accounts,
+        } = result;
+        Ok(SvmAccessContext::new(
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            accounts?,
+        ))
     }
 
     pub async fn get_token_accounts_by_owner_local_then_remote(
@@ -1805,7 +1829,7 @@ impl SurfnetSvmLocker {
             latest_epoch_info,
             latest_blockhash,
             inner: local_accounts,
-        } = self.get_token_accounts_by_owner_local(owner, filter, config);
+        } = self.get_token_accounts_by_owner_local(owner, filter, config)?;
 
         let remote_accounts = remote_client
             .get_token_accounts_by_owner(owner, filter, config)
@@ -1855,7 +1879,7 @@ impl SurfnetSvmLocker {
             )
             .await
         } else {
-            Ok(self.get_token_accounts_by_delegate_local(delegate, filter, config))
+            self.get_token_accounts_by_delegate_local(delegate, filter, config)
         }
     }
 }
@@ -1867,33 +1891,53 @@ impl SurfnetSvmLocker {
         delegate: Pubkey,
         filter: &TokenAccountsFilter,
         config: &RpcAccountInfoConfig,
-    ) -> SvmAccessContext<Vec<RpcKeyedAccount>> {
-        self.with_contextualized_svm_reader(|svm_reader| {
+    ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
+        let result = self.with_contextualized_svm_reader(|svm_reader| {
             svm_reader
                 .get_token_accounts_by_delegate(&delegate)
                 .iter()
                 .filter_map(|(pubkey, token_account)| {
-                    let account = svm_reader.get_account(pubkey)?;
-                    let include = match filter {
-                        TokenAccountsFilter::Mint(mint) => token_account.mint() == *mint,
-                        TokenAccountsFilter::ProgramId(program_id) => {
-                            account.owner == *program_id && is_supported_token_program(program_id)
-                        }
-                    };
+                    svm_reader
+                        .get_account(pubkey)
+                        .map(|res| {
+                            let Some(account) = res else {
+                                return None;
+                            };
+                            let include = match filter {
+                                TokenAccountsFilter::Mint(mint) => token_account.mint() == *mint,
+                                TokenAccountsFilter::ProgramId(program_id) => {
+                                    account.owner == *program_id
+                                        && is_supported_token_program(program_id)
+                                }
+                            };
 
-                    if include {
-                        Some(svm_reader.account_to_rpc_keyed_account(
-                            pubkey,
-                            &account,
-                            config,
-                            Some(token_account.mint()),
-                        ))
-                    } else {
-                        None
-                    }
+                            if include {
+                                Some(svm_reader.account_to_rpc_keyed_account(
+                                    pubkey,
+                                    &account,
+                                    config,
+                                    Some(token_account.mint()),
+                                ))
+                            } else {
+                                None
+                            }
+                        })
+                        .transpose()
                 })
-                .collect::<Vec<_>>()
-        })
+                .collect::<SurfpoolResult<Vec<_>>>()
+        });
+        let SvmAccessContext {
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            inner: accounts,
+        } = result;
+        Ok(SvmAccessContext::new(
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            accounts?,
+        ))
     }
 
     pub async fn get_token_accounts_by_delegate_local_then_remote(
@@ -1908,7 +1952,7 @@ impl SurfnetSvmLocker {
             latest_epoch_info,
             latest_blockhash,
             inner: local_accounts,
-        } = self.get_token_accounts_by_delegate_local(delegate, filter, config);
+        } = self.get_token_accounts_by_delegate_local(delegate, filter, config)?;
 
         let remote_accounts = remote_client
             .get_token_accounts_by_delegate(delegate, filter, config)
@@ -2581,7 +2625,7 @@ impl SurfnetSvmLocker {
         filters: Option<Vec<RpcFilterType>>,
     ) -> SurfpoolContextualizedResult<Vec<RpcKeyedAccount>> {
         let res = self.with_svm_reader(|svm_reader| {
-            let res = svm_reader.get_account_owned_by(program_id);
+            let res = svm_reader.get_account_owned_by(program_id)?;
 
             let mut filtered = vec![];
             for (pubkey, account) in &res {
@@ -2681,7 +2725,7 @@ impl SurfnetSvmLocker {
 
 impl SurfnetSvmLocker {
     pub fn get_first_local_slot(&self) -> Option<Slot> {
-        self.with_svm_reader(|svm_reader| svm_reader.blocks.keys().min().copied())
+        self.with_svm_reader(|svm_reader| svm_reader.blocks.keys().unwrap().into_iter().min())
     }
 
     pub async fn get_block(
@@ -2824,7 +2868,7 @@ impl SurfnetSvmLocker {
 
     /// Executes an airdrop via the underlying SVM.
     #[allow(clippy::result_large_err)]
-    pub fn airdrop(&self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
+    pub fn airdrop(&self, pubkey: &Pubkey, lamports: u64) -> SurfpoolResult<TransactionResult> {
         self.with_svm_writer(|svm_writer| svm_writer.airdrop(pubkey, lamports))
     }
 
@@ -2911,7 +2955,7 @@ impl SurfnetSvmLocker {
     pub fn export_snapshot(
         &self,
         config: ExportSnapshotConfig,
-    ) -> BTreeMap<String, AccountSnapshot> {
+    ) -> SurfpoolResult<BTreeMap<String, AccountSnapshot>> {
         self.with_svm_reader(|svm_reader| svm_reader.export_snapshot(config))
     }
 

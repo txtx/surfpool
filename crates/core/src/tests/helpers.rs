@@ -2,7 +2,6 @@
 use std::net::TcpListener;
 
 use crossbeam_channel::Sender;
-use litesvm::LiteSVM;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_transaction::versioned::VersionedTransaction;
@@ -80,12 +79,6 @@ where
             .0
             .blocking_write()
             .latest_epoch_info = epoch_info;
-        setup
-    }
-
-    pub fn new_with_svm(rpc: T, svm: LiteSVM) -> Self {
-        let setup = TestSetup::new(rpc);
-        setup.context.svm_locker.0.blocking_write().inner = svm;
         setup
     }
 

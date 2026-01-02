@@ -73,8 +73,8 @@ cli = ["clap/derive", "clap/env", "clap_complete", "toml", "ctrlc", "hiro-system
 supervisor_ui = ["txtx-supervisor-ui/crates_build"]
 explorer = []
 geyser_plugin = ["surfpool-core/geyser_plugin"]
-sqlite = ["surfpool-gql/sqlite"]
-postgres = ["surfpool-gql/postgres"]
+sqlite = ["surfpool-gql/sqlite", "surfpool-core/sqlite"]
+postgres = ["surfpool-gql/postgres", "surfpool-core/postgres"]
 version_check = []
 subgraph = ["surfpool-core/subgraph"]
 

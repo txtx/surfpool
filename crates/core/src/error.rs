@@ -2,12 +2,15 @@ use std::{fmt::Display, future::Future, pin::Pin};
 
 use crossbeam_channel::TrySendError;
 use jsonrpc_core::{Error, Result};
+use litesvm::error::LiteSVMError;
 use serde::Serialize;
 use serde_json::json;
 use solana_client::{client_error::ClientError, rpc_request::TokenAccountsFilter};
 use solana_clock::Slot;
 use solana_pubkey::Pubkey;
 use solana_transaction_status::EncodeError;
+
+use crate::storage::StorageError;
 
 pub type SurfpoolResult<T> = std::result::Result<T, SurfpoolError>;
 
@@ -445,5 +448,21 @@ impl SurfpoolError {
         let mut error = Error::internal_error();
         error.message = format!("Expected profile not found for key {key}");
         Self(error)
+    }
+}
+
+impl From<StorageError> for SurfpoolError {
+    fn from(e: StorageError) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!("Storage error: {}", e.to_string())));
+        SurfpoolError(error)
+    }
+}
+
+impl From<LiteSVMError> for SurfpoolError {
+    fn from(e: LiteSVMError) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!("LiteSVM error: {}", e.to_string())));
+        SurfpoolError(error)
     }
 }

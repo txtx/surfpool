@@ -77,6 +77,7 @@ solana-signer = { workspace = true }
 solana-slot-hashes = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-sysvar = { workspace = true }
+solana-sysvar-id = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
 solana-transaction-status = { workspace = true }
@@ -84,9 +85,11 @@ solana-version = { workspace = true }
 spl-associated-token-account-interface = { workspace = true }
 spl-token-interface = { workspace = true }
 spl-token-2022-interface = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 uuid = { workspace = true }
 
+surfpool-db = { workspace = true }
 surfpool-subgraph = { workspace = true, optional = true }
 surfpool-types = { workspace = true }
 
@@ -99,8 +102,12 @@ txtx-addon-network-svm = { workspace = true }
 [dev-dependencies]
 test-case = { workspace = true }
 env_logger = "*"
+tempfile = { workspace = true }
 
 [features]
+default = ["sqlite"]
+sqlite = ["surfpool-db/sqlite"]
+postgres = ["surfpool-db/postgres"]
 ignore_tests_ci = []
 geyser_plugin = ["solana-geyser-plugin-manager"]
 subgraph = ["surfpool-subgraph"]
