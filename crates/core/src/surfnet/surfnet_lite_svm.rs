@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use agave_feature_set::FeatureSet;
+use itertools::Itertools;
 use litesvm::{
     LiteSVM,
     types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult},
@@ -210,6 +211,9 @@ impl SurfnetLiteSvm {
         Ok(())
     }
 
+    /// Get all accounts from both the LiteSVM state and the database, merging them together.
+    /// Accounts in the LiteSVM state take precedence over those in the database.
+    /// The resulting accounts are sorted by Pubkey.
     pub fn get_all_accounts(&self) -> SurfpoolResult<Vec<(Pubkey, AccountSharedData)>> {
         // In general, we trust the LiteSVM state as the most up-to-date source of truth for any given account,
         // But there's a chance that the account was garbage collected, meaning it exists in the DB but not in the SVM.
@@ -227,7 +231,10 @@ impl SurfnetLiteSvm {
                 accounts.insert(*pubkey, account.clone());
             }
         }
-        Ok(accounts.into_iter().collect())
+        Ok(accounts
+            .into_iter()
+            .sorted_by(|a, b| a.0.cmp(&b.0))
+            .collect())
     }
 }
 
