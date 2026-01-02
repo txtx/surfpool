@@ -24,6 +24,7 @@ use crate::{
 pub mod locker;
 pub mod remote;
 pub mod svm;
+pub mod utils;
 
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
 pub const SLOTS_PER_EPOCH: u64 = 432000;
