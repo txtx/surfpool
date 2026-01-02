@@ -53,7 +53,9 @@ use solana_hash::Hash;
 use solana_inflation::Inflation;
 use solana_keypair::Keypair;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
-use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
+use solana_message::{
+    Message, VersionedMessage, inline_nonce::is_advance_nonce_instruction_data, v0::LoadedAddresses,
+};
 use solana_program_option::COption;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
@@ -761,6 +763,81 @@ impl SurfnetSvm {
             .any(|entry| entry.blockhash == *recent_blockhash)
     }
 
+    /// Validates the blockhash of a transaction, considering nonce accounts if present.
+    /// If the transaction uses a nonce account, the blockhash is validated against the nonce account's stored blockhash.
+    /// Otherwise, it is validated against the RecentBlockhashes sysvar.
+    ///
+    /// # Arguments
+    /// * `tx` - The transaction to validate.
+    ///
+    /// # Returns
+    /// `true` if the transaction blockhash is valid, `false` otherwise.
+    pub fn validate_transaction_blockhash(&self, tx: &VersionedTransaction) -> bool {
+        let recent_blockhash = tx.message.recent_blockhash();
+
+        let some_nonce_account_index = tx
+            .message
+            .instructions()
+            .get(solana_nonce::NONCED_TX_MARKER_IX_INDEX as usize)
+            .filter(|instruction| {
+                matches!(
+                    tx.message.static_account_keys().get(instruction.program_id_index as usize),
+                    Some(program_id) if system_program::check_id(program_id)
+                ) && is_advance_nonce_instruction_data(&instruction.data)
+            })
+            .map(|instruction| {
+                // nonce account is the first account in the instruction
+                instruction.accounts.get(0)
+            });
+
+        debug!(
+            "Validating tx blockhash: {}; is nonce tx?: {}",
+            recent_blockhash,
+            some_nonce_account_index.is_some()
+        );
+
+        if let Some(nonce_account_index) = some_nonce_account_index {
+            trace!(
+                "Nonce tx detected. Nonce account index: {:?}",
+                nonce_account_index
+            );
+            let Some(nonce_account_index) = nonce_account_index else {
+                return false;
+            };
+
+            let Some(nonce_account_pubkey) = tx
+                .message
+                .static_account_keys()
+                .get(*nonce_account_index as usize)
+            else {
+                return false;
+            };
+
+            trace!("Nonce account pubkey: {:?}", nonce_account_pubkey,);
+
+            let Some(nonce_account) = self.get_account(nonce_account_pubkey) else {
+                return false;
+            };
+            trace!("Nonce account: {:?}", nonce_account);
+
+            let Some(nonce_data) =
+                bincode::deserialize::<solana_nonce::versions::Versions>(&nonce_account.data).ok()
+            else {
+                return false;
+            };
+            trace!("Nonce account data: {:?}", nonce_data);
+
+            let nonce_state = nonce_data.state();
+            let initialized_state = match nonce_state {
+                solana_nonce::state::State::Uninitialized => return false,
+                solana_nonce::state::State::Initialized(data) => data,
+            };
+            return initialized_state.blockhash() == *recent_blockhash;
+        } else {
+            self.check_blockhash_is_recent(recent_blockhash)
+        }
+    }
+
     /// Sets an account in the local SVM state and notifies listeners.
     ///
     /// # Arguments
@@ -1056,7 +1133,7 @@ impl SurfnetSvm {
         }
         self.transactions_processed += 1;
 
-        if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
+        if !self.validate_transaction_blockhash(&tx) {
             let meta = TransactionMetadata::default();
             let err = solana_transaction_error::TransactionError::BlockhashNotFound;
 
@@ -1101,7 +1178,7 @@ impl SurfnetSvm {
         &self,
         transaction: &VersionedTransaction,
     ) -> ComputeUnitsEstimationResult {
-        if !self.check_blockhash_is_recent(transaction.message.recent_blockhash()) {
+        if !self.validate_transaction_blockhash(transaction) {
             return ComputeUnitsEstimationResult {
                 success: false,
                 compute_units_consumed: 0,
@@ -1148,7 +1225,7 @@ impl SurfnetSvm {
             });
         }
 
-        if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
+        if !self.validate_transaction_blockhash(&tx) {
             let meta = TransactionMetadata::default();
             let err = TransactionError::BlockhashNotFound;
 
