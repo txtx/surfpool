@@ -53,7 +53,7 @@ use solana_transaction_status::{
 };
 use surfpool_types::{
     AccountSnapshot, ComputeUnitsEstimationResult, ExecutionCapture, ExportSnapshotConfig, Idl,
-    KeyedProfileResult, ProfileResult, RpcProfileResultConfig, RunbookExecutionStatusReport,
+    KeyedProfileResult, PreloadConfig, ProfileResult, RpcProfileResultConfig, RunbookExecutionStatusReport,
     SimnetCommand, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
     UiKeyedProfileResult, UuidOrSignature, VersionedIdl,
 };
@@ -1654,6 +1654,34 @@ impl SurfnetSvmLocker {
                 svm_writer.write_account_update(update.clone());
             }
         });
+    }
+
+  
+    pub fn preload_accounts_for_geyser(
+        &self,
+        config: &PreloadConfig,
+    ) -> SurfpoolResult<Vec<(solana_pubkey::Pubkey, solana_account::Account)>> {
+        
+        self.with_svm_writer(|svm_writer| {
+            let loaded_accounts = svm_writer.preload_accounts(config)?;
+            let slot = svm_writer.get_latest_absolute_slot();
+            let write_version = svm_writer.increment_write_version();
+
+           
+            for (pubkey, account) in &loaded_accounts {
+                let _ = svm_writer.geyser_events_tx.send(GeyserEvent::StartupAccountUpdate(
+                    GeyserAccountUpdate {
+                        pubkey: *pubkey,
+                        account: account.clone(),
+                        slot,
+                        sanitized_transaction: None,
+                        write_version,
+                    },
+                ));
+            }
+
+            Ok(loaded_accounts)
+        })
     }
 
     /// Resets an account in the SVM state for refresh/streaming.

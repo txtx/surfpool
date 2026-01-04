@@ -245,6 +245,9 @@ pub struct StartSimnet {
     /// A set of inputs to use for the runbook (eg. surfpool start --runbook-input myInputs.json)
     #[arg(long = "runbook-input", short = 'i')]
     pub runbook_input: Vec<String>,
+   
+    #[arg(long = "preload-accounts")]
+    pub preload_accounts: Option<String>,
 }
 
 fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
@@ -373,11 +376,46 @@ impl StartSimnet {
     }
 
     pub fn simnet_config(&self, airdrop_addresses: Vec<Pubkey>) -> SimnetConfig {
+        use surfpool_types::PreloadConfig;
+
         let remote_rpc_url = if !self.offline {
             Some(self.datasource_rpc_url())
         } else {
             None
         };
+
+       
+        let preload_config = self.preload_accounts.as_ref().and_then(|path| {
+            let resolved_path = resolve_path(path);
+            match std::fs::read_to_string(&resolved_path) {
+                Ok(content) => match serde_json::from_str::<PreloadConfig>(&content) {
+                    Ok(config) => {
+                        info!(
+                            "Loaded {} accounts from preload config: {}",
+                            config.accounts.len(),
+                            resolved_path.display()
+                        );
+                        Some(config)
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to parse preload accounts file {}: {}",
+                            resolved_path.display(),
+                            e
+                        );
+                        None
+                    }
+                },
+                Err(e) => {
+                    error!(
+                        "Failed to read preload accounts file {}: {}",
+                        resolved_path.display(),
+                        e
+                    );
+                    None
+                }
+            }
+        });
 
         SimnetConfig {
             remote_rpc_url,
@@ -396,6 +434,7 @@ impl StartSimnet {
             },
             feature_config: self.feature_config(),
             skip_signature_verification: false,
+            preload_config,
         }
     }
 

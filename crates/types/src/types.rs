@@ -549,6 +549,8 @@ pub struct SimnetConfig {
     pub log_bytes_limit: Option<usize>,
     pub feature_config: SvmFeatureConfig,
     pub skip_signature_verification: bool,
+  
+    pub preload_config: Option<PreloadConfig>,
 }
 
 impl Default for SimnetConfig {
@@ -566,8 +568,37 @@ impl Default for SimnetConfig {
             log_bytes_limit: Some(10_000),
             feature_config: SvmFeatureConfig::default(),
             skip_signature_verification: false,
+            preload_config: None,
         }
     }
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreloadAccount {
+    
+    pub pubkey: String,
+   
+    pub lamports: u64,
+   
+    pub data: String,
+  
+    pub owner: String,
+    
+    #[serde(default)]
+    pub executable: bool,
+   
+    #[serde(default)]
+    pub rent_epoch: u64,
+}
+
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreloadConfig {
+
+    pub accounts: Vec<PreloadAccount>,
 }
 
 impl SimnetConfig {

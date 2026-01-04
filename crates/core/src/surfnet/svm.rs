@@ -73,7 +73,7 @@ use spl_token_2022_interface::extension::{
 use surfpool_types::{
     AccountChange, AccountProfileState, AccountSnapshot, DEFAULT_PROFILING_MAP_CAPACITY,
     DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, ExportSnapshotScope, FifoMap, Idl,
-    OverrideInstance, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
+    OverrideInstance, PreloadConfig, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
     RunbookExecutionStatusReport, SimnetEvent, SvmFeature, SvmFeatureConfig,
     TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
     UiProfileResult, VersionedIdl,
@@ -655,6 +655,57 @@ impl SurfnetSvm {
                 recipient, lamports
             )));
         }
+    }
+
+
+    pub fn preload_accounts(&mut self, config: &PreloadConfig) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
+        use base64::engine::general_purpose::STANDARD;
+
+        let mut loaded_accounts = Vec::new();
+
+        for preload_account in &config.accounts {
+         
+            let pubkey = Pubkey::from_str(&preload_account.pubkey).map_err(|e| {
+                SurfpoolError::invalid_pubkey(&preload_account.pubkey, e.to_string())
+            })?;
+
+           
+            let owner = Pubkey::from_str(&preload_account.owner).map_err(|e| {
+                SurfpoolError::invalid_pubkey(&preload_account.owner, e.to_string())
+            })?;
+
+  
+            let data = STANDARD.decode(&preload_account.data).map_err(|e| {
+                SurfpoolError::invalid_base64_data("account data", e)
+            })?;
+
+            let account = Account {
+                lamports: preload_account.lamports,
+                data,
+                owner,
+                executable: preload_account.executable,
+                rent_epoch: preload_account.rent_epoch,
+            };
+
+        
+            self.set_account(&pubkey, account.clone())?;
+
+            let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
+                "Preloaded account {} with {} lamports",
+                pubkey, preload_account.lamports
+            )));
+
+            loaded_accounts.push((pubkey, account));
+        }
+
+        if !loaded_accounts.is_empty() {
+            let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
+                "Successfully preloaded {} accounts",
+                loaded_accounts.len()
+            )));
+        }
+
+        Ok(loaded_accounts)
     }
 
     /// Returns the latest known absolute slot from the local epoch info.

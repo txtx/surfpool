@@ -109,6 +109,27 @@ pub async fn start_local_surfnet_runloop(
         .await?;
 
     svm_locker.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
+
+   
+    if let Some(ref preload_config) = simnet.preload_config {
+        match svm_locker.preload_accounts_for_geyser(preload_config) {
+            Ok(accounts) => {
+                if !accounts.is_empty() {
+                    let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(format!(
+                        "Preloaded {} accounts for Geyser plugins (is_startup=true)",
+                        accounts.len()
+                    )));
+                }
+            }
+            Err(e) => {
+                let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!(
+                    "Failed to preload accounts: {}",
+                    e
+                )));
+            }
+        }
+    }
+
     let simnet_events_tx_cc = svm_locker.simnet_events_tx();
 
     let (plugin_manager_commands_rx, _rpc_handle, _ws_handle) = start_rpc_servers_runloop(
@@ -723,6 +744,41 @@ fn start_geyser_runloop(
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update account in Geyser plugin: {:?}", e)));
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::StartupAccountUpdate(account_update)) => {
+                       
+                        let GeyserAccountUpdate {
+                            pubkey,
+                            account,
+                            slot,
+                            sanitized_transaction,
+                            write_version,
+                        } = account_update;
+
+                        let account_replica = ReplicaAccountInfoV3 {
+                            pubkey: pubkey.as_ref(),
+                            lamports: account.lamports,
+                            owner: account.owner.as_ref(),
+                            executable: account.executable,
+                            rent_epoch: account.rent_epoch,
+                            data: account.data.as_ref(),
+                            write_version,
+                            txn: sanitized_transaction.as_ref(),
+                        };
+
+                     
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, true) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update startup account in Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, true) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update startup account in Geyser plugin: {:?}", e)));
                             }
                         }
                     }
