@@ -1126,10 +1126,7 @@ impl SurfnetSvm {
     ) -> SurfpoolResult<()> {
         self.remove_from_indexes(pubkey, account)?;
 
-        // Set the empty account
-        self.inner
-            .set_account(*pubkey, Account::default())
-            .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+        self.inner.delete_account(pubkey)?;
 
         Ok(())
     }

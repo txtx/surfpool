@@ -200,6 +200,17 @@ impl SurfnetLiteSvm {
         Ok(())
     }
 
+    pub fn delete_account(&mut self, pubkey: &Pubkey) -> SurfpoolResult<()> {
+        self.delete_account_in_db(pubkey)?;
+
+        // You can't delete an account using the LiteSvm, so we set it to an empty account
+        // so it can be garbage collected later
+        self.svm
+            .set_account(*pubkey, Account::default())
+            .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+        Ok(())
+    }
+
     pub fn set_account_in_db(
         &mut self,
         pubkey: Pubkey,
