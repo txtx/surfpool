@@ -908,14 +908,14 @@ impl SurfnetSvm {
         if account == &Account::default() {
             self.closed_accounts.insert(*pubkey);
             if let Some(old_account) = self.get_account(pubkey)? {
-                self.remove_from_indexes(pubkey, &old_account);
+                self.remove_from_indexes(pubkey, &old_account)?;
             }
             return Ok(());
         }
 
         // only update our indexes if the account exists in the svm accounts db
         if let Some(old_account) = self.get_account(pubkey)? {
-            self.remove_from_indexes(pubkey, &old_account);
+            self.remove_from_indexes(pubkey, &old_account)?;
         }
         // add to owner index (check for duplicates)
         let owner_accounts = self.accounts_by_owner.entry(account.owner).or_default();
@@ -988,7 +988,11 @@ impl SurfnetSvm {
         Ok(())
     }
 
-    fn remove_from_indexes(&mut self, pubkey: &Pubkey, old_account: &Account) {
+    fn remove_from_indexes(
+        &mut self,
+        pubkey: &Pubkey,
+        old_account: &Account,
+    ) -> SurfpoolResult<()> {
         if let Some(accounts) = self.accounts_by_owner.get_mut(&old_account.owner) {
             accounts.retain(|pk| pk != pubkey);
             if accounts.is_empty() {
@@ -1031,6 +1035,7 @@ impl SurfnetSvm {
                 }
             }
         }
+        Ok(())
     }
 
     pub fn reset_network(&mut self) -> SurfpoolResult<()> {
@@ -1109,7 +1114,7 @@ impl SurfnetSvm {
         account: &Account,
         pubkey: &Pubkey,
     ) -> SurfpoolResult<()> {
-        self.remove_from_indexes(pubkey, account);
+        self.remove_from_indexes(pubkey, account)?;
 
         // Set the empty account
         self.inner
