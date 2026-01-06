@@ -1,7 +1,11 @@
 mod hash_map;
+#[cfg(feature = "postgres")]
+mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 pub use hash_map::HashMap as StorageHashMap;
+#[cfg(feature = "postgres")]
+pub use postgres::PostgresStorage;
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteStorage;
 
