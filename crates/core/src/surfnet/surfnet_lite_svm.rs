@@ -144,6 +144,10 @@ impl SurfnetLiteSvm {
         self.svm.airdrop(pubkey, lamports)
     }
 
+    pub fn get_account_no_db(&self, pubkey: &Pubkey) -> Option<Account> {
+        self.svm.get_account(pubkey)
+    }
+
     pub fn get_account(&self, pubkey: &Pubkey) -> SurfpoolResult<Option<Account>> {
         if let Some(account) = self.svm.get_account(pubkey) {
             return Ok(Some(account));

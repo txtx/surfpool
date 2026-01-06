@@ -1386,9 +1386,8 @@ impl SurfnetSvmLocker {
         let post_execution_capture = self.with_svm_writer(|svm_writer| {
             let accounts_after = pubkeys_from_message
                 .iter()
-                .map(|p| svm_writer.inner.get_account(p))
-                .collect::<SurfpoolResult<Vec<Option<Account>>>>()?;
-
+                .map(|p| svm_writer.inner.get_account_no_db(p))
+                .collect::<Vec<Option<Account>>>();
             let (sanitized_transaction, versioned_transaction) = if do_propagate {
                 (
                     SanitizedTransaction::try_create(
