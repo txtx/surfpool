@@ -12,8 +12,9 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
+use std::collections::BTreeMap;
 use surfpool_types::{
-    BlockProductionMode, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
+    AccountSnapshot, BlockProductionMode, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
     DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT, DEFAULT_SLOT_TIME_MS, DEFAULT_WS_PORT, RpcConfig,
     SimnetConfig, SimnetEvent, StudioConfig, SubgraphConfig, SurfpoolConfig, SvmFeature,
     SvmFeatureConfig,
@@ -245,6 +246,13 @@ pub struct StartSimnet {
     /// A set of inputs to use for the runbook (eg. surfpool start --runbook-input myInputs.json)
     #[arg(long = "runbook-input", short = 'i')]
     pub runbook_input: Vec<String>,
+    /// Path to JSON snapshot file(s) to preload accounts from. Can be specified multiple times.
+    /// (eg. surfpool start --snapshot ./snapshot1.json --snapshot ./snapshot2.json)
+    /// The snapshot format matches the output of surfnet_exportSnapshot RPC method.
+    /// Account values can be null to fetch the account from the remote RPC instead.
+    /// When multiple files are provided, later files override earlier ones for duplicate keys.
+    #[arg(long = "snapshot")]
+    pub snapshot: Vec<String>,
 }
 
 fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
@@ -372,7 +380,11 @@ impl StartSimnet {
         config
     }
 
-    pub fn simnet_config(&self, airdrop_addresses: Vec<Pubkey>) -> SimnetConfig {
+    pub fn simnet_config(
+        &self,
+        airdrop_addresses: Vec<Pubkey>,
+        snapshot: BTreeMap<String, Option<AccountSnapshot>>,
+    ) -> SimnetConfig {
         let remote_rpc_url = if !self.offline {
             Some(self.datasource_rpc_url())
         } else {
@@ -396,6 +408,7 @@ impl StartSimnet {
             },
             feature_config: self.feature_config(),
             skip_signature_verification: false,
+            snapshot,
         }
     }
 
@@ -415,7 +428,11 @@ impl StartSimnet {
         SubgraphConfig {}
     }
 
-    pub fn surfpool_config(&self, airdrop_addresses: Vec<Pubkey>) -> SurfpoolConfig {
+    pub fn surfpool_config(
+        &self,
+        airdrop_addresses: Vec<Pubkey>,
+        snapshot: BTreeMap<String, Option<AccountSnapshot>>,
+    ) -> SurfpoolConfig {
         let plugin_config_path = self
             .plugin_config_path
             .iter()
@@ -423,7 +440,7 @@ impl StartSimnet {
             .collect::<Vec<_>>();
 
         SurfpoolConfig {
-            simnets: vec![self.simnet_config(airdrop_addresses)],
+            simnets: vec![self.simnet_config(airdrop_addresses, snapshot)],
             rpc: self.rpc_config(),
             subgraph: self.subgraph_config(),
             studio: self.studio_config(),

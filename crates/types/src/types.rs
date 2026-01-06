@@ -549,6 +549,9 @@ pub struct SimnetConfig {
     pub log_bytes_limit: Option<usize>,
     pub feature_config: SvmFeatureConfig,
     pub skip_signature_verification: bool,
+    /// Snapshot accounts to preload at startup.
+    /// Keys are pubkey strings, values can be None to fetch from remote RPC.
+    pub snapshot: BTreeMap<String, Option<AccountSnapshot>>,
 }
 
 impl Default for SimnetConfig {
@@ -566,6 +569,7 @@ impl Default for SimnetConfig {
             log_bytes_limit: Some(10_000),
             feature_config: SvmFeatureConfig::default(),
             skip_signature_verification: false,
+            snapshot: BTreeMap::new(),
         }
     }
 }

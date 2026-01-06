@@ -82,8 +82,40 @@ pub async fn handle_start_local_surfnet_command(
         Some(keypair)
     };
 
+    // Parse and merge snapshot files (multiple files supported, later files override earlier ones)
+    // The actual loading happens in the runloop after the locker is created
+    let snapshot = {
+        let mut merged_snapshot: std::collections::BTreeMap<
+            String,
+            Option<surfpool_types::AccountSnapshot>,
+        > = std::collections::BTreeMap::new();
+
+        for snapshot_path in &cmd.snapshot {
+            let file_location = FileLocation::from_path(std::path::PathBuf::from(snapshot_path));
+            let content = file_location.read_content_as_utf8().map_err(|e| {
+                format!("Failed to read snapshot file '{}': {}", snapshot_path, e)
+            })?;
+            let snapshot_data: std::collections::BTreeMap<
+                String,
+                Option<surfpool_types::AccountSnapshot>,
+            > = serde_json::from_str(&content).map_err(|e| {
+                format!("Failed to parse snapshot JSON '{}': {}", snapshot_path, e)
+            })?;
+            let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+                "Loaded {} accounts from snapshot file: {}",
+                snapshot_data.len(),
+                snapshot_path
+            )));
+
+            // Merge into the combined snapshot (later files override earlier ones)
+            merged_snapshot.extend(snapshot_data);
+        }
+
+        merged_snapshot
+    };
+
     // Build config
-    let config = cmd.surfpool_config(airdrop_addresses);
+    let config = cmd.surfpool_config(airdrop_addresses, snapshot);
 
     let studio_binding_address = config.studio.get_studio_base_url();
 

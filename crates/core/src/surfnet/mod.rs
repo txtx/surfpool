@@ -34,6 +34,9 @@ pub type AccountFactory = Box<dyn Fn(SurfnetSvmLocker) -> GetAccountResult + Sen
 pub enum GeyserEvent {
     NotifyTransaction(TransactionWithStatusMeta, Option<VersionedTransaction>),
     UpdateAccount(GeyserAccountUpdate),
+    /// Account update sent at startup (before block production begins).
+    /// These updates should be sent to geyser plugins with is_startup=true.
+    StartupAccountUpdate(GeyserAccountUpdate),
     // todo: add more events
 }
 

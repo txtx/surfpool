@@ -459,6 +459,181 @@ impl SurfnetSvmLocker {
         Ok(results.with_new_value(combined))
     }
 
+    /// Loads accounts from a snapshot into the SVM.
+    ///
+    /// This method should be called before geyser plugins start to ensure they receive
+    /// the account updates with `is_startup=true`.
+    ///
+    /// # Arguments
+    /// * `snapshot` - A map of pubkey strings to optional account snapshots.
+    ///   - If the value is Some(AccountSnapshot), the account is loaded directly.
+    ///   - If the value is None, the account is fetched from the remote RPC (if available).
+    /// * `remote_client` - Optional remote RPC client to fetch None accounts.
+    /// * `commitment_config` - Commitment level for remote RPC calls.
+    ///
+    /// # Returns
+    /// The number of accounts successfully loaded.
+    pub async fn load_snapshot(
+        &self,
+        snapshot: &BTreeMap<String, Option<AccountSnapshot>>,
+        remote_client: Option<&SurfnetRemoteClient>,
+        commitment_config: CommitmentConfig,
+    ) -> SurfpoolResult<usize> {
+        use base64::{Engine, prelude::BASE64_STANDARD};
+        use std::str::FromStr;
+
+        let mut loaded_count = 0;
+
+        // Separate accounts into those with data and those needing remote fetch
+        let mut accounts_to_load: Vec<(Pubkey, Account)> = Vec::new();
+        let mut pubkeys_to_fetch: Vec<Pubkey> = Vec::new();
+
+        for (pubkey_str, account_snapshot_opt) in snapshot.iter() {
+            let pubkey = match Pubkey::from_str(pubkey_str) {
+                Ok(pk) => pk,
+                Err(e) => {
+                    self.with_svm_reader(|svm| {
+                        let _ = svm.simnet_events_tx.send(SimnetEvent::warn(format!(
+                            "Skipping invalid pubkey '{}' in snapshot: {}",
+                            pubkey_str, e
+                        )));
+                    });
+                    continue;
+                }
+            };
+
+            match account_snapshot_opt {
+                Some(account_snapshot) => {
+                    // Decode base64 data
+                    let data = match BASE64_STANDARD.decode(&account_snapshot.data) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            self.with_svm_reader(|svm| {
+                                let _ = svm.simnet_events_tx.send(SimnetEvent::warn(format!(
+                                    "Skipping account '{}': failed to decode base64 data: {}",
+                                    pubkey_str, e
+                                )));
+                            });
+                            continue;
+                        }
+                    };
+
+                    // Parse owner pubkey
+                    let owner = match Pubkey::from_str(&account_snapshot.owner) {
+                        Ok(pk) => pk,
+                        Err(e) => {
+                            self.with_svm_reader(|svm| {
+                                let _ = svm.simnet_events_tx.send(SimnetEvent::warn(format!(
+                                    "Skipping account '{}': invalid owner pubkey: {}",
+                                    pubkey_str, e
+                                )));
+                            });
+                            continue;
+                        }
+                    };
+
+                    // Create the account
+                    let account = Account {
+                        lamports: account_snapshot.lamports,
+                        data,
+                        owner,
+                        executable: account_snapshot.executable,
+                        rent_epoch: account_snapshot.rent_epoch,
+                    };
+
+                    accounts_to_load.push((pubkey, account));
+                }
+                None => {
+                    // Queue for remote fetch if client is available
+                    if remote_client.is_some() {
+                        pubkeys_to_fetch.push(pubkey);
+                    }
+                }
+            }
+        }
+
+        // Fetch None accounts from remote RPC if client is available
+        if let Some(client) = remote_client {
+            if !pubkeys_to_fetch.is_empty() {
+                self.with_svm_reader(|svm| {
+                    let _ = svm.simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Fetching {} accounts from remote RPC for snapshot",
+                        pubkeys_to_fetch.len()
+                    )));
+                });
+
+                match client
+                    .get_multiple_accounts(&pubkeys_to_fetch, commitment_config)
+                    .await
+                {
+                    Ok(remote_results) => {
+                        for (pubkey, result) in pubkeys_to_fetch.iter().zip(remote_results) {
+                            match result {
+                                GetAccountResult::FoundAccount(_, account, _) => {
+                                    accounts_to_load.push((*pubkey, account));
+                                }
+                                GetAccountResult::FoundProgramAccount(
+                                    (program_pubkey, program_account),
+                                    (data_pubkey, data_account_opt),
+                                ) => {
+                                    accounts_to_load.push((program_pubkey, program_account));
+                                    if let Some(data_account) = data_account_opt {
+                                        accounts_to_load.push((data_pubkey, data_account));
+                                    }
+                                }
+                                GetAccountResult::FoundTokenAccount(
+                                    (token_pubkey, token_account),
+                                    (mint_pubkey, mint_account_opt),
+                                ) => {
+                                    accounts_to_load.push((token_pubkey, token_account));
+                                    if let Some(mint_account) = mint_account_opt {
+                                        accounts_to_load.push((mint_pubkey, mint_account));
+                                    }
+                                }
+                                GetAccountResult::None(_) => {
+                                    // Account not found on remote, skip
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        self.with_svm_reader(|svm| {
+                            let _ = svm.simnet_events_tx.send(SimnetEvent::warn(format!(
+                                "Failed to fetch some accounts from remote: {}",
+                                e
+                            )));
+                        });
+                    }
+                }
+            }
+        }
+
+        // Load all accounts into the SVM
+        self.with_svm_writer(|svm| {
+            let slot = svm.get_latest_absolute_slot();
+
+            for (pubkey, account) in accounts_to_load {
+                if let Err(e) = svm.set_account(&pubkey, account.clone()) {
+                    let _ = svm.simnet_events_tx.send(SimnetEvent::warn(format!(
+                        "Failed to set account '{}': {}",
+                        pubkey, e
+                    )));
+                    continue;
+                }
+
+                // Send startup account update to geyser
+                let write_version = svm.increment_write_version();
+                let _ = svm.geyser_events_tx.send(GeyserEvent::StartupAccountUpdate(
+                    GeyserAccountUpdate::startup_update(pubkey, account, slot, write_version),
+                ));
+
+                loaded_count += 1;
+            }
+        });
+
+        Ok(loaded_count)
+    }
+
     /// Retrieves largest accounts from local cache, returning a contextualized result.
     pub fn get_largest_accounts_local(
         &self,
@@ -3844,5 +4019,334 @@ mod tests {
             &serde_json::json!(999),
         );
         assert!(result.is_err());
+    }
+
+    // Snapshot loading tests
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_load_snapshot_basic() {
+        use base64::{Engine, engine::general_purpose};
+
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let data = vec![1, 2, 3, 4, 5];
+        let data_base64 = general_purpose::STANDARD.encode(&data);
+
+        let mut snapshot = BTreeMap::new();
+        snapshot.insert(
+            pubkey.to_string(),
+            Some(AccountSnapshot {
+                lamports: 1_000_000,
+                owner: owner.to_string(),
+                executable: false,
+                rent_epoch: 0,
+                data: data_base64,
+                parsed_data: None,
+            }),
+        );
+
+        let loaded = locker
+            .load_snapshot(&snapshot, None, CommitmentConfig::confirmed())
+            .await
+            .unwrap();
+        assert_eq!(loaded, 1);
+
+        let account = locker.with_svm_reader(|svm| svm.get_account(&pubkey));
+        assert!(account.is_some());
+        let account = account.unwrap();
+        assert_eq!(account.lamports, 1_000_000);
+        assert_eq!(account.owner, owner);
+        assert_eq!(account.data, data);
+        assert!(!account.executable);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_load_snapshot_multiple_accounts() {
+        use base64::{Engine, engine::general_purpose};
+
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let owner = Pubkey::new_unique();
+        let mut snapshot = BTreeMap::new();
+
+        // Add 5 accounts
+        let pubkeys: Vec<Pubkey> = (0..5).map(|_| Pubkey::new_unique()).collect();
+        for (i, pubkey) in pubkeys.iter().enumerate() {
+            let data = vec![i as u8; 10];
+            snapshot.insert(
+                pubkey.to_string(),
+                Some(AccountSnapshot {
+                    lamports: (i as u64 + 1) * 1_000_000,
+                    owner: owner.to_string(),
+                    executable: false,
+                    rent_epoch: 0,
+                    data: general_purpose::STANDARD.encode(&data),
+                    parsed_data: None,
+                }),
+            );
+        }
+
+        let loaded = locker
+            .load_snapshot(&snapshot, None, CommitmentConfig::confirmed())
+            .await
+            .unwrap();
+        assert_eq!(loaded, 5);
+
+        // Verify all accounts were loaded
+        for (i, pubkey) in pubkeys.iter().enumerate() {
+            let account = locker
+                .with_svm_reader(|svm| svm.get_account(pubkey))
+                .unwrap();
+            assert_eq!(account.lamports, (i as u64 + 1) * 1_000_000);
+            assert_eq!(account.owner, owner);
+            assert_eq!(account.data, vec![i as u8; 10]);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_load_snapshot_skips_none_without_remote() {
+        use base64::{Engine, engine::general_purpose};
+
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey1 = Pubkey::new_unique();
+        let pubkey2 = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+
+        let mut snapshot = BTreeMap::new();
+
+        // Add one real account
+        snapshot.insert(
+            pubkey1.to_string(),
+            Some(AccountSnapshot {
+                lamports: 1_000_000,
+                owner: owner.to_string(),
+                executable: false,
+                rent_epoch: 0,
+                data: general_purpose::STANDARD.encode(&[1, 2, 3]),
+                parsed_data: None,
+            }),
+        );
+
+        // Add one None account (should be skipped without remote client)
+        snapshot.insert(pubkey2.to_string(), None);
+
+        let loaded = locker
+            .load_snapshot(&snapshot, None, CommitmentConfig::confirmed())
+            .await
+            .unwrap();
+        assert_eq!(loaded, 1);
+
+        // First account should exist
+        assert!(locker
+            .with_svm_reader(|svm| svm.get_account(&pubkey1))
+            .is_some());
+
+        // Second account should not exist (no remote client to fetch it)
+        assert!(locker
+            .with_svm_reader(|svm| svm.get_account(&pubkey2))
+            .is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_load_snapshot_invalid_pubkey() {
+        use base64::{Engine, engine::general_purpose};
+
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let owner = Pubkey::new_unique();
+        let mut snapshot = BTreeMap::new();
+
+        // Add an invalid pubkey
+        snapshot.insert(
+            "invalid_pubkey".to_string(),
+            Some(AccountSnapshot {
+                lamports: 1_000_000,
+                owner: owner.to_string(),
+                executable: false,
+                rent_epoch: 0,
+                data: general_purpose::STANDARD.encode(&[1, 2, 3]),
+                parsed_data: None,
+            }),
+        );
+
+        // Should succeed but load 0 accounts (invalid pubkey is skipped)
+        let loaded = locker
+            .load_snapshot(&snapshot, None, CommitmentConfig::confirmed())
+            .await
+            .unwrap();
+        assert_eq!(loaded, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_load_snapshot_invalid_base64_data() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let mut snapshot = BTreeMap::new();
+
+        // Add account with invalid base64 data
+        snapshot.insert(
+            pubkey.to_string(),
+            Some(AccountSnapshot {
+                lamports: 1_000_000,
+                owner: owner.to_string(),
+                executable: false,
+                rent_epoch: 0,
+                data: "not_valid_base64!!!".to_string(),
+                parsed_data: None,
+            }),
+        );
+
+        // Should succeed but load 0 accounts (invalid data is skipped)
+        let loaded = locker
+            .load_snapshot(&snapshot, None, CommitmentConfig::confirmed())
+            .await
+            .unwrap();
+        assert_eq!(loaded, 0);
+
+        // Account should not exist
+        assert!(locker
+            .with_svm_reader(|svm| svm.get_account(&pubkey))
+            .is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_load_snapshot_invalid_owner() {
+        use base64::{Engine, engine::general_purpose};
+
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let mut snapshot = BTreeMap::new();
+
+        // Add account with invalid owner pubkey
+        snapshot.insert(
+            pubkey.to_string(),
+            Some(AccountSnapshot {
+                lamports: 1_000_000,
+                owner: "invalid_owner".to_string(),
+                executable: false,
+                rent_epoch: 0,
+                data: general_purpose::STANDARD.encode(&[1, 2, 3]),
+                parsed_data: None,
+            }),
+        );
+
+        // Should succeed but load 0 accounts (invalid owner is skipped)
+        let loaded = locker
+            .load_snapshot(&snapshot, None, CommitmentConfig::confirmed())
+            .await
+            .unwrap();
+        assert_eq!(loaded, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_load_snapshot_empty() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let snapshot = BTreeMap::new();
+        let loaded = locker
+            .load_snapshot(&snapshot, None, CommitmentConfig::confirmed())
+            .await
+            .unwrap();
+        assert_eq!(loaded, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_load_snapshot_updates_account_registries() {
+        use base64::{Engine, engine::general_purpose};
+
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+
+        let mut snapshot = BTreeMap::new();
+        snapshot.insert(
+            pubkey.to_string(),
+            Some(AccountSnapshot {
+                lamports: 1_000_000,
+                owner: owner.to_string(),
+                executable: false,
+                rent_epoch: 0,
+                data: general_purpose::STANDARD.encode(&[1, 2, 3]),
+                parsed_data: None,
+            }),
+        );
+
+        locker
+            .load_snapshot(&snapshot, None, CommitmentConfig::confirmed())
+            .await
+            .unwrap();
+
+        // Verify account is in the owner index
+        let owned_accounts = locker.with_svm_reader(|svm| svm.get_account_owned_by(&owner));
+        assert_eq!(owned_accounts.len(), 1);
+        assert_eq!(owned_accounts[0].0, pubkey);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_load_snapshot_mixed_valid_invalid() {
+        use base64::{Engine, engine::general_purpose};
+
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let valid_pubkey = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+
+        let mut snapshot = BTreeMap::new();
+
+        // Valid account
+        snapshot.insert(
+            valid_pubkey.to_string(),
+            Some(AccountSnapshot {
+                lamports: 1_000_000,
+                owner: owner.to_string(),
+                executable: false,
+                rent_epoch: 0,
+                data: general_purpose::STANDARD.encode(&[1, 2, 3]),
+                parsed_data: None,
+            }),
+        );
+
+        // Invalid pubkey
+        snapshot.insert(
+            "bad_pubkey".to_string(),
+            Some(AccountSnapshot {
+                lamports: 2_000_000,
+                owner: owner.to_string(),
+                executable: false,
+                rent_epoch: 0,
+                data: general_purpose::STANDARD.encode(&[4, 5, 6]),
+                parsed_data: None,
+            }),
+        );
+
+        // None value (skipped without remote)
+        snapshot.insert(Pubkey::new_unique().to_string(), None);
+
+        let loaded = locker
+            .load_snapshot(&snapshot, None, CommitmentConfig::confirmed())
+            .await
+            .unwrap();
+        assert_eq!(loaded, 1);
+
+        // Only the valid account should exist
+        assert!(locker
+            .with_svm_reader(|svm| svm.get_account(&valid_pubkey))
+            .is_some());
     }
 }
