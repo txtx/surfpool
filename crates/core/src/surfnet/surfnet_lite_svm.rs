@@ -13,7 +13,7 @@ use solana_pubkey::Pubkey;
 use solana_transaction::versioned::VersionedTransaction;
 
 use crate::{
-    error::SurfpoolResult,
+    error::{SurfpoolError, SurfpoolResult},
     storage::{SqliteStorage, Storage, StorageConstructor},
     surfnet::{GetAccountResult, locker::is_supported_token_program},
 };
@@ -207,6 +207,13 @@ impl SurfnetLiteSvm {
     ) -> SurfpoolResult<()> {
         if let Some(db) = &mut self.db {
             db.store(pubkey.to_string(), account)?;
+        }
+        Ok(())
+    }
+
+    pub fn delete_account_in_db(&mut self, pubkey: &Pubkey) -> SurfpoolResult<()> {
+        if let Some(db) = &mut self.db {
+            db.take(&pubkey.to_string())?;
         }
         Ok(())
     }

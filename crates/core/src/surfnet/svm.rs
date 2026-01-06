@@ -902,10 +902,20 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         account: &Account,
     ) -> SurfpoolResult<()> {
-        self.inner
-            .set_account_in_db(*pubkey, account.clone().into())?;
+        let is_deleted_account = account == &Account::default();
 
-        if account == &Account::default() {
+        // When this function is called after processing a transaction, the account is already updated
+        // in the inner SVM. However, the database hasn't been updated yet, so we need to manually update the db.
+        if is_deleted_account {
+            // This amounts to deleting the account from the db if the account is deleted in the SVM
+            self.inner.delete_account_in_db(pubkey)?;
+        } else {
+            // Or updating the db account to match the SVM account if not deleted
+            self.inner
+                .set_account_in_db(*pubkey, account.clone().into())?;
+        }
+
+        if is_deleted_account {
             self.closed_accounts.insert(*pubkey);
             if let Some(old_account) = self.get_account(pubkey)? {
                 self.remove_from_indexes(pubkey, &old_account)?;
