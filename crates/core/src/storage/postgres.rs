@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
 use log::debug;
 use serde::{Deserialize, Serialize};
 use surfpool_db::diesel::{
@@ -9,6 +12,32 @@ use surfpool_db::diesel::{
 };
 
 use crate::storage::{Storage, StorageConstructor, StorageError, StorageResult};
+
+/// Global shared connection pools keyed by database URL.
+/// This allows multiple PostgresStorage instances to share the same pool,
+/// which is essential for tests that run in parallel.
+static SHARED_POOLS: OnceLock<Mutex<HashMap<String, Pool<ConnectionManager<diesel::PgConnection>>>>> = OnceLock::new();
+
+fn get_or_create_shared_pool(database_url: &str) -> StorageResult<Pool<ConnectionManager<diesel::PgConnection>>> {
+    let pools = SHARED_POOLS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut pools_guard = pools.lock().map_err(|_| StorageError::LockError)?;
+
+    if let Some(pool) = pools_guard.get(database_url) {
+        debug!("Reusing existing shared PostgreSQL connection pool for {}", database_url);
+        return Ok(pool.clone());
+    }
+
+    debug!("Creating new shared PostgreSQL connection pool for {}", database_url);
+    let manager = ConnectionManager::<diesel::PgConnection>::new(database_url);
+    let pool = Pool::builder()
+        .max_size(10) // Limit total connections across all tests
+        .min_idle(Some(1))
+        .build(manager)
+        .map_err(|e| StorageError::PooledConnectionError(NAME.into(), e))?;
+
+    pools_guard.insert(database_url.to_string(), pool.clone());
+    Ok(pool)
+}
 
 #[derive(QueryableByName, Debug)]
 struct KvRecord {
@@ -316,10 +345,9 @@ where
             database_url, table_name, surfnet_id
         );
 
-        let manager = ConnectionManager::<diesel::PgConnection>::new(database_url);
-        trace!("Creating connection pool");
-        let pool =
-            Pool::new(manager).map_err(|e| StorageError::PooledConnectionError(NAME.into(), e))?;
+        // Use shared connection pool to avoid exhausting connections when many
+        // instances connect to the same database (e.g., parallel tests)
+        let pool = get_or_create_shared_pool(database_url)?;
 
         let storage = PostgresStorage {
             pool,
