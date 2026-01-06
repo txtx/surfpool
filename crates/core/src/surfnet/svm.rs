@@ -218,7 +218,7 @@ pub struct SurfnetSvm {
     pub remote_rpc_url: Option<String>,
     pub chain_tip: BlockIdentifier,
     pub blocks: Box<dyn Storage<u64, BlockHeader>>,
-    pub transactions: HashMap<Signature, SurfnetTransactionStatus>,
+    pub transactions: Box<dyn Storage<String, SurfnetTransactionStatus>>,
     pub transactions_queued_for_confirmation: VecDeque<(
         VersionedTransaction,
         Sender<TransactionStatusEvent>,
@@ -325,6 +325,7 @@ impl SurfnetSvm {
             HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
 
         let blocks_db = new_kv_store(&database_url, "blocks", surfnet_id)?;
+        let transactions_db = new_kv_store(&database_url, "transactions", surfnet_id)?;
 
         let chain_tip = if let Some((_, block)) = blocks_db
             .into_iter()
@@ -344,7 +345,7 @@ impl SurfnetSvm {
             remote_rpc_url: None,
             chain_tip,
             blocks: blocks_db,
-            transactions: HashMap::new(),
+            transactions: transactions_db,
             perf_samples: VecDeque::new(),
             transactions_processed: 0,
             simnet_events_tx,
@@ -606,8 +607,8 @@ impl SurfnetSvm {
                 .get_account(&system_program::id())?
                 .map(|a| a.lamports())
                 .unwrap_or(1);
-            self.transactions.insert(
-                *tx.get_signature(),
+            self.transactions.store(
+                tx.get_signature().to_string(),
                 SurfnetTransactionStatus::processed(
                     TransactionWithStatusMeta {
                         slot,
@@ -638,7 +639,7 @@ impl SurfnetSvm {
                     },
                     HashSet::from([*pubkey]),
                 ),
-            );
+            )?;
             self.notify_signature_subscribers(
                 SignatureSubscriptionType::processed(),
                 tx.get_signature(),
@@ -1063,7 +1064,7 @@ impl SurfnetSvm {
             HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
 
         self.blocks.clear()?;
-        self.transactions.clear();
+        self.transactions.clear()?;
         self.transactions_queued_for_confirmation.clear();
         self.transactions_queued_for_finalization.clear();
         self.perf_samples.clear();
@@ -1305,7 +1306,7 @@ impl SurfnetSvm {
             );
 
             let Some(SurfnetTransactionStatus::Processed(tx_data)) =
-                self.transactions.get(&signature)
+                self.transactions.get(&signature.to_string()).ok().flatten()
             else {
                 continue;
             };
@@ -1354,7 +1355,7 @@ impl SurfnetSvm {
                     error,
                 );
                 let Some(SurfnetTransactionStatus::Processed(tx_data)) =
-                    self.transactions.get(signature)
+                    self.transactions.get(&signature.to_string()).ok().flatten()
                 else {
                     continue;
                 };
@@ -2040,7 +2041,7 @@ impl SurfnetSvm {
                 block
                     .signatures
                     .iter()
-                    .filter_map(|sig| self.transactions.get(sig))
+                    .filter_map(|sig| self.transactions.get(&sig.to_string()).ok().flatten())
                     .map(|tx_with_meta| {
                         let (meta, _) = tx_with_meta.expect_processed();
                         meta.encode(
@@ -2060,7 +2061,7 @@ impl SurfnetSvm {
                 block
                     .signatures
                     .iter()
-                    .filter_map(|sig| self.transactions.get(sig))
+                    .filter_map(|sig| self.transactions.get(&sig.to_string()).ok().flatten())
                     .map(|tx_with_meta| {
                         let (meta, _) = tx_with_meta.expect_processed();
                         meta.to_json_accounts(
@@ -2321,7 +2322,7 @@ impl SurfnetSvm {
                     // Get the tx accounts including loaded addresses
                     let transaction_accounts =
                         if let Some(SurfnetTransactionStatus::Processed(tx_data)) =
-                            self.transactions.get(signature)
+                            self.transactions.get(&signature.to_string()).ok().flatten()
                         {
                             let (tx_meta, _) = tx_data.as_ref();
                             let mut accounts = match &tx_meta.transaction.message {
@@ -2615,8 +2616,8 @@ impl SurfnetSvm {
     pub fn get_transaction(
         &self,
         signature: &Signature,
-    ) -> SurfpoolResult<Option<&SurfnetTransactionStatus>> {
-        Ok(self.transactions.get(signature))
+    ) -> SurfpoolResult<Option<SurfnetTransactionStatus>> {
+        Ok(self.transactions.get(&signature.to_string())?)
     }
 
     pub fn start_runbook_execution(&mut self, runbook_id: String) {

@@ -12287,6 +12287,7 @@ dependencies = [
  "solana-sysvar 3.0.0",
  "solana-sysvar-id 3.0.0",
  "solana-transaction",
+ "solana-transaction-context",
  "solana-transaction-error 3.0.0",
  "solana-transaction-status",
  "solana-version",

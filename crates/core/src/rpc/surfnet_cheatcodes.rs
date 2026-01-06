@@ -1571,21 +1571,24 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         )> = svm_locker.with_svm_reader(|svm_reader| {
             svm_reader
                 .transactions
-                .iter()
-                .map(|(sig, status)| {
-                    let (transaction_with_status_meta, _) = status.expect_processed();
-                    (
-                        sig.to_string(),
-                        transaction_with_status_meta.slot,
-                        transaction_with_status_meta.meta.status.clone().err(),
-                        transaction_with_status_meta
-                            .meta
-                            .log_messages
-                            .clone()
-                            .unwrap_or_default(),
-                    )
+                .into_iter()
+                .map(|iter| {
+                    iter.map(|(sig, status)| {
+                        let (transaction_with_status_meta, _) = status.expect_processed();
+                        (
+                            sig,
+                            transaction_with_status_meta.slot,
+                            transaction_with_status_meta.meta.status.clone().err(),
+                            transaction_with_status_meta
+                                .meta
+                                .log_messages
+                                .clone()
+                                .unwrap_or_default(),
+                        )
+                    })
+                    .collect()
                 })
-                .collect()
+                .unwrap_or_default()
         });
 
         items.sort_by(|a, b| b.1.cmp(&a.1));

@@ -4,6 +4,7 @@ use agave_reserved_account_keys::ReservedAccountKeys;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use litesvm::types::TransactionMetadata;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use solana_account::Account;
 use solana_account_decoder::parse_token::UiTokenAmount;
 use solana_clock::{Epoch, Slot};
@@ -19,9 +20,11 @@ use solana_transaction::{
     sanitized::SanitizedTransaction,
     versioned::{TransactionVersion, VersionedTransaction},
 };
+use solana_transaction_context::TransactionReturnData;
+use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     Encodable, EncodableWithMeta, EncodeError, EncodedTransaction,
-    EncodedTransactionWithStatusMeta, InnerInstruction, InnerInstructions,
+    EncodedTransactionWithStatusMeta, InnerInstruction, InnerInstructions, Reward,
     TransactionBinaryEncoding, TransactionConfirmationStatus, TransactionStatus,
     TransactionStatusMeta, TransactionTokenBalance, UiAccountsList, UiLoadedAddresses,
     UiTransaction, UiTransactionEncoding, UiTransactionStatusMeta,
@@ -37,7 +40,117 @@ use crate::{
     surfnet::locker::{format_ui_amount, format_ui_amount_string},
 };
 
-#[derive(Debug, Clone)]
+/// Serializable version of TransactionTokenBalance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializableTransactionTokenBalance {
+    pub account_index: u8,
+    pub mint: String,
+    pub ui_token_amount: UiTokenAmount,
+    pub owner: String,
+    pub program_id: String,
+}
+
+impl From<TransactionTokenBalance> for SerializableTransactionTokenBalance {
+    fn from(ttb: TransactionTokenBalance) -> Self {
+        Self {
+            account_index: ttb.account_index,
+            mint: ttb.mint,
+            ui_token_amount: ttb.ui_token_amount,
+            owner: ttb.owner,
+            program_id: ttb.program_id,
+        }
+    }
+}
+
+impl From<SerializableTransactionTokenBalance> for TransactionTokenBalance {
+    fn from(sttb: SerializableTransactionTokenBalance) -> Self {
+        Self {
+            account_index: sttb.account_index,
+            mint: sttb.mint,
+            ui_token_amount: sttb.ui_token_amount,
+            owner: sttb.owner,
+            program_id: sttb.program_id,
+        }
+    }
+}
+
+/// Serializable version of TransactionStatusMeta
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializableTransactionStatusMeta {
+    pub status: Result<(), TransactionError>,
+    pub fee: u64,
+    pub pre_balances: Vec<u64>,
+    pub post_balances: Vec<u64>,
+    pub inner_instructions: Option<Vec<InnerInstructions>>,
+    pub log_messages: Option<Vec<String>>,
+    pub pre_token_balances: Option<Vec<SerializableTransactionTokenBalance>>,
+    pub post_token_balances: Option<Vec<SerializableTransactionTokenBalance>>,
+    pub rewards: Option<Vec<Reward>>,
+    pub loaded_addresses: LoadedAddresses,
+    pub return_data: Option<TransactionReturnData>,
+    pub compute_units_consumed: Option<u64>,
+    pub cost_units: Option<u64>,
+}
+
+impl From<TransactionStatusMeta> for SerializableTransactionStatusMeta {
+    fn from(meta: TransactionStatusMeta) -> Self {
+        Self {
+            status: meta.status,
+            fee: meta.fee,
+            pre_balances: meta.pre_balances,
+            post_balances: meta.post_balances,
+            inner_instructions: meta.inner_instructions,
+            log_messages: meta.log_messages,
+            pre_token_balances: meta
+                .pre_token_balances
+                .map(|v| v.into_iter().map(Into::into).collect()),
+            post_token_balances: meta
+                .post_token_balances
+                .map(|v| v.into_iter().map(Into::into).collect()),
+            rewards: meta.rewards,
+            loaded_addresses: meta.loaded_addresses,
+            return_data: meta.return_data,
+            compute_units_consumed: meta.compute_units_consumed,
+            cost_units: meta.cost_units,
+        }
+    }
+}
+
+impl From<SerializableTransactionStatusMeta> for TransactionStatusMeta {
+    fn from(smeta: SerializableTransactionStatusMeta) -> Self {
+        Self {
+            status: smeta.status,
+            fee: smeta.fee,
+            pre_balances: smeta.pre_balances,
+            post_balances: smeta.post_balances,
+            inner_instructions: smeta.inner_instructions,
+            log_messages: smeta.log_messages,
+            pre_token_balances: smeta
+                .pre_token_balances
+                .map(|v| v.into_iter().map(Into::into).collect()),
+            post_token_balances: smeta
+                .post_token_balances
+                .map(|v| v.into_iter().map(Into::into).collect()),
+            rewards: smeta.rewards,
+            loaded_addresses: smeta.loaded_addresses,
+            return_data: smeta.return_data,
+            compute_units_consumed: smeta.compute_units_consumed,
+            cost_units: smeta.cost_units,
+        }
+    }
+}
+
+/// Helper struct for serializing TransactionWithStatusMeta
+/// Note: VersionedTransaction uses bincode internally, so we serialize it as base64-encoded bytes
+#[derive(Serialize, Deserialize)]
+struct SerializableTransactionWithStatusMeta {
+    pub slot: u64,
+    /// Base64-encoded bincode serialization of VersionedTransaction
+    pub transaction_bytes: String,
+    pub meta: SerializableTransactionStatusMeta,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SurfnetTransactionStatus {
     Received,
     Processed(Box<(TransactionWithStatusMeta, HashSet<Pubkey>)>),
@@ -61,6 +174,47 @@ pub struct TransactionWithStatusMeta {
     pub slot: u64,
     pub transaction: VersionedTransaction,
     pub meta: TransactionStatusMeta,
+}
+
+impl Serialize for TransactionWithStatusMeta {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Serialize VersionedTransaction using bincode, then base64 encode
+        let tx_bytes = bincode::serialize(&self.transaction)
+            .map_err(|e| serde::ser::Error::custom(format!("bincode error: {}", e)))?;
+        let tx_base64 = BASE64_STANDARD.encode(&tx_bytes);
+
+        let helper = SerializableTransactionWithStatusMeta {
+            slot: self.slot,
+            transaction_bytes: tx_base64,
+            meta: self.meta.clone().into(),
+        };
+        helper.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TransactionWithStatusMeta {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let helper = SerializableTransactionWithStatusMeta::deserialize(deserializer)?;
+
+        // Decode base64 and deserialize using bincode
+        let tx_bytes = BASE64_STANDARD
+            .decode(&helper.transaction_bytes)
+            .map_err(|e| serde::de::Error::custom(format!("base64 decode error: {}", e)))?;
+        let transaction: VersionedTransaction = bincode::deserialize(&tx_bytes)
+            .map_err(|e| serde::de::Error::custom(format!("bincode deserialize error: {}", e)))?;
+
+        Ok(Self {
+            slot: helper.slot,
+            transaction,
+            meta: helper.meta.into(),
+        })
+    }
 }
 
 impl TransactionWithStatusMeta {

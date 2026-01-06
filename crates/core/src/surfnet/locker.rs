@@ -613,57 +613,60 @@ impl SurfnetSvmLocker {
 
             let sigs: Vec<_> = svm_reader
                 .transactions
-                .iter()
-                .filter_map(|(sig, status)| {
-                    let (
-                        TransactionWithStatusMeta {
-                            slot,
-                            transaction,
-                            meta,
-                        },
-                        _,
-                    ) = status.expect_processed();
+                .into_iter()
+                .map(|iter| {
+                    iter.filter_map(|(sig, status)| {
+                        let (
+                            TransactionWithStatusMeta {
+                                slot,
+                                transaction,
+                                meta,
+                            },
+                            _,
+                        ) = status.expect_processed();
 
-                    if *slot < config.clone().min_context_slot.unwrap_or_default() {
-                        return None;
-                    }
-
-                    if Some(sig.to_string()) == config_before {
-                        before_slot = Some(*slot);
-                    }
-
-                    if Some(sig.to_string()) == config_until {
-                        until_slot = Some(*slot);
-                    }
-
-                    // Check if the pubkey is a signer
-
-                    if !transaction.message.static_account_keys().contains(pubkey) {
-                        return None;
-                    }
-
-                    // Determine confirmation status
-                    let confirmation_status = match current_slot {
-                        cs if cs == *slot => SolanaTransactionConfirmationStatus::Processed,
-                        cs if cs < slot + FINALIZATION_SLOT_THRESHOLD => {
-                            SolanaTransactionConfirmationStatus::Confirmed
+                        if *slot < config.clone().min_context_slot.unwrap_or_default() {
+                            return None;
                         }
-                        _ => SolanaTransactionConfirmationStatus::Finalized,
-                    };
 
-                    Some(RpcConfirmedTransactionStatusWithSignature {
-                        err: match &meta.status {
-                            Ok(_) => None,
-                            Err(e) => Some(e.clone().into()),
-                        },
-                        slot: *slot,
-                        memo: None,
-                        block_time: None,
-                        confirmation_status: Some(confirmation_status),
-                        signature: sig.to_string(),
+                        if Some(sig.clone()) == config_before {
+                            before_slot = Some(*slot);
+                        }
+
+                        if Some(sig.clone()) == config_until {
+                            until_slot = Some(*slot);
+                        }
+
+                        // Check if the pubkey is a signer
+
+                        if !transaction.message.static_account_keys().contains(pubkey) {
+                            return None;
+                        }
+
+                        // Determine confirmation status
+                        let confirmation_status = match current_slot {
+                            cs if cs == *slot => SolanaTransactionConfirmationStatus::Processed,
+                            cs if cs < *slot + FINALIZATION_SLOT_THRESHOLD => {
+                                SolanaTransactionConfirmationStatus::Confirmed
+                            }
+                            _ => SolanaTransactionConfirmationStatus::Finalized,
+                        };
+
+                        Some(RpcConfirmedTransactionStatusWithSignature {
+                            err: match &meta.status {
+                                Ok(_) => None,
+                                Err(e) => Some(e.clone().into()),
+                            },
+                            slot: *slot,
+                            memo: None,
+                            block_time: None,
+                            confirmation_status: Some(confirmation_status),
+                            signature: sig,
+                        })
                     })
+                    .collect()
                 })
-                .collect();
+                .unwrap_or_default();
 
             sigs.into_iter()
                 .filter(|sig| {
@@ -749,7 +752,7 @@ impl SurfnetSvmLocker {
         self.with_svm_reader(|svm_reader| {
             let latest_absolute_slot = svm_reader.get_latest_absolute_slot();
 
-            let Some(entry) = svm_reader.transactions.get(signature) else {
+            let Some(entry) = svm_reader.transactions.get(&signature.to_string())? else {
                 return Ok(GetTransactionResult::None(*signature));
             };
 
@@ -1321,13 +1324,13 @@ impl SurfnetSvmLocker {
                     token_programs,
                     loaded_addresses.clone().unwrap_or_default(),
                 );
-                svm_writer.transactions.insert(
-                    signature,
+                svm_writer.transactions.store(
+                    signature.to_string(),
                     SurfnetTransactionStatus::processed(
                         transaction_with_status_meta,
                         HashSet::new(),
                     ),
-                );
+                )?;
 
                 svm_writer.transactions_queued_for_confirmation.push_back((
                     transaction.clone(),
@@ -1353,7 +1356,8 @@ impl SurfnetSvmLocker {
                         meta_canonical,
                         Some(err.clone()),
                     ));
-            });
+                Ok::<(), SurfpoolError>(())
+            })?;
         }
         Ok(ProfileResult::new(
             pre_execution_capture,
@@ -1484,13 +1488,13 @@ impl SurfnetSvmLocker {
                     &post_token_program_ids,
                     loaded_addresses.clone().unwrap_or_default(),
                 );
-                svm_writer.transactions.insert(
-                    transaction_meta.signature,
+                svm_writer.transactions.store(
+                    transaction_meta.signature.to_string(),
                     SurfnetTransactionStatus::processed(
                         transaction_with_status_meta.clone(),
                         mutated_account_pubkeys,
                     ),
-                );
+                )?;
 
                 let _ = svm_writer
                     .simnet_events_tx

@@ -2313,7 +2313,7 @@ impl Full for SurfpoolFullRpc {
                         .iter()
                         .filter_map(|signature| {
                             // Check if the signature exists in the transactions map
-                            transactions.get(signature).map(|tx| (slot, tx))
+                            transactions.get(&signature.to_string()).ok().flatten().map(|tx| (slot, tx))
                         })
                         .collect::<Vec<_>>()
                 })
@@ -2533,10 +2533,10 @@ mod tests {
                         ..Default::default()
                     };
                     let mutated_accounts = std::collections::HashSet::new();
-                    writer.transactions.insert(
-                        sig,
+                    writer.transactions.store(
+                        sig.to_string(),
                         SurfnetTransactionStatus::processed(tx_with_status_meta, mutated_accounts),
-                    );
+                    ).unwrap();
                     status_tx
                         .send(TransactionStatusEvent::Success(
                             TransactionConfirmationStatus::Confirmed,
@@ -2724,7 +2724,7 @@ mod tests {
             "transaction is not found in the SVM"
         );
         assert!(
-            state_reader.transactions.get(&sig).is_some(),
+            state_reader.transactions.get(&sig.to_string()).unwrap().is_some(),
             "transaction is not found in the history"
         );
     }
@@ -4565,13 +4565,13 @@ mod tests {
                             ..Default::default()
                         };
                         let mutated_accounts = std::collections::HashSet::new();
-                        writer.transactions.insert(
-                            sig,
+                        writer.transactions.store(
+                            sig.to_string(),
                             SurfnetTransactionStatus::processed(
                                 tx_with_status_meta,
                                 mutated_accounts,
                             ),
-                        );
+                        ).unwrap();
                         status_tx
                             .send(TransactionStatusEvent::Success(
                                 TransactionConfirmationStatus::Processed,
