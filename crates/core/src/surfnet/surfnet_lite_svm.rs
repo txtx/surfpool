@@ -14,7 +14,7 @@ use solana_transaction::versioned::VersionedTransaction;
 
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    storage::{SqliteStorage, Storage, StorageConstructor},
+    storage::{Storage, new_kv_store},
     surfnet::{GetAccountResult, locker::is_supported_token_program},
 };
 
@@ -46,7 +46,7 @@ impl SurfnetLiteSvm {
 
         if let Some(db_url) = database_url {
             let db: Box<dyn Storage<String, AccountSharedData>> =
-                Box::new(SqliteStorage::connect(db_url, "accounts")?);
+                new_kv_store(&Some(db_url), "accounts")?;
             self.db = Some(db);
         }
 

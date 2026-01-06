@@ -97,7 +97,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
     scenarios::TemplateRegistry,
-    storage::{SqliteStorage, Storage, StorageConstructor},
+    storage::{Storage, new_kv_store},
     surfnet::{
         LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
     },
@@ -322,12 +322,7 @@ impl SurfnetSvm {
         let token_mints =
             HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
 
-        let blocks_db = if let Some(database_url) = database_url {
-            Box::new(SqliteStorage::connect(database_url, "blocks")?)
-                as Box<dyn Storage<u64, BlockHeader>>
-        } else {
-            Box::new(crate::storage::StorageHashMap::new()) as Box<dyn Storage<u64, BlockHeader>>
-        };
+        let blocks_db = new_kv_store(&database_url, "blocks")?;
 
         let chain_tip = if let Some((_, block)) = blocks_db
             .into_iter()

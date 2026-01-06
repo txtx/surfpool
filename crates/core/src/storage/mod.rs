@@ -11,8 +11,70 @@ pub use sqlite::SqliteStorage;
 
 use crate::error::SurfpoolError;
 
+pub fn new_kv_store<K, V>(
+    database_url: &Option<&str>,
+    table_name: &str,
+) -> StorageResult<Box<dyn Storage<K, V>>>
+where
+    K: serde::Serialize
+        + serde::de::DeserializeOwned
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + Eq
+        + std::hash::Hash,
+    V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static + Clone,
+{
+    match database_url {
+        Some(url) => {
+            #[cfg(feature = "postgres")]
+            if url.starts_with("postgres://") || url.starts_with("postgresql://") {
+                let storage = PostgresStorage::connect(url, table_name)?;
+                Ok(Box::new(storage))
+            } else {
+                #[cfg(feature = "sqlite")]
+                {
+                    let storage = SqliteStorage::connect(url, table_name)?;
+                    Ok(Box::new(storage))
+                }
+                #[cfg(not(feature = "sqlite"))]
+                {
+                    Err(StorageError::InvalidPostgresUrl(url.to_string()))
+                }
+            }
+
+            #[cfg(not(feature = "postgres"))]
+            if url.starts_with("postgres://") || url.starts_with("postgresql://") {
+                Err(StorageError::PostgresNotEnabled)
+            } else {
+                #[cfg(feature = "sqlite")]
+                {
+                    let storage =
+                        SqliteStorage::connect(database_url.unwrap_or(":memory:"), table_name)?;
+                    Ok(Box::new(storage))
+                }
+                #[cfg(not(feature = "sqlite"))]
+                {
+                    Err(StorageError::SqliteNotEnabled)
+                }
+            }
+        }
+        _ => {
+            let storage = StorageHashMap::new();
+            Ok(Box::new(storage))
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
+    #[error("Sqlite storage is not enabled in this build")]
+    SqliteNotEnabled,
+    #[error("Postgres storage is not enabled in this build")]
+    PostgresNotEnabled,
+    #[error("Invalid Postgres database URL: {0}")]
+    InvalidPostgresUrl(String),
     #[error("Failed to get pooled connection for '{0}' database: {1}")]
     PooledConnectionError(String, #[source] surfpool_db::diesel::r2d2::PoolError),
     #[error("Failed to serialize key for '{0}' database: {1}")]
