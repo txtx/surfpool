@@ -479,8 +479,9 @@ impl SurfnetSvmLocker {
         remote_client: Option<&SurfnetRemoteClient>,
         commitment_config: CommitmentConfig,
     ) -> SurfpoolResult<usize> {
-        use base64::{Engine, prelude::BASE64_STANDARD};
         use std::str::FromStr;
+
+        use base64::{Engine, prelude::BASE64_STANDARD};
 
         let mut loaded_count = 0;
 
@@ -4143,14 +4144,18 @@ mod tests {
         assert_eq!(loaded, 1);
 
         // First account should exist
-        assert!(locker
-            .with_svm_reader(|svm| svm.get_account(&pubkey1))
-            .is_some());
+        assert!(
+            locker
+                .with_svm_reader(|svm| svm.get_account(&pubkey1))
+                .is_some()
+        );
 
         // Second account should not exist (no remote client to fetch it)
-        assert!(locker
-            .with_svm_reader(|svm| svm.get_account(&pubkey2))
-            .is_none());
+        assert!(
+            locker
+                .with_svm_reader(|svm| svm.get_account(&pubkey2))
+                .is_none()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -4214,9 +4219,11 @@ mod tests {
         assert_eq!(loaded, 0);
 
         // Account should not exist
-        assert!(locker
-            .with_svm_reader(|svm| svm.get_account(&pubkey))
-            .is_none());
+        assert!(
+            locker
+                .with_svm_reader(|svm| svm.get_account(&pubkey))
+                .is_none()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -4345,8 +4352,10 @@ mod tests {
         assert_eq!(loaded, 1);
 
         // Only the valid account should exist
-        assert!(locker
-            .with_svm_reader(|svm| svm.get_account(&valid_pubkey))
-            .is_some());
+        assert!(
+            locker
+                .with_svm_reader(|svm| svm.get_account(&valid_pubkey))
+                .is_some()
+        );
     }
 }

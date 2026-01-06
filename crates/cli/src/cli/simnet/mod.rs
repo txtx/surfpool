@@ -92,15 +92,14 @@ pub async fn handle_start_local_surfnet_command(
 
         for snapshot_path in &cmd.snapshot {
             let file_location = FileLocation::from_path(std::path::PathBuf::from(snapshot_path));
-            let content = file_location.read_content_as_utf8().map_err(|e| {
-                format!("Failed to read snapshot file '{}': {}", snapshot_path, e)
-            })?;
+            let content = file_location
+                .read_content_as_utf8()
+                .map_err(|e| format!("Failed to read snapshot file '{}': {}", snapshot_path, e))?;
             let snapshot_data: std::collections::BTreeMap<
                 String,
                 Option<surfpool_types::AccountSnapshot>,
-            > = serde_json::from_str(&content).map_err(|e| {
-                format!("Failed to parse snapshot JSON '{}': {}", snapshot_path, e)
-            })?;
+            > = serde_json::from_str(&content)
+                .map_err(|e| format!("Failed to parse snapshot JSON '{}': {}", snapshot_path, e))?;
             let _ = simnet_events_tx.send(SimnetEvent::info(format!(
                 "Loaded {} accounts from snapshot file: {}",
                 snapshot_data.len(),
