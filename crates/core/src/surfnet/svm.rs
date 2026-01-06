@@ -73,7 +73,7 @@ use spl_token_2022_interface::extension::{
 use surfpool_types::{
     AccountChange, AccountProfileState, AccountSnapshot, DEFAULT_PROFILING_MAP_CAPACITY,
     DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, ExportSnapshotScope, FifoMap, Idl,
-    OverrideInstance, PreloadConfig, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
+    OverrideInstance, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
     RunbookExecutionStatusReport, SimnetEvent, SvmFeature, SvmFeatureConfig,
     TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
     UiProfileResult, VersionedIdl,
@@ -656,51 +656,58 @@ impl SurfnetSvm {
             )));
         }
     }
-
-
-    pub fn preload_accounts(&mut self, config: &PreloadConfig) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
+    pub fn preload_accounts(
+        &mut self,
+        snapshot: &txtx_addon_kit::indexmap::IndexMap<Pubkey, Option<surfpool_types::AccountSnapshot>>,
+    ) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
         use base64::engine::general_purpose::STANDARD;
 
         let mut loaded_accounts = Vec::new();
 
-        for preload_account in &config.accounts {
-         
-            let pubkey = Pubkey::from_str(&preload_account.pubkey).map_err(|e| {
-                SurfpoolError::invalid_pubkey(&preload_account.pubkey, e.to_string())
-            })?;
+        for (pubkey, account_snapshot_opt) in snapshot {
+            match account_snapshot_opt {
+                Some(account_snapshot) => {
+                   
+                    let owner = Pubkey::from_str(&account_snapshot.owner).map_err(|e| {
+                        SurfpoolError::invalid_pubkey(&account_snapshot.owner, e.to_string())
+                    })?;
 
-           
-            let owner = Pubkey::from_str(&preload_account.owner).map_err(|e| {
-                SurfpoolError::invalid_pubkey(&preload_account.owner, e.to_string())
-            })?;
+                    // Decode base64 data
+                    let data = STANDARD.decode(&account_snapshot.data).map_err(|e| {
+                        SurfpoolError::invalid_base64_data("account data", e)
+                    })?;
 
-  
-            let data = STANDARD.decode(&preload_account.data).map_err(|e| {
-                SurfpoolError::invalid_base64_data("account data", e)
-            })?;
+                    let account = Account {
+                        lamports: account_snapshot.lamports,
+                        data,
+                        owner,
+                        executable: account_snapshot.executable,
+                        rent_epoch: account_snapshot.rent_epoch,
+                    };
 
-            let account = Account {
-                lamports: preload_account.lamports,
-                data,
-                owner,
-                executable: preload_account.executable,
-                rent_epoch: preload_account.rent_epoch,
-            };
+                    // Set the account in the SVM
+                    self.set_account(pubkey, account.clone())?;
 
-        
-            self.set_account(&pubkey, account.clone())?;
+                    let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Preloaded account {} with {} lamports",
+                        pubkey, account_snapshot.lamports
+                    )));
 
-            let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
-                "Preloaded account {} with {} lamports",
-                pubkey, preload_account.lamports
-            )));
-
-            loaded_accounts.push((pubkey, account));
+                    loaded_accounts.push((*pubkey, account));
+                }
+                None => {
+                   
+                    let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Account {} marked for network fetch",
+                        pubkey
+                    )));
+                }
+            }
         }
 
         if !loaded_accounts.is_empty() {
             let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
-                "Successfully preloaded {} accounts",
+                "Successfully preloaded {} accounts from snapshot",
                 loaded_accounts.len()
             )));
         }

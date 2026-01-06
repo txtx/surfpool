@@ -10,3 +10,6 @@ pub use features::*;
 pub use scenarios::*;
 pub use types::*;
 pub use verified_tokens::{TokenInfo, VERIFIED_TOKENS_BY_SYMBOL};
+
+
+pub use txtx_addon_kit::indexmap::IndexMap;

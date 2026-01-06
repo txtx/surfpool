@@ -110,9 +110,8 @@ pub async fn start_local_surfnet_runloop(
 
     svm_locker.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
 
-   
-    if let Some(ref preload_config) = simnet.preload_config {
-        match svm_locker.preload_accounts_for_geyser(preload_config) {
+    for snapshot in &simnet.snapshots {
+        match svm_locker.preload_accounts_for_geyser(snapshot) {
             Ok(accounts) => {
                 if !accounts.is_empty() {
                     let _ = svm_locker.simnet_events_tx().send(SimnetEvent::info(format!(
@@ -123,7 +122,7 @@ pub async fn start_local_surfnet_runloop(
             }
             Err(e) => {
                 let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!(
-                    "Failed to preload accounts: {}",
+                    "Failed to preload accounts from snapshot: {}",
                     e
                 )));
             }
