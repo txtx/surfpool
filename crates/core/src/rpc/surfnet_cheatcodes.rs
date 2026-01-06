@@ -1823,19 +1823,24 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             let base_slot = slot.unwrap_or_else(|| svm_locker.get_latest_absolute_slot());
 
             // Register the scenario with explicit base slot
-            svm_locker.register_scenario(scenario, Some(base_slot)).map_err(|e| jsonrpc_core::Error {
-                code: jsonrpc_core::ErrorCode::InternalError,
-                message: format!("Failed to register scenario: {}", e),
-                data: None,
-            })?;
+            svm_locker
+                .register_scenario(scenario, Some(base_slot))
+                .map_err(|e| jsonrpc_core::Error {
+                    code: jsonrpc_core::ErrorCode::InternalError,
+                    message: format!("Failed to register scenario: {}", e),
+                    data: None,
+                })?;
 
             // Immediately materialize overrides for the BASE slot (not current slot)
             // This ensures slot 0's override is applied right away
-            svm_locker.materialize_overrides_for_slot(&remote_ctx, base_slot).await.map_err(|e| jsonrpc_core::Error {
-                code: jsonrpc_core::ErrorCode::InternalError,
-                message: format!("Failed to materialize initial overrides: {}", e),
-                data: None,
-            })?;
+            svm_locker
+                .materialize_overrides_for_slot(&remote_ctx, base_slot)
+                .await
+                .map_err(|e| jsonrpc_core::Error {
+                    code: jsonrpc_core::ErrorCode::InternalError,
+                    message: format!("Failed to materialize initial overrides: {}", e),
+                    data: None,
+                })?;
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),

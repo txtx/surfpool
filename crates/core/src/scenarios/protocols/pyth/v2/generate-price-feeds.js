@@ -110,9 +110,18 @@ async function main() {
   // Filter for crypto feeds with USD quote
   const cryptoFeeds = feeds.filter(feed => {
     const attrs = feed.attributes;
-    return attrs.asset_type === 'Crypto' &&
-           attrs.quote_currency === 'USD' &&
-           POPULAR_SYMBOLS.has(attrs.base.toUpperCase());
+    if (attrs.asset_type !== 'Crypto') return false;
+
+    const base = attrs.base.toUpperCase();
+    const quote = attrs.quote_currency.toUpperCase();
+
+    // Include popular tokens with USD quote
+    if (quote === 'USD' && POPULAR_SYMBOLS.has(base)) return true;
+
+    // Include ETH/BTC pair
+    if (base === 'ETH' && quote === 'BTC') return true;
+
+    return false;
   });
 
   console.log(`Found ${cryptoFeeds.length} popular crypto/USD feeds`);
