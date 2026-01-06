@@ -549,6 +549,9 @@ pub struct SimnetConfig {
     pub log_bytes_limit: Option<usize>,
     pub feature_config: SvmFeatureConfig,
     pub skip_signature_verification: bool,
+    /// Unique identifier for this surfnet instance. Used to isolate database storage
+    /// when multiple surfnets share the same database. Defaults to 0.
+    pub surfnet_id: u32,
 }
 
 impl Default for SimnetConfig {
@@ -566,6 +569,7 @@ impl Default for SimnetConfig {
             log_bytes_limit: Some(10_000),
             feature_config: SvmFeatureConfig::default(),
             skip_signature_verification: false,
+            surfnet_id: 0,
         }
     }
 }
