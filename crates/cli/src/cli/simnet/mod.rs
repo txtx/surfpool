@@ -187,6 +187,8 @@ pub async fn handle_start_local_surfnet_command(
         })
         .map_err(|e| format!("{}", e))?;
 
+    // Collect events that occur before Ready so we can re-send them to the TUI
+    let mut early_events = Vec::new();
     loop {
         match simnet_events_rx.recv() {
             Ok(SimnetEvent::Aborted(error)) => {
@@ -195,8 +197,14 @@ pub async fn handle_start_local_surfnet_command(
             }
             Ok(SimnetEvent::Shutdown) => return Ok(()),
             Ok(SimnetEvent::Ready) => break,
-            _other => continue,
+            Ok(other) => early_events.push(other),
+            Err(_) => continue,
         }
+    }
+
+    // Re-send early events (like snapshot loading messages) so the TUI receives them
+    for event in early_events {
+        let _ = simnet_events_tx.send(event);
     }
 
     for event in airdrop_events {
