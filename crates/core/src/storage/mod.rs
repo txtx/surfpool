@@ -14,6 +14,7 @@ use crate::error::SurfpoolError;
 pub fn new_kv_store<K, V>(
     database_url: &Option<&str>,
     table_name: &str,
+    surfnet_id: u32,
 ) -> StorageResult<Box<dyn Storage<K, V>>>
 where
     K: serde::Serialize
@@ -30,12 +31,12 @@ where
         Some(url) => {
             #[cfg(feature = "postgres")]
             if url.starts_with("postgres://") || url.starts_with("postgresql://") {
-                let storage = PostgresStorage::connect(url, table_name)?;
+                let storage = PostgresStorage::connect(url, table_name, surfnet_id)?;
                 Ok(Box::new(storage))
             } else {
                 #[cfg(feature = "sqlite")]
                 {
-                    let storage = SqliteStorage::connect(url, table_name)?;
+                    let storage = SqliteStorage::connect(url, table_name, surfnet_id)?;
                     Ok(Box::new(storage))
                 }
                 #[cfg(not(feature = "sqlite"))]
@@ -51,7 +52,7 @@ where
                 #[cfg(feature = "sqlite")]
                 {
                     let storage =
-                        SqliteStorage::connect(database_url.unwrap_or(":memory:"), table_name)?;
+                        SqliteStorage::connect(database_url.unwrap_or(":memory:"), table_name, surfnet_id)?;
                     Ok(Box::new(storage))
                 }
                 #[cfg(not(feature = "sqlite"))]
@@ -209,7 +210,7 @@ impl<K, V> Clone for Box<dyn Storage<K, V>> {
 
 // Separate trait for construction - this doesn't need to be dyn-compatible
 pub trait StorageConstructor<K, V>: Storage<K, V> + Clone {
-    fn connect(database_url: &str, table_name: &str) -> StorageResult<Self>
+    fn connect(database_url: &str, table_name: &str, surfnet_id: u32) -> StorageResult<Self>
     where
         Self: Sized;
 }
@@ -233,9 +234,9 @@ pub mod tests {
         pub fn initialize_svm(&self) -> (SurfnetSvm, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
             match &self {
                 TestType::NoDb => SurfnetSvm::new(),
-                TestType::InMemorySqlite => SurfnetSvm::new_with_db(Some(":memory:")).unwrap(),
+                TestType::InMemorySqlite => SurfnetSvm::new_with_db(Some(":memory:"), 0).unwrap(),
                 TestType::OnDiskSqlite(db_path) => {
-                    SurfnetSvm::new_with_db(Some(db_path.as_ref())).unwrap()
+                    SurfnetSvm::new_with_db(Some(db_path.as_ref()), 0).unwrap()
                 }
             }
         }

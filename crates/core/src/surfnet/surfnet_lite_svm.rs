@@ -36,6 +36,7 @@ impl SurfnetLiteSvm {
         mut self,
         feature_set: FeatureSet,
         database_url: Option<&str>,
+        surfnet_id: u32,
     ) -> SurfpoolResult<Self> {
         self.svm = LiteSVM::new()
             .with_blockhash_check(false)
@@ -46,7 +47,7 @@ impl SurfnetLiteSvm {
 
         if let Some(db_url) = database_url {
             let db: Box<dyn Storage<String, AccountSharedData>> =
-                new_kv_store(&Some(db_url), "accounts")?;
+                new_kv_store(&Some(db_url), "accounts", surfnet_id)?;
             self.db = Some(db);
         }
 

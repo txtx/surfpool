@@ -248,6 +248,9 @@ pub struct StartSimnet {
     /// Surfnet database connection URL for persistent Surfnets. For an in-memory sqlite database, use ":memory:". For an on-disk sqlite database, use a filename ending in '.sqlite'.
     #[arg(long = "db")]
     pub db: Option<String>,
+    /// Unique identifier for this surfnet instance. Used to isolate database storage when multiple surfnets share the same database. Defaults to 0.
+    #[arg(long = "surfnet-id", default_value_t = 0)]
+    pub surfnet_id: u32,
 }
 
 fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
@@ -399,6 +402,7 @@ impl StartSimnet {
             },
             feature_config: self.feature_config(),
             skip_signature_verification: false,
+            surfnet_id: self.surfnet_id,
         }
     }
 

@@ -35,6 +35,7 @@ pub struct SqliteStorage<K, V> {
     pool: Pool<ConnectionManager<diesel::SqliteConnection>>,
     _phantom: std::marker::PhantomData<(K, V)>,
     table_name: String,
+    surfnet_id: u32,
 }
 
 const NAME: &str = "SQLite";
@@ -49,10 +50,12 @@ where
         let create_table_sql = format!(
             "
             CREATE TABLE IF NOT EXISTS {} (
-                key TEXT PRIMARY KEY,
+                surfnet_id INTEGER NOT NULL,
+                key TEXT NOT NULL,
                 value TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (surfnet_id, key)
             )
         ",
             self.table_name
@@ -108,9 +111,10 @@ where
     fn load_value_from_db(&self, key_str: &str) -> StorageResult<Option<V>> {
         debug!("Loading value from DB for key: {}", key_str);
         let query = sql_query(format!(
-            "SELECT value FROM {} WHERE key = ?",
+            "SELECT value FROM {} WHERE surfnet_id = ? AND key = ?",
             self.table_name
         ))
+        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32)
         .bind::<Text, _>(key_str);
 
         trace!("Getting connection from pool for loading value");
@@ -143,9 +147,10 @@ where
 
         // Use prepared statement with sql_query for better safety
         let query = sql_query(format!(
-            "INSERT OR REPLACE INTO {} (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+            "INSERT OR REPLACE INTO {} (surfnet_id, key, value, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
             self.table_name
         ))
+        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32)
         .bind::<Text, _>(&key_str)
         .bind::<Text, _>(&value_str);
 
@@ -175,8 +180,12 @@ where
         if let Some(value) = self.load_value_from_db(&key_str)? {
             debug!("Value found, removing from database");
             // Remove from database
-            let delete_query = sql_query(format!("DELETE FROM {} WHERE key = ?", self.table_name))
-                .bind::<Text, _>(&key_str);
+            let delete_query = sql_query(format!(
+                "DELETE FROM {} WHERE surfnet_id = ? AND key = ?",
+                self.table_name
+            ))
+            .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32)
+            .bind::<Text, _>(&key_str);
 
             trace!("Getting connection from pool for delete operation");
             let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
@@ -198,7 +207,11 @@ where
 
     fn clear(&mut self) -> StorageResult<()> {
         debug!("Clearing all data from table '{}'", self.table_name);
-        let delete_query = sql_query(format!("DELETE FROM {}", self.table_name));
+        let delete_query = sql_query(format!(
+            "DELETE FROM {} WHERE surfnet_id = ?",
+            self.table_name
+        ))
+        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32);
 
         trace!("Getting connection from pool for clear operation");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
@@ -213,7 +226,11 @@ where
 
     fn keys(&self) -> StorageResult<Vec<K>> {
         debug!("Fetching all keys from table '{}'", self.table_name);
-        let query = sql_query(format!("SELECT key FROM {}", self.table_name));
+        let query = sql_query(format!(
+            "SELECT key FROM {} WHERE surfnet_id = ?",
+            self.table_name
+        ))
+        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32);
 
         trace!("Getting connection from pool for keys operation");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
@@ -246,7 +263,11 @@ where
             "Creating iterator for all key-value pairs in table '{}'",
             self.table_name
         );
-        let query = sql_query(format!("SELECT key, value FROM {}", self.table_name));
+        let query = sql_query(format!(
+            "SELECT key, value FROM {} WHERE surfnet_id = ?",
+            self.table_name
+        ))
+        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32);
 
         trace!("Getting connection from pool for into_iter operation");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
@@ -286,10 +307,10 @@ where
     K: Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
     V: Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
 {
-    fn connect(database_url: &str, table_name: &str) -> StorageResult<Self> {
+    fn connect(database_url: &str, table_name: &str, surfnet_id: u32) -> StorageResult<Self> {
         debug!(
-            "Connecting to SQLite database: {} with table: {}",
-            database_url, table_name
+            "Connecting to SQLite database: {} with table: {} and surfnet_id: {}",
+            database_url, table_name, surfnet_id
         );
 
         let connection_string = if database_url != ":memory:" {
@@ -312,6 +333,7 @@ where
             pool,
             _phantom: std::marker::PhantomData,
             table_name: table_name.to_string(),
+            surfnet_id,
         };
 
         storage.ensure_table_exists()?;

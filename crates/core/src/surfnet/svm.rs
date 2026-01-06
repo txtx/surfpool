@@ -283,13 +283,14 @@ pub const FEATURE: Feature = Feature {
 
 impl SurfnetSvm {
     pub fn new() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
-        Self::_new(None).unwrap()
+        Self::_new(None, 0).unwrap()
     }
 
     pub fn new_with_db(
         database_url: Option<&str>,
+        surfnet_id: u32,
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
-        Self::_new(database_url)
+        Self::_new(database_url, surfnet_id)
     }
 
     /// Creates a new instance of `SurfnetSvm`.
@@ -297,6 +298,7 @@ impl SurfnetSvm {
     /// Returns a tuple containing the SVM instance, a receiver for simulation events, and a receiver for Geyser plugin events.
     fn _new(
         database_url: Option<&str>,
+        surfnet_id: u32,
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
@@ -307,7 +309,7 @@ impl SurfnetSvm {
         // todo: consider making this configurable via config
         feature_set.deactivate(&enable_extend_program_checked::id());
 
-        let inner = SurfnetLiteSvm::new().initialize(feature_set.clone(), database_url)?;
+        let inner = SurfnetLiteSvm::new().initialize(feature_set.clone(), database_url, surfnet_id)?;
 
         let native_mint_account = inner
             .get_account(&spl_token_interface::native_mint::ID)?
@@ -322,7 +324,7 @@ impl SurfnetSvm {
         let token_mints =
             HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
 
-        let blocks_db = new_kv_store(&database_url, "blocks")?;
+        let blocks_db = new_kv_store(&database_url, "blocks", surfnet_id)?;
 
         let chain_tip = if let Some((_, block)) = blocks_db
             .into_iter()
