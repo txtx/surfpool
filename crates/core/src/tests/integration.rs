@@ -82,6 +82,7 @@ fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<S
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test]
 async fn test_simnet_ready(test_type: TestType) {
     let config = SurfpoolConfig {
@@ -121,6 +122,7 @@ async fn test_simnet_ready(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test]
 async fn test_simnet_ticks(test_type: TestType) {
     let bind_host = "127.0.0.1";
@@ -182,6 +184,7 @@ async fn test_simnet_ticks(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test]
 async fn test_simnet_some_sol_transfers(test_type: TestType) {
     let n_addresses = 10;
@@ -337,6 +340,7 @@ async fn test_simnet_some_sol_transfers(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_add_alt_entries_fetching(test_type: TestType) {
     let payer = Keypair::new();
@@ -507,6 +511,7 @@ async fn test_add_alt_entries_fetching(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
     let payer = Keypair::new();
@@ -622,6 +627,7 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_simulate_transaction_no_signers(test_type: TestType) {
     let payer = Keypair::new();
@@ -714,6 +720,7 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_surfnet_estimate_compute_units(test_type: TestType) {
     let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -1004,6 +1011,7 @@ async fn test_surfnet_estimate_compute_units(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_transaction_profile(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
@@ -1223,6 +1231,7 @@ async fn test_get_transaction_profile(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_register_and_get_idl_without_slot(test_type: TestType) {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
     let rpc_server = SurfnetCheatcodesRpc;
@@ -1276,6 +1285,7 @@ fn test_register_and_get_idl_without_slot(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_register_and_get_idl_with_slot(test_type: TestType) {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
     let rpc_server = SurfnetCheatcodesRpc;
@@ -1339,6 +1349,7 @@ fn test_register_and_get_idl_with_slot(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType) {
     let idl_v1: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
@@ -1491,6 +1502,7 @@ async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_basic(test_type: TestType) {
     // Set up test environment
@@ -1578,6 +1590,7 @@ async fn test_profile_transaction_basic(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_multi_instruction_basic(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -1974,6 +1987,7 @@ async fn test_profile_transaction_multi_instruction_basic(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_with_tag(test_type: TestType) {
     // Set up test environment
@@ -2134,6 +2148,7 @@ async fn test_profile_transaction_with_tag(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_token_transfer(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -2573,6 +2588,7 @@ async fn test_profile_transaction_token_transfer(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_insufficient_funds(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -2642,6 +2658,7 @@ async fn test_profile_transaction_insufficient_funds(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_multi_instruction_failure(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -2725,6 +2742,7 @@ async fn test_profile_transaction_multi_instruction_failure(test_type: TestType)
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_with_encoding(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -2796,6 +2814,7 @@ async fn test_profile_transaction_with_encoding(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_with_tag_and_retrieval(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -2899,6 +2918,7 @@ async fn test_profile_transaction_with_tag_and_retrieval(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_empty_instruction(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -2958,6 +2978,7 @@ async fn test_profile_transaction_empty_instruction(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_versioned_message(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -3022,6 +3043,7 @@ async fn test_profile_transaction_versioned_message(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_local_signatures_without_limit(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
@@ -3125,6 +3147,7 @@ async fn test_get_local_signatures_without_limit(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_local_signatures_with_limit(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
@@ -3327,6 +3350,7 @@ fn boot_simnet(
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_resume_paused_clock(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
     let (svm_locker, simnet_cmd_tx, _) =
@@ -3402,6 +3426,7 @@ fn test_time_travel_resume_paused_clock(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_absolute_timestamp(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
     let slot_time = 100;
@@ -3486,6 +3511,7 @@ fn test_time_travel_absolute_timestamp(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_absolute_slot(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
@@ -3560,6 +3586,7 @@ fn test_time_travel_absolute_slot(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_absolute_epoch(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
@@ -3637,6 +3664,7 @@ fn test_time_travel_absolute_epoch(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ix_profiling_with_alt_tx(test_type: TestType) {
     let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
@@ -3925,6 +3953,7 @@ async fn test_ix_profiling_with_alt_tx(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn it_should_delete_accounts_with_no_lamports(test_type: TestType) {
     let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
@@ -3976,6 +4005,7 @@ async fn it_should_delete_accounts_with_no_lamports(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_compute_budget_profiling(test_type: TestType) {
     let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
@@ -4045,6 +4075,7 @@ async fn test_compute_budget_profiling(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_reset_account(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
@@ -4079,6 +4110,7 @@ fn test_reset_account(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_reset_account_cascade(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
@@ -4130,6 +4162,7 @@ fn test_reset_account_cascade(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_reset_streamed_account(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -4159,6 +4192,7 @@ async fn test_reset_streamed_account(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_reset_streamed_account_cascade(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -4213,6 +4247,7 @@ async fn test_reset_streamed_account_cascade(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_reset_network(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
@@ -4331,6 +4366,7 @@ fn start_surfnet(
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_closed_accounts(test_type: TestType) {
@@ -4340,6 +4376,11 @@ async fn test_closed_accounts(test_type: TestType) {
         TestType::OnDiskSqlite(_) => TestType::sqlite(),
         TestType::InMemorySqlite => TestType::in_memory(),
         TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
     };
     // Start datasource surfnet first, which will only have accounts we airdrop to
     let (datasource_surfnet_url, _datasource_svm_locker) =
@@ -4535,6 +4576,7 @@ async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionTyp
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_signature_subscribe_failed_transaction(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -4597,6 +4639,7 @@ async fn test_ws_signature_subscribe_failed_transaction(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_signature_subscribe_multiple_subscribers(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -4675,6 +4718,7 @@ async fn test_ws_signature_subscribe_multiple_subscribers(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_signature_subscribe_before_transaction_exists(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -4740,6 +4784,7 @@ async fn test_ws_signature_subscribe_before_transaction_exists(test_type: TestTy
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_account_subscribe_balance_change(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -4800,6 +4845,7 @@ async fn test_ws_account_subscribe_balance_change(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_account_subscribe_multiple_changes(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -4866,6 +4912,7 @@ async fn test_ws_account_subscribe_multiple_changes(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_account_subscribe_multiple_subscribers(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -4935,6 +4982,7 @@ async fn test_ws_account_subscribe_multiple_subscribers(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_account_subscribe_new_account_creation(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -4998,6 +5046,7 @@ async fn test_ws_account_subscribe_new_account_creation(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_account_subscribe_account_closure(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -5055,6 +5104,7 @@ async fn test_ws_account_subscribe_account_closure(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_slot_subscribe_basic(test_type: TestType) {
     use surfpool_types::types::BlockProductionMode;
@@ -5089,6 +5139,7 @@ async fn test_ws_slot_subscribe_basic(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_slot_subscribe_manual_advancement(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -5123,6 +5174,7 @@ async fn test_ws_slot_subscribe_manual_advancement(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_slot_subscribe_multiple_subscribers(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -5156,6 +5208,7 @@ async fn test_ws_slot_subscribe_multiple_subscribers(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_slot_subscribe_multiple_slot_changes(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
@@ -5186,6 +5239,7 @@ async fn test_ws_slot_subscribe_multiple_slot_changes(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_logs_subscribe_all_transactions(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -5253,6 +5307,7 @@ async fn test_ws_logs_subscribe_all_transactions(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_logs_subscribe_mentions_account(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -5331,6 +5386,7 @@ async fn test_ws_logs_subscribe_mentions_account(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_logs_subscribe_confirmed_commitment(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -5395,6 +5451,7 @@ async fn test_ws_logs_subscribe_confirmed_commitment(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_logs_subscribe_finalized_commitment(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -5466,6 +5523,7 @@ async fn test_ws_logs_subscribe_finalized_commitment(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_logs_subscribe_failed_transaction(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -5531,6 +5589,7 @@ async fn test_ws_logs_subscribe_failed_transaction(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_logs_subscribe_multiple_subscribers(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -5601,6 +5660,7 @@ async fn test_ws_logs_subscribe_multiple_subscribers(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_ws_logs_subscribe_logs_content(test_type: TestType) {
     use crossbeam_channel::unbounded;
@@ -5675,6 +5735,7 @@ async fn test_ws_logs_subscribe_logs_content(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_token2022_full_lifecycle(test_type: TestType) {
     use solana_system_interface::instruction as system_instruction;
@@ -5890,6 +5951,7 @@ async fn test_token2022_full_lifecycle(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_token2022_error_cases(test_type: TestType) {
     use solana_system_interface::instruction as system_instruction;
@@ -6072,6 +6134,7 @@ async fn test_token2022_error_cases(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_token2022_delegate_operations(test_type: TestType) {
     use solana_system_interface::instruction as system_instruction;
@@ -6293,6 +6356,7 @@ async fn test_token2022_delegate_operations(test_type: TestType) {
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_token2022_freeze_thaw(test_type: TestType) {
     use solana_system_interface::instruction as system_instruction;
