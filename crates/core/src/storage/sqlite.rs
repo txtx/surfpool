@@ -291,7 +291,19 @@ where
             "Connecting to SQLite database: {} with table: {}",
             database_url, table_name
         );
-        let manager = ConnectionManager::<diesel::SqliteConnection>::new(database_url);
+
+        let connection_string = if database_url != ":memory:" {
+            // Add connection string parameters to avoid readonly issues
+            if database_url.contains('?') {
+                format!("{}&mode=rwc", database_url)
+            } else {
+                format!("{}?mode=rwc", database_url)
+            }
+        } else {
+            database_url.to_string()
+        };
+
+        let manager = ConnectionManager::<diesel::SqliteConnection>::new(connection_string);
         trace!("Creating connection pool");
         let pool =
             Pool::new(manager).map_err(|e| StorageError::PooledConnectionError(NAME.into(), e))?;
