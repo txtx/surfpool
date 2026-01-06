@@ -777,6 +777,16 @@ impl GeyserAccountUpdate {
             write_version,
         }
     }
+
+    pub fn startup_update(pubkey: Pubkey, account: Account, slot: u64, write_version: u64) -> Self {
+        Self {
+            pubkey,
+            account,
+            slot,
+            sanitized_transaction: None,
+            write_version,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
