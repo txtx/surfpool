@@ -336,6 +336,44 @@ where
             surfnet_id,
         };
 
+        // Set SQLite pragmas for performance and reliability
+        {
+            let mut conn = storage.pool.get().map_err(|_| StorageError::LockError)?;
+
+            // Different pragma sets for file-based vs in-memory databases
+            let pragmas = if database_url == ":memory:" {
+                // In-memory database pragmas (WAL not supported)
+                "
+                PRAGMA synchronous=OFF;
+                PRAGMA temp_store=MEMORY;
+                PRAGMA cache_size=-64000;
+                PRAGMA busy_timeout=5000;
+                "
+            } else {
+                // File-based database pragmas
+                "
+                PRAGMA journal_mode=WAL;
+                PRAGMA synchronous=NORMAL;
+                PRAGMA temp_store=MEMORY;
+                PRAGMA mmap_size=268435456;
+                PRAGMA cache_size=-64000;
+                PRAGMA busy_timeout=5000;
+                PRAGMA wal_autocheckpoint=1000;
+                "
+                // Pragma explanations:
+                // - journal_mode=WAL: Write-Ahead Logging for better concurrency and crash recovery
+                // - synchronous=NORMAL: Safe with WAL mode, good performance/durability balance
+                // - temp_store=MEMORY: Store temp tables in memory for speed
+                // - mmap_size=268435456: 256MB memory-mapped I/O for faster reads
+                // - cache_size=-64000: 64MB page cache (negative = KB)
+                // - busy_timeout=5000: Wait 5s for locks instead of failing immediately
+                // - wal_autocheckpoint=1000: Checkpoint WAL after 1000 pages (~4MB with default page size)
+            };
+
+            conn.batch_execute(pragmas)
+                .map_err(|e| StorageError::create_table(table_name, NAME, e))?;
+        }
+
         storage.ensure_table_exists()?;
         debug!(
             "SQLite storage connected successfully for table: {}",
