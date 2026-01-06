@@ -51,8 +51,11 @@ where
             } else {
                 #[cfg(feature = "sqlite")]
                 {
-                    let storage =
-                        SqliteStorage::connect(database_url.unwrap_or(":memory:"), table_name, surfnet_id)?;
+                    let storage = SqliteStorage::connect(
+                        database_url.unwrap_or(":memory:"),
+                        table_name,
+                        surfnet_id,
+                    )?;
                     Ok(Box::new(storage))
                 }
                 #[cfg(not(feature = "sqlite"))]
@@ -217,6 +220,8 @@ pub trait StorageConstructor<K, V>: Storage<K, V> + Clone {
 
 #[cfg(test)]
 pub mod tests {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
     use std::os::unix::fs::PermissionsExt;
 
     use crossbeam_channel::Receiver;
@@ -224,10 +229,34 @@ pub mod tests {
 
     use crate::surfnet::{GeyserEvent, svm::SurfnetSvm};
 
+    /// Environment variable for PostgreSQL database URL used in tests
+    pub const POSTGRES_TEST_URL_ENV: &str = "SURFPOOL_TEST_POSTGRES_URL";
+
+    /// Generates a random u32 using std's RandomState (no external dependencies)
+    pub fn random_surfnet_id() -> u32 {
+        let state = RandomState::new();
+        let mut hasher = state.build_hasher();
+        // Use thread name/id as string since as_u64() is unstable
+        hasher.write(format!("{:?}", std::thread::current().id()).as_bytes());
+        hasher.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        );
+        hasher.finish() as u32
+    }
+
     pub enum TestType {
         NoDb,
         InMemorySqlite,
         OnDiskSqlite(String),
+        /// PostgreSQL with a random surfnet_id for test isolation
+        #[cfg(feature = "postgres")]
+        Postgres {
+            url: String,
+            surfnet_id: u32,
+        },
     }
 
     impl TestType {
@@ -238,6 +267,10 @@ pub mod tests {
                 TestType::OnDiskSqlite(db_path) => {
                     SurfnetSvm::new_with_db(Some(db_path.as_ref()), 0).unwrap()
                 }
+                #[cfg(feature = "postgres")]
+                TestType::Postgres { url, surfnet_id } => {
+                    SurfnetSvm::new_with_db(Some(url.as_ref()), *surfnet_id).unwrap()
+                }
             }
         }
 
@@ -245,11 +278,46 @@ pub mod tests {
             let database_url = crate::storage::tests::create_tmp_sqlite_storage();
             TestType::OnDiskSqlite(database_url)
         }
+
         pub fn no_db() -> Self {
             TestType::NoDb
         }
+
         pub fn in_memory() -> Self {
             TestType::InMemorySqlite
+        }
+
+        /// Creates a PostgreSQL test type with a random surfnet_id for test isolation.
+        /// The database URL is read from the SURFPOOL_TEST_POSTGRES_URL environment variable.
+        /// Panics if the environment variable is not set.
+        #[cfg(feature = "postgres")]
+        pub fn postgres() -> Self {
+            let url = std::env::var(POSTGRES_TEST_URL_ENV).unwrap_or_else(|_| {
+                panic!(
+                    "PostgreSQL test URL not set. Set the {} environment variable.",
+                    POSTGRES_TEST_URL_ENV
+                )
+            });
+            let surfnet_id = random_surfnet_id();
+            println!(
+                "Created PostgreSQL test connection with surfnet_id: {}",
+                surfnet_id
+            );
+            TestType::Postgres { url, surfnet_id }
+        }
+
+        /// Creates a PostgreSQL test type with a random surfnet_id for test isolation.
+        /// Returns None if the SURFPOOL_TEST_POSTGRES_URL environment variable is not set.
+        #[cfg(feature = "postgres")]
+        pub fn postgres_if_available() -> Option<Self> {
+            std::env::var(POSTGRES_TEST_URL_ENV).ok().map(|url| {
+                let surfnet_id = random_surfnet_id();
+                println!(
+                    "Created PostgreSQL test connection with surfnet_id: {}",
+                    surfnet_id
+                );
+                TestType::Postgres { url, surfnet_id }
+            })
         }
     }
 
@@ -259,6 +327,8 @@ pub mod tests {
                 // Delete file at db_path when TestType goes out of scope
                 let _ = std::fs::remove_file(db_path);
             }
+            // Note: PostgreSQL data is isolated by surfnet_id and doesn't need cleanup
+            // The random surfnet_id ensures test isolation without table cleanup
         }
     }
 
