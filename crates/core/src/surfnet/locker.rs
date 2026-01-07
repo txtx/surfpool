@@ -1007,16 +1007,28 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolResult<()> {
         let do_propagate_status_updates = true;
         let signature = transaction.signatures[0];
-        let profile_result = self
+        let profile_result = match self
             .fetch_all_tx_accounts_then_process_tx_returning_profile_res(
                 remote_ctx,
                 transaction,
-                status_tx,
+                status_tx.clone(),
                 skip_preflight,
                 sigverify,
                 do_propagate_status_updates,
             )
-            .await?;
+            .await
+        {
+            Ok(result) => result,
+            Err(e) => {
+                // Ensure the status channel always receives a response to prevent
+                // the RPC handler from hanging on recv() when errors occur during
+                // account fetching, ALT resolution, or other pre-processing steps.
+                // This is critical for issue #454 where program close stops block production.
+                let _ =
+                    status_tx.try_send(TransactionStatusEvent::VerificationFailure(e.to_string()));
+                return Err(e);
+            }
+        };
 
         self.with_svm_writer(|svm_writer| {
             svm_writer.write_executed_profile_result(signature, profile_result);
