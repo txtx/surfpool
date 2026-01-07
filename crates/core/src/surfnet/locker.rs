@@ -1024,9 +1024,8 @@ impl SurfnetSvmLocker {
                 // the RPC handler from hanging on recv() when errors occur during
                 // account fetching, ALT resolution, or other pre-processing steps.
                 // This is critical for issue #454 where program close stops block production.
-                let _ = status_tx.try_send(TransactionStatusEvent::VerificationFailure(
-                    e.to_string(),
-                ));
+                let _ =
+                    status_tx.try_send(TransactionStatusEvent::VerificationFailure(e.to_string()));
                 return Err(e);
             }
         };
