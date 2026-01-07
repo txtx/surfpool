@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{str::FromStr, sync::Arc, thread::sleep, time::Duration};
 
 use base64::Engine;
 use crossbeam_channel::{unbounded, unbounded as crossbeam_unbounded};
@@ -6268,4 +6268,119 @@ async fn test_token2022_freeze_thaw() {
     );
 
     println!("✓ All freeze/thaw operations work correctly!");
+}
+
+use std::sync::Once;
+
+static INIT_LOGGER: Once = Once::new();
+
+fn setup() {
+    INIT_LOGGER.call_once(|| {
+        env_logger::builder().is_test(true).try_init().unwrap();
+    });
+}
+
+#[test]
+fn test_nonce_accounts() {
+    setup();
+    use solana_system_interface::instruction::create_nonce_account;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let nonce_account = Keypair::new();
+    println!("Payer Pubkey: {}", payer.pubkey());
+    println!("Nonce Account Pubkey: {}", nonce_account.pubkey());
+    println!("Nonce authority: {}", payer.pubkey());
+
+    svm_locker
+        .airdrop(&payer.pubkey(), 5 * LAMPORTS_PER_SOL)
+        .unwrap();
+
+    let nonce_rent = svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader
+            .inner
+            .minimum_balance_for_rent_exemption(solana_nonce::state::State::size())
+    });
+    let create_nonce_ix = create_nonce_account(
+        &payer.pubkey(),
+        &nonce_account.pubkey(),
+        &payer.pubkey(), // Make the fee payer the nonce account authority
+        nonce_rent,
+    );
+
+    let recent_blockhash = svm_locker.latest_absolute_blockhash();
+
+    let create_nonce_msg =
+        Message::new_with_blockhash(&create_nonce_ix, Some(&payer.pubkey()), &recent_blockhash);
+    let create_nonce_tx = VersionedTransaction::try_new(
+        VersionedMessage::Legacy(create_nonce_msg),
+        &[&payer, &nonce_account],
+    )
+    .unwrap();
+
+    let create_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(create_nonce_tx, false, false));
+    assert!(
+        create_result.is_ok(),
+        "Create nonce account failed: {:?}",
+        create_result.err()
+    );
+
+    // Fetch and verify nonce account state
+    let nonce_account_data = svm_locker
+        .get_account_local(&nonce_account.pubkey())
+        .inner
+        .map_account()
+        .expect("Failed to fetch nonce account");
+
+    let state: solana_nonce::versions::Versions = bincode::deserialize(&nonce_account_data.data)
+        .expect("Failed to deserialize nonce account state");
+
+    let state = state.state();
+
+    let nonce_hash = match state {
+        solana_nonce::state::State::Initialized(nonce_data) => {
+            println!(
+                "✓ Nonce account initialized with nonce: {:?}",
+                nonce_data.durable_nonce
+            );
+            nonce_data.blockhash()
+        }
+        _ => panic!("Nonce account is not initialized"),
+    };
+
+    let to_pubkey = Pubkey::new_unique();
+    // Use the nonce in a transaction
+    let transfer_ix =
+        solana_system_interface::instruction::transfer(&payer.pubkey(), &to_pubkey, 1_000_000);
+    let mut nonce_msg = Message::new_with_nonce(
+        vec![transfer_ix],
+        Some(&payer.pubkey()),
+        &nonce_account.pubkey(),
+        &payer.pubkey(),
+    );
+    nonce_msg.recent_blockhash = nonce_hash;
+    let nonce_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(nonce_msg), &[&payer]).unwrap();
+
+    let nonce_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(nonce_tx, false, false));
+    assert!(
+        nonce_result.is_ok(),
+        "Transaction using nonce failed: {:?}",
+        nonce_result.err()
+    );
+
+    // Verify to_pubkey received the funds
+    let to_account_data = svm_locker
+        .get_account_local(&to_pubkey)
+        .inner
+        .map_account()
+        .expect("Failed to fetch recipient account");
+    assert_eq!(
+        to_account_data.lamports, 1_000_000,
+        "Recipient account did not receive correct amount"
+    );
 }
