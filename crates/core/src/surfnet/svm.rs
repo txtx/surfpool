@@ -306,6 +306,33 @@ impl SurfnetSvm {
         let native_mint_account = inner
             .get_account(&spl_token_interface::native_mint::ID)
             .unwrap();
+
+        let account_associated_data = {
+            let mint = StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(
+                &native_mint_account.data,
+            )
+            .unwrap();
+            let unix_timestamp = inner.get_sysvar::<Clock>().unix_timestamp;
+            let interest_bearing_config = mint
+                .get_extension::<InterestBearingConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            let scaled_ui_amount_config = mint
+                .get_extension::<ScaledUiAmountConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            let account_associated_data = HashMap::from([(
+                spl_token_interface::native_mint::ID,
+                AccountAdditionalDataV3 {
+                    spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                        decimals: mint.base.decimals,
+                        interest_bearing_config,
+                        scaled_ui_amount_config,
+                    }),
+                },
+            )]);
+            account_associated_data
+        };
         let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
 
         // Load native mint into owned account and token mint indexes
@@ -347,7 +374,7 @@ impl SurfnetSvm {
             slot_time: DEFAULT_SLOT_TIME_MS,
             start_time: SystemTime::now(),
             accounts_by_owner,
-            account_associated_data: HashMap::new(),
+            account_associated_data,
             token_accounts: HashMap::new(),
             token_mints,
             token_accounts_by_owner: HashMap::new(),
