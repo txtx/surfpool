@@ -3060,6 +3060,17 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Subscribes for snapshot import updates and returns a receiver of snapshot import notifications.
+    pub fn subscribe_for_snapshot_import_updates(
+        &self,
+        snapshot_url: &str,
+        snapshot_id: &str,
+    ) -> Receiver<super::SnapshotImportNotification> {
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.subscribe_for_snapshot_import_updates(snapshot_url, snapshot_id)
+        })
+    }
+
     pub fn runbook_executions(&self) -> Vec<RunbookExecutionStatusReport> {
         self.with_svm_reader(|svm_reader| svm_reader.runbook_executions.clone())
     }

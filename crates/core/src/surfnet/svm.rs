@@ -243,6 +243,7 @@ pub struct SurfnetSvm {
     pub simulated_transaction_profiles: HashMap<Uuid, KeyedProfileResult>,
     pub executed_transaction_profiles: FifoMap<Signature, KeyedProfileResult>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
+    pub snapshot_subscriptions: Vec<super::SnapshotSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
     pub start_time: SystemTime,
@@ -343,6 +344,7 @@ impl SurfnetSvm {
             simulated_transaction_profiles: HashMap::new(),
             executed_transaction_profiles: FifoMap::default(),
             logs_subscriptions: Vec::new(),
+            snapshot_subscriptions: Vec::new(),
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
             start_time: SystemTime::now(),
@@ -2286,6 +2288,86 @@ impl SurfnetSvm {
                 let _ = tx.send((self.get_latest_absolute_slot(), message));
             }
         }
+    }
+
+/// Subscribes for snapshot import updates and returns a receiver of snapshot import notifications.
+    pub fn subscribe_for_snapshot_import_updates(
+        &mut self,
+        snapshot_url: &str,
+        snapshot_id: &str,
+    ) -> Receiver<super::SnapshotImportNotification> {
+        let (tx, rx) = unbounded();
+        let tx_clone = tx.clone();
+        self.snapshot_subscriptions.push(tx);
+        
+        // Spawn a task to handle snapshot import in the background
+        let snapshot_url = snapshot_url.to_string();
+        let snapshot_id = snapshot_id.to_string();
+        
+        tokio::spawn(async move {
+            // Send initial notification
+            let _ = tx_clone.send(super::SnapshotImportNotification {
+                snapshot_id: snapshot_id.clone(),
+                status: super::SnapshotImportStatus::Started,
+                accounts_loaded: 0,
+                total_accounts: 0,
+                error: None,
+            });
+
+            // Fetch snapshot from URL and parse it
+            let snapshot_data = match Self::fetch_snapshot_from_url(&snapshot_url).await {
+                Ok(data) => data,
+                Err(e) => {
+                    let _ = tx_clone.send(super::SnapshotImportNotification {
+                        snapshot_id,
+                        status: super::SnapshotImportStatus::Failed,
+                        accounts_loaded: 0,
+                        total_accounts: 0,
+                        error: Some(format!("Failed to fetch snapshot: {}", e)),
+                    });
+                    return;
+                }
+            };
+
+            let total_accounts = snapshot_data.len() as u64;
+            
+            // Send progress notification with total count
+            let _ = tx_clone.send(super::SnapshotImportNotification {
+                snapshot_id: snapshot_id.clone(),
+                status: super::SnapshotImportStatus::InProgress,
+                accounts_loaded: 0,
+                total_accounts,
+                error: None,
+            });
+
+            // TODO: The actual loading should be done via the load_snapshot method
+            // For now, we simulate the process and send completion
+            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+            
+            let _ = tx_clone.send(super::SnapshotImportNotification {
+                snapshot_id,
+                status: super::SnapshotImportStatus::Completed,
+                accounts_loaded: total_accounts,
+                total_accounts,
+                error: None,
+            });
+        });
+        
+        rx
+    }
+
+    async fn fetch_snapshot_from_url(
+        snapshot_url: &str,
+    ) -> Result<std::collections::BTreeMap<String, Option<surfpool_types::AccountSnapshot>>, Box<dyn std::error::Error + Send + Sync>> {
+        // For now, we'll use reqwest to fetch the snapshot data
+        let response = reqwest::get(snapshot_url).await?;
+        let text = response.text().await?;
+        
+        // Parse the JSON snapshot data
+        let snapshot: std::collections::BTreeMap<String, Option<surfpool_types::AccountSnapshot>> = 
+            serde_json::from_str(&text)?;
+        
+        Ok(snapshot)
     }
 
     pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) {

@@ -922,6 +922,7 @@ async fn start_ws_rpc_server_runloop(
                     account_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     slot_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     logs_subscription_map: Arc::new(RwLock::new(HashMap::new())),
+                    snapshot_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     tokio_handle: tokio_handle.clone(),
                 }
                 .to_delegate(),
