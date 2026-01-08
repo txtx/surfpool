@@ -92,6 +92,25 @@ pub type LogsSubscriptionData = (
     Sender<(Slot, RpcLogsResponse)>,
 );
 
+pub type SnapshotSubscriptionData = Sender<SnapshotImportNotification>;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SnapshotImportNotification {
+    pub snapshot_id: String,
+    pub status: SnapshotImportStatus,
+    pub accounts_loaded: u64,
+    pub total_accounts: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SnapshotImportStatus {
+    Started,
+    InProgress,
+    Completed,
+    Failed,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SignatureSubscriptionType {
     Received,
