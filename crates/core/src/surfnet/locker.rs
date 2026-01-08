@@ -134,6 +134,16 @@ impl Clone for SurfnetSvmLocker {
 
 /// Functions for reading and writing to the underlying SurfnetSvm instance
 impl SurfnetSvmLocker {
+    /// Explicitly shutdown the SVM, performing cleanup like WAL checkpoint for SQLite.
+    /// This should be called before the application exits to ensure data is persisted.
+    pub fn shutdown(&self) {
+        let read_lock = self.0.clone();
+        tokio::task::block_in_place(move || {
+            let read_guard = read_lock.blocking_read();
+            read_guard.shutdown();
+        });
+    }
+
     /// Executes a read-only operation on the underlying `SurfnetSvm` by acquiring a blocking read lock.
     /// Accepts a closure that receives a shared reference to `SurfnetSvm` and returns a value.
     ///

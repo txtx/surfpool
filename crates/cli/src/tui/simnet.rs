@@ -705,10 +705,16 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                 if key_event.kind == KeyEventKind::Press {
                     use KeyCode::*;
                     if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == Char('c') {
+                        // Send terminate command to allow graceful shutdown (Drop to run)
+                        let _ = app.simnet_commands_tx.send(SimnetCommand::Terminate(None));
                         return Ok(());
                     }
                     match key_event.code {
-                        Char('q') | Esc => return Ok(()),
+                        Char('q') | Esc => {
+                            // Send terminate command to allow graceful shutdown (Drop to run)
+                            let _ = app.simnet_commands_tx.send(SimnetCommand::Terminate(None));
+                            return Ok(());
+                        }
                         Down => app.next(),
                         Up => app.previous(),
                         Char('f') | Char('j') => {

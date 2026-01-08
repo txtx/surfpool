@@ -320,7 +320,8 @@ pub async fn start_block_production_runloop(
                        }
                     }
                     SimnetCommand::Terminate(_) => {
-                        let _ = svm_locker.simnet_events_tx().send(SimnetEvent::Aborted("Terminated due to inactivity.".to_string()));
+                        // Explicitly shutdown storage to trigger WAL checkpoint before exiting
+                        svm_locker.shutdown();
                         break;
                     }
                     SimnetCommand::StartRunbookExecution(runbook_id) => {

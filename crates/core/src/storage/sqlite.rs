@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
+
 use log::debug;
 use serde::{Deserialize, Serialize};
 use surfpool_db::diesel::{
@@ -9,6 +12,14 @@ use surfpool_db::diesel::{
 };
 
 use crate::storage::{Storage, StorageConstructor, StorageError, StorageResult};
+
+/// Track which database files have already been checkpointed during shutdown.
+/// This prevents multiple SqliteStorage instances sharing the same file from
+/// conflicting when each tries to checkpoint and delete WAL files.
+fn checkpointed_databases() -> &'static Mutex<HashSet<String>> {
+    static CHECKPOINTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    CHECKPOINTED.get_or_init(|| Mutex::new(HashSet::new()))
+}
 
 #[derive(QueryableByName, Debug)]
 struct KvRecord {
@@ -36,9 +47,83 @@ pub struct SqliteStorage<K, V> {
     _phantom: std::marker::PhantomData<(K, V)>,
     table_name: String,
     surfnet_id: u32,
+    /// Whether this is a file-based database (not :memory:)
+    /// Used to determine if WAL checkpoint should be performed on drop
+    is_file_based: bool,
+    /// The connection string for creating direct connections during cleanup
+    connection_string: String,
 }
 
 const NAME: &str = "SQLite";
+
+// Checkpoint implementation that doesn't require K, V bounds
+impl<K, V> SqliteStorage<K, V> {
+    /// Checkpoint the WAL and truncate it to consolidate into the main database file,
+    /// then remove the -wal and -shm files.
+    /// Only runs for file-based databases (not :memory:).
+    /// Uses a static set to track which databases have been checkpointed to avoid
+    /// conflicts when multiple SqliteStorage instances share the same database file.
+    fn checkpoint(&self) {
+        if !self.is_file_based {
+            return;
+        }
+
+        // Extract the file path from the connection string
+        // Connection string is like "file:/path/to/db.sqlite?mode=rwc"
+        let db_path = self
+            .connection_string
+            .strip_prefix("file:")
+            .and_then(|s| s.split('?').next())
+            .unwrap_or(&self.connection_string)
+            .to_string();
+
+        // Check if this database has already been checkpointed by another storage instance
+        {
+            let mut checkpointed = checkpointed_databases().lock().unwrap();
+            if checkpointed.contains(&db_path) {
+                debug!(
+                    "Database {} already checkpointed, skipping for table '{}'",
+                    db_path, self.table_name
+                );
+                return;
+            }
+            checkpointed.insert(db_path.clone());
+        }
+
+        debug!(
+            "Checkpointing WAL for database '{}' (table '{}')",
+            db_path, self.table_name
+        );
+
+        // Use pool connection to checkpoint - this flushes WAL to main database
+        if let Ok(mut conn) = self.pool.get() {
+            if let Err(e) = conn.batch_execute("PRAGMA wal_checkpoint(TRUNCATE);") {
+                debug!("WAL checkpoint failed: {}", e);
+                return;
+            }
+        }
+
+        // Remove the -wal and -shm files
+        let wal_path = format!("{}-wal", db_path);
+        let shm_path = format!("{}-shm", db_path);
+
+        if std::path::Path::new(&wal_path).exists() {
+            if let Err(e) = std::fs::remove_file(&wal_path) {
+                debug!("Failed to remove WAL file {}: {}", wal_path, e);
+            } else {
+                debug!("Removed WAL file: {}", wal_path);
+            }
+        }
+
+        if std::path::Path::new(&shm_path).exists() {
+            if let Err(e) = std::fs::remove_file(&shm_path) {
+                debug!("Failed to remove SHM file {}: {}", shm_path, e);
+            } else {
+                debug!("Removed SHM file: {}", shm_path);
+            }
+        }
+    }
+}
 
 impl<K, V> SqliteStorage<K, V>
 where
@@ -258,6 +343,10 @@ where
         Box::new(self.clone())
     }
 
+    fn shutdown(&self) {
+        self.checkpoint();
+    }
+
     fn into_iter(&self) -> StorageResult<Box<dyn Iterator<Item = (K, V)> + '_>> {
         debug!(
             "Creating iterator for all key-value pairs in table '{}'",
@@ -313,27 +402,33 @@ where
             database_url, table_name, surfnet_id
         );
 
-        let connection_string = if database_url != ":memory:" {
-            // Add connection string parameters to avoid readonly issues
+        let connection_string = if database_url == ":memory:" {
+            database_url.to_string()
+        } else if database_url.starts_with("file:") {
+            // Already a URI, just add mode if needed
             if database_url.contains('?') {
                 format!("{}&mode=rwc", database_url)
             } else {
                 format!("{}?mode=rwc", database_url)
             }
         } else {
-            database_url.to_string()
+            // Convert plain path to file: URI format for proper parameter handling
+            format!("file:{}?mode=rwc", database_url)
         };
 
-        let manager = ConnectionManager::<diesel::SqliteConnection>::new(connection_string);
+        let manager = ConnectionManager::<diesel::SqliteConnection>::new(connection_string.clone());
         trace!("Creating connection pool");
         let pool =
             Pool::new(manager).map_err(|e| StorageError::PooledConnectionError(NAME.into(), e))?;
 
+        let is_file_based = database_url != ":memory:";
         let storage = SqliteStorage {
             pool,
             _phantom: std::marker::PhantomData,
             table_name: table_name.to_string(),
             surfnet_id,
+            is_file_based,
+            connection_string,
         };
 
         // Set SQLite pragmas for performance and reliability

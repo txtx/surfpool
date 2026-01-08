@@ -54,6 +54,13 @@ impl SurfnetLiteSvm {
         Ok(self)
     }
 
+    /// Explicitly shutdown the storage, performing cleanup like WAL checkpoint for SQLite.
+    pub fn shutdown(&self) {
+        if let Some(db) = &self.db {
+            db.shutdown();
+        }
+    }
+
     pub fn reset(&mut self, feature_set: FeatureSet) -> SurfpoolResult<()> {
         self.svm = LiteSVM::new()
             .with_blockhash_check(false)

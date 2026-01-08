@@ -293,6 +293,14 @@ impl SurfnetSvm {
         Self::_new(database_url, surfnet_id)
     }
 
+    /// Explicitly shutdown the SVM, performing cleanup like WAL checkpoint for SQLite.
+    /// This should be called before the application exits to ensure data is persisted.
+    pub fn shutdown(&self) {
+        self.inner.shutdown();
+        self.blocks.shutdown();
+        self.transactions.shutdown();
+    }
+
     /// Creates a new instance of `SurfnetSvm`.
     ///
     /// Returns a tuple containing the SVM instance, a receiver for simulation events, and a receiver for Geyser plugin events.

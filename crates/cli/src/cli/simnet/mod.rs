@@ -139,7 +139,7 @@ pub async fn handle_start_local_surfnet_command(
     let config_copy = config.clone();
 
     let simnet_events_tx_for_thread = simnet_events_tx.clone();
-    let _handle = hiro_system_kit::thread_named("simnet")
+    let simnet_handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
             let future = start_local_surfnet(
                 surfnet_svm,
@@ -228,6 +228,9 @@ pub async fn handle_start_local_surfnet_command(
     )
     .await;
 
+    // Wait for the simnet thread to finish cleanup (including Drop/checkpoint)
+    let _ = simnet_handle.join();
+
     Ok(())
 }
 
@@ -275,6 +278,7 @@ async fn start_service(
     if let Some(explorer_handle) = explorer_handle {
         let _ = explorer_handle.stop(true).await;
     }
+
     Ok(())
 }
 
@@ -288,8 +292,11 @@ fn log_events(
 ) -> Result<(), String> {
     let mut deployment_completed = false;
     let do_stop_loop = runloop_terminator.clone();
+    let terminate_tx = simnet_commands_tx.clone();
     ctrlc::set_handler(move || {
         do_stop_loop.store(true, Ordering::Relaxed);
+        // Send terminate command to allow graceful shutdown (Drop to run)
+        let _ = terminate_tx.send(SimnetCommand::Terminate(None));
     })
     .expect("Error setting Ctrl-C handler");
 

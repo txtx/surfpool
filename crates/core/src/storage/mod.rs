@@ -200,6 +200,11 @@ pub trait Storage<K, V>: Send + Sync {
         Ok(self.get(key)?.is_some())
     }
 
+    /// Explicitly shutdown the storage, performing any cleanup like WAL checkpoint.
+    /// This should be called before the application exits to ensure data is persisted.
+    /// Default implementation does nothing.
+    fn shutdown(&self) {}
+
     // Enable cloning of boxed trait objects
     fn clone_box(&self) -> Box<dyn Storage<K, V>>;
 }
