@@ -3495,7 +3495,7 @@ mod tests {
     use super::*;
     use crate::{
         scenarios::registry::PYTH_V2_IDL_CONTENT,
-        surfnet::{SurfnetSvm, svm::apply_override_to_decoded_account},
+        surfnet::{SurfnetSvm, utils::apply_override_to_decoded_account},
     };
 
     #[test]
