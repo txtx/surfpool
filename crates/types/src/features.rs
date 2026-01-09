@@ -60,6 +60,16 @@ pub enum SvmFeature {
     DisableZkElgamalProofProgram,
     ReenableZkElgamalProofProgram,
     RaiseCpiNestingLimitTo8,
+    AccountDataDirectMapping,
+    ProvideInstructionDataOffsetInVmR2,
+    IncreaseCpiAccountInfoLimit,
+    VoteStateV4,
+    PoseidonEnforcePadding,
+    FixAltBn128PairingLengthCheck,
+    LiftCpiCallerRestriction,
+    RemoveAccountsExecutableFlagChecks,
+    LoosenCpiSizeRestriction,
+    DisableRentFeesCollection,
 }
 
 impl SvmFeature {
@@ -130,6 +140,11 @@ impl SvmFeatureConfig {
             SvmFeature::MoveStakeAndMoveLamportsIxs,
             // Stake minimum delegation raise not yet on mainnet
             SvmFeature::StakeRaiseMinimumDelegationTo1Sol,
+            // New features from LiteSVM 0.9.0 / Solana SVM v3.1 (not yet on mainnet)
+            SvmFeature::LiftCpiCallerRestriction,
+            SvmFeature::RemoveAccountsExecutableFlagChecks,
+            SvmFeature::LoosenCpiSizeRestriction,
+            SvmFeature::DisableRentFeesCollection,
         ];
 
         Self {
@@ -249,8 +264,8 @@ mod tests {
 
     #[test]
     fn test_feature_all_count() {
-        // Ensure we have all 36 features
-        assert_eq!(SvmFeature::all().count(), 36);
+        // Ensure we have all 46 features
+        assert_eq!(SvmFeature::all().count(), 46);
     }
 
     #[test]
