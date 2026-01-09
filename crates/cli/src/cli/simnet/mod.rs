@@ -441,76 +441,82 @@ async fn write_and_execute_iac(
     simnet_events_tx: &Sender<SimnetEvent>,
     simnet_commands_tx: &Sender<SimnetCommand>,
 ) -> Result<Receiver<BlockEvent>, String> {
-    // Are we in a project directory?
-    let deployment = detect_program_frameworks(&cmd.manifest_path, &cmd.anchor_test_config_paths)
-        .await
-        .map_err(|e| format!("Failed to detect project framework: {}", e))?;
-
     let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-    if let Some(ProgramFrameworkData {
-        framework,
-        programs,
-        genesis_accounts,
-        accounts,
-        accounts_dir,
-        clones,
-        generate_subgraphs,
-    }) = deployment
+
+    let base_location =
+        FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
+    let mut txtx_manifest_location = base_location.clone();
+    txtx_manifest_location.append_path("txtx.yml")?;
+    let txtx_manifest_exists = txtx_manifest_location.exists();
+
+    let mut on_disk_runbook_data = None;
+    let mut in_memory_runbook_data = None;
+    let runbook_input = cmd.runbook_input.clone();
+
+    // If there were existing on-disk runbooks, we'll execute those instead of in-memory ones
+    // If there were no existing runbooks and the user requested autopilot, we'll generate and execute in-memory runbooks
+    // If there were no existing runbooks and the user did not request autopilot, we'll generate and execute on-disk runbooks
+    let do_execute_in_memory_runbooks = cmd.anchor_compat && !txtx_manifest_exists;
+    if !cmd.anchor_compat && txtx_manifest_exists {
+        let runbooks_ids_to_execute = cmd.runbooks.clone();
+        on_disk_runbook_data = Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
+    };
+
+    // Are we in a project directory?
+    if let Ok(deployment) =
+        detect_program_frameworks(&cmd.manifest_path, &cmd.anchor_test_config_paths).await
     {
-        if let Some(clones) = clones.as_ref() {
-            if !clones.is_empty() {
-                let _ = simnet_commands_tx.try_send(SimnetCommand::FetchRemoteAccounts(
-                    clones
-                        .iter()
-                        .map(|c| {
-                            c.parse()
-                                .map_err(|e| format!("Failed to parse clone address {}: {}", c, e))
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                    cmd.datasource_rpc_url(),
-                ));
+        if let Some(ProgramFrameworkData {
+            framework,
+            programs,
+            genesis_accounts,
+            accounts,
+            accounts_dir,
+            clones,
+            generate_subgraphs,
+        }) = deployment
+        {
+            if let Some(clones) = clones.as_ref() {
+                if !clones.is_empty() {
+                    let _ = simnet_commands_tx.try_send(SimnetCommand::FetchRemoteAccounts(
+                        clones
+                            .iter()
+                            .map(|c| {
+                                c.parse().map_err(|e| {
+                                    format!("Failed to parse clone address {}: {}", c, e)
+                                })
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                        cmd.datasource_rpc_url(),
+                    ));
+                }
+            }
+
+            // Is infrastructure-as-code (IaC) already setup?
+            let do_write_scaffold = !cmd.anchor_compat && !txtx_manifest_exists;
+            if do_write_scaffold {
+                // Scaffold IaC
+                scaffold_iac_layout(
+                    &framework,
+                    &programs,
+                    &base_location,
+                    cmd.skip_runbook_generation_prompts,
+                    generate_subgraphs,
+                )?;
+            }
+
+            if do_execute_in_memory_runbooks {
+                in_memory_runbook_data = Some(scaffold_in_memory_iac(
+                    &framework,
+                    &programs,
+                    &genesis_accounts,
+                    &accounts,
+                    &accounts_dir,
+                    generate_subgraphs,
+                )?);
             }
         }
 
-        let runbook_input = cmd.runbook_input.clone();
-        // Is infrastructure-as-code (IaC) already setup?
-        let base_location =
-            FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
-        let mut txtx_manifest_location = base_location.clone();
-        txtx_manifest_location.append_path("txtx.yml")?;
-        let txtx_manifest_exists = txtx_manifest_location.exists();
-        let do_write_scaffold = !cmd.anchor_compat && !txtx_manifest_exists;
-        if do_write_scaffold {
-            // Scaffold IaC
-            scaffold_iac_layout(
-                &framework,
-                &programs,
-                &base_location,
-                cmd.skip_runbook_generation_prompts,
-                generate_subgraphs,
-            )?;
-        }
-
-        // If there were existing on-disk runbooks, we'll execute those instead of in-memory ones
-        // If there were no existing runbooks and the user requested autopilot, we'll generate and execute in-memory runbooks
-        // If there were no existing runbooks and the user did not request autopilot, we'll generate and execute on-disk runbooks
-        let do_execute_in_memory_runbooks = cmd.anchor_compat && !txtx_manifest_exists;
-
-        let mut on_disk_runbook_data = None;
-        let mut in_memory_runbook_data = None;
-        if do_execute_in_memory_runbooks {
-            in_memory_runbook_data = Some(scaffold_in_memory_iac(
-                &framework,
-                &programs,
-                &genesis_accounts,
-                &accounts,
-                &accounts_dir,
-                generate_subgraphs,
-            )?);
-        } else {
-            let runbooks_ids_to_execute = cmd.runbooks.clone();
-            on_disk_runbook_data = Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
-        };
         let futures = assemble_runbook_execution_futures(
             &progress_tx,
             simnet_events_tx,
