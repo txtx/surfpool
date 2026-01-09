@@ -1014,7 +1014,14 @@ impl SurfnetSvmLocker {
                 let token_accounts_before = transaction_accounts
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, p)| svm_reader.token_accounts.get(p).cloned().map(|a| (i, a)))
+                    .filter_map(|(i, p)| {
+                        svm_reader
+                            .token_accounts
+                            .get(&p.to_string())
+                            .ok()
+                            .flatten()
+                            .map(|a| (i, a))
+                    })
                     .collect::<Vec<_>>();
 
                 let token_programs = token_accounts_before
@@ -1457,7 +1464,11 @@ impl SurfnetSvmLocker {
                 .zip(accounts_after.iter())
                 .enumerate()
             {
-                let token_account = svm_writer.token_accounts.get(pubkey).cloned();
+                let token_account = svm_writer
+                    .token_accounts
+                    .get(&pubkey.to_string())
+                    .ok()
+                    .flatten();
                 post_execution_capture.insert(*pubkey, account.clone());
 
                 if let Some(token_account) = token_account {

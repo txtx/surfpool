@@ -247,7 +247,7 @@ pub struct SurfnetSvm {
     pub start_time: SystemTime,
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
-    pub token_accounts: HashMap<Pubkey, TokenAccount>,
+    pub token_accounts: Box<dyn Storage<String, TokenAccount>>,
     pub token_mints: HashMap<Pubkey, MintAccount>,
     pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
@@ -299,6 +299,7 @@ impl SurfnetSvm {
         self.inner.shutdown();
         self.blocks.shutdown();
         self.transactions.shutdown();
+        self.token_accounts.shutdown();
     }
 
     /// Creates a new instance of `SurfnetSvm`.
@@ -317,7 +318,8 @@ impl SurfnetSvm {
         // todo: consider making this configurable via config
         feature_set.deactivate(&enable_extend_program_checked::id());
 
-        let inner = SurfnetLiteSvm::new().initialize(feature_set.clone(), database_url, surfnet_id)?;
+        let inner =
+            SurfnetLiteSvm::new().initialize(feature_set.clone(), database_url, surfnet_id)?;
 
         let native_mint_account = inner
             .get_account(&spl_token_interface::native_mint::ID)?
@@ -334,6 +336,7 @@ impl SurfnetSvm {
 
         let blocks_db = new_kv_store(&database_url, "blocks", surfnet_id)?;
         let transactions_db = new_kv_store(&database_url, "transactions", surfnet_id)?;
+        let token_accounts_db = new_kv_store(&database_url, "token_accounts", surfnet_id)?;
 
         let chain_tip = if let Some((_, block)) = blocks_db
             .into_iter()
@@ -380,7 +383,7 @@ impl SurfnetSvm {
             start_time: SystemTime::now(),
             accounts_by_owner,
             account_associated_data: HashMap::new(),
-            token_accounts: HashMap::new(),
+            token_accounts: token_accounts_db,
             token_mints,
             token_accounts_by_owner: HashMap::new(),
             token_accounts_by_delegate: HashMap::new(),
@@ -969,8 +972,8 @@ impl SurfnetSvm {
                         delegate_accounts.push(*pubkey);
                     }
                 }
-
-                self.token_accounts.insert(*pubkey, token_account);
+                self.token_accounts
+                    .store(pubkey.to_string(), token_account)?;
             }
 
             if let Ok(mint_account) = MintAccount::unpack(&account.data) {
@@ -1018,7 +1021,7 @@ impl SurfnetSvm {
 
         // if it was a token account, remove from token indexes
         if is_supported_token_program(&old_account.owner) {
-            if let Some(old_token_account) = self.token_accounts.remove(pubkey) {
+            if let Some(old_token_account) = self.token_accounts.take(&pubkey.to_string())? {
                 if let Some(accounts) = self
                     .token_accounts_by_owner
                     .get_mut(&old_token_account.owner())
@@ -1081,7 +1084,7 @@ impl SurfnetSvm {
         self.simulated_transaction_profiles.clear();
         self.accounts_by_owner = accounts_by_owner;
         self.account_associated_data.clear();
-        self.token_accounts.clear();
+        self.token_accounts.clear()?;
         self.token_mints = token_mints;
         self.token_accounts_by_owner.clear();
         self.token_accounts_by_delegate.clear();
@@ -2149,7 +2152,11 @@ impl SurfnetSvm {
         let token_mint = if let Some(mint) = token_mint {
             Some(mint)
         } else {
-            self.token_accounts.get(pubkey).map(|ta| ta.mint())
+            self.token_accounts
+                .get(&pubkey.to_string())
+                .ok()
+                .flatten()
+                .map(|ta| ta.mint())
         };
 
         token_mint.and_then(|mint| self.account_associated_data.get(&mint).cloned())
@@ -2189,7 +2196,13 @@ impl SurfnetSvm {
         if let Some(account_pubkeys) = self.token_accounts_by_delegate.get(delegate) {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .filter_map(|pk| {
+                    self.token_accounts
+                        .get(&pk.to_string())
+                        .ok()
+                        .flatten()
+                        .map(|ta| (*pk, ta))
+                })
                 .collect()
         } else {
             Vec::new()
@@ -2212,7 +2225,13 @@ impl SurfnetSvm {
         if let Some(account_pubkeys) = self.token_accounts_by_owner.get(owner) {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .filter_map(|pk| {
+                    self.token_accounts
+                        .get(&pk.to_string())
+                        .ok()
+                        .flatten()
+                        .map(|ta| (*pk, ta))
+                })
                 .collect()
         } else {
             Vec::new()
@@ -2253,7 +2272,13 @@ impl SurfnetSvm {
         if let Some(account_pubkeys) = self.token_accounts_by_mint.get(mint) {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .filter_map(|pk| {
+                    self.token_accounts
+                        .get(&pk.to_string())
+                        .ok()
+                        .flatten()
+                        .map(|ta| (*pk, ta))
+                })
                 .collect()
         } else {
             Vec::new()
@@ -2945,7 +2970,7 @@ mod tests {
         svm.set_account(&token_account_pubkey, account).unwrap();
 
         // test all indexes were created correctly
-        assert_eq!(svm.token_accounts.len(), 1);
+        assert_eq!(svm.token_accounts.keys().unwrap().len(), 1);
 
         // test owner index
         let owner_accounts = svm.get_parsed_token_accounts_by_owner(&owner);
@@ -3055,7 +3080,7 @@ mod tests {
         svm.set_account(&system_account_pubkey, account).unwrap();
 
         // should be in general registry but not token indexes
-        assert_eq!(svm.token_accounts.len(), 0);
+        assert_eq!(svm.token_accounts.keys().unwrap().len(), 0);
         assert_eq!(svm.token_accounts_by_owner.len(), 0);
         assert_eq!(svm.token_accounts_by_delegate.len(), 0);
         assert_eq!(svm.token_accounts_by_mint.len(), 0);
@@ -3888,6 +3913,11 @@ mod tests {
             0
         );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 0);
-        assert!(svm.token_accounts.get(&token_account_pubkey).is_none());
+        assert!(
+            svm.token_accounts
+                .get(&token_account_pubkey.to_string())
+                .unwrap()
+                .is_none()
+        );
     }
 }

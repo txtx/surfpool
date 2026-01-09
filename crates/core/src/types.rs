@@ -869,6 +869,68 @@ impl TokenAccount {
     }
 }
 
+impl Serialize for TokenAccount {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Use discriminant byte (0 = SplToken2022, 1 = SplToken) + packed bytes, then base64 encode
+        let mut bytes = Vec::with_capacity(1 + spl_token_2022_interface::state::Account::LEN);
+        match self {
+            Self::SplToken2022(account) => {
+                bytes.push(0u8);
+                let mut dst = [0u8; spl_token_2022_interface::state::Account::LEN];
+                account.pack_into_slice(&mut dst);
+                bytes.extend_from_slice(&dst);
+            }
+            Self::SplToken(account) => {
+                bytes.push(1u8);
+                let mut dst = [0u8; spl_token_interface::state::Account::LEN];
+                account.pack_into_slice(&mut dst);
+                bytes.extend_from_slice(&dst);
+            }
+        }
+        let encoded = BASE64_STANDARD.encode(&bytes);
+        serializer.serialize_str(&encoded)
+    }
+}
+
+impl<'de> Deserialize<'de> for TokenAccount {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let encoded = String::deserialize(deserializer)?;
+        let bytes = BASE64_STANDARD
+            .decode(&encoded)
+            .map_err(serde::de::Error::custom)?;
+
+        if bytes.is_empty() {
+            return Err(serde::de::Error::custom("Empty TokenAccount bytes"));
+        }
+
+        let discriminant = bytes[0];
+        let data = &bytes[1..];
+
+        match discriminant {
+            0 => {
+                let account = spl_token_2022_interface::state::Account::unpack(data)
+                    .map_err(serde::de::Error::custom)?;
+                Ok(TokenAccount::SplToken2022(account))
+            }
+            1 => {
+                let account = spl_token_interface::state::Account::unpack(data)
+                    .map_err(serde::de::Error::custom)?;
+                Ok(TokenAccount::SplToken(account))
+            }
+            _ => Err(serde::de::Error::custom(format!(
+                "Unknown TokenAccount discriminant: {}",
+                discriminant
+            ))),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum MintAccount {
     SplToken2022(spl_token_2022_interface::state::Mint),
