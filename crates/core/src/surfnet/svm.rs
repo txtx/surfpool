@@ -238,7 +238,7 @@ pub struct SurfnetSvm {
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub account_subscriptions: AccountSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
-    pub profile_tag_map: HashMap<String, Vec<UuidOrSignature>>,
+    pub profile_tag_map: Box<dyn Storage<String, Vec<UuidOrSignature>>>,
     pub simulated_transaction_profiles: HashMap<Uuid, KeyedProfileResult>,
     pub executed_transaction_profiles: FifoMap<Signature, KeyedProfileResult>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
@@ -263,7 +263,6 @@ pub struct SurfnetSvm {
     /// the update with higher write_version should supersede the one with lower write_version.
     pub write_version: u64,
     pub registered_idls: Box<dyn Storage<String, Vec<VersionedIdl>>>,
-    // pub registered_idls: HashMap<[u8; 8], BinaryHeap<VersionedIdl>>,
     pub feature_set: FeatureSet,
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
@@ -308,6 +307,7 @@ impl SurfnetSvm {
         self.streamed_accounts.shutdown();
         self.scheduled_overrides.shutdown();
         self.registered_idls.shutdown();
+        self.profile_tag_map.shutdown();
     }
 
     /// Creates a new instance of `SurfnetSvm`.
@@ -362,6 +362,8 @@ impl SurfnetSvm {
             new_kv_store(&database_url, "scheduled_overrides", surfnet_id)?;
         let registered_idls_db: Box<dyn Storage<String, Vec<VersionedIdl>>> =
             new_kv_store(&database_url, "registered_idls", surfnet_id)?;
+        let profile_tag_map_db: Box<dyn Storage<String, Vec<UuidOrSignature>>> =
+            new_kv_store(&database_url, "profile_tag_map", surfnet_id)?;
 
         let chain_tip = if let Some((_, block)) = blocks_db
             .into_iter()
@@ -399,7 +401,7 @@ impl SurfnetSvm {
             signature_subscriptions: HashMap::new(),
             account_subscriptions: HashMap::new(),
             slot_subscriptions: Vec::new(),
-            profile_tag_map: HashMap::new(),
+            profile_tag_map: profile_tag_map_db,
             simulated_transaction_profiles: HashMap::new(),
             executed_transaction_profiles: FifoMap::default(),
             logs_subscriptions: Vec::new(),
@@ -1134,7 +1136,7 @@ impl SurfnetSvm {
         self.transactions_queued_for_finalization.clear();
         self.perf_samples.clear();
         self.transactions_processed = 0;
-        self.profile_tag_map.clear();
+        self.profile_tag_map.clear()?;
         self.simulated_transaction_profiles.clear();
         self.accounts_by_owner.clear()?;
         self.accounts_by_owner.store(
@@ -2397,28 +2399,39 @@ impl SurfnetSvm {
         uuid: Uuid,
         tag: Option<String>,
         profile_result: KeyedProfileResult,
-    ) {
+    ) -> SurfpoolResult<()> {
         self.simulated_transaction_profiles
             .insert(uuid, profile_result);
 
         let tag = tag.unwrap_or_else(|| uuid.to_string());
-        self.profile_tag_map
-            .entry(tag)
-            .or_default()
-            .push(UuidOrSignature::Uuid(uuid));
+        let mut tags = self
+            .profile_tag_map
+            .get(&tag)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        tags.push(UuidOrSignature::Uuid(uuid));
+        self.profile_tag_map.store(tag, tags)?;
+        Ok(())
     }
 
     pub fn write_executed_profile_result(
         &mut self,
         signature: Signature,
         profile_result: KeyedProfileResult,
-    ) {
+    ) -> SurfpoolResult<()> {
         self.executed_transaction_profiles
             .insert(signature, profile_result);
-        self.profile_tag_map
-            .entry(signature.to_string())
-            .or_default()
-            .push(UuidOrSignature::Signature(signature));
+        let tag = signature.to_string();
+        let mut tags = self
+            .profile_tag_map
+            .get(&tag)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        tags.push(UuidOrSignature::Signature(signature));
+        self.profile_tag_map.store(tag, tags)?;
+        Ok(())
     }
 
     pub fn subscribe_for_logs_updates(
@@ -2923,7 +2936,8 @@ impl SurfnetSvm {
                 .flatten()
                 .unwrap_or_default();
             slot_overrides.push(override_instance);
-            self.scheduled_overrides.store(absolute_slot, slot_overrides)?;
+            self.scheduled_overrides
+                .store(absolute_slot, slot_overrides)?;
         }
 
         Ok(())

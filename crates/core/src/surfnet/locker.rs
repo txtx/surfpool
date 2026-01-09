@@ -853,8 +853,8 @@ impl SurfnetSvmLocker {
             .await?;
 
         self.with_svm_writer(|svm_writer| {
-            svm_writer.write_executed_profile_result(signature, profile_result);
-        });
+            svm_writer.write_executed_profile_result(signature, profile_result)
+        })?;
         Ok(())
     }
 
@@ -893,8 +893,8 @@ impl SurfnetSvmLocker {
         profile_result.key = UuidOrSignature::Uuid(uuid);
 
         self.with_svm_writer(|svm_writer| {
-            svm_writer.write_simulated_profile_result(uuid, tag, profile_result);
-        });
+            svm_writer.write_simulated_profile_result(uuid, tag, profile_result)
+        })?;
 
         Ok(self.with_contextualized_svm_reader(|_| uuid))
     }
@@ -2024,11 +2024,8 @@ impl SurfnetSvmLocker {
             let token_accounts = svm_reader.get_token_accounts_by_mint(mint);
 
             // get mint information to determine decimals
-            let mint_decimals = if let Some(mint_account) = svm_reader
-                .token_mints
-                .get(&mint.to_string())
-                .ok()
-                .flatten()
+            let mint_decimals = if let Some(mint_account) =
+                svm_reader.token_mints.get(&mint.to_string()).ok().flatten()
             {
                 mint_account.decimals()
             } else {
@@ -2370,7 +2367,7 @@ impl SurfnetSvmLocker {
         tag: String,
         config: &RpcProfileResultConfig,
     ) -> SurfpoolResult<Option<Vec<UiKeyedProfileResult>>> {
-        let tag_map = self.with_svm_reader(|svm| svm.profile_tag_map.get(&tag).cloned());
+        let tag_map = self.with_svm_reader(|svm| svm.profile_tag_map.get(&tag).ok().flatten());
         match tag_map {
             None => Ok(None),
             Some(uuids_or_sigs) => {
