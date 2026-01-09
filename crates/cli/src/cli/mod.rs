@@ -137,7 +137,7 @@ pub struct StartSimnet {
     #[arg(
         long = "manifest-file-path",
         short = 'm',
-        default_value = "./Surfpool.toml"
+        default_value = "./txtx.toml"
     )]
     pub manifest_path: String,
     /// Set the Simnet RPC port (eg. surfpool start --port 8080)
