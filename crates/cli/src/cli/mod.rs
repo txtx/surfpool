@@ -133,11 +133,11 @@ enum Command {
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 pub struct StartSimnet {
-    /// Path to the runbook manifest, used to locate the root of the project (eg. surfpool start --manifest-file-path ./txtx.toml)
+    /// Path to the runbook manifest, used to locate the root of the project (eg. surfpool start --manifest-file-path ./txtx.yml)
     #[arg(
         long = "manifest-file-path",
         short = 'm',
-        default_value = "./Surfpool.toml"
+        default_value = "./txtx.yml"
     )]
     pub manifest_path: String,
     /// Set the Simnet RPC port (eg. surfpool start --port 8080)
