@@ -295,7 +295,7 @@ pub async fn start_block_production_runloop(
                     }
                     SimnetCommand::UpdateInternalClock(_, clock) => {
                         // Confirm the current block to materialize any scheduled overrides for this slot
-                        if let Err(e) = svm_locker.confirm_current_block(&remote_client_with_commitment).await {
+                        if let Err(e) = svm_locker.confirm_current_block().await {
                             let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!(
                                 "Failed to confirm block after time travel: {}", e
                             )));
@@ -314,7 +314,7 @@ pub async fn start_block_production_runloop(
                     }
                     SimnetCommand::UpdateInternalClockWithConfirmation(_, clock, response_tx) => {
                         // Confirm the current block to materialize any scheduled overrides for this slot
-                        if let Err(e) = svm_locker.confirm_current_block(&remote_client_with_commitment).await {
+                        if let Err(e) = svm_locker.confirm_current_block().await {
                             let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!(
                                 "Failed to confirm block after time travel: {}", e
                             )));
@@ -383,9 +383,7 @@ pub async fn start_block_production_runloop(
 
         {
             if do_produce_block {
-                svm_locker
-                    .confirm_current_block(&remote_client_with_commitment)
-                    .await?;
+                svm_locker.confirm_current_block().await?;
             }
         }
     }

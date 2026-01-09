@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
@@ -14,9 +12,9 @@ use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    AccountSnapshot, ClockCommand, ExportSnapshotConfig, GetStreamedAccountsResponse,
-    GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcProfileResultConfig, Scenario,
-    SimnetCommand, SimnetEvent, StreamAccountConfig, UiKeyedProfileResult,
+    ClockCommand, ExportSnapshotConfig, GetStreamedAccountsResponse, GetSurfnetInfoResponse, Idl,
+    ResetAccountConfig, RpcProfileResultConfig, Scenario, SimnetCommand, SimnetEvent,
+    SnapshotResult, StreamAccountConfig, UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -841,7 +839,7 @@ pub trait SurfnetCheatcodes {
         &self,
         meta: Self::Metadata,
         config: Option<ExportSnapshotConfig>,
-    ) -> Result<RpcResponse<BTreeMap<String, AccountSnapshot>>>;
+    ) -> BoxFuture<Result<RpcResponse<SnapshotResult>>>;
 
     /// A cheat code to simulate account streaming.
     /// When a transaction is processed, the accounts that are accessed are downloaded from the datasource and cached in the SVM.
@@ -1127,7 +1125,7 @@ pub trait SurfnetCheatcodes {
         meta: Self::Metadata,
         scenario: Scenario,
         slot: Option<Slot>,
-    ) -> Result<RpcResponse<()>>;
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
 }
 
 #[derive(Clone)]
@@ -1805,13 +1803,30 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         &self,
         meta: Self::Metadata,
         config: Option<ExportSnapshotConfig>,
-    ) -> Result<RpcResponse<BTreeMap<String, AccountSnapshot>>> {
+    ) -> BoxFuture<Result<RpcResponse<SnapshotResult>>> {
         let config = config.unwrap_or_default();
-        let svm_locker = meta.get_svm_locker()?;
-        let snapshot = svm_locker.export_snapshot(config);
-        Ok(RpcResponse {
-            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
-            value: snapshot,
+
+        Box::pin(async move {
+            let SurfnetRpcContext {
+                svm_locker,
+                remote_ctx,
+            } = meta.get_rpc_context(CommitmentConfig::confirmed())?;
+
+            match &config.scope {
+                surfpool_types::ExportSnapshotScope::Network => todo!(),
+                surfpool_types::ExportSnapshotScope::PreTransaction(_) => todo!(),
+                surfpool_types::ExportSnapshotScope::Scenario(scenario) => {
+                    svm_locker
+                        .fetch_scenario_override_accounts(&remote_ctx, &scenario)
+                        .await?;
+                }
+            };
+
+            let snapshot = svm_locker.export_snapshot(config);
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+                value: snapshot,
+            })
         })
     }
 
@@ -1820,18 +1835,29 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         meta: Self::Metadata,
         scenario: Scenario,
         slot: Option<Slot>,
-    ) -> Result<RpcResponse<()>> {
-        let svm_locker = meta.get_svm_locker()?;
-        svm_locker.register_scenario(scenario, slot)?;
-        Ok(RpcResponse {
-            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
-            value: (),
+    ) -> BoxFuture<Result<RpcResponse<()>>> {
+        Box::pin(async move {
+            let SurfnetRpcContext {
+                svm_locker,
+                remote_ctx,
+            } = meta.get_rpc_context(CommitmentConfig::confirmed())?;
+            svm_locker
+                .fetch_scenario_override_accounts(&remote_ctx, &scenario)
+                .await?;
+
+            svm_locker.register_scenario(scenario, slot)?;
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+                value: (),
+            })
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use solana_account_decoder::{
         UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount,
     };
@@ -1848,8 +1874,8 @@ mod tests {
     use spl_token_2022_interface::instruction::{initialize_mint2, mint_to, transfer_checked};
     use spl_token_interface::state::Mint;
     use surfpool_types::{
-        ExportSnapshotFilter, ExportSnapshotScope, RpcProfileDepth, UiAccountChange,
-        UiAccountProfileState,
+        AccountSnapshot, ExportSnapshotFilter, ExportSnapshotScope, RpcProfileDepth,
+        UiAccountChange, UiAccountProfileState,
     };
 
     use super::*;
@@ -2687,8 +2713,8 @@ mod tests {
         assert_eq!(expected_account.rent_epoch, account.rent_epoch);
     }
 
-    #[test]
-    fn test_export_snapshot() {
+    #[tokio::test]
+    async fn test_export_snapshot() {
         let client = TestSetup::new(SurfnetCheatcodesRpc);
 
         let pubkey1 = Pubkey::new_unique();
@@ -2716,15 +2742,18 @@ mod tests {
         let snapshot = client
             .rpc
             .export_snapshot(Some(client.context.clone()), None)
+            .await
             .expect("Failed to export snapshot")
             .value;
+
+        let snapshot = snapshot.as_accounts().unwrap();
 
         verify_snapshot_account(&snapshot, &pubkey1, &account1);
         verify_snapshot_account(&snapshot, &pubkey2, &account2);
     }
 
-    #[test]
-    fn test_export_snapshot_json_parsed() {
+    #[tokio::test]
+    async fn test_export_snapshot_json_parsed() {
         let client = TestSetup::new(SurfnetCheatcodesRpc);
 
         let pubkey1 = Pubkey::new_unique();
@@ -2773,10 +2802,14 @@ mod tests {
                     scope: ExportSnapshotScope::Network,
                 }),
             )
+            .await
             .expect("Failed to export snapshot")
             .value;
 
+        let snapshot = snapshot.as_accounts().unwrap();
+
         verify_snapshot_account(&snapshot, &pubkey1, &account1);
+
         let actual_account1 = snapshot
             .get(&pubkey1.to_string())
             .expect("Account fixture not found");
@@ -2814,8 +2847,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_export_snapshot_pre_transaction() {
+    #[tokio::test]
+    async fn test_export_snapshot_pre_transaction() {
         use std::collections::HashMap;
 
         use solana_signature::Signature;
@@ -2901,8 +2934,11 @@ mod tests {
                     scope: ExportSnapshotScope::PreTransaction(signature.to_string()),
                 }),
             )
+            .await
             .expect("Failed to export snapshot")
             .value;
+
+        let snapshot = snapshot.as_accounts().unwrap();
 
         // Verify that only account1 and account2 are in the snapshot
         assert!(
@@ -2948,8 +2984,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_export_snapshot_filtering() {
+    #[tokio::test]
+    async fn test_export_snapshot_filtering() {
         let system_account_pubkey = Pubkey::new_unique();
         println!("System Account Pubkey: {}", system_account_pubkey);
         let excluded_system_account_pubkey = Pubkey::new_unique();
@@ -2990,8 +3026,12 @@ mod tests {
         let snapshot = client
             .rpc
             .export_snapshot(Some(client.context.clone()), None)
+            .await
             .expect("Failed to export snapshot")
             .value;
+
+        let snapshot = snapshot.as_accounts().unwrap();
+
         assert!(
             !snapshot.contains_key(&program_account_pubkey.to_string()),
             "Program account should be excluded by default"
@@ -3012,8 +3052,12 @@ mod tests {
                     ..Default::default()
                 }),
             )
+            .await
             .expect("Failed to export snapshot")
             .value;
+
+        let snapshot = snapshot.as_accounts().unwrap();
+
         assert!(
             !snapshot.contains_key(&program_account_pubkey.to_string()),
             "Program account should be excluded by default"
@@ -3036,8 +3080,10 @@ mod tests {
                     ..Default::default()
                 }),
             )
+            .await
             .expect("Failed to export snapshot")
             .value;
+        let snapshot = snapshot.as_accounts().unwrap();
 
         assert!(
             snapshot.contains_key(&program_account_pubkey.to_string()),
