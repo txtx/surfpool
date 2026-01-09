@@ -717,6 +717,29 @@ impl<T> RemoteRpcResult<T> {
     }
 }
 
+/// Discriminant byte used for serializing token program variants.
+/// Ensures consistent encoding between TokenAccount and MintAccount.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenProgramDiscriminant {
+    SplToken = 0,
+    SplToken2022 = 1,
+}
+
+impl TokenProgramDiscriminant {
+    pub fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0 => Some(Self::SplToken),
+            1 => Some(Self::SplToken2022),
+            _ => None,
+        }
+    }
+
+    pub fn as_byte(self) -> u8 {
+        self as u8
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TokenAccount {
     SplToken2022(spl_token_2022_interface::state::Account),
@@ -874,17 +897,16 @@ impl Serialize for TokenAccount {
     where
         S: Serializer,
     {
-        // Use discriminant byte (0 = SplToken2022, 1 = SplToken) + packed bytes, then base64 encode
         let mut bytes = Vec::with_capacity(1 + spl_token_2022_interface::state::Account::LEN);
         match self {
             Self::SplToken2022(account) => {
-                bytes.push(0u8);
+                bytes.push(TokenProgramDiscriminant::SplToken2022.as_byte());
                 let mut dst = [0u8; spl_token_2022_interface::state::Account::LEN];
                 account.pack_into_slice(&mut dst);
                 bytes.extend_from_slice(&dst);
             }
             Self::SplToken(account) => {
-                bytes.push(1u8);
+                bytes.push(TokenProgramDiscriminant::SplToken.as_byte());
                 let mut dst = [0u8; spl_token_interface::state::Account::LEN];
                 account.pack_into_slice(&mut dst);
                 bytes.extend_from_slice(&dst);
@@ -909,24 +931,22 @@ impl<'de> Deserialize<'de> for TokenAccount {
             return Err(serde::de::Error::custom("Empty TokenAccount bytes"));
         }
 
-        let discriminant = bytes[0];
+        let discriminant = TokenProgramDiscriminant::from_byte(bytes[0]).ok_or_else(|| {
+            serde::de::Error::custom(format!("Unknown TokenAccount discriminant: {}", bytes[0]))
+        })?;
         let data = &bytes[1..];
 
         match discriminant {
-            0 => {
+            TokenProgramDiscriminant::SplToken2022 => {
                 let account = spl_token_2022_interface::state::Account::unpack(data)
                     .map_err(serde::de::Error::custom)?;
                 Ok(TokenAccount::SplToken2022(account))
             }
-            1 => {
+            TokenProgramDiscriminant::SplToken => {
                 let account = spl_token_interface::state::Account::unpack(data)
                     .map_err(serde::de::Error::custom)?;
                 Ok(TokenAccount::SplToken(account))
             }
-            _ => Err(serde::de::Error::custom(format!(
-                "Unknown TokenAccount discriminant: {}",
-                discriminant
-            ))),
         }
     }
 }
@@ -942,17 +962,16 @@ impl Serialize for MintAccount {
     where
         S: Serializer,
     {
-        // Use discriminant byte (0 = SplToken2022, 1 = SplToken) + packed bytes, then base64 encode
         let mut bytes = Vec::with_capacity(1 + spl_token_2022_interface::state::Mint::LEN);
         match self {
             Self::SplToken2022(mint) => {
-                bytes.push(0u8);
+                bytes.push(TokenProgramDiscriminant::SplToken2022.as_byte());
                 let mut dst = [0u8; spl_token_2022_interface::state::Mint::LEN];
                 mint.pack_into_slice(&mut dst);
                 bytes.extend_from_slice(&dst);
             }
             Self::SplToken(mint) => {
-                bytes.push(1u8);
+                bytes.push(TokenProgramDiscriminant::SplToken.as_byte());
                 let mut dst = [0u8; spl_token_interface::state::Mint::LEN];
                 mint.pack_into_slice(&mut dst);
                 bytes.extend_from_slice(&dst);
@@ -977,24 +996,22 @@ impl<'de> Deserialize<'de> for MintAccount {
             return Err(serde::de::Error::custom("Empty MintAccount bytes"));
         }
 
-        let discriminant = bytes[0];
+        let discriminant = TokenProgramDiscriminant::from_byte(bytes[0]).ok_or_else(|| {
+            serde::de::Error::custom(format!("Unknown MintAccount discriminant: {}", bytes[0]))
+        })?;
         let data = &bytes[1..];
 
         match discriminant {
-            0 => {
+            TokenProgramDiscriminant::SplToken2022 => {
                 let mint = spl_token_2022_interface::state::Mint::unpack(data)
                     .map_err(serde::de::Error::custom)?;
                 Ok(MintAccount::SplToken2022(mint))
             }
-            1 => {
+            TokenProgramDiscriminant::SplToken => {
                 let mint = spl_token_interface::state::Mint::unpack(data)
                     .map_err(serde::de::Error::custom)?;
                 Ok(MintAccount::SplToken(mint))
             }
-            _ => Err(serde::de::Error::custom(format!(
-                "Unknown MintAccount discriminant: {}",
-                discriminant
-            ))),
         }
     }
 }
