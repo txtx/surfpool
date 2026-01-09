@@ -1306,8 +1306,9 @@ impl SurfnetSvmLocker {
                     .map(|(_, a)| {
                         svm_reader
                             .token_mints
-                            .get(&a.mint())
-                            .cloned()
+                            .get(&a.mint().to_string())
+                            .ok()
+                            .flatten()
                             .ok_or(SurfpoolError::token_mint_not_found(a.mint()))
                     })
                     .collect::<Result<Vec<_>, SurfpoolError>>()
@@ -1487,9 +1488,10 @@ impl SurfnetSvmLocker {
                 .map(|(_, a)| {
                     svm_writer
                         .token_mints
-                        .get(&a.mint())
+                        .get(&a.mint().to_string())
+                        .ok()
+                        .flatten()
                         .ok_or(SurfpoolError::token_mint_not_found(a.mint()))
-                        .cloned()
                 })
                 .collect::<Result<Vec<_>, SurfpoolError>>()?;
 
@@ -2016,7 +2018,12 @@ impl SurfnetSvmLocker {
             let token_accounts = svm_reader.get_token_accounts_by_mint(mint);
 
             // get mint information to determine decimals
-            let mint_decimals = if let Some(mint_account) = svm_reader.token_mints.get(mint) {
+            let mint_decimals = if let Some(mint_account) = svm_reader
+                .token_mints
+                .get(&mint.to_string())
+                .ok()
+                .flatten()
+            {
                 mint_account.decimals()
             } else {
                 0

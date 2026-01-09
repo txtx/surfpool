@@ -937,6 +937,68 @@ pub enum MintAccount {
     SplToken(spl_token_interface::state::Mint),
 }
 
+impl Serialize for MintAccount {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Use discriminant byte (0 = SplToken2022, 1 = SplToken) + packed bytes, then base64 encode
+        let mut bytes = Vec::with_capacity(1 + spl_token_2022_interface::state::Mint::LEN);
+        match self {
+            Self::SplToken2022(mint) => {
+                bytes.push(0u8);
+                let mut dst = [0u8; spl_token_2022_interface::state::Mint::LEN];
+                mint.pack_into_slice(&mut dst);
+                bytes.extend_from_slice(&dst);
+            }
+            Self::SplToken(mint) => {
+                bytes.push(1u8);
+                let mut dst = [0u8; spl_token_interface::state::Mint::LEN];
+                mint.pack_into_slice(&mut dst);
+                bytes.extend_from_slice(&dst);
+            }
+        }
+        let encoded = BASE64_STANDARD.encode(&bytes);
+        serializer.serialize_str(&encoded)
+    }
+}
+
+impl<'de> Deserialize<'de> for MintAccount {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let encoded = String::deserialize(deserializer)?;
+        let bytes = BASE64_STANDARD
+            .decode(&encoded)
+            .map_err(serde::de::Error::custom)?;
+
+        if bytes.is_empty() {
+            return Err(serde::de::Error::custom("Empty MintAccount bytes"));
+        }
+
+        let discriminant = bytes[0];
+        let data = &bytes[1..];
+
+        match discriminant {
+            0 => {
+                let mint = spl_token_2022_interface::state::Mint::unpack(data)
+                    .map_err(serde::de::Error::custom)?;
+                Ok(MintAccount::SplToken2022(mint))
+            }
+            1 => {
+                let mint = spl_token_interface::state::Mint::unpack(data)
+                    .map_err(serde::de::Error::custom)?;
+                Ok(MintAccount::SplToken(mint))
+            }
+            _ => Err(serde::de::Error::custom(format!(
+                "Unknown MintAccount discriminant: {}",
+                discriminant
+            ))),
+        }
+    }
+}
+
 impl MintAccount {
     pub fn unpack(bytes: &[u8]) -> SurfpoolResult<Self> {
         if let Ok(mint) =

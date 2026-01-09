@@ -248,7 +248,7 @@ pub struct SurfnetSvm {
     pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: Box<dyn Storage<String, TokenAccount>>,
-    pub token_mints: HashMap<Pubkey, MintAccount>,
+    pub token_mints: Box<dyn Storage<String, MintAccount>>,
     pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
     pub token_accounts_by_mint: HashMap<Pubkey, Vec<Pubkey>>,
@@ -300,6 +300,7 @@ impl SurfnetSvm {
         self.blocks.shutdown();
         self.transactions.shutdown();
         self.token_accounts.shutdown();
+        self.token_mints.shutdown();
     }
 
     /// Creates a new instance of `SurfnetSvm`.
@@ -331,12 +332,15 @@ impl SurfnetSvm {
             native_mint_account.owner,
             vec![spl_token_interface::native_mint::ID],
         )]);
-        let token_mints =
-            HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
-
         let blocks_db = new_kv_store(&database_url, "blocks", surfnet_id)?;
         let transactions_db = new_kv_store(&database_url, "transactions", surfnet_id)?;
         let token_accounts_db = new_kv_store(&database_url, "token_accounts", surfnet_id)?;
+        let mut token_mints_db: Box<dyn Storage<String, MintAccount>> =
+            new_kv_store(&database_url, "token_mints", surfnet_id)?;
+        token_mints_db.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            parsed_mint_account,
+        )?;
 
         let chain_tip = if let Some((_, block)) = blocks_db
             .into_iter()
@@ -384,7 +388,7 @@ impl SurfnetSvm {
             accounts_by_owner,
             account_associated_data: HashMap::new(),
             token_accounts: token_accounts_db,
-            token_mints,
+            token_mints: token_mints_db,
             token_accounts_by_owner: HashMap::new(),
             token_accounts_by_delegate: HashMap::new(),
             token_accounts_by_mint: HashMap::new(),
@@ -977,7 +981,7 @@ impl SurfnetSvm {
             }
 
             if let Ok(mint_account) = MintAccount::unpack(&account.data) {
-                self.token_mints.insert(*pubkey, mint_account);
+                self.token_mints.store(pubkey.to_string(), mint_account)?;
             }
 
             if let Ok(mint) =
@@ -1071,8 +1075,6 @@ impl SurfnetSvm {
             native_mint_account.owner,
             vec![spl_token_interface::native_mint::ID],
         )]);
-        let token_mints =
-            HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
 
         self.blocks.clear()?;
         self.transactions.clear()?;
@@ -1085,7 +1087,11 @@ impl SurfnetSvm {
         self.accounts_by_owner = accounts_by_owner;
         self.account_associated_data.clear();
         self.token_accounts.clear()?;
-        self.token_mints = token_mints;
+        self.token_mints.clear()?;
+        self.token_mints.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            parsed_mint_account,
+        )?;
         self.token_accounts_by_owner.clear();
         self.token_accounts_by_delegate.clear();
         self.token_accounts_by_mint.clear();
