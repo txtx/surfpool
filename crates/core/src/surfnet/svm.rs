@@ -1,6 +1,6 @@
 use std::{
     cmp::max,
-    collections::{BTreeMap, BinaryHeap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     str::FromStr,
     time::SystemTime,
 };
@@ -262,16 +262,16 @@ pub struct SurfnetSvm {
     /// For example, when an account is updated in the same slot multiple times,
     /// the update with higher write_version should supersede the one with lower write_version.
     pub write_version: u64,
-    pub registered_idls: HashMap<Pubkey, BinaryHeap<VersionedIdl>>,
+    pub registered_idls: Box<dyn Storage<String, Vec<VersionedIdl>>>,
     // pub registered_idls: HashMap<[u8; 8], BinaryHeap<VersionedIdl>>,
     pub feature_set: FeatureSet,
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
     pub runbook_executions: Vec<RunbookExecutionStatusReport>,
     pub account_update_slots: HashMap<Pubkey, Slot>,
-    pub streamed_accounts: HashMap<Pubkey, bool>,
+    pub streamed_accounts: Box<dyn Storage<String, bool>>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
-    pub scheduled_overrides: HashMap<Slot, Vec<OverrideInstance>>,
+    pub scheduled_overrides: Box<dyn Storage<u64, Vec<OverrideInstance>>>,
     /// Tracks accounts that have been explicitly closed by the user.
     /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
     pub closed_accounts: HashSet<Pubkey>,
@@ -305,6 +305,9 @@ impl SurfnetSvm {
         self.token_accounts_by_owner.shutdown();
         self.token_accounts_by_delegate.shutdown();
         self.token_accounts_by_mint.shutdown();
+        self.streamed_accounts.shutdown();
+        self.scheduled_overrides.shutdown();
+        self.registered_idls.shutdown();
     }
 
     /// Creates a new instance of `SurfnetSvm`.
@@ -353,6 +356,12 @@ impl SurfnetSvm {
             new_kv_store(&database_url, "token_accounts_by_delegate", surfnet_id)?;
         let token_accounts_by_mint_db: Box<dyn Storage<String, Vec<String>>> =
             new_kv_store(&database_url, "token_accounts_by_mint", surfnet_id)?;
+        let streamed_accounts_db: Box<dyn Storage<String, bool>> =
+            new_kv_store(&database_url, "streamed_accounts", surfnet_id)?;
+        let scheduled_overrides_db: Box<dyn Storage<u64, Vec<OverrideInstance>>> =
+            new_kv_store(&database_url, "scheduled_overrides", surfnet_id)?;
+        let registered_idls_db: Box<dyn Storage<String, Vec<VersionedIdl>>> =
+            new_kv_store(&database_url, "registered_idls", surfnet_id)?;
 
         let chain_tip = if let Some((_, block)) = blocks_db
             .into_iter()
@@ -411,15 +420,15 @@ impl SurfnetSvm {
             genesis_config: GenesisConfig::default(),
             inflation: Inflation::default(),
             write_version: 0,
-            registered_idls: HashMap::new(),
+            registered_idls: registered_idls_db,
             feature_set,
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             runbook_executions: Vec::new(),
             account_update_slots: HashMap::new(),
-            streamed_accounts: HashMap::new(),
+            streamed_accounts: streamed_accounts_db,
             recent_blockhashes: VecDeque::new(),
-            scheduled_overrides: HashMap::new(),
+            scheduled_overrides: scheduled_overrides_db,
             closed_accounts: HashSet::new(),
         };
 
@@ -562,7 +571,7 @@ impl SurfnetSvm {
 
         let registry = TemplateRegistry::new();
         for (_, template) in registry.templates.into_iter() {
-            self.register_idl(template.idl, None);
+            let _ = self.register_idl(template.idl, None);
         }
 
         if let Some(remote_client) = remote_ctx {
@@ -1143,10 +1152,10 @@ impl SurfnetSvm {
         self.token_accounts_by_delegate.clear()?;
         self.token_accounts_by_mint.clear()?;
         self.non_circulating_accounts.clear();
-        self.registered_idls.clear();
+        self.registered_idls.clear()?;
         self.runbook_executions.clear();
-        self.streamed_accounts.clear();
-        self.scheduled_overrides.clear();
+        self.streamed_accounts.clear()?;
+        self.scheduled_overrides.clear()?;
         Ok(())
     }
 
@@ -1652,9 +1661,11 @@ impl SurfnetSvm {
         self.finalize_transactions()?;
 
         // Evict the accounts marked as streamed from cache to enforce them to be fetched again
-        let accounts_to_reset = self.streamed_accounts.clone();
-        for (pubkey, include_owned_accounts) in accounts_to_reset.iter() {
-            self.reset_account(pubkey, *include_owned_accounts)?;
+        let accounts_to_reset: Vec<_> = self.streamed_accounts.into_iter()?.collect();
+        for (pubkey_str, include_owned_accounts) in accounts_to_reset {
+            let pubkey = Pubkey::from_str(&pubkey_str)
+                .map_err(|e| SurfpoolError::invalid_pubkey(&pubkey_str, e.to_string()))?;
+            self.reset_account(&pubkey, include_owned_accounts)?;
         }
 
         Ok(())
@@ -1675,7 +1686,7 @@ impl SurfnetSvm {
         let current_slot = self.latest_epoch_info.absolute_slot;
 
         // Remove and get overrides for this slot
-        let Some(overrides) = self.scheduled_overrides.remove(&current_slot) else {
+        let Some(overrides) = self.scheduled_overrides.take(&current_slot)? else {
             // No overrides for this slot
             return Ok(());
         };
@@ -1788,16 +1799,26 @@ impl SurfnetSvm {
                 let owner_program_id = account.owner();
 
                 // Look up the IDL for the owner program
-                let Some(idl_versions) = self.registered_idls.get(owner_program_id) else {
-                    warn!(
-                        "No IDL registered for program {} (owner of account {}), skipping override {}",
-                        owner_program_id, account_pubkey, override_instance.id
-                    );
-                    continue;
+                let idl_versions = match self.registered_idls.get(&owner_program_id.to_string()) {
+                    Ok(Some(versions)) => versions,
+                    Ok(None) => {
+                        warn!(
+                            "No IDL registered for program {} (owner of account {}), skipping override {}",
+                            owner_program_id, account_pubkey, override_instance.id
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to get IDL for program {}: {}, skipping override {}",
+                            owner_program_id, e, override_instance.id
+                        );
+                        continue;
+                    }
                 };
 
-                // Get the latest IDL version
-                let Some(versioned_idl) = idl_versions.peek() else {
+                // Get the latest IDL version (first in the sorted Vec)
+                let Some(versioned_idl) = idl_versions.first() else {
                     warn!(
                         "IDL versions empty for program {}, skipping override {}",
                         owner_program_id, override_instance.id
@@ -2470,13 +2491,21 @@ impl SurfnetSvm {
         }
     }
 
-    pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) {
+    pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) -> SurfpoolResult<()> {
         let slot = slot.unwrap_or(self.latest_epoch_info.absolute_slot);
         let program_id = Pubkey::from_str_const(&idl.address);
-        self.registered_idls
-            .entry(program_id)
-            .or_default()
-            .push(VersionedIdl(slot, idl));
+        let program_id_str = program_id.to_string();
+        let mut idl_versions = self
+            .registered_idls
+            .get(&program_id_str)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        idl_versions.push(VersionedIdl(slot, idl));
+        // Sort by slot descending so the latest IDL is first
+        idl_versions.sort_by(|a, b| b.0.cmp(&a.0));
+        self.registered_idls.store(program_id_str, idl_versions)?;
+        Ok(())
     }
 
     fn encode_ui_account_profile_state(
@@ -2633,7 +2662,10 @@ impl SurfnetSvm {
 
         let filter_slot = self.latest_epoch_info.absolute_slot; // todo: consider if we should pass in a slot
         if encoding == UiAccountEncoding::JsonParsed {
-            if let Some(registered_idls) = self.registered_idls.get(owner_program_id) {
+            if let Ok(Some(registered_idls)) =
+                self.registered_idls.get(&owner_program_id.to_string())
+            {
+                // IDLs are stored sorted by slot descending (most recent first)
                 let ordered_available_idls = registered_idls
                     .iter()
                     // only get IDLs that are active (their slot is before the latest slot)
@@ -2884,10 +2916,14 @@ impl SurfnetSvm {
                 absolute_slot, base_slot, scenario_relative_slot
             );
 
-            self.scheduled_overrides
-                .entry(absolute_slot)
-                .or_insert_with(Vec::new)
-                .push(override_instance);
+            let mut slot_overrides = self
+                .scheduled_overrides
+                .get(&absolute_slot)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            slot_overrides.push(override_instance);
+            self.scheduled_overrides.store(absolute_slot, slot_overrides)?;
         }
 
         Ok(())
@@ -3434,7 +3470,7 @@ mod tests {
             serde_json::from_slice(&include_bytes!("../tests/assets/idl_v1.json").to_vec())
                 .unwrap();
 
-        svm.register_idl(idl_v1.clone(), Some(0));
+        svm.register_idl(idl_v1.clone(), Some(0)).unwrap();
 
         let account_pubkey = Pubkey::new_unique();
 
@@ -3529,7 +3565,7 @@ mod tests {
             serde_json::from_slice(&include_bytes!("../tests/assets/idl_v2.json").to_vec())
                 .unwrap();
 
-        svm.register_idl(idl_v2.clone(), Some(100));
+        svm.register_idl(idl_v2.clone(), Some(100)).unwrap();
 
         // even though we have a new IDL that is more recent, we should be able to match with the old IDL
         {

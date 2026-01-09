@@ -1739,13 +1739,19 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm_writer| {
             svm_writer
                 .streamed_accounts
-                .insert(pubkey, include_owned_accounts);
-        });
+                .store(pubkey.to_string(), include_owned_accounts)
+        })?;
         Ok(())
     }
 
-    pub fn get_streamed_accounts(&self) -> HashMap<Pubkey, bool> {
-        self.with_svm_reader(|svm_reader| svm_reader.streamed_accounts.clone())
+    pub fn get_streamed_accounts(&self) -> Vec<(String, bool)> {
+        self.with_svm_reader(|svm_reader| {
+            svm_reader
+                .streamed_accounts
+                .into_iter()
+                .map(|iter| iter.collect())
+                .unwrap_or_default()
+        })
     }
 
     /// Removes an account from the closed accounts set.
@@ -2381,19 +2387,26 @@ impl SurfnetSvmLocker {
         }
     }
 
-    pub fn register_idl(&self, idl: Idl, slot: Option<Slot>) {
+    pub fn register_idl(&self, idl: Idl, slot: Option<Slot>) -> SurfpoolResult<()> {
         self.with_svm_writer(|svm_writer| svm_writer.register_idl(idl, slot))
     }
 
     pub fn get_idl(&self, address: &Pubkey, slot: Option<Slot>) -> Option<Idl> {
         self.with_svm_reader(|svm_reader| {
             let query_slot = slot.unwrap_or_else(|| svm_reader.get_latest_absolute_slot());
-            svm_reader.registered_idls.get(address).and_then(|heap| {
-                heap.iter()
-                    .filter(|VersionedIdl(s, _)| s <= &query_slot)
-                    .max()
-                    .map(|VersionedIdl(_, idl)| idl.clone())
-            })
+            // IDLs are stored sorted by slot descending, so the first one that passes the filter is the latest
+            svm_reader
+                .registered_idls
+                .get(&address.to_string())
+                .ok()
+                .flatten()
+                .and_then(|idl_versions| {
+                    idl_versions
+                        .iter()
+                        .filter(|VersionedIdl(s, _)| *s <= query_slot)
+                        .max()
+                        .map(|VersionedIdl(_, idl)| idl.clone())
+                })
         })
     }
 
@@ -3455,7 +3468,7 @@ mod tests {
 
         // Step 2: Register the IDL for this account
         let account_pubkey = Pubkey::from_str_const("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
-        svm_locker.register_idl(idl.clone(), None);
+        svm_locker.register_idl(idl.clone(), None).unwrap();
 
         // Step 3: Create an account with the Pyth data
         let pyth_account = Account {

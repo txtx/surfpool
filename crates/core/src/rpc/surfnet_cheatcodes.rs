@@ -1513,7 +1513,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             Ok(locker) => locker,
             Err(e) => return Err(e.into()),
         };
-        svm_locker.register_idl(idl, slot);
+        svm_locker.register_idl(idl, slot)?;
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: (),
@@ -1709,7 +1709,12 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         let svm_locker = meta.get_svm_locker()?;
 
         let value = svm_locker.with_svm_reader(|svm_reader| {
-            GetStreamedAccountsResponse::new(&svm_reader.streamed_accounts)
+            let accounts: Vec<_> = svm_reader
+                .streamed_accounts
+                .into_iter()
+                .map(|iter| iter.collect())
+                .unwrap_or_default();
+            GetStreamedAccountsResponse::from_iter(accounts)
         });
 
         Ok(RpcResponse {

@@ -898,7 +898,7 @@ pub enum DataIndexingCommand {
 }
 
 // Define a wrapper struct
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VersionedIdl(pub Slot, pub Idl);
 
 // Implement ordering based on Slot
@@ -1098,14 +1098,17 @@ pub struct GetStreamedAccountsResponse {
     accounts: Vec<StreamedAccountInfo>,
 }
 impl GetStreamedAccountsResponse {
-    pub fn new(streamed_accounts: &HashMap<Pubkey, bool>) -> Self {
-        let mut accounts = vec![];
-        for (pubkey, include_owned_accounts) in streamed_accounts {
-            accounts.push(StreamedAccountInfo {
-                pubkey: pubkey.to_string(),
-                include_owned_accounts: *include_owned_accounts,
-            });
-        }
+    pub fn from_iter<I>(streamed_accounts: I) -> Self
+    where
+        I: IntoIterator<Item = (String, bool)>,
+    {
+        let accounts = streamed_accounts
+            .into_iter()
+            .map(|(pubkey, include_owned_accounts)| StreamedAccountInfo {
+                pubkey,
+                include_owned_accounts,
+            })
+            .collect();
         Self { accounts }
     }
 }
