@@ -16,13 +16,12 @@ use agave_feature_set::{
     enable_sbpf_v1_deployment_and_execution, enable_sbpf_v2_deployment_and_execution,
     enable_sbpf_v3_deployment_and_execution, fix_alt_bn128_multiplication_input_length,
     formalize_loaded_transaction_data_size, get_sysvar_syscall_enabled,
-    increase_tx_account_lock_limit, last_restart_slot_sysvar,
-    loosen_cpi_size_restriction, mask_out_rent_epoch_in_vm_serialization,
-    move_precompile_verification_to_svm, move_stake_and_move_lamports_ixs,
-    raise_cpi_nesting_limit_to_8, reenable_sbpf_v0_execution, reenable_zk_elgamal_proof_program,
-    remaining_compute_units_syscall_enabled, remove_bpf_loader_incorrect_program_id,
-    simplify_alt_bn128_syscall_error_codes, stake_raise_minimum_delegation_to_1_sol,
-    stricter_abi_and_runtime_constraints,
+    increase_tx_account_lock_limit, last_restart_slot_sysvar, loosen_cpi_size_restriction,
+    mask_out_rent_epoch_in_vm_serialization, move_precompile_verification_to_svm,
+    move_stake_and_move_lamports_ixs, raise_cpi_nesting_limit_to_8, reenable_sbpf_v0_execution,
+    reenable_zk_elgamal_proof_program, remaining_compute_units_syscall_enabled,
+    remove_bpf_loader_incorrect_program_id, simplify_alt_bn128_syscall_error_codes,
+    stake_raise_minimum_delegation_to_1_sol, stricter_abi_and_runtime_constraints,
 };
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
@@ -515,10 +514,10 @@ impl SurfnetSvm {
             SvmFeature::AccountDataDirectMapping => None, // bpf_account_data_direct_mapping
             SvmFeature::ProvideInstructionDataOffsetInVmR2 => None, // provide_instruction_data_offset_in_vm_r2
             SvmFeature::IncreaseCpiAccountInfoLimit => None, // increase_cpi_account_info_limit
-            SvmFeature::VoteStateV4 => None, // vote_state_v4
-            SvmFeature::PoseidonEnforcePadding => None, // poseidon_enforce_padding
+            SvmFeature::VoteStateV4 => None,                 // vote_state_v4
+            SvmFeature::PoseidonEnforcePadding => None,      // poseidon_enforce_padding
             SvmFeature::FixAltBn128PairingLengthCheck => None, // fix_alt_bn128_pairing_length_check
-            SvmFeature::LiftCpiCallerRestriction => None, // lift_cpi_caller_restriction
+            SvmFeature::LiftCpiCallerRestriction => None,    // lift_cpi_caller_restriction
             SvmFeature::RemoveAccountsExecutableFlagChecks => None, // remove_accounts_executable_flag_checks
             SvmFeature::LoosenCpiSizeRestriction => Some(loosen_cpi_size_restriction::id()),
             SvmFeature::DisableRentFeesCollection => None, // disable_rent_fees_collection
