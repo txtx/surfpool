@@ -2237,8 +2237,15 @@ impl SurfnetSvm {
         signature: Signature,
         profile_result: KeyedProfileResult,
     ) {
-        self.executed_transaction_profiles
+        let (_, evicted_key) = self
+            .executed_transaction_profiles
             .insert(signature, profile_result);
+
+        // Clean up profile_tag_map entry for evicted profile
+        if let Some(evicted_signature) = evicted_key {
+            self.profile_tag_map.remove(&evicted_signature.to_string());
+        }
+
         self.profile_tag_map
             .entry(signature.to_string())
             .or_default()
