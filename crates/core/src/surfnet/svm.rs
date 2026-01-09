@@ -249,9 +249,9 @@ pub struct SurfnetSvm {
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: Box<dyn Storage<String, TokenAccount>>,
     pub token_mints: Box<dyn Storage<String, MintAccount>>,
-    pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
-    pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
-    pub token_accounts_by_mint: HashMap<Pubkey, Vec<Pubkey>>,
+    pub token_accounts_by_owner: Box<dyn Storage<String, Vec<String>>>,
+    pub token_accounts_by_delegate: Box<dyn Storage<String, Vec<String>>>,
+    pub token_accounts_by_mint: Box<dyn Storage<String, Vec<String>>>,
     pub total_supply: u64,
     pub circulating_supply: u64,
     pub non_circulating_supply: u64,
@@ -301,6 +301,9 @@ impl SurfnetSvm {
         self.transactions.shutdown();
         self.token_accounts.shutdown();
         self.token_mints.shutdown();
+        self.token_accounts_by_owner.shutdown();
+        self.token_accounts_by_delegate.shutdown();
+        self.token_accounts_by_mint.shutdown();
     }
 
     /// Creates a new instance of `SurfnetSvm`.
@@ -341,6 +344,12 @@ impl SurfnetSvm {
             spl_token_interface::native_mint::ID.to_string(),
             parsed_mint_account,
         )?;
+        let token_accounts_by_owner_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "token_accounts_by_owner", surfnet_id)?;
+        let token_accounts_by_delegate_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "token_accounts_by_delegate", surfnet_id)?;
+        let token_accounts_by_mint_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "token_accounts_by_mint", surfnet_id)?;
 
         let chain_tip = if let Some((_, block)) = blocks_db
             .into_iter()
@@ -389,9 +398,9 @@ impl SurfnetSvm {
             account_associated_data: HashMap::new(),
             token_accounts: token_accounts_db,
             token_mints: token_mints_db,
-            token_accounts_by_owner: HashMap::new(),
-            token_accounts_by_delegate: HashMap::new(),
-            token_accounts_by_mint: HashMap::new(),
+            token_accounts_by_owner: token_accounts_by_owner_db,
+            token_accounts_by_delegate: token_accounts_by_delegate_db,
+            token_accounts_by_mint: token_accounts_by_mint_db,
             total_supply: 0,
             circulating_supply: 0,
             non_circulating_supply: 0,
@@ -949,31 +958,47 @@ impl SurfnetSvm {
         // if it's a token account, update token-specific indexes
         if is_supported_token_program(&account.owner) {
             if let Ok(token_account) = TokenAccount::unpack(&account.data) {
-                // index by owner -> check for duplicates
-                let token_owner_accounts = self
-                    .token_accounts_by_owner
-                    .entry(token_account.owner())
-                    .or_default();
+                let pubkey_str = pubkey.to_string();
 
-                if !token_owner_accounts.contains(pubkey) {
-                    token_owner_accounts.push(*pubkey);
+                // index by owner -> check for duplicates
+                let owner_key = token_account.owner().to_string();
+                let mut token_owner_accounts = self
+                    .token_accounts_by_owner
+                    .get(&owner_key)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                if !token_owner_accounts.contains(&pubkey_str) {
+                    token_owner_accounts.push(pubkey_str.clone());
+                    self.token_accounts_by_owner
+                        .store(owner_key, token_owner_accounts)?;
                 }
 
                 // index by mint -> check for duplicates
-                let mint_accounts = self
+                let mint_key = token_account.mint().to_string();
+                let mut mint_accounts = self
                     .token_accounts_by_mint
-                    .entry(token_account.mint())
-                    .or_default();
-
-                if !mint_accounts.contains(pubkey) {
-                    mint_accounts.push(*pubkey);
+                    .get(&mint_key)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                if !mint_accounts.contains(&pubkey_str) {
+                    mint_accounts.push(pubkey_str.clone());
+                    self.token_accounts_by_mint.store(mint_key, mint_accounts)?;
                 }
 
                 if let COption::Some(delegate) = token_account.delegate() {
-                    let delegate_accounts =
-                        self.token_accounts_by_delegate.entry(delegate).or_default();
-                    if !delegate_accounts.contains(pubkey) {
-                        delegate_accounts.push(*pubkey);
+                    let delegate_key = delegate.to_string();
+                    let mut delegate_accounts = self
+                        .token_accounts_by_delegate
+                        .get(&delegate_key)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+                    if !delegate_accounts.contains(&pubkey_str) {
+                        delegate_accounts.push(pubkey_str);
+                        self.token_accounts_by_delegate
+                            .store(delegate_key, delegate_accounts)?;
                     }
                 }
                 self.token_accounts
@@ -1026,33 +1051,46 @@ impl SurfnetSvm {
         // if it was a token account, remove from token indexes
         if is_supported_token_program(&old_account.owner) {
             if let Some(old_token_account) = self.token_accounts.take(&pubkey.to_string())? {
-                if let Some(accounts) = self
-                    .token_accounts_by_owner
-                    .get_mut(&old_token_account.owner())
+                let pubkey_str = pubkey.to_string();
+
+                let owner_key = old_token_account.owner().to_string();
+                if let Some(mut accounts) =
+                    self.token_accounts_by_owner.get(&owner_key).ok().flatten()
                 {
-                    accounts.retain(|pk| pk != pubkey);
+                    accounts.retain(|pk| pk != &pubkey_str);
                     if accounts.is_empty() {
-                        self.token_accounts_by_owner
-                            .remove(&old_token_account.owner());
+                        self.token_accounts_by_owner.take(&owner_key)?;
+                    } else {
+                        self.token_accounts_by_owner.store(owner_key, accounts)?;
                     }
                 }
 
-                if let Some(accounts) = self
-                    .token_accounts_by_mint
-                    .get_mut(&old_token_account.mint())
+                let mint_key = old_token_account.mint().to_string();
+                if let Some(mut accounts) =
+                    self.token_accounts_by_mint.get(&mint_key).ok().flatten()
                 {
-                    accounts.retain(|pk| pk != pubkey);
+                    accounts.retain(|pk| pk != &pubkey_str);
                     if accounts.is_empty() {
-                        self.token_accounts_by_mint
-                            .remove(&old_token_account.mint());
+                        self.token_accounts_by_mint.take(&mint_key)?;
+                    } else {
+                        self.token_accounts_by_mint.store(mint_key, accounts)?;
                     }
                 }
 
                 if let COption::Some(delegate) = old_token_account.delegate() {
-                    if let Some(accounts) = self.token_accounts_by_delegate.get_mut(&delegate) {
-                        accounts.retain(|pk| pk != pubkey);
+                    let delegate_key = delegate.to_string();
+                    if let Some(mut accounts) = self
+                        .token_accounts_by_delegate
+                        .get(&delegate_key)
+                        .ok()
+                        .flatten()
+                    {
+                        accounts.retain(|pk| pk != &pubkey_str);
                         if accounts.is_empty() {
-                            self.token_accounts_by_delegate.remove(&delegate);
+                            self.token_accounts_by_delegate.take(&delegate_key)?;
+                        } else {
+                            self.token_accounts_by_delegate
+                                .store(delegate_key, accounts)?;
                         }
                     }
                 }
@@ -1092,9 +1130,9 @@ impl SurfnetSvm {
             spl_token_interface::native_mint::ID.to_string(),
             parsed_mint_account,
         )?;
-        self.token_accounts_by_owner.clear();
-        self.token_accounts_by_delegate.clear();
-        self.token_accounts_by_mint.clear();
+        self.token_accounts_by_owner.clear()?;
+        self.token_accounts_by_delegate.clear()?;
+        self.token_accounts_by_mint.clear()?;
         self.non_circulating_accounts.clear();
         self.registered_idls.clear();
         self.runbook_executions.clear();
@@ -2199,15 +2237,21 @@ impl SurfnetSvm {
     ///
     /// * A vector of (account_pubkey, token_account) tuples for all token accounts delegated to the specified delegate.
     pub fn get_token_accounts_by_delegate(&self, delegate: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
-        if let Some(account_pubkeys) = self.token_accounts_by_delegate.get(delegate) {
+        if let Some(account_pubkeys) = self
+            .token_accounts_by_delegate
+            .get(&delegate.to_string())
+            .ok()
+            .flatten()
+        {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| {
+                .filter_map(|pk_str| {
+                    let pk = Pubkey::from_str(pk_str).ok()?;
                     self.token_accounts
-                        .get(&pk.to_string())
+                        .get(pk_str)
                         .ok()
                         .flatten()
-                        .map(|ta| (*pk, ta))
+                        .map(|ta| (pk, ta))
                 })
                 .collect()
         } else {
@@ -2228,15 +2272,21 @@ impl SurfnetSvm {
         &self,
         owner: &Pubkey,
     ) -> Vec<(Pubkey, TokenAccount)> {
-        if let Some(account_pubkeys) = self.token_accounts_by_owner.get(owner) {
+        if let Some(account_pubkeys) = self
+            .token_accounts_by_owner
+            .get(&owner.to_string())
+            .ok()
+            .flatten()
+        {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| {
+                .filter_map(|pk_str| {
+                    let pk = Pubkey::from_str(pk_str).ok()?;
                     self.token_accounts
-                        .get(&pk.to_string())
+                        .get(pk_str)
                         .ok()
                         .flatten()
-                        .map(|ta| (*pk, ta))
+                        .map(|ta| (pk, ta))
                 })
                 .collect()
         } else {
@@ -2248,21 +2298,22 @@ impl SurfnetSvm {
         &self,
         owner: &Pubkey,
     ) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
-        Ok(self
+        let account_pubkeys = self
             .token_accounts_by_owner
-            .get(owner)
-            .map(|account_pubkeys| {
-                account_pubkeys
-                    .iter()
-                    .filter_map(|pk| {
-                        self.get_account(pk)
-                            .map(|res| res.map(|account| (*pk, account.clone())))
-                            .transpose()
-                    })
-                    .collect::<Result<Vec<_>, SurfpoolError>>()
+            .get(&owner.to_string())
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
+        account_pubkeys
+            .iter()
+            .filter_map(|pk_str| {
+                let pk = Pubkey::from_str(pk_str).ok()?;
+                self.get_account(&pk)
+                    .map(|res| res.map(|account| (pk, account.clone())))
+                    .transpose()
             })
-            .transpose()?
-            .unwrap_or_default())
+            .collect::<Result<Vec<_>, SurfpoolError>>()
     }
 
     /// Gets all token accounts for a specific mint (token type).
@@ -2275,15 +2326,21 @@ impl SurfnetSvm {
     ///
     /// * A vector of (account_pubkey, token_account) tuples for all token accounts of the specified mint.
     pub fn get_token_accounts_by_mint(&self, mint: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
-        if let Some(account_pubkeys) = self.token_accounts_by_mint.get(mint) {
+        if let Some(account_pubkeys) = self
+            .token_accounts_by_mint
+            .get(&mint.to_string())
+            .ok()
+            .flatten()
+        {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| {
+                .filter_map(|pk_str| {
+                    let pk = Pubkey::from_str(pk_str).ok()?;
                     self.token_accounts
-                        .get(&pk.to_string())
+                        .get(pk_str)
                         .ok()
                         .flatten()
-                        .map(|ta| (*pk, ta))
+                        .map(|ta| (pk, ta))
                 })
                 .collect()
         } else {
@@ -3087,9 +3144,9 @@ mod tests {
 
         // should be in general registry but not token indexes
         assert_eq!(svm.token_accounts.keys().unwrap().len(), 0);
-        assert_eq!(svm.token_accounts_by_owner.len(), 0);
-        assert_eq!(svm.token_accounts_by_delegate.len(), 0);
-        assert_eq!(svm.token_accounts_by_mint.len(), 0);
+        assert_eq!(svm.token_accounts_by_owner.keys().unwrap().len(), 0);
+        assert_eq!(svm.token_accounts_by_delegate.keys().unwrap().len(), 0);
+        assert_eq!(svm.token_accounts_by_mint.keys().unwrap().len(), 0);
     }
 
     fn expect_account_update_event(
