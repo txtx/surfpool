@@ -245,7 +245,7 @@ pub struct SurfnetSvm {
     pub updated_at: u64,
     pub slot_time: u64,
     pub start_time: SystemTime,
-    pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
+    pub accounts_by_owner: Box<dyn Storage<String, Vec<String>>>,
     pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
     pub token_accounts: Box<dyn Storage<String, TokenAccount>>,
     pub token_mints: Box<dyn Storage<String, MintAccount>>,
@@ -301,6 +301,7 @@ impl SurfnetSvm {
         self.transactions.shutdown();
         self.token_accounts.shutdown();
         self.token_mints.shutdown();
+        self.accounts_by_owner.shutdown();
         self.token_accounts_by_owner.shutdown();
         self.token_accounts_by_delegate.shutdown();
         self.token_accounts_by_mint.shutdown();
@@ -331,10 +332,12 @@ impl SurfnetSvm {
         let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
 
         // Load native mint into owned account and token mint indexes
-        let accounts_by_owner = HashMap::from([(
-            native_mint_account.owner,
-            vec![spl_token_interface::native_mint::ID],
-        )]);
+        let mut accounts_by_owner_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "accounts_by_owner", surfnet_id)?;
+        accounts_by_owner_db.store(
+            native_mint_account.owner.to_string(),
+            vec![spl_token_interface::native_mint::ID.to_string()],
+        )?;
         let blocks_db = new_kv_store(&database_url, "blocks", surfnet_id)?;
         let transactions_db = new_kv_store(&database_url, "transactions", surfnet_id)?;
         let token_accounts_db = new_kv_store(&database_url, "token_accounts", surfnet_id)?;
@@ -394,7 +397,7 @@ impl SurfnetSvm {
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
             start_time: SystemTime::now(),
-            accounts_by_owner,
+            accounts_by_owner: accounts_by_owner_db,
             account_associated_data: HashMap::new(),
             token_accounts: token_accounts_db,
             token_mints: token_mints_db,
@@ -950,16 +953,22 @@ impl SurfnetSvm {
             self.remove_from_indexes(pubkey, &old_account)?;
         }
         // add to owner index (check for duplicates)
-        let owner_accounts = self.accounts_by_owner.entry(account.owner).or_default();
-        if !owner_accounts.contains(pubkey) {
-            owner_accounts.push(*pubkey);
+        let owner_key = account.owner.to_string();
+        let pubkey_str = pubkey.to_string();
+        let mut owner_accounts = self
+            .accounts_by_owner
+            .get(&owner_key)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        if !owner_accounts.contains(&pubkey_str) {
+            owner_accounts.push(pubkey_str.clone());
+            self.accounts_by_owner.store(owner_key, owner_accounts)?;
         }
 
         // if it's a token account, update token-specific indexes
         if is_supported_token_program(&account.owner) {
             if let Ok(token_account) = TokenAccount::unpack(&account.data) {
-                let pubkey_str = pubkey.to_string();
-
                 // index by owner -> check for duplicates
                 let owner_key = token_account.owner().to_string();
                 let mut token_owner_accounts = self
@@ -1041,18 +1050,20 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         old_account: &Account,
     ) -> SurfpoolResult<()> {
-        if let Some(accounts) = self.accounts_by_owner.get_mut(&old_account.owner) {
-            accounts.retain(|pk| pk != pubkey);
+        let owner_key = old_account.owner.to_string();
+        let pubkey_str = pubkey.to_string();
+        if let Some(mut accounts) = self.accounts_by_owner.get(&owner_key).ok().flatten() {
+            accounts.retain(|pk| pk != &pubkey_str);
             if accounts.is_empty() {
-                self.accounts_by_owner.remove(&old_account.owner);
+                self.accounts_by_owner.take(&owner_key)?;
+            } else {
+                self.accounts_by_owner.store(owner_key, accounts)?;
             }
         }
 
         // if it was a token account, remove from token indexes
         if is_supported_token_program(&old_account.owner) {
             if let Some(old_token_account) = self.token_accounts.take(&pubkey.to_string())? {
-                let pubkey_str = pubkey.to_string();
-
                 let owner_key = old_token_account.owner().to_string();
                 if let Some(mut accounts) =
                     self.token_accounts_by_owner.get(&owner_key).ok().flatten()
@@ -1108,12 +1119,6 @@ impl SurfnetSvm {
             .unwrap();
         let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
 
-        // Load native mint into owned account and token mint indexes
-        let accounts_by_owner = HashMap::from([(
-            native_mint_account.owner,
-            vec![spl_token_interface::native_mint::ID],
-        )]);
-
         self.blocks.clear()?;
         self.transactions.clear()?;
         self.transactions_queued_for_confirmation.clear();
@@ -1122,7 +1127,11 @@ impl SurfnetSvm {
         self.transactions_processed = 0;
         self.profile_tag_map.clear();
         self.simulated_transaction_profiles.clear();
-        self.accounts_by_owner = accounts_by_owner;
+        self.accounts_by_owner.clear()?;
+        self.accounts_by_owner.store(
+            native_mint_account.owner.to_string(),
+            vec![spl_token_interface::native_mint::ID.to_string()],
+        )?;
         self.account_associated_data.clear();
         self.token_accounts.clear()?;
         self.token_mints.clear()?;
@@ -2173,19 +2182,22 @@ impl SurfnetSvm {
         &self,
         program_id: &Pubkey,
     ) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
-        let res = if let Some(account_pubkeys) = self.accounts_by_owner.get(program_id) {
-            account_pubkeys
-                .iter()
-                .filter_map(|pubkey| {
-                    self.get_account(pubkey)
-                        .map(|res| res.map(|account| (*pubkey, account.clone())))
-                        .transpose()
-                })
-                .collect::<Result<Vec<_>, SurfpoolError>>()?
-        } else {
-            Vec::new()
-        };
-        Ok(res)
+        let account_pubkeys = self
+            .accounts_by_owner
+            .get(&program_id.to_string())
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
+        account_pubkeys
+            .iter()
+            .filter_map(|pk_str| {
+                let pk = Pubkey::from_str(pk_str).ok()?;
+                self.get_account(&pk)
+                    .map(|res| res.map(|account| (pk, account.clone())))
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, SurfpoolError>>()
     }
 
     fn get_additional_data(
