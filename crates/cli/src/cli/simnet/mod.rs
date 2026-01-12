@@ -157,17 +157,17 @@ pub async fn handle_start_local_surfnet_command(
         })
         .map_err(|e| format!("{}", e))?;
 
-    loop {
+    let initial_transactions = loop {
         match simnet_events_rx.recv() {
             Ok(SimnetEvent::Aborted(error)) => {
                 eprintln!("Error: {}", error);
                 return Err(error);
             }
             Ok(SimnetEvent::Shutdown) => return Ok(()),
-            Ok(SimnetEvent::Ready) => break,
+            Ok(SimnetEvent::Ready(initial_transactions)) => break initial_transactions,
             _other => continue,
         }
-    }
+    };
 
     for event in airdrop_events {
         let _ = simnet_events_tx.send(event);
@@ -225,6 +225,7 @@ pub async fn handle_start_local_surfnet_command(
         explorer_handle,
         ctx_cc,
         Some(runloop_terminator),
+        initial_transactions,
     )
     .await;
 
@@ -246,6 +247,7 @@ async fn start_service(
     explorer_handle: Option<ServerHandle>,
     _ctx: Context,
     runloop_terminator: Option<Arc<AtomicBool>>,
+    initial_transactions: u64,
 ) -> Result<(), String> {
     let displayed_url = if cmd.no_studio {
         DisplayedUrl::Datasource(sanitized_config)
@@ -272,6 +274,7 @@ async fn start_service(
             deploy_progress_rx,
             displayed_url,
             breaker,
+            initial_transactions,
         )
         .map_err(|e| format!("{}", e))?;
     }
@@ -369,7 +372,7 @@ fn log_events(
                         error!("{}", error);
                         return Err(error);
                     }
-                    SimnetEvent::Ready => {}
+                    SimnetEvent::Ready(_) => {}
                     SimnetEvent::Connected(_rpc_url) => {}
                     SimnetEvent::Shutdown => {
                         break;

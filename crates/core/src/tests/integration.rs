@@ -64,7 +64,7 @@ fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<S
     let mut connected = false;
     loop {
         match simnet_events_rx.recv() {
-            Ok(SimnetEvent::Ready) => {
+            Ok(SimnetEvent::Ready(_)) => {
                 ready = true;
             }
             Ok(SimnetEvent::Connected(_)) => {
@@ -113,7 +113,7 @@ async fn test_simnet_ready(test_type: TestType) {
     });
 
     match simnet_events_rx.recv() {
-        Ok(SimnetEvent::Ready) | Ok(SimnetEvent::Connected(_)) => (),
+        Ok(SimnetEvent::Ready(_)) | Ok(SimnetEvent::Connected(_)) => (),
         e => panic!("Expected Ready event: {e:?}"),
     }
 }
@@ -3339,7 +3339,8 @@ fn boot_simnet(
     });
 
     loop {
-        if let Ok(SimnetEvent::Ready) = simnet_events_rx.recv_timeout(Duration::from_millis(1000)) {
+        if let Ok(SimnetEvent::Ready(_)) = simnet_events_rx.recv_timeout(Duration::from_millis(1000))
+        {
             break;
         }
     }
@@ -4347,7 +4348,7 @@ fn start_surfnet(
     let mut connected = offline_mode;
     loop {
         match simnet_events_rx.recv() {
-            Ok(SimnetEvent::Ready) => {
+            Ok(SimnetEvent::Ready(_)) => {
                 ready = true;
             }
             Ok(SimnetEvent::Connected(_)) => {

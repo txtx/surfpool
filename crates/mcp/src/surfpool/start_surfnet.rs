@@ -140,7 +140,7 @@ pub fn run_headless(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfne
                     SimnetEvent::Aborted(error) => {
                         return StartSurfnetResponse::error(error);
                     }
-                    SimnetEvent::Ready => {
+                    SimnetEvent::Ready(_) => {
                         let surfnet_url = format!("http://127.0.0.1:{}", rpc_port);
                         break StartSurfnetResponse::success(StartSurfnetSuccess {
                             kind: StartSurfnetKind::Headless,

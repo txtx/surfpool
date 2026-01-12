@@ -416,7 +416,8 @@ pub enum SubgraphCommand {
 
 #[derive(Debug)]
 pub enum SimnetEvent {
-    Ready,
+    /// Surfnet is ready, with the initial count of processed transactions from storage
+    Ready(u64),
     Connected(String),
     Aborted(String),
     Shutdown,
