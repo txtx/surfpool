@@ -768,12 +768,18 @@ impl TokenAccount {
         }
     }
 
-    pub fn new(token_program_id: &Pubkey, owner: Pubkey, mint: Pubkey) -> Self {
+    pub fn new(
+        token_program_id: &Pubkey,
+        owner: Pubkey,
+        mint: Pubkey,
+        is_native: Option<u64>,
+    ) -> Self {
         if token_program_id == &spl_token_2022_interface::id() {
             Self::SplToken2022(spl_token_2022_interface::state::Account {
                 mint,
                 owner,
                 state: spl_token_2022_interface::state::AccountState::Initialized,
+                is_native: is_native.into(),
                 ..Default::default()
             })
         } else {
@@ -781,6 +787,7 @@ impl TokenAccount {
                 mint,
                 owner,
                 state: spl_token_interface::state::AccountState::Initialized,
+                is_native: is_native.into(),
                 ..Default::default()
             })
         }
@@ -1064,6 +1071,16 @@ impl GeyserAccountUpdate {
     }
 
     pub fn block_update(pubkey: Pubkey, account: Account, slot: u64, write_version: u64) -> Self {
+        Self {
+            pubkey,
+            account,
+            slot,
+            sanitized_transaction: None,
+            write_version,
+        }
+    }
+
+    pub fn startup_update(pubkey: Pubkey, account: Account, slot: u64, write_version: u64) -> Self {
         Self {
             pubkey,
             account,

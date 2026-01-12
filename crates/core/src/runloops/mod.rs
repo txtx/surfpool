@@ -109,6 +109,36 @@ pub async fn start_local_surfnet_runloop(
         .await?;
 
     svm_locker.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
+
+    // Load snapshot accounts if provided
+    if !simnet.snapshot.is_empty() {
+        match svm_locker
+            .load_snapshot(
+                &simnet.snapshot,
+                remote_rpc_client.as_ref(),
+                CommitmentConfig::confirmed(),
+            )
+            .await
+        {
+            Ok(loaded_count) => {
+                let _ = svm_locker.with_svm_reader(|svm| {
+                    svm.simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Preloaded {} accounts from snapshot(s) into SVM",
+                        loaded_count
+                    )))
+                });
+            }
+            Err(e) => {
+                let _ = svm_locker.with_svm_reader(|svm| {
+                    svm.simnet_events_tx.send(SimnetEvent::warn(format!(
+                        "Error loading snapshot accounts: {}",
+                        e
+                    )))
+                });
+            }
+        }
+    }
+
     let simnet_events_tx_cc = svm_locker.simnet_events_tx();
 
     let (plugin_manager_commands_rx, _rpc_handle, _ws_handle) = start_rpc_servers_runloop(
@@ -728,6 +758,40 @@ fn start_geyser_runloop(
                             }
                         }
                     }
+                    Ok(GeyserEvent::StartupAccountUpdate(account_update)) => {
+                        let GeyserAccountUpdate {
+                            pubkey,
+                            account,
+                            slot,
+                            sanitized_transaction,
+                            write_version,
+                        } = account_update;
+
+                        let account_replica = ReplicaAccountInfoV3 {
+                            pubkey: pubkey.as_ref(),
+                            lamports: account.lamports,
+                            owner: account.owner.as_ref(),
+                            executable: account.executable,
+                            rent_epoch: account.rent_epoch,
+                            data: account.data.as_ref(),
+                            write_version,
+                            txn: sanitized_transaction.as_ref(),
+                        };
+
+                        // Send startup account updates with is_startup=true
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, true) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to send startup account update to Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, true) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to send startup account update to Geyser plugin: {:?}", e)));
+                            }
+                        }
+                    }
                 }
             }
         };
@@ -860,6 +924,7 @@ async fn start_ws_rpc_server_runloop(
                     account_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     slot_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     logs_subscription_map: Arc::new(RwLock::new(HashMap::new())),
+                    snapshot_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     tokio_handle: tokio_handle.clone(),
                 }
                 .to_delegate(),

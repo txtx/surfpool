@@ -16,7 +16,7 @@ use agave_feature_set::{
     enable_sbpf_v1_deployment_and_execution, enable_sbpf_v2_deployment_and_execution,
     enable_sbpf_v3_deployment_and_execution, fix_alt_bn128_multiplication_input_length,
     formalize_loaded_transaction_data_size, get_sysvar_syscall_enabled,
-    increase_tx_account_lock_limit, last_restart_slot_sysvar,
+    increase_tx_account_lock_limit, last_restart_slot_sysvar, loosen_cpi_size_restriction,
     mask_out_rent_epoch_in_vm_serialization, move_precompile_verification_to_svm,
     move_stake_and_move_lamports_ixs, raise_cpi_nesting_limit_to_8, reenable_sbpf_v0_execution,
     reenable_zk_elgamal_proof_program, remaining_compute_units_syscall_enabled,
@@ -242,6 +242,7 @@ pub struct SurfnetSvm {
     pub simulated_transaction_profiles: Box<dyn Storage<String, KeyedProfileResult>>,
     pub executed_transaction_profiles: Box<dyn Storage<String, KeyedProfileResult>>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
+    pub snapshot_subscriptions: Vec<super::SnapshotSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
     pub start_time: SystemTime,
@@ -334,6 +335,33 @@ impl SurfnetSvm {
         let native_mint_account = inner
             .get_account(&spl_token_interface::native_mint::ID)?
             .unwrap();
+
+        let account_associated_data = {
+            let mint = StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(
+                &native_mint_account.data,
+            )
+            .unwrap();
+            let unix_timestamp = inner.get_sysvar::<Clock>().unix_timestamp;
+            let interest_bearing_config = mint
+                .get_extension::<InterestBearingConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            let scaled_ui_amount_config = mint
+                .get_extension::<ScaledUiAmountConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            let account_associated_data = HashMap::from([(
+                spl_token_interface::native_mint::ID,
+                AccountAdditionalDataV3 {
+                    spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                        decimals: mint.base.decimals,
+                        interest_bearing_config,
+                        scaled_ui_amount_config,
+                    }),
+                },
+            )]);
+            account_associated_data
+        };
         let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
 
         // Load native mint into owned account and token mint indexes
@@ -421,11 +449,12 @@ impl SurfnetSvm {
             simulated_transaction_profiles: simulated_transaction_profiles_db,
             executed_transaction_profiles: executed_transaction_profiles_db,
             logs_subscriptions: Vec::new(),
+            snapshot_subscriptions: Vec::new(),
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
             start_time: SystemTime::now(),
             accounts_by_owner: accounts_by_owner_db,
-            account_associated_data: HashMap::new(),
+            account_associated_data,
             token_accounts: token_accounts_db,
             token_mints: token_mints_db,
             token_accounts_by_owner: token_accounts_by_owner_db,
@@ -555,6 +584,17 @@ impl SurfnetSvm {
                 Some(reenable_zk_elgamal_proof_program::id())
             }
             SvmFeature::RaiseCpiNestingLimitTo8 => Some(raise_cpi_nesting_limit_to_8::id()),
+            // Features not yet available in agave-feature-set 3.0.0 - will be added when upgrading
+            SvmFeature::AccountDataDirectMapping => None, // bpf_account_data_direct_mapping
+            SvmFeature::ProvideInstructionDataOffsetInVmR2 => None, // provide_instruction_data_offset_in_vm_r2
+            SvmFeature::IncreaseCpiAccountInfoLimit => None, // increase_cpi_account_info_limit
+            SvmFeature::VoteStateV4 => None,                 // vote_state_v4
+            SvmFeature::PoseidonEnforcePadding => None,      // poseidon_enforce_padding
+            SvmFeature::FixAltBn128PairingLengthCheck => None, // fix_alt_bn128_pairing_length_check
+            SvmFeature::LiftCpiCallerRestriction => None,    // lift_cpi_caller_restriction
+            SvmFeature::RemoveAccountsExecutableFlagChecks => None, // remove_accounts_executable_flag_checks
+            SvmFeature::LoosenCpiSizeRestriction => Some(loosen_cpi_size_restriction::id()),
+            SvmFeature::DisableRentFeesCollection => None, // disable_rent_fees_collection
         }
     }
 
@@ -2525,6 +2565,35 @@ impl SurfnetSvm {
         }
     }
 
+    /// Registers a snapshot subscription and returns a sender and receiver for notifications.
+    /// The actual import logic should be handled by the caller (SurfnetSvmLocker).
+    pub fn register_snapshot_subscription(
+        &mut self,
+    ) -> (
+        Sender<super::SnapshotImportNotification>,
+        Receiver<super::SnapshotImportNotification>,
+    ) {
+        let (tx, rx) = unbounded();
+        self.snapshot_subscriptions.push(tx.clone());
+        (tx, rx)
+    }
+
+    pub async fn fetch_snapshot_from_url(
+        snapshot_url: &str,
+    ) -> Result<
+        std::collections::BTreeMap<String, Option<surfpool_types::AccountSnapshot>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        let response = reqwest::get(snapshot_url).await?;
+        let text = response.text().await?;
+
+        // Parse the JSON snapshot data
+        let snapshot: std::collections::BTreeMap<String, Option<surfpool_types::AccountSnapshot>> =
+            serde_json::from_str(&text)?;
+
+        Ok(snapshot)
+    }
+
     pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) -> SurfpoolResult<()> {
         let slot = slot.unwrap_or(self.latest_epoch_info.absolute_slot);
         let program_id = Pubkey::from_str_const(&idl.address);
@@ -3751,15 +3820,31 @@ mod tests {
 
     #[test]
     fn test_feature_to_id_all_features_have_mapping() {
-        // Ensure every SvmFeature variant has a valid mapping to a feature ID
+        // Track features with and without mappings
+        // Some features return None because they're not yet available in agave-feature-set 3.0.0
+        let mut mapped_count = 0;
+        let mut unmapped_features = Vec::new();
+
         for feature in SvmFeature::all() {
             let id = SurfnetSvm::feature_to_id(&feature);
-            assert!(
-                id.is_some(),
-                "Feature {:?} should have a valid ID mapping",
-                feature
-            );
+            if id.is_some() {
+                mapped_count += 1;
+            } else {
+                unmapped_features.push(feature);
+            }
         }
+
+        // Currently 9 features return None (not available in agave-feature-set 3.0.0):
+        // AccountDataDirectMapping, ProvideInstructionDataOffsetInVmR2, IncreaseCpiAccountInfoLimit,
+        // VoteStateV4, PoseidonEnforcePadding, FixAltBn128PairingLengthCheck, LiftCpiCallerRestriction,
+        // RemoveAccountsExecutableFlagChecks, DisableRentFeesCollection
+        assert_eq!(
+            unmapped_features.len(),
+            9,
+            "Expected 9 unmapped features (pending agave-feature-set upgrade), found: {:?}",
+            unmapped_features
+        );
+        assert_eq!(mapped_count, 37, "Expected 37 mapped features");
     }
 
     #[test]

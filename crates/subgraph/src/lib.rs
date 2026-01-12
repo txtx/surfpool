@@ -243,6 +243,13 @@ pub fn probe_account(
     lamports: u64,
     entries: &mut Vec<HashMap<String, Value>>,
 ) -> Result<(), String> {
+    let SubgraphRequest::V0(subgraph_request_v0) = subgraph_request;
+
+    // Only process accounts owned by the configured program
+    if owner != subgraph_request_v0.program_id {
+        return Ok(());
+    }
+
     if let Some(pda_source) = PdaMapping::get(pda_mappings, &pubkey).unwrap() {
         pda_source.evaluate_account_update(
             &data,

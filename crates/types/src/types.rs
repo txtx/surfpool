@@ -619,6 +619,9 @@ pub struct SimnetConfig {
     /// Unique identifier for this surfnet instance. Used to isolate database storage
     /// when multiple surfnets share the same database. Defaults to 0.
     pub surfnet_id: u32,
+    /// Snapshot accounts to preload at startup.
+    /// Keys are pubkey strings, values can be None to fetch from remote RPC.
+    pub snapshot: BTreeMap<String, Option<AccountSnapshot>>,
 }
 
 impl Default for SimnetConfig {
@@ -637,6 +640,7 @@ impl Default for SimnetConfig {
             feature_config: SvmFeatureConfig::default(),
             skip_signature_verification: false,
             surfnet_id: 0,
+            snapshot: BTreeMap::new(),
         }
     }
 }
@@ -1024,19 +1028,24 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
     }
 
     /// Insert a key/value. If `K` is new and we're full, evict the oldest (FIFO)
-    /// Returns the old value if this was an update.
-    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+    /// Returns a tuple of (old_value, evicted_key):
+    /// - old_value: The previous value if this was an update to an existing key
+    /// - evicted_key: The key that was evicted if the map was at capacity
+    pub fn insert(&mut self, key: K, value: V) -> (Option<V>, Option<K>) {
         if self.map.contains_key(&key) {
             // Update doesn't change insertion order in IndexMap
-            return self.map.insert(key, value);
+            return (self.map.insert(key, value), None);
         }
-        if self.map.len() == self.map.capacity() {
+        let evicted_key = if self.map.len() == self.map.capacity() {
             // Evict oldest (index 0). O(n) due shifting the rest of the map
             // We could use a hashmap + vecdeque to get O(1) here, but then we'd have to handle removing from both maps, storing the index, and managing the eviction.
             // This is a good compromise between performance and simplicity. And thinking about memory usage, this is probably the best way to go.
-            let _ = self.map.shift_remove_index(0);
-        }
-        self.map.insert(key, value)
+            self.map.shift_remove_index(0).map(|(k, _)| k)
+        } else {
+            None
+        };
+        self.map.insert(key, value);
+        (None, evicted_key)
     }
 
     pub fn get(&self, key: &K) -> Option<&V> {

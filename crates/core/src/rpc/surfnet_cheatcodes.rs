@@ -1219,6 +1219,9 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             Err(e) => return e.into(),
         };
 
+        let is_native_mint = mint == spl_token_interface::native_mint::id();
+        let token_amount = update.amount.unwrap_or(0);
+
         let token_program_id = match some_token_program_str {
             Some(token_program_str) => match verify_pubkey(&token_program_str) {
                 Ok(res) => res,
@@ -1245,6 +1248,19 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 .inner;
             svm_locker.write_account_update(get_mint_result);
 
+            let minimum_rent = svm_locker.with_svm_reader(|svm_reader| {
+                svm_reader.inner.minimum_balance_for_rent_exemption(
+                    TokenAccount::get_packed_len_for_token_program_id(&token_program_id),
+                )
+            });
+
+            let (rent_exempt_reserve, initial_lamports) = if is_native_mint {
+                // For native mint, we need to allocate enough lamports to cover the wrapped SOL amount
+                (Some(minimum_rent), minimum_rent + token_amount) // 1 SOL wrapped
+            } else {
+                (None, minimum_rent)
+            };
+
             let SvmAccessContext {
                 slot,
                 inner: mut token_account,
@@ -1253,21 +1269,14 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 .get_account(
                     &remote_ctx,
                     &associated_token_account,
-                    Some(Box::new(move |svm_locker| {
-                        let minimum_rent = svm_locker.with_svm_reader(|svm_reader| {
-                            svm_reader.inner.minimum_balance_for_rent_exemption(
-                                TokenAccount::get_packed_len_for_token_program_id(
-                                    &token_program_id,
-                                ),
-                            )
-                        });
-
-                        let default = TokenAccount::new(&token_program_id, owner, mint);
+                    Some(Box::new(move |_| {
+                        let default =
+                            TokenAccount::new(&token_program_id, owner, mint, rent_exempt_reserve);
                         let data = default.pack_into_vec();
                         GetAccountResult::FoundAccount(
                             associated_token_account,
                             Account {
-                                lamports: minimum_rent,
+                                lamports: initial_lamports,
                                 owner: token_program_id,
                                 executable: false,
                                 rent_epoch: 0,
@@ -1288,6 +1297,8 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
 
             let final_account_bytes = token_account_data.pack_into_vec();
             token_account.apply_update(|account| {
+                // If this is a native mint, we need to adjust the lamports to match the wrapped SOL amount + rent
+                account.lamports = initial_lamports;
                 account.data = final_account_bytes.clone();
                 Ok(())
             })?;

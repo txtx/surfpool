@@ -35,6 +35,9 @@ pub type AccountFactory = Box<dyn Fn(SurfnetSvmLocker) -> GetAccountResult + Sen
 pub enum GeyserEvent {
     NotifyTransaction(TransactionWithStatusMeta, Option<VersionedTransaction>),
     UpdateAccount(GeyserAccountUpdate),
+    /// Account update sent at startup (before block production begins).
+    /// These updates should be sent to geyser plugins with is_startup=true.
+    StartupAccountUpdate(GeyserAccountUpdate),
     // todo: add more events
 }
 
@@ -89,6 +92,25 @@ pub type LogsSubscriptionData = (
     RpcTransactionLogsFilter,
     Sender<(Slot, RpcLogsResponse)>,
 );
+
+pub type SnapshotSubscriptionData = Sender<SnapshotImportNotification>;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SnapshotImportNotification {
+    pub snapshot_id: String,
+    pub status: SnapshotImportStatus,
+    pub accounts_loaded: u64,
+    pub total_accounts: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SnapshotImportStatus {
+    Started,
+    InProgress,
+    Completed,
+    Failed,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SignatureSubscriptionType {
