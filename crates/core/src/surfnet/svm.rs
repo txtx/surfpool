@@ -16,7 +16,7 @@ use agave_feature_set::{
     enable_sbpf_v1_deployment_and_execution, enable_sbpf_v2_deployment_and_execution,
     enable_sbpf_v3_deployment_and_execution, fix_alt_bn128_multiplication_input_length,
     formalize_loaded_transaction_data_size, get_sysvar_syscall_enabled,
-    increase_tx_account_lock_limit, last_restart_slot_sysvar,
+    increase_tx_account_lock_limit, last_restart_slot_sysvar, loosen_cpi_size_restriction,
     mask_out_rent_epoch_in_vm_serialization, move_precompile_verification_to_svm,
     move_stake_and_move_lamports_ixs, raise_cpi_nesting_limit_to_8, reenable_sbpf_v0_execution,
     reenable_zk_elgamal_proof_program, remaining_compute_units_syscall_enabled,
@@ -510,6 +510,17 @@ impl SurfnetSvm {
                 Some(reenable_zk_elgamal_proof_program::id())
             }
             SvmFeature::RaiseCpiNestingLimitTo8 => Some(raise_cpi_nesting_limit_to_8::id()),
+            // Features not yet available in agave-feature-set 3.0.0 - will be added when upgrading
+            SvmFeature::AccountDataDirectMapping => None, // bpf_account_data_direct_mapping
+            SvmFeature::ProvideInstructionDataOffsetInVmR2 => None, // provide_instruction_data_offset_in_vm_r2
+            SvmFeature::IncreaseCpiAccountInfoLimit => None, // increase_cpi_account_info_limit
+            SvmFeature::VoteStateV4 => None,                 // vote_state_v4
+            SvmFeature::PoseidonEnforcePadding => None,      // poseidon_enforce_padding
+            SvmFeature::FixAltBn128PairingLengthCheck => None, // fix_alt_bn128_pairing_length_check
+            SvmFeature::LiftCpiCallerRestriction => None,    // lift_cpi_caller_restriction
+            SvmFeature::RemoveAccountsExecutableFlagChecks => None, // remove_accounts_executable_flag_checks
+            SvmFeature::LoosenCpiSizeRestriction => Some(loosen_cpi_size_restriction::id()),
+            SvmFeature::DisableRentFeesCollection => None, // disable_rent_fees_collection
         }
     }
 
@@ -3492,15 +3503,31 @@ mod tests {
 
     #[test]
     fn test_feature_to_id_all_features_have_mapping() {
-        // Ensure every SvmFeature variant has a valid mapping to a feature ID
+        // Track features with and without mappings
+        // Some features return None because they're not yet available in agave-feature-set 3.0.0
+        let mut mapped_count = 0;
+        let mut unmapped_features = Vec::new();
+
         for feature in SvmFeature::all() {
             let id = SurfnetSvm::feature_to_id(&feature);
-            assert!(
-                id.is_some(),
-                "Feature {:?} should have a valid ID mapping",
-                feature
-            );
+            if id.is_some() {
+                mapped_count += 1;
+            } else {
+                unmapped_features.push(feature);
+            }
         }
+
+        // Currently 9 features return None (not available in agave-feature-set 3.0.0):
+        // AccountDataDirectMapping, ProvideInstructionDataOffsetInVmR2, IncreaseCpiAccountInfoLimit,
+        // VoteStateV4, PoseidonEnforcePadding, FixAltBn128PairingLengthCheck, LiftCpiCallerRestriction,
+        // RemoveAccountsExecutableFlagChecks, DisableRentFeesCollection
+        assert_eq!(
+            unmapped_features.len(),
+            9,
+            "Expected 9 unmapped features (pending agave-feature-set upgrade), found: {:?}",
+            unmapped_features
+        );
+        assert_eq!(mapped_count, 37, "Expected 37 mapped features");
     }
 
     #[test]
