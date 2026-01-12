@@ -2886,7 +2886,8 @@ mod tests {
         // Insert the profile into executed_transaction_profiles
         client.context.svm_locker.with_svm_writer(|svm| {
             svm.executed_transaction_profiles
-                .insert(signature, keyed_profile);
+                .store(signature.to_string(), keyed_profile)
+                .unwrap();
         });
 
         // Export snapshot with PreTransaction scope

@@ -97,7 +97,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
     scenarios::TemplateRegistry,
-    storage::{Storage, new_kv_store},
+    storage::{Storage, new_kv_store, new_kv_store_with_default},
     surfnet::{
         LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
     },
@@ -239,8 +239,8 @@ pub struct SurfnetSvm {
     pub account_subscriptions: AccountSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
     pub profile_tag_map: Box<dyn Storage<String, Vec<UuidOrSignature>>>,
-    pub simulated_transaction_profiles: HashMap<Uuid, KeyedProfileResult>,
-    pub executed_transaction_profiles: FifoMap<Signature, KeyedProfileResult>,
+    pub simulated_transaction_profiles: Box<dyn Storage<String, KeyedProfileResult>>,
+    pub executed_transaction_profiles: Box<dyn Storage<String, KeyedProfileResult>>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
@@ -308,6 +308,8 @@ impl SurfnetSvm {
         self.scheduled_overrides.shutdown();
         self.registered_idls.shutdown();
         self.profile_tag_map.shutdown();
+        self.simulated_transaction_profiles.shutdown();
+        self.executed_transaction_profiles.shutdown();
     }
 
     /// Creates a new instance of `SurfnetSvm`.
@@ -364,6 +366,17 @@ impl SurfnetSvm {
             new_kv_store(&database_url, "registered_idls", surfnet_id)?;
         let profile_tag_map_db: Box<dyn Storage<String, Vec<UuidOrSignature>>> =
             new_kv_store(&database_url, "profile_tag_map", surfnet_id)?;
+        let simulated_transaction_profiles_db: Box<dyn Storage<String, KeyedProfileResult>> =
+            new_kv_store(&database_url, "simulated_transaction_profiles", surfnet_id)?;
+        let executed_transaction_profiles_db: Box<dyn Storage<String, KeyedProfileResult>> =
+            new_kv_store_with_default(
+                &database_url,
+                "executed_transaction_profiles",
+                surfnet_id,
+                // Use FifoMap for executed_transaction_profiles to maintain FIFO eviction behavior
+                // (when no on-disk DB is provided)
+                || Box::new(FifoMap::<String, KeyedProfileResult>::default()),
+            )?;
 
         let chain_tip = if let Some((_, block)) = blocks_db
             .into_iter()
@@ -402,8 +415,8 @@ impl SurfnetSvm {
             account_subscriptions: HashMap::new(),
             slot_subscriptions: Vec::new(),
             profile_tag_map: profile_tag_map_db,
-            simulated_transaction_profiles: HashMap::new(),
-            executed_transaction_profiles: FifoMap::default(),
+            simulated_transaction_profiles: simulated_transaction_profiles_db,
+            executed_transaction_profiles: executed_transaction_profiles_db,
             logs_subscriptions: Vec::new(),
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
@@ -603,7 +616,11 @@ impl SurfnetSvm {
     pub fn set_profiling_map_capacity(&mut self, capacity: usize) {
         let clamped_capacity = max(1, capacity);
         self.max_profiles = clamped_capacity;
-        self.executed_transaction_profiles = FifoMap::new(clamped_capacity);
+        let is_on_disk_db = self.inner.db.is_some();
+        if !is_on_disk_db {
+            // when using on-disk DB, we're not using the Fifo Map to manage entries
+            self.executed_transaction_profiles = Box::new(FifoMap::new(clamped_capacity));
+        }
     }
 
     /// Airdrops a specified amount of lamports to a single public key.
@@ -1137,7 +1154,8 @@ impl SurfnetSvm {
         self.perf_samples.clear();
         self.transactions_processed = 0;
         self.profile_tag_map.clear()?;
-        self.simulated_transaction_profiles.clear();
+        self.simulated_transaction_profiles.clear()?;
+        self.executed_transaction_profiles.clear()?;
         self.accounts_by_owner.clear()?;
         self.accounts_by_owner.store(
             native_mint_account.owner.to_string(),
@@ -2401,7 +2419,7 @@ impl SurfnetSvm {
         profile_result: KeyedProfileResult,
     ) -> SurfpoolResult<()> {
         self.simulated_transaction_profiles
-            .insert(uuid, profile_result);
+            .store(uuid.to_string(), profile_result)?;
 
         let tag = tag.unwrap_or_else(|| uuid.to_string());
         let mut tags = self
@@ -2421,7 +2439,7 @@ impl SurfnetSvm {
         profile_result: KeyedProfileResult,
     ) -> SurfpoolResult<()> {
         self.executed_transaction_profiles
-            .insert(signature, profile_result);
+            .store(signature.to_string(), profile_result)?;
         let tag = signature.to_string();
         let mut tags = self
             .profile_tag_map
@@ -2876,7 +2894,10 @@ impl SurfnetSvm {
             ExportSnapshotScope::PreTransaction(signature_str) => {
                 // Export accounts from a specific transaction's pre-execution state
                 if let Ok(signature) = Signature::from_str(signature_str) {
-                    if let Some(profile) = self.executed_transaction_profiles.get(&signature) {
+                    if let Ok(Some(profile)) = self
+                        .executed_transaction_profiles
+                        .get(&signature.to_string())
+                    {
                         // Collect accounts from pre-execution capture only
                         // This gives us the account state BEFORE the transaction executed
                         for (pubkey, account_opt) in
@@ -3710,10 +3731,7 @@ mod tests {
     #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
     fn test_profiling_map_capacity_default(test_type: TestType) {
         let (svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
-        assert_eq!(
-            svm.executed_transaction_profiles.capacity(),
-            DEFAULT_PROFILING_MAP_CAPACITY
-        );
+        assert_eq!(svm.max_profiles, DEFAULT_PROFILING_MAP_CAPACITY);
     }
 
     #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
@@ -3723,7 +3741,7 @@ mod tests {
     fn test_profiling_map_capacity_set(test_type: TestType) {
         let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
         svm.set_profiling_map_capacity(10);
-        assert_eq!(svm.executed_transaction_profiles.capacity(), 10);
+        assert_eq!(svm.max_profiles, 10);
     }
 
     // Feature configuration tests

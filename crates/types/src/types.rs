@@ -139,12 +139,13 @@ pub struct ComputeUnitsEstimationResult {
 }
 
 /// The struct for storing the profiling results.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyedProfileResult {
     pub slot: u64,
     pub key: UuidOrSignature,
     pub instruction_profiles: Option<Vec<ProfileResult>>,
     pub transaction_profile: ProfileResult,
+    #[serde(with = "pubkey_account_map")]
     pub readonly_account_states: HashMap<Pubkey, Account>,
 }
 
@@ -166,9 +167,11 @@ impl KeyedProfileResult {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProfileResult {
+    #[serde(with = "pubkey_option_account_map")]
     pub pre_execution_capture: ExecutionCapture,
+    #[serde(with = "pubkey_option_account_map")]
     pub post_execution_capture: ExecutionCapture,
     pub compute_units_consumed: u64,
     pub log_messages: Option<Vec<String>>,
@@ -329,6 +332,69 @@ pub mod profile_state_map {
         T: Deserialize<'de>,
     {
         let str_map: IndexMap<String, T> = IndexMap::deserialize(deserializer)?;
+        str_map
+            .into_iter()
+            .map(|(k, v)| {
+                Pubkey::from_str(&k)
+                    .map(|pk| (pk, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
+    }
+}
+
+/// Serialization module for HashMap<Pubkey, Account>
+pub mod pubkey_account_map {
+    use super::*;
+
+    pub fn serialize<S>(map: &HashMap<Pubkey, Account>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let str_map: HashMap<String, &Account> =
+            map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        str_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<Pubkey, Account>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let str_map: HashMap<String, Account> = HashMap::deserialize(deserializer)?;
+        str_map
+            .into_iter()
+            .map(|(k, v)| {
+                Pubkey::from_str(&k)
+                    .map(|pk| (pk, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
+    }
+}
+
+/// Serialization module for BTreeMap<Pubkey, Option<Account>>
+pub mod pubkey_option_account_map {
+    use super::*;
+
+    pub fn serialize<S>(
+        map: &BTreeMap<Pubkey, Option<Account>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let str_map: BTreeMap<String, &Option<Account>> =
+            map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        str_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<BTreeMap<Pubkey, Option<Account>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let str_map: BTreeMap<String, Option<Account>> = BTreeMap::deserialize(deserializer)?;
         str_map
             .into_iter()
             .map(|(k, v)| {
@@ -982,6 +1048,11 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
 
     pub fn contains_key(&self, key: &K) -> bool {
         self.map.contains_key(key)
+    }
+
+    /// Removes a key from the map, returning the value if present.
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.map.shift_remove(key)
     }
 
     // This is a wrapper around the IndexMap::iter() method, but it preserves the insertion order of the keys.

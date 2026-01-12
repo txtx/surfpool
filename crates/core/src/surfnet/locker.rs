@@ -2342,11 +2342,18 @@ impl SurfnetSvmLocker {
         config: &RpcProfileResultConfig,
     ) -> SurfpoolResult<Option<UiKeyedProfileResult>> {
         let result = match &signature_or_uuid {
-            UuidOrSignature::Signature(signature) => self
-                .with_svm_reader(|svm| svm.executed_transaction_profiles.get(signature).cloned()),
-            UuidOrSignature::Uuid(uuid) => {
-                self.with_svm_reader(|svm| svm.simulated_transaction_profiles.get(uuid).cloned())
-            }
+            UuidOrSignature::Signature(signature) => self.with_svm_reader(|svm| {
+                svm.executed_transaction_profiles
+                    .get(&signature.to_string())
+                    .ok()
+                    .flatten()
+            }),
+            UuidOrSignature::Uuid(uuid) => self.with_svm_reader(|svm| {
+                svm.simulated_transaction_profiles
+                    .get(&uuid.to_string())
+                    .ok()
+                    .flatten()
+            }),
         };
         Ok(result.map(|profile| self.encode_ui_keyed_profile_result(profile, config)))
     }
