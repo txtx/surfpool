@@ -1582,29 +1582,14 @@ impl Rpc for SurfpoolWsRpc {
             }
 
             // Generate a unique snapshot ID for this import operation
-            let snapshot_id = format!("snapshot_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
-
-            // Send initial notification that snapshot import has started
-            let start_notification = crate::surfnet::SnapshotImportNotification {
-                snapshot_id: snapshot_id.clone(),
-                status: crate::surfnet::SnapshotImportStatus::Started,
-                accounts_loaded: 0,
-                total_accounts: 0,
-                error: None,
-            };
+            let snapshot_id = format!(
+                "snapshot_{}",
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            );
 
             // Subscribe to snapshot import updates
+            // The locker will send the Started notification through the channel
             let rx = svm_locker.subscribe_for_snapshot_import_updates(&snapshot_url, &snapshot_id);
-
-            // Send the initial notification
-            if let Ok(guard) = snapshot_active.read() {
-                if let Some(sink) = guard.get(&sub_id) {
-                    if let Err(e) = sink.notify(Ok(start_notification)) {
-                        log::error!("Failed to send initial snapshot notification: {e}");
-                        return;
-                    }
-                }
-            }
 
             loop {
                 // if the subscription has been removed, break the loop
