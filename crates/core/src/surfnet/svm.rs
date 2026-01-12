@@ -391,6 +391,9 @@ impl SurfnetSvm {
             BlockIdentifier::zero()
         };
 
+        // Initialize transactions_processed from database count for persistent storage
+        let transactions_processed = transactions_db.count()?;
+
         let mut svm = Self {
             inner,
             remote_rpc_url: None,
@@ -398,7 +401,7 @@ impl SurfnetSvm {
             blocks: blocks_db,
             transactions: transactions_db,
             perf_samples: VecDeque::new(),
-            transactions_processed: 0,
+            transactions_processed,
             simnet_events_tx,
             geyser_events_tx,
             latest_epoch_info: EpochInfo {
