@@ -1,3 +1,4 @@
+mod fifo_map;
 mod hash_map;
 #[cfg(feature = "postgres")]
 mod postgres;
@@ -8,6 +9,7 @@ pub use hash_map::HashMap as StorageHashMap;
 pub use postgres::PostgresStorage;
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteStorage;
+pub use surfpool_types::FifoMap as StorageFifoMap;
 
 use crate::error::SurfpoolError;
 
@@ -15,6 +17,28 @@ pub fn new_kv_store<K, V>(
     database_url: &Option<&str>,
     table_name: &str,
     surfnet_id: u32,
+) -> StorageResult<Box<dyn Storage<K, V>>>
+where
+    K: serde::Serialize
+        + serde::de::DeserializeOwned
+        + Send
+        + Sync
+        + 'static
+        + Clone
+        + Eq
+        + std::hash::Hash,
+    V: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static + Clone,
+{
+    new_kv_store_with_default(database_url, table_name, surfnet_id, || {
+        Box::new(StorageHashMap::new())
+    })
+}
+
+pub fn new_kv_store_with_default<K, V>(
+    database_url: &Option<&str>,
+    table_name: &str,
+    surfnet_id: u32,
+    default_storage_constructor: fn() -> Box<dyn Storage<K, V>>,
 ) -> StorageResult<Box<dyn Storage<K, V>>>
 where
     K: serde::Serialize
@@ -65,8 +89,8 @@ where
             }
         }
         _ => {
-            let storage = StorageHashMap::new();
-            Ok(Box::new(storage))
+            let storage = default_storage_constructor();
+            Ok(storage)
         }
     }
 }
