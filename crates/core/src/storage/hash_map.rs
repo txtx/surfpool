@@ -40,4 +40,8 @@ where
     fn contains_key(&self, key: &K) -> super::StorageResult<bool> {
         Ok(self.contains_key(key))
     }
+
+    fn count(&self) -> super::StorageResult<u64> {
+        Ok(self.len() as u64)
+    }
 }

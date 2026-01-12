@@ -59,6 +59,12 @@ struct KeyRecord {
     key: String,
 }
 
+#[derive(QueryableByName, Debug)]
+struct CountRecord {
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    count: i64,
+}
+
 #[derive(Clone)]
 pub struct PostgresStorage<K, V> {
     pool: Pool<ConnectionManager<diesel::PgConnection>>,
@@ -288,6 +294,26 @@ where
 
     fn clone_box(&self) -> Box<dyn Storage<K, V>> {
         Box::new(self.clone())
+    }
+
+    fn count(&self) -> StorageResult<u64> {
+        debug!("Counting entries in table '{}'", self.table_name);
+        let query = sql_query(format!(
+            "SELECT COUNT(*) as count FROM {} WHERE surfnet_id = $1",
+            self.table_name
+        ))
+        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32);
+
+        trace!("Getting connection from pool for count operation");
+        let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
+
+        let records = query
+            .load::<CountRecord>(&mut *conn)
+            .map_err(|e| StorageError::count(&self.table_name, NAME, e))?;
+
+        let count = records.first().map(|r| r.count as u64).unwrap_or(0);
+        debug!("Table '{}' has {} entries", self.table_name, count);
+        Ok(count)
     }
 
     fn into_iter(&self) -> StorageResult<Box<dyn Iterator<Item = (K, V)> + '_>> {

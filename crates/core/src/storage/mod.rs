@@ -187,6 +187,17 @@ impl StorageError {
             QueryExecuteError::GetAllKeyValuePairsError(e),
         )
     }
+    pub fn count(
+        table_name: &str,
+        db_type: &str,
+        e: surfpool_db::diesel::result::Error,
+    ) -> Self {
+        StorageError::QueryError(
+            table_name.to_string(),
+            db_type.to_string(),
+            QueryExecuteError::CountError(e),
+        )
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -203,6 +214,8 @@ pub enum QueryExecuteError {
     GetAllKeysError(#[source] surfpool_db::diesel::result::Error),
     #[error("Failed to get all key-value pairs: {0}")]
     GetAllKeyValuePairsError(#[source] surfpool_db::diesel::result::Error),
+    #[error("Failed to count entries: {0}")]
+    CountError(#[source] surfpool_db::diesel::result::Error),
 }
 
 pub type StorageResult<T> = Result<T, StorageError>;
@@ -223,6 +236,9 @@ pub trait Storage<K, V>: Send + Sync {
     fn contains_key(&self, key: &K) -> StorageResult<bool> {
         Ok(self.get(key)?.is_some())
     }
+
+    /// Returns the number of entries in the storage.
+    fn count(&self) -> StorageResult<u64>;
 
     /// Explicitly shutdown the storage, performing any cleanup like WAL checkpoint.
     /// This should be called before the application exits to ensure data is persisted.
