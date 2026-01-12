@@ -243,6 +243,7 @@ pub struct SurfnetSvm {
     pub simulated_transaction_profiles: HashMap<Uuid, KeyedProfileResult>,
     pub executed_transaction_profiles: FifoMap<Signature, KeyedProfileResult>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
+    pub snapshot_subscriptions: Vec<super::SnapshotSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
     pub start_time: SystemTime,
@@ -370,6 +371,7 @@ impl SurfnetSvm {
             simulated_transaction_profiles: HashMap::new(),
             executed_transaction_profiles: FifoMap::default(),
             logs_subscriptions: Vec::new(),
+            snapshot_subscriptions: Vec::new(),
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
             start_time: SystemTime::now(),
@@ -2331,6 +2333,35 @@ impl SurfnetSvm {
                 let _ = tx.send((self.get_latest_absolute_slot(), message));
             }
         }
+    }
+
+    /// Registers a snapshot subscription and returns a sender and receiver for notifications.
+    /// The actual import logic should be handled by the caller (SurfnetSvmLocker).
+    pub fn register_snapshot_subscription(
+        &mut self,
+    ) -> (
+        Sender<super::SnapshotImportNotification>,
+        Receiver<super::SnapshotImportNotification>,
+    ) {
+        let (tx, rx) = unbounded();
+        self.snapshot_subscriptions.push(tx.clone());
+        (tx, rx)
+    }
+
+    pub async fn fetch_snapshot_from_url(
+        snapshot_url: &str,
+    ) -> Result<
+        std::collections::BTreeMap<String, Option<surfpool_types::AccountSnapshot>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        let response = reqwest::get(snapshot_url).await?;
+        let text = response.text().await?;
+
+        // Parse the JSON snapshot data
+        let snapshot: std::collections::BTreeMap<String, Option<surfpool_types::AccountSnapshot>> =
+            serde_json::from_str(&text)?;
+
+        Ok(snapshot)
     }
 
     pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) {

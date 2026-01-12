@@ -3072,6 +3072,87 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Subscribes for snapshot import updates and returns a receiver of snapshot import notifications.
+    /// This method spawns a background task that fetches the snapshot and loads it via `load_snapshot`.
+    pub fn subscribe_for_snapshot_import_updates(
+        &self,
+        snapshot_url: &str,
+        snapshot_id: &str,
+    ) -> Receiver<super::SnapshotImportNotification> {
+        // Register the subscription and get the sender/receiver
+        let (tx, rx) =
+            self.with_svm_writer(|svm_writer| svm_writer.register_snapshot_subscription());
+
+        // Clone the locker for use in the spawned task
+        let locker = self.clone();
+        let snapshot_url = snapshot_url.to_string();
+        let snapshot_id = snapshot_id.to_string();
+
+        tokio::spawn(async move {
+            // Send initial notification
+            let _ = tx.send(super::SnapshotImportNotification {
+                snapshot_id: snapshot_id.clone(),
+                status: super::SnapshotImportStatus::Started,
+                accounts_loaded: 0,
+                total_accounts: 0,
+                error: None,
+            });
+
+            // Fetch snapshot from URL and parse it
+            let snapshot_data = match SurfnetSvm::fetch_snapshot_from_url(&snapshot_url).await {
+                Ok(data) => data,
+                Err(e) => {
+                    let _ = tx.send(super::SnapshotImportNotification {
+                        snapshot_id,
+                        status: super::SnapshotImportStatus::Failed,
+                        accounts_loaded: 0,
+                        total_accounts: 0,
+                        error: Some(format!("Failed to fetch snapshot: {}", e)),
+                    });
+                    return;
+                }
+            };
+
+            let total_accounts = snapshot_data.len() as u64;
+
+            // Send progress notification with total count
+            let _ = tx.send(super::SnapshotImportNotification {
+                snapshot_id: snapshot_id.clone(),
+                status: super::SnapshotImportStatus::InProgress,
+                accounts_loaded: 0,
+                total_accounts,
+                error: None,
+            });
+
+            // Load the snapshot using the load_snapshot method
+            match locker
+                .load_snapshot(&snapshot_data, None, CommitmentConfig::processed())
+                .await
+            {
+                Ok(loaded_count) => {
+                    let _ = tx.send(super::SnapshotImportNotification {
+                        snapshot_id,
+                        status: super::SnapshotImportStatus::Completed,
+                        accounts_loaded: loaded_count as u64,
+                        total_accounts,
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    let _ = tx.send(super::SnapshotImportNotification {
+                        snapshot_id,
+                        status: super::SnapshotImportStatus::Failed,
+                        accounts_loaded: 0,
+                        total_accounts,
+                        error: Some(format!("Failed to load snapshot: {}", e)),
+                    });
+                }
+            }
+        });
+
+        rx
+    }
+
     pub fn runbook_executions(&self) -> Vec<RunbookExecutionStatusReport> {
         self.with_svm_reader(|svm_reader| svm_reader.runbook_executions.clone())
     }

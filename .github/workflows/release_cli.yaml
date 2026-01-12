@@ -8,6 +8,10 @@ on:
       - feat/surfpool-studio
   workflow_dispatch:
 
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: txtx-public
+
 concurrency:
   group: ${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}
   cancel-in-progress: true
@@ -153,7 +157,7 @@ jobs:
       #   run: |
       #     Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL-3_0_16.exe -OutFile openssl-installer.exe
       #     Start-Process -Wait -FilePath .\openssl-installer.exe -ArgumentList "/silent", "/verysilent", "/dir=C:\OpenSSL"
-          
+
       # - name: Set Env Vars for OpenSSL (windows)
       #   if: matrix.os == 'windows-latest'
       #   run: |
@@ -176,7 +180,7 @@ jobs:
           cd C:\vcpkg
           .\bootstrap-vcpkg.bat
           .\vcpkg install openssl:x64-windows
-          
+
           echo "OPENSSL_DIR=C:\vcpkg\installed\x64-windows" >> $env:GITHUB_ENV
           echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
 
@@ -192,23 +196,19 @@ jobs:
 
       - name: Build - Cargo (Windows)
         if: matrix.os == 'windows-latest'
-        run: 
-          cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
 
       - name: Build - Cargo (macOS x64)
         if: matrix.os == 'macos-latest' && matrix.architecture == 'x64'
-        run: 
-          cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
 
       - name: Build - Cargo (macOS ARM64)
         if: matrix.os == 'macos-latest' && matrix.architecture == 'arm64'
-        run: 
-          cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
 
       - name: Build - Cargo (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: 
-          cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph --features geyser_plugin
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph --features geyser_plugin
 
       # Don't compress for Windows because winget can't yet unzip files
       - name: Compress cargo artifact (not windows)
@@ -218,8 +218,7 @@ jobs:
       - name: Compress artifact (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
-        run:
-          tar -czf surfpool-${{ env.SHORT_TARGET_NAME }}.tar.gz -C target/${{ matrix.target }}/release surfpool.exe
+        run: tar -czf surfpool-${{ env.SHORT_TARGET_NAME }}.tar.gz -C target/${{ matrix.target }}/release surfpool.exe
 
       - name: Store SHA256 Hash of Tar (Linux x64)
         if: matrix.platform == 'linux'
@@ -232,7 +231,7 @@ jobs:
         id: macos_x64_sha
         run: |
           echo "MACOS_X64_SHA=$(shasum -a 256 surfpool-${{ env.SHORT_TARGET_NAME }}.tar.gz | awk '{ print $1 }')" >> "$GITHUB_OUTPUT"
-          
+
       - name: Store SHA256 Hash of Tar (Mac arm64)
         if: matrix.os == 'macos-latest' && matrix.architecture == 'arm64'
         id: macos_arm64_sha
@@ -246,7 +245,7 @@ jobs:
         with:
           name: surfpool-${{ env.SHORT_TARGET_NAME }}
           path: surfpool-${{ env.SHORT_TARGET_NAME }}.tar.gz
-          
+
       - name: Upload tar archive (Windows)
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
@@ -276,13 +275,13 @@ jobs:
         with:
           artifacts: "**/*.tar.gz,**/*.msi"
           tag: ${{ needs.get_release_info.outputs.tag }}
-          commit: ${{ env.GITHUB_SHA }}      
-      
+          commit: ${{ env.GITHUB_SHA }}
+
       - name: Pack artifacts
-        run: | 
+        run: |
           tar -czvf surfpool-linux-x64.tar.gz surfpool-linux-x64
           tar -czvf surfpool-darwin-arm64.tar.gz surfpool-darwin-arm64
-  
+
   aws_release:
     name: Upload to AWS S3
     runs-on: ubuntu-latest
@@ -306,9 +305,9 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id: ${{ secrets.AWS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload artifacts to S3
         run: |
@@ -319,7 +318,7 @@ jobs:
           for file in ./artifacts/**/*.tar.gz; do
             BASENAME=$(basename "$file")
             echo "→ Uploading $BASENAME ..."
-            aws s3 cp "$file" "s3://txtx-public/releases/$BASENAME" \
+            aws s3 cp "$file" "s3://${{ env.S3_BUCKET }}/releases/$BASENAME" \
               --acl public-read \
               --cache-control "public, max-age=31536000"
           done
@@ -329,10 +328,9 @@ jobs:
           echo "✅ Uploaded artifacts are available at:"
           for file in ./artifacts/**/*.tar.gz; do
             BASENAME=$(basename "$file")
-            echo "http://txtx-public.s3.amazonaws.com/releases/$BASENAME"
+            echo "http://${{ env.S3_BUCKET }}.s3.amazonaws.com/releases/$BASENAME"
           done
 
-  
   homebrew:
     name: Update Homebrew
     runs-on: ubuntu-latest
@@ -367,7 +365,7 @@ jobs:
           ls
           # Define the new version
           NEW_VERSION="${{ needs.get_release_info.outputs.tag }}"
-          
+
           # Update the version in all url fields, matching on any valid semver version
           sed -i.bak "s/v[0-9]\+\.[0-9]\+\.[0-9]\+\(-[a-zA-Z0-9\.-]\+\)\?\(\+[a-zA-Z0-9\.-]\+\)\?/$(echo $NEW_VERSION)/g" Formula/surfpool.rb
 
@@ -393,7 +391,7 @@ jobs:
           git add Formula/surfpool.rb
           git commit -m "Update to version ${{ needs.get_release_info.outputs.tag }}"
           git push https://txtx:${{ secrets.TXTX_ACCESS_TOKEN }}@github.com/txtx/homebrew-taps.git
-  
+
   snapcraft:
     name: Update Snapcraft
     runs-on: ubuntu-latest
