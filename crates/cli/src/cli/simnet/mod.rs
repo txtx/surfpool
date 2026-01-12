@@ -536,7 +536,6 @@ async fn write_and_execute_iac(
         if cmd.watch {
             let _handle = hiro_system_kit::thread_named("Watch Filesystem")
                 .spawn(move || {
-                    let runbook_input = runbook_input.clone();
                     let mut target_path = base_location.clone();
                     let _ = target_path.append_path("target");
                     let _ = target_path.append_path("deploy");
