@@ -102,8 +102,8 @@ use crate::{
         LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
     },
     types::{
-        GeyserAccountUpdate, MintAccount, SurfnetTransactionStatus, SyntheticBlockhash,
-        TokenAccount, TransactionWithStatusMeta,
+        GeyserAccountUpdate, MintAccount, SerializableAccountAdditionalData,
+        SurfnetTransactionStatus, SyntheticBlockhash, TokenAccount, TransactionWithStatusMeta,
     },
 };
 
@@ -247,7 +247,7 @@ pub struct SurfnetSvm {
     pub slot_time: u64,
     pub start_time: SystemTime,
     pub accounts_by_owner: Box<dyn Storage<String, Vec<String>>>,
-    pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
+    pub account_associated_data: Box<dyn Storage<String, SerializableAccountAdditionalData>>,
     pub token_accounts: Box<dyn Storage<String, TokenAccount>>,
     pub token_mints: Box<dyn Storage<String, MintAccount>>,
     pub token_accounts_by_owner: Box<dyn Storage<String, Vec<String>>>,
@@ -311,6 +311,7 @@ impl SurfnetSvm {
         self.profile_tag_map.shutdown();
         self.simulated_transaction_profiles.shutdown();
         self.executed_transaction_profiles.shutdown();
+        self.account_associated_data.shutdown();
     }
 
     /// Creates a new instance of `SurfnetSvm`.
@@ -336,7 +337,7 @@ impl SurfnetSvm {
             .get_account(&spl_token_interface::native_mint::ID)?
             .unwrap();
 
-        let account_associated_data = {
+        let native_mint_associated_data = {
             let mint = StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(
                 &native_mint_account.data,
             )
@@ -350,17 +351,13 @@ impl SurfnetSvm {
                 .get_extension::<ScaledUiAmountConfig>()
                 .map(|x| (*x, unix_timestamp))
                 .ok();
-            let account_associated_data = HashMap::from([(
-                spl_token_interface::native_mint::ID,
-                AccountAdditionalDataV3 {
-                    spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
-                        decimals: mint.base.decimals,
-                        interest_bearing_config,
-                        scaled_ui_amount_config,
-                    }),
-                },
-            )]);
-            account_associated_data
+            AccountAdditionalDataV3 {
+                spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                    decimals: mint.base.decimals,
+                    interest_bearing_config,
+                    scaled_ui_amount_config,
+                }),
+            }
         };
         let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
 
@@ -376,6 +373,14 @@ impl SurfnetSvm {
         let token_accounts_db = new_kv_store(&database_url, "token_accounts", surfnet_id)?;
         let mut token_mints_db: Box<dyn Storage<String, MintAccount>> =
             new_kv_store(&database_url, "token_mints", surfnet_id)?;
+        let mut account_associated_data_db: Box<
+            dyn Storage<String, SerializableAccountAdditionalData>,
+        > = new_kv_store(&database_url, "account_associated_data", surfnet_id)?;
+        // Store initial account associated data (native mint)
+        account_associated_data_db.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            native_mint_associated_data.into(),
+        )?;
         token_mints_db.store(
             spl_token_interface::native_mint::ID.to_string(),
             parsed_mint_account,
@@ -454,7 +459,7 @@ impl SurfnetSvm {
             slot_time: DEFAULT_SLOT_TIME_MS,
             start_time: SystemTime::now(),
             accounts_by_owner: accounts_by_owner_db,
-            account_associated_data,
+            account_associated_data: account_associated_data_db,
             token_accounts: token_accounts_db,
             token_mints: token_mints_db,
             token_accounts_by_owner: token_accounts_by_owner_db,
@@ -1101,16 +1106,16 @@ impl SurfnetSvm {
                     .get_extension::<ScaledUiAmountConfig>()
                     .map(|x| (*x, unix_timestamp))
                     .ok();
-                self.account_associated_data.insert(
-                    *pubkey,
-                    AccountAdditionalDataV3 {
-                        spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
-                            decimals: mint.base.decimals,
-                            interest_bearing_config,
-                            scaled_ui_amount_config,
-                        }),
-                    },
-                );
+                let additional_data: SerializableAccountAdditionalData = AccountAdditionalDataV3 {
+                    spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                        decimals: mint.base.decimals,
+                        interest_bearing_config,
+                        scaled_ui_amount_config,
+                    }),
+                }
+                .into();
+                self.account_associated_data
+                    .store(pubkey.to_string(), additional_data)?;
             };
         }
         Ok(())
@@ -1204,7 +1209,7 @@ impl SurfnetSvm {
             native_mint_account.owner.to_string(),
             vec![spl_token_interface::native_mint::ID.to_string()],
         )?;
-        self.account_associated_data.clear();
+        self.account_associated_data.clear()?;
         self.token_accounts.clear()?;
         self.token_mints.clear()?;
         self.token_mints.store(
@@ -2299,7 +2304,13 @@ impl SurfnetSvm {
                 .map(|ta| ta.mint())
         };
 
-        token_mint.and_then(|mint| self.account_associated_data.get(&mint).cloned())
+        token_mint.and_then(|mint| {
+            self.account_associated_data
+                .get(&mint.to_string())
+                .ok()
+                .flatten()
+                .and_then(|data| data.try_into().ok())
+        })
     }
 
     pub fn account_to_rpc_keyed_account<T: ReadableAccount>(
@@ -2918,18 +2929,29 @@ impl SurfnetSvm {
             }
 
             // For token accounts, we need to provide the mint additional data
-            let additional_data = if account.owner == spl_token_interface::id()
+            let additional_data: Option<AccountAdditionalDataV3> = if account.owner
+                == spl_token_interface::id()
                 || account.owner == spl_token_2022_interface::id()
             {
                 if let Ok(token_account) = TokenAccount::unpack(&account.data) {
                     self.account_associated_data
-                        .get(&token_account.mint())
-                        .cloned()
+                        .get(&token_account.mint().to_string())
+                        .ok()
+                        .flatten()
+                        .and_then(|data| data.try_into().ok())
                 } else {
-                    self.account_associated_data.get(pubkey).cloned()
+                    self.account_associated_data
+                        .get(&pubkey.to_string())
+                        .ok()
+                        .flatten()
+                        .and_then(|data| data.try_into().ok())
                 }
             } else {
-                self.account_associated_data.get(pubkey).cloned()
+                self.account_associated_data
+                    .get(&pubkey.to_string())
+                    .ok()
+                    .flatten()
+                    .and_then(|data| data.try_into().ok())
             };
 
             let ui_account =

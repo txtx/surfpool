@@ -4240,7 +4240,9 @@ mod tests {
             .unwrap();
         assert_eq!(loaded, 1);
 
-        let account = locker.with_svm_reader(|svm| svm.get_account(&pubkey));
+        let account = locker
+            .with_svm_reader(|svm| svm.get_account(&pubkey))
+            .unwrap();
         assert!(account.is_some());
         let account = account.unwrap();
         assert_eq!(account.lamports, 1_000_000);
@@ -4286,6 +4288,7 @@ mod tests {
         for (i, pubkey) in pubkeys.iter().enumerate() {
             let account = locker
                 .with_svm_reader(|svm| svm.get_account(pubkey))
+                .unwrap()
                 .unwrap();
             assert_eq!(account.lamports, (i as u64 + 1) * 1_000_000);
             assert_eq!(account.owner, owner);
@@ -4332,6 +4335,7 @@ mod tests {
         assert!(
             locker
                 .with_svm_reader(|svm| svm.get_account(&pubkey1))
+                .unwrap()
                 .is_some()
         );
 
@@ -4339,6 +4343,7 @@ mod tests {
         assert!(
             locker
                 .with_svm_reader(|svm| svm.get_account(&pubkey2))
+                .unwrap()
                 .is_none()
         );
     }
@@ -4407,6 +4412,7 @@ mod tests {
         assert!(
             locker
                 .with_svm_reader(|svm| svm.get_account(&pubkey))
+                .unwrap()
                 .is_none()
         );
     }
@@ -4484,7 +4490,9 @@ mod tests {
             .unwrap();
 
         // Verify account is in the owner index
-        let owned_accounts = locker.with_svm_reader(|svm| svm.get_account_owned_by(&owner));
+        let owned_accounts = locker
+            .with_svm_reader(|svm| svm.get_account_owned_by(&owner))
+            .unwrap();
         assert_eq!(owned_accounts.len(), 1);
         assert_eq!(owned_accounts[0].0, pubkey);
     }
@@ -4540,6 +4548,7 @@ mod tests {
         assert!(
             locker
                 .with_svm_reader(|svm| svm.get_account(&valid_pubkey))
+                .unwrap()
                 .is_some()
         );
     }

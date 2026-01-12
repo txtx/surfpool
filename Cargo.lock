@@ -12228,6 +12228,7 @@ dependencies = [
  "blake3",
  "borsh 1.5.7",
  "bs58",
+ "bytemuck",
  "chrono",
  "convert_case 0.8.0",
  "crossbeam",

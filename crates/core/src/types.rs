@@ -2,6 +2,7 @@ use std::{collections::HashSet, vec};
 
 use agave_reserved_account_keys::ReservedAccountKeys;
 use base64::{Engine, prelude::BASE64_STANDARD};
+use bytemuck::{Pod, bytes_of, from_bytes};
 use chrono::Utc;
 use litesvm::types::TransactionMetadata;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -32,13 +33,112 @@ use solana_transaction_status::{
     parse_accounts::{parse_legacy_message_accounts, parse_v0_message_accounts},
     parse_ui_inner_instructions,
 };
-use spl_token_2022_interface::extension::StateWithExtensions;
+use solana_account_decoder::parse_account_data::{AccountAdditionalDataV3, SplTokenAdditionalDataV2};
+use spl_token_2022_interface::extension::{
+    StateWithExtensions, interest_bearing_mint::InterestBearingConfig,
+    scaled_ui_amount::ScaledUiAmountConfig,
+};
 use txtx_addon_kit::indexmap::IndexMap;
 
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     surfnet::locker::{format_ui_amount, format_ui_amount_string},
 };
+
+/// Helper function to serialize a Pod type to base64
+fn serialize_pod_to_base64<T: Pod>(value: &T) -> String {
+    BASE64_STANDARD.encode(bytes_of(value))
+}
+
+/// Helper function to deserialize a Pod type from base64
+fn deserialize_pod_from_base64<T: Pod + Copy>(encoded: &str) -> Result<T, String> {
+    let bytes = BASE64_STANDARD
+        .decode(encoded)
+        .map_err(|e| format!("base64 decode error: {}", e))?;
+    if bytes.len() != std::mem::size_of::<T>() {
+        return Err(format!(
+            "Invalid byte length: expected {}, got {}",
+            std::mem::size_of::<T>(),
+            bytes.len()
+        ));
+    }
+    Ok(*from_bytes::<T>(&bytes))
+}
+
+/// Serializable version of SplTokenAdditionalDataV2
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializableSplTokenAdditionalData {
+    pub decimals: u8,
+    /// InterestBearingConfig serialized as base64, paired with unix timestamp
+    pub interest_bearing_config: Option<(String, i64)>,
+    /// ScaledUiAmountConfig serialized as base64, paired with unix timestamp
+    pub scaled_ui_amount_config: Option<(String, i64)>,
+}
+
+impl From<SplTokenAdditionalDataV2> for SerializableSplTokenAdditionalData {
+    fn from(data: SplTokenAdditionalDataV2) -> Self {
+        Self {
+            decimals: data.decimals,
+            interest_bearing_config: data
+                .interest_bearing_config
+                .map(|(config, ts)| (serialize_pod_to_base64(&config), ts)),
+            scaled_ui_amount_config: data
+                .scaled_ui_amount_config
+                .map(|(config, ts)| (serialize_pod_to_base64(&config), ts)),
+        }
+    }
+}
+
+impl TryFrom<SerializableSplTokenAdditionalData> for SplTokenAdditionalDataV2 {
+    type Error = String;
+
+    fn try_from(data: SerializableSplTokenAdditionalData) -> Result<Self, Self::Error> {
+        Ok(Self {
+            decimals: data.decimals,
+            interest_bearing_config: data
+                .interest_bearing_config
+                .map(|(encoded, ts)| {
+                    deserialize_pod_from_base64::<InterestBearingConfig>(&encoded)
+                        .map(|config| (config, ts))
+                })
+                .transpose()?,
+            scaled_ui_amount_config: data
+                .scaled_ui_amount_config
+                .map(|(encoded, ts)| {
+                    deserialize_pod_from_base64::<ScaledUiAmountConfig>(&encoded)
+                        .map(|config| (config, ts))
+                })
+                .transpose()?,
+        })
+    }
+}
+
+/// Serializable version of AccountAdditionalDataV3
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializableAccountAdditionalData {
+    pub spl_token_additional_data: Option<SerializableSplTokenAdditionalData>,
+}
+
+impl From<AccountAdditionalDataV3> for SerializableAccountAdditionalData {
+    fn from(data: AccountAdditionalDataV3) -> Self {
+        Self {
+            spl_token_additional_data: data.spl_token_additional_data.map(Into::into),
+        }
+    }
+}
+
+impl TryFrom<SerializableAccountAdditionalData> for AccountAdditionalDataV3 {
+    type Error = String;
+
+    fn try_from(data: SerializableAccountAdditionalData) -> Result<Self, Self::Error> {
+        Ok(Self {
+            spl_token_additional_data: data
+                .spl_token_additional_data
+                .map(TryInto::try_into)
+                .transpose()?,
+        })
+    }
+}
 
 /// Serializable version of TransactionTokenBalance
 #[derive(Debug, Clone, Serialize, Deserialize)]
