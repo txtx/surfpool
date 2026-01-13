@@ -12401,6 +12401,7 @@ name = "surfpool-types"
 version = "1.0.0-rc1"
 dependencies = [
  "anchor-lang-idl",
+ "base64 0.22.1",
  "blake3",
  "chrono",
  "crossbeam-channel",

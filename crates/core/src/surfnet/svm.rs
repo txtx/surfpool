@@ -45,7 +45,7 @@ use solana_client::{
     rpc_response::{RpcKeyedAccount, RpcLogsResponse, RpcPerfSample},
 };
 use solana_clock::{Clock, Slot};
-use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
+use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
 use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
@@ -72,9 +72,9 @@ use spl_token_2022_interface::extension::{
 };
 use surfpool_types::{
     AccountChange, AccountProfileState, AccountSnapshot, DEFAULT_PROFILING_MAP_CAPACITY,
-    DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, ExportSnapshotScope, FifoMap, Idl,
-    OverrideInstance, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
-    RunbookExecutionStatusReport, SimnetEvent, SvmFeature, SvmFeatureConfig,
+    DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, ExportSnapshotScope, FifoMap, Idl, ProfileResult,
+    RpcProfileDepth, RpcProfileResultConfig, RunbookExecutionStatusReport, SimnetEvent,
+    SnapshotResult, SvmFeature, SvmFeatureConfig, TimeseriesSurfnetSnapshot,
     TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
     UiProfileResult, VersionedIdl,
     types::{
@@ -273,7 +273,7 @@ pub struct SurfnetSvm {
     pub account_update_slots: HashMap<Pubkey, Slot>,
     pub streamed_accounts: HashMap<Pubkey, bool>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
-    pub scheduled_overrides: HashMap<Slot, Vec<OverrideInstance>>,
+    pub scheduled_overrides: HashMap<Slot, Vec<(String, Pubkey, Account)>>,
     /// Tracks accounts that have been explicitly closed by the user.
     /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
     pub closed_accounts: HashSet<Pubkey>,
@@ -1577,6 +1577,200 @@ impl SurfnetSvm {
         Ok(())
     }
 
+    pub fn snapshot_overrides(
+        &mut self,
+        scenario_id: String,
+        config: ExportSnapshotConfig,
+    ) -> SurfpoolResult<TimeseriesSurfnetSnapshot> {
+        let mut result = BTreeMap::new();
+        let encoding = if config.include_parsed_accounts.unwrap_or_default() {
+            UiAccountEncoding::JsonParsed
+        } else {
+            UiAccountEncoding::Base64
+        };
+
+        debug!("\n\nCompiling overrides for scenario: {}", scenario_id);
+        debug!(
+            "Total scheduled overrides to process: {}",
+            self.scheduled_overrides
+                .values()
+                .map(|overrides| overrides.len())
+                .sum::<usize>()
+        );
+        let overrides_for_scenario: HashMap<_, _> = self
+            .scheduled_overrides
+            .iter()
+            .map(|(slot, overrides)| {
+                (
+                    *slot,
+                    overrides
+                        .iter()
+                        .filter_map(|(override_scenario_id, account_pubkey, modified_account)| {
+                            if scenario_id.eq(override_scenario_id) {
+                                Some((account_pubkey, modified_account))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+
+        let first_slot = overrides_for_scenario.keys().min().cloned().unwrap_or(0);
+
+        for (override_slot, overrides) in overrides_for_scenario.into_iter() {
+            let relative_slot = override_slot.saturating_sub(first_slot);
+            for (pubkey, account) in overrides {
+                // For token accounts, we need to provide the mint additional data
+                let additional_data = if account.owner == spl_token_interface::id()
+                    || account.owner == spl_token_2022_interface::id()
+                {
+                    if let Ok(token_account) = TokenAccount::unpack(&account.data) {
+                        self.account_associated_data
+                            .get(&token_account.mint())
+                            .cloned()
+                    } else {
+                        self.account_associated_data.get(pubkey).cloned()
+                    }
+                } else {
+                    self.account_associated_data.get(pubkey).cloned()
+                };
+
+                let ui_account =
+                    self.encode_ui_account(pubkey, account, encoding, additional_data, None);
+
+                let (base64, parsed_data) = match ui_account.data {
+                    UiAccountData::Json(parsed_account) => {
+                        (BASE64_STANDARD.encode(account.data()), Some(parsed_account))
+                    }
+                    UiAccountData::Binary(base64, _) => (base64, None),
+                    UiAccountData::LegacyBinary(_) => unreachable!(),
+                };
+
+                let account_snapshot = AccountSnapshot::new(
+                    account.lamports,
+                    account.owner.to_string(),
+                    account.executable,
+                    account.rent_epoch,
+                    base64,
+                    parsed_data,
+                );
+
+                result
+                    .entry(relative_slot)
+                    .or_insert_with(BTreeMap::new)
+                    .insert(pubkey.to_string(), account_snapshot);
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub fn compile_override_instance(
+        &self,
+        override_instance: &surfpool_types::OverrideInstance,
+    ) -> SurfpoolResult<Option<(Pubkey, Account)>> {
+        // Resolve account address
+        let account_pubkey = match &override_instance.account {
+            surfpool_types::AccountAddress::Pubkey(pubkey_str) => {
+                match Pubkey::from_str(pubkey_str) {
+                    Ok(pubkey) => pubkey,
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse pubkey '{}' for override {}: {}",
+                            pubkey_str, override_instance.id, e
+                        );
+                        return Ok(None);
+                    }
+                }
+            }
+            surfpool_types::AccountAddress::Pda {
+                program_id: _,
+                seeds: _,
+            } => unimplemented!(),
+        };
+
+        debug!(
+            "Processing override {} for account {} (label: {:?})",
+            override_instance.id, account_pubkey, override_instance.label
+        );
+
+        // Apply the override values to the account data
+        if !override_instance.values.is_empty() {
+            debug!(
+                "Override {} applying {} field modification(s) to account {}",
+                override_instance.id,
+                override_instance.values.len(),
+                account_pubkey
+            );
+
+            // Get the account from the SVM
+            let Some(account) = self.inner.get_account(&account_pubkey) else {
+                warn!(
+                    "Account {} not found in SVM for override {}, skipping modifications",
+                    account_pubkey, override_instance.id
+                );
+                return Ok(None);
+            };
+
+            // Get the account owner (program ID)
+            let owner_program_id = account.owner();
+
+            // Look up the IDL for the owner program
+            let Some(idl_versions) = self.registered_idls.get(owner_program_id) else {
+                warn!(
+                    "No IDL registered for program {} (owner of account {}), skipping override {}",
+                    owner_program_id, account_pubkey, override_instance.id
+                );
+                return Ok(None);
+            };
+
+            // Get the latest IDL version
+            let Some(versioned_idl) = idl_versions.peek() else {
+                warn!(
+                    "IDL versions empty for program {}, skipping override {}",
+                    owner_program_id, override_instance.id
+                );
+                return Ok(None);
+            };
+
+            let idl = &versioned_idl.1;
+
+            // Get account data
+            let account_data = account.data();
+
+            // Use get_forged_account_data to apply the overrides
+            let new_account_data = match self.get_forged_account_data(
+                &account_pubkey,
+                account_data,
+                idl,
+                &override_instance.values,
+            ) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!(
+                        "Failed to forge account data for {} (override {}): {}",
+                        account_pubkey, override_instance.id, e
+                    );
+                    return Ok(None);
+                }
+            };
+
+            // Create a new account with modified data
+            let modified_account = Account {
+                lamports: account.lamports(),
+                data: new_account_data,
+                owner: *account.owner(),
+                executable: account.executable(),
+                rent_epoch: account.rent_epoch(),
+            };
+            Ok(Some((account_pubkey, modified_account)))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Materializes scheduled overrides for the current slot
     ///
     /// This function:
@@ -1585,10 +1779,7 @@ impl SurfnetSvm {
     /// 3. Optionally fetches fresh account data from remote if `fetch_before_use` is enabled
     /// 4. Applies the overrides to the account data
     /// 5. Updates the SVM state
-    pub async fn materialize_overrides(
-        &mut self,
-        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
-    ) -> SurfpoolResult<()> {
+    pub fn apply_overrides(&mut self) -> SurfpoolResult<()> {
         let current_slot = self.latest_epoch_info.absolute_slot;
 
         // Remove and get overrides for this slot
@@ -1603,170 +1794,18 @@ impl SurfnetSvm {
             current_slot
         );
 
-        for override_instance in overrides {
-            if !override_instance.enabled {
-                debug!("Skipping disabled override: {}", override_instance.id);
-                continue;
-            }
-
-            // Resolve account address
-            let account_pubkey = match &override_instance.account {
-                surfpool_types::AccountAddress::Pubkey(pubkey_str) => {
-                    match Pubkey::from_str(pubkey_str) {
-                        Ok(pubkey) => pubkey,
-                        Err(e) => {
-                            warn!(
-                                "Failed to parse pubkey '{}' for override {}: {}",
-                                pubkey_str, override_instance.id, e
-                            );
-                            continue;
-                        }
-                    }
-                }
-                surfpool_types::AccountAddress::Pda {
-                    program_id: _,
-                    seeds: _,
-                } => unimplemented!(),
-            };
-
-            debug!(
-                "Processing override {} for account {} (label: {:?})",
-                override_instance.id, account_pubkey, override_instance.label
-            );
-
-            // Fetch fresh account data from remote if requested
-            if override_instance.fetch_before_use {
-                if let Some((client, _)) = remote_ctx {
-                    debug!(
-                        "Fetching fresh account data for {} from remote",
-                        account_pubkey
-                    );
-
-                    match client
-                        .get_account(&account_pubkey, CommitmentConfig::confirmed())
-                        .await
-                    {
-                        Ok(GetAccountResult::FoundAccount(_pubkey, remote_account, _)) => {
-                            debug!(
-                                "Fetched account {} from remote: {} lamports, {} bytes",
-                                account_pubkey,
-                                remote_account.lamports(),
-                                remote_account.data().len()
-                            );
-
-                            // Set the fresh account data in the SVM
-                            if let Err(e) = self.inner.set_account(account_pubkey, remote_account) {
-                                warn!(
-                                    "Failed to set account {} from remote: {}",
-                                    account_pubkey, e
-                                );
-                            }
-                        }
-                        Ok(GetAccountResult::None(_)) => {
-                            debug!("Account {} not found on remote", account_pubkey);
-                        }
-                        Ok(_) => {
-                            debug!("Account {} fetched (other variant)", account_pubkey);
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to fetch account {} from remote: {}",
-                                account_pubkey, e
-                            );
-                        }
-                    }
-                } else {
-                    debug!(
-                        "fetch_before_use enabled but no remote client available for override {}",
-                        override_instance.id
-                    );
-                }
-            }
-
-            // Apply the override values to the account data
-            if !override_instance.values.is_empty() {
-                debug!(
-                    "Override {} applying {} field modification(s) to account {}",
-                    override_instance.id,
-                    override_instance.values.len(),
-                    account_pubkey
+        for (scenario_id, account_pubkey, modified_account) in overrides {
+            // Update the account in the SVM
+            if let Err(e) = self.inner.set_account(account_pubkey, modified_account) {
+                warn!(
+                    "Failed to set modified account {} in SVM: {}",
+                    account_pubkey, e
                 );
-
-                // Get the account from the SVM
-                let Some(account) = self.inner.get_account(&account_pubkey) else {
-                    warn!(
-                        "Account {} not found in SVM for override {}, skipping modifications",
-                        account_pubkey, override_instance.id
-                    );
-                    continue;
-                };
-
-                // Get the account owner (program ID)
-                let owner_program_id = account.owner();
-
-                // Look up the IDL for the owner program
-                let Some(idl_versions) = self.registered_idls.get(owner_program_id) else {
-                    warn!(
-                        "No IDL registered for program {} (owner of account {}), skipping override {}",
-                        owner_program_id, account_pubkey, override_instance.id
-                    );
-                    continue;
-                };
-
-                // Get the latest IDL version
-                let Some(versioned_idl) = idl_versions.peek() else {
-                    warn!(
-                        "IDL versions empty for program {}, skipping override {}",
-                        owner_program_id, override_instance.id
-                    );
-                    continue;
-                };
-
-                let idl = &versioned_idl.1;
-
-                // Get account data
-                let account_data = account.data();
-
-                // Use get_forged_account_data to apply the overrides
-                let new_account_data = match self.get_forged_account_data(
-                    &account_pubkey,
-                    account_data,
-                    idl,
-                    &override_instance.values,
-                ) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        warn!(
-                            "Failed to forge account data for {} (override {}): {}",
-                            account_pubkey, override_instance.id, e
-                        );
-                        continue;
-                    }
-                };
-
-                // Create a new account with modified data
-                let modified_account = Account {
-                    lamports: account.lamports(),
-                    data: new_account_data,
-                    owner: *account.owner(),
-                    executable: account.executable(),
-                    rent_epoch: account.rent_epoch(),
-                };
-
-                // Update the account in the SVM
-                if let Err(e) = self.inner.set_account(account_pubkey, modified_account) {
-                    warn!(
-                        "Failed to set modified account {} in SVM: {}",
-                        account_pubkey, e
-                    );
-                } else {
-                    debug!(
-                        "Successfully applied {} override(s) to account {} (override {})",
-                        override_instance.values.len(),
-                        account_pubkey,
-                        override_instance.id
-                    );
-                }
+            } else {
+                debug!(
+                    "Successfully applied override to account {} (scenario {})",
+                    account_pubkey, scenario_id
+                );
             }
         }
 
@@ -2637,11 +2676,7 @@ impl SurfnetSvm {
     ///
     /// # Returns
     /// A BTreeMap of pubkey -> AccountFixture that can be serialized to JSON.
-    pub fn export_snapshot(
-        &self,
-        config: ExportSnapshotConfig,
-    ) -> BTreeMap<String, AccountSnapshot> {
-        let mut fixtures = BTreeMap::new();
+    pub fn export_snapshot(&self, config: ExportSnapshotConfig) -> SnapshotResult {
         let encoding = if config.include_parsed_accounts.unwrap_or_default() {
             UiAccountEncoding::JsonParsed
         } else {
@@ -2659,14 +2694,14 @@ impl SurfnetSvm {
         }
 
         // Helper function to process an account and add it to fixtures
-        let mut process_account = |pubkey: &Pubkey, account: &Account| {
+        let process_account = |pubkey: &Pubkey, account: &Account| -> Option<AccountSnapshot> {
             let is_include_account = include_accounts.iter().any(|k| k.eq(&pubkey.to_string()));
             let is_exclude_account = exclude_accounts.iter().any(|k| k.eq(&pubkey.to_string()));
             let is_program_account = is_program_account(&account.owner);
             if is_exclude_account
                 || ((is_program_account && !include_program_accounts) && !is_include_account)
             {
-                return;
+                return None;
             }
 
             // For token accounts, we need to provide the mint additional data
@@ -2695,27 +2730,30 @@ impl SurfnetSvm {
                 UiAccountData::LegacyBinary(_) => unreachable!(),
             };
 
-            let account_snapshot = AccountSnapshot::new(
+            Some(AccountSnapshot::new(
                 account.lamports,
                 account.owner.to_string(),
                 account.executable,
                 account.rent_epoch,
                 base64,
                 parsed_data,
-            );
-
-            fixtures.insert(pubkey.to_string(), account_snapshot);
+            ))
         };
 
         match &config.scope {
             ExportSnapshotScope::Network => {
+                let mut fixtures = BTreeMap::new();
                 // Export all network accounts (current behavior)
                 for (pubkey, account_shared_data) in self.iter_accounts() {
                     let account = Account::from(account_shared_data.clone());
-                    process_account(&pubkey, &account);
+                    if let Some(account_snapshot) = process_account(&pubkey, &account) {
+                        fixtures.insert(pubkey.to_string(), account_snapshot);
+                    }
                 }
+                SnapshotResult::Accounts(fixtures)
             }
             ExportSnapshotScope::PreTransaction(signature_str) => {
+                let mut fixtures = BTreeMap::new();
                 // Export accounts from a specific transaction's pre-execution state
                 if let Ok(signature) = Signature::from_str(signature_str) {
                     if let Some(profile) = self.executed_transaction_profiles.get(&signature) {
@@ -2725,20 +2763,40 @@ impl SurfnetSvm {
                             &profile.transaction_profile.pre_execution_capture
                         {
                             if let Some(account) = account_opt {
-                                process_account(pubkey, account);
+                                if let Some(account_snapshot) = process_account(pubkey, account) {
+                                    fixtures.insert(pubkey.to_string(), account_snapshot);
+                                }
                             }
                         }
 
                         // Also collect readonly account states (these don't change)
                         for (pubkey, account) in &profile.readonly_account_states {
-                            process_account(pubkey, account);
+                            if let Some(account_snapshot) = process_account(pubkey, account) {
+                                fixtures.insert(pubkey.to_string(), account_snapshot);
+                            }
                         }
                     }
                 }
+                SnapshotResult::Accounts(fixtures)
+            }
+            ExportSnapshotScope::Scenario(scenario) => {
+                let mut fixtures = BTreeMap::new();
+                for override_instance in scenario.overrides.iter() {
+                    if let Some((account_pubkey, account)) = self
+                        .compile_override_instance(&override_instance)
+                        .unwrap_or(None)
+                    {
+                        if let Some(account_snapshot) = process_account(&account_pubkey, &account) {
+                            fixtures
+                                .entry(override_instance.scenario_relative_slot)
+                                .or_insert_with(BTreeMap::new)
+                                .insert(account_pubkey.to_string(), account_snapshot);
+                        }
+                    }
+                }
+                SnapshotResult::TimeseriesSurfnet(fixtures)
             }
         }
-
-        fixtures
     }
 
     /// Registers a scenario for execution by scheduling its overrides
@@ -2771,10 +2829,14 @@ impl SurfnetSvm {
                 absolute_slot, base_slot, scenario_relative_slot
             );
 
-            self.scheduled_overrides
-                .entry(absolute_slot)
-                .or_insert_with(Vec::new)
-                .push(override_instance);
+            if let Some((account_pubkey, account)) =
+                self.compile_override_instance(&override_instance)?
+            {
+                self.scheduled_overrides
+                    .entry(absolute_slot)
+                    .or_insert_with(Vec::new)
+                    .push((scenario.id.clone(), account_pubkey, account));
+            }
         }
 
         Ok(())

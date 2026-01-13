@@ -2898,7 +2898,7 @@ async fn test_profile_transaction_versioned_message() {
         .airdrop(&payer.pubkey(), 2 * lamports_to_send)
         .unwrap();
 
-    svm_locker.confirm_current_block(&None).await.unwrap();
+    svm_locker.confirm_current_block().await.unwrap();
 
     // Create a transfer instruction
     let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
@@ -2970,7 +2970,7 @@ async fn test_get_local_signatures_without_limit() {
         .unwrap();
 
     svm_locker_for_context
-        .confirm_current_block(&None)
+        .confirm_current_block()
         .await
         .unwrap();
 
@@ -3002,7 +3002,7 @@ async fn test_get_local_signatures_without_limit() {
         .unwrap();
     // Confirm the block after creating the account
     svm_locker_for_context
-        .confirm_current_block(&None)
+        .confirm_current_block()
         .await
         .unwrap();
 
@@ -3023,7 +3023,7 @@ async fn test_get_local_signatures_without_limit() {
 
     // Confirm the current block to create a block with the transaction signature
     svm_locker_for_context
-        .confirm_current_block(&None)
+        .confirm_current_block()
         .await
         .unwrap();
 
@@ -3069,7 +3069,7 @@ async fn test_get_local_signatures_with_limit() {
         .unwrap();
 
     svm_locker_for_context
-        .confirm_current_block(&None)
+        .confirm_current_block()
         .await
         .unwrap();
 
@@ -3112,7 +3112,7 @@ async fn test_get_local_signatures_with_limit() {
 
         // Confirm the current block to create a new block with this transaction
         svm_locker_for_context
-            .confirm_current_block(&None)
+            .confirm_current_block()
             .await
             .unwrap();
     }
@@ -4014,13 +4014,13 @@ async fn test_reset_streamed_account() {
     svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap(); // account is created in the SVM
     println!("Airdropped SOL to p1");
 
-    let _ = svm_locker.confirm_current_block(&None).await;
+    let _ = svm_locker.confirm_current_block().await;
     // Account still exists
     assert!(!svm_locker.get_account_local(&p1.pubkey()).inner.is_none());
 
     svm_locker.stream_account(p1.pubkey(), false).unwrap();
 
-    let _ = svm_locker.confirm_current_block(&None).await;
+    let _ = svm_locker.confirm_current_block().await;
     // Account is cleaned up as soon as the block is processed
     assert!(
         svm_locker.get_account_local(&p1.pubkey()).inner.is_none(),
@@ -4066,13 +4066,13 @@ async fn test_reset_streamed_account_cascade() {
     assert!(!svm_locker.get_account_local(&owner).inner.is_none());
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
-    let _ = svm_locker.confirm_current_block(&None).await;
+    let _ = svm_locker.confirm_current_block().await;
     // Accounts still exists
     assert!(!svm_locker.get_account_local(&owner).inner.is_none());
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
     svm_locker.stream_account(owner, true).unwrap();
-    let _ = svm_locker.confirm_current_block(&None).await;
+    let _ = svm_locker.confirm_current_block().await;
 
     // Owner is deleted, owned account is deleted
     assert!(svm_locker.get_account_local(&owner).inner.is_none());
@@ -4364,7 +4364,7 @@ async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionTyp
     match subscription_type {
         SignatureSubscriptionType::Commitment(CommitmentLevel::Confirmed) => {
             // confirm the block to trigger confirmed notification
-            svm_locker.confirm_current_block(&None).await.unwrap();
+            svm_locker.confirm_current_block().await.unwrap();
         }
         _ => {}
     }
@@ -4507,7 +4507,7 @@ async fn test_ws_signature_subscribe_multiple_subscribers() {
     );
 
     // confirm the block for confirmed subscription
-    svm_locker.confirm_current_block(&None).await.unwrap();
+    svm_locker.confirm_current_block().await.unwrap();
     assert!(
         notification_rx3
             .recv_timeout(Duration::from_secs(5))
@@ -4692,7 +4692,7 @@ async fn test_ws_account_subscribe_multiple_changes() {
 
         // confirm the block to get fresh blockhash for next transaction
         if i < 2 {
-            svm_locker.confirm_current_block(&None).await.unwrap();
+            svm_locker.confirm_current_block().await.unwrap();
         }
     }
 }
@@ -4915,7 +4915,7 @@ async fn test_ws_slot_subscribe_manual_advancement() {
     let initial_slot = svm_locker.get_latest_absolute_slot();
 
     // manually advance slot by confirming a block
-    svm_locker.confirm_current_block(&None).await.unwrap();
+    svm_locker.confirm_current_block().await.unwrap();
 
     // should receive slot update notification
     let slot_update = slot_rx.recv_timeout(Duration::from_secs(5));
@@ -4946,7 +4946,7 @@ async fn test_ws_slot_subscribe_multiple_subscribers() {
     let slot_rx3 = svm_locker.subscribe_for_slot_updates();
 
     // advance slot
-    svm_locker.confirm_current_block(&None).await.unwrap();
+    svm_locker.confirm_current_block().await.unwrap();
 
     // all subscribers should receive notification
     assert!(
@@ -4974,7 +4974,7 @@ async fn test_ws_slot_subscribe_multiple_slot_changes() {
 
     // advance slot multiple times
     for i in 0..3 {
-        svm_locker.confirm_current_block(&None).await.unwrap();
+        svm_locker.confirm_current_block().await.unwrap();
 
         let slot_update = slot_rx.recv_timeout(Duration::from_secs(5));
         assert!(
@@ -5172,7 +5172,7 @@ async fn test_ws_logs_subscribe_confirmed_commitment() {
         .unwrap();
 
     // confirm the block to trigger confirmed logs
-    svm_locker.confirm_current_block(&None).await.unwrap();
+    svm_locker.confirm_current_block().await.unwrap();
 
     // wait for confirmed logs notification
     let logs_notification = logs_rx.recv_timeout(Duration::from_secs(5));
@@ -5234,11 +5234,11 @@ async fn test_ws_logs_subscribe_finalized_commitment() {
         .unwrap();
 
     // confirm and finalize the block
-    svm_locker.confirm_current_block(&None).await.unwrap();
+    svm_locker.confirm_current_block().await.unwrap();
 
     // advance enough slots to trigger finalization
     for _ in 0..FINALIZATION_SLOT_THRESHOLD {
-        svm_locker.confirm_current_block(&None).await.unwrap();
+        svm_locker.confirm_current_block().await.unwrap();
     }
 
     // wait for finalized logs notification
@@ -5375,7 +5375,7 @@ async fn test_ws_logs_subscribe_multiple_subscribers() {
     );
 
     // confirm block for confirmed subscriber
-    svm_locker.confirm_current_block(&None).await.unwrap();
+    svm_locker.confirm_current_block().await.unwrap();
     assert!(
         logs_rx3.recv_timeout(Duration::from_secs(5)).is_ok(),
         "Confirmed subscriber should receive logs"

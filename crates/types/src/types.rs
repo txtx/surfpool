@@ -25,7 +25,7 @@ use txtx_addon_kit::indexmap::IndexMap;
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
 
-use crate::SvmFeatureConfig;
+use crate::{Scenario, SvmFeatureConfig};
 
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEFAULT_RPC_PORT: u16 = 8899;
@@ -1009,6 +1009,19 @@ pub struct AccountSnapshot {
     pub parsed_data: Option<ParsedAccount>,
 }
 
+impl Into<Account> for AccountSnapshot {
+    fn into(self) -> Account {
+        use base64::{Engine, prelude::BASE64_STANDARD};
+        Account {
+            lamports: self.lamports,
+            data: BASE64_STANDARD.decode(self.data).unwrap_or_default(),
+            owner: self.owner.parse().unwrap_or_default(),
+            executable: self.executable,
+            rent_epoch: self.rent_epoch,
+        }
+    }
+}
+
 impl AccountSnapshot {
     pub fn new(
         lamports: u64,
@@ -1029,6 +1042,32 @@ impl AccountSnapshot {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", untagged)]
+pub enum SnapshotResult {
+    Accounts(AccountsSnapshot),
+    TimeseriesSurfnet(TimeseriesSurfnetSnapshot),
+}
+
+impl SnapshotResult {
+    pub fn as_accounts(&self) -> Option<&AccountsSnapshot> {
+        match self {
+            SnapshotResult::Accounts(accounts) => Some(accounts),
+            _ => None,
+        }
+    }
+
+    pub fn as_timeseries_surfnet(&self) -> Option<&TimeseriesSurfnetSnapshot> {
+        match self {
+            SnapshotResult::TimeseriesSurfnet(timeseries) => Some(timeseries),
+            _ => None,
+        }
+    }
+}
+
+pub type AccountsSnapshot = BTreeMap<String, AccountSnapshot>;
+pub type TimeseriesSurfnetSnapshot = BTreeMap<u64, AccountsSnapshot>;
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportSnapshotConfig {
@@ -1043,6 +1082,7 @@ pub enum ExportSnapshotScope {
     #[default]
     Network,
     PreTransaction(String),
+    Scenario(Scenario),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
