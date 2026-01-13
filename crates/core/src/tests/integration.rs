@@ -65,9 +65,11 @@ fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<S
     loop {
         match simnet_events_rx.recv() {
             Ok(SimnetEvent::Ready(_)) => {
+                println!("Simnet is ready");
                 ready = true;
             }
             Ok(SimnetEvent::Connected(_)) => {
+                println!("Simnet is connected");
                 connected = true;
             }
             _ => (),
@@ -127,6 +129,7 @@ async fn test_simnet_ready(test_type: TestType) {
 async fn test_simnet_ticks(test_type: TestType) {
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
             slot_time: 1,
@@ -135,7 +138,7 @@ async fn test_simnet_ticks(test_type: TestType) {
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
-            ..Default::default()
+            ws_port,
         },
         ..SurfpoolConfig::default()
     };
@@ -193,6 +196,7 @@ async fn test_simnet_some_sol_transfers(test_type: TestType) {
     let airdrop_token_amount = LAMPORTS_PER_SOL;
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
             slot_time: 1,
@@ -203,7 +207,7 @@ async fn test_simnet_some_sol_transfers(test_type: TestType) {
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
-            ..Default::default()
+            ws_port,
         },
         ..SurfpoolConfig::default()
     };
@@ -348,6 +352,7 @@ async fn test_add_alt_entries_fetching(test_type: TestType) {
 
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let airdrop_token_amount = LAMPORTS_PER_SOL;
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
@@ -359,11 +364,12 @@ async fn test_add_alt_entries_fetching(test_type: TestType) {
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
-            ..Default::default()
+            ws_port,
         },
         ..SurfpoolConfig::default()
     };
 
+    println!("Initializing SVM, binding to port {}", bind_port);
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
@@ -519,6 +525,7 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
 
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let airdrop_token_amount = LAMPORTS_PER_SOL;
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
@@ -530,7 +537,7 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
-            ..Default::default()
+            ws_port,
         },
         ..SurfpoolConfig::default()
     };
@@ -636,6 +643,7 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
 
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let airdrop_token_amount = LAMPORTS_PER_SOL;
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
@@ -647,7 +655,7 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
-            ..Default::default()
+            ws_port,
         },
         ..SurfpoolConfig::default()
     };
@@ -3339,7 +3347,8 @@ fn boot_simnet(
     });
 
     loop {
-        if let Ok(SimnetEvent::Ready(_)) = simnet_events_rx.recv_timeout(Duration::from_millis(1000))
+        if let Ok(SimnetEvent::Ready(_)) =
+            simnet_events_rx.recv_timeout(Duration::from_millis(1000))
         {
             break;
         }
@@ -4304,6 +4313,7 @@ fn start_surfnet(
 ) -> Result<(String, SurfnetSvmLocker), String> {
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let offline_mode = datasource_rpc_url.is_none();
 
     let config = SurfpoolConfig {
@@ -4318,7 +4328,7 @@ fn start_surfnet(
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
-            ..Default::default()
+            ws_port,
         },
         ..SurfpoolConfig::default()
     };
