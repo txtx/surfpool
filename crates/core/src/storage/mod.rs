@@ -189,11 +189,7 @@ impl StorageError {
             QueryExecuteError::GetAllKeyValuePairsError(e),
         )
     }
-    pub fn count(
-        table_name: &str,
-        db_type: &str,
-        e: surfpool_db::diesel::result::Error,
-    ) -> Self {
+    pub fn count(table_name: &str, db_type: &str, e: surfpool_db::diesel::result::Error) -> Self {
         StorageError::QueryError(
             table_name.to_string(),
             db_type.to_string(),
@@ -267,9 +263,11 @@ pub trait StorageConstructor<K, V>: Storage<K, V> + Clone {
 
 #[cfg(test)]
 pub mod tests {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-    use std::os::unix::fs::PermissionsExt;
+    use std::{
+        collections::hash_map::RandomState,
+        hash::{BuildHasher, Hasher},
+        os::unix::fs::PermissionsExt,
+    };
 
     use crossbeam_channel::Receiver;
     use surfpool_types::SimnetEvent;

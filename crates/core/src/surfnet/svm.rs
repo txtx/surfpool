@@ -3172,9 +3172,8 @@ mod tests {
     use spl_token_interface::state::{Account as TokenAccount, AccountState};
     use test_case::test_case;
 
-    use crate::storage::tests::TestType;
-
     use super::*;
+    use crate::storage::tests::TestType;
 
     #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
     #[test_case(TestType::in_memory(); "with in-memory sqlite db")]

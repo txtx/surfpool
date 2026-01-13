@@ -1,6 +1,8 @@
-use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    sync::{Arc, RwLock},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -84,7 +86,10 @@ where
         drop(overlay); // Release read lock before querying base
 
         // Check if base was cleared
-        let base_cleared = self.base_cleared.read().map_err(|_| StorageError::LockError)?;
+        let base_cleared = self
+            .base_cleared
+            .read()
+            .map_err(|_| StorageError::LockError)?;
         if *base_cleared {
             return Ok(None);
         }
@@ -115,7 +120,10 @@ where
         drop(overlay);
 
         // Check if base was cleared
-        let base_cleared = self.base_cleared.read().map_err(|_| StorageError::LockError)?;
+        let base_cleared = self
+            .base_cleared
+            .read()
+            .map_err(|_| StorageError::LockError)?;
         if *base_cleared {
             return Ok(None);
         }
@@ -282,10 +290,7 @@ mod tests {
         );
 
         // Base should still have original value
-        assert_eq!(
-            base.get(&"key1".into()).unwrap(),
-            Some("base_value".into())
-        );
+        assert_eq!(base.get(&"key1".into()).unwrap(), Some("base_value".into()));
     }
 
     #[test]
@@ -315,10 +320,7 @@ mod tests {
         assert_eq!(overlay.get(&"key1".into()).unwrap(), None);
 
         // Base should still have the value
-        assert_eq!(
-            base.get(&"key1".into()).unwrap(),
-            Some("base_value".into())
-        );
+        assert_eq!(base.get(&"key1".into()).unwrap(), Some("base_value".into()));
     }
 
     #[test]
@@ -348,10 +350,7 @@ mod tests {
         assert_eq!(overlay.keys().unwrap().len(), 0);
 
         // Base should still have the value
-        assert_eq!(
-            base.get(&"key1".into()).unwrap(),
-            Some("base_value".into())
-        );
+        assert_eq!(base.get(&"key1".into()).unwrap(), Some("base_value".into()));
     }
 
     #[test]
@@ -406,8 +405,10 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert!(entries.contains(&("base_key".into(), "base_value".into())));
         assert!(entries.contains(&("overlay_key".into(), "overlay_value".into())));
-        assert!(!entries
-            .iter()
-            .any(|(k, _)| k == &String::from("deleted_key")));
+        assert!(
+            !entries
+                .iter()
+                .any(|(k, _)| k == &String::from("deleted_key"))
+        );
     }
 }

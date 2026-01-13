@@ -7,7 +7,10 @@ use chrono::Utc;
 use litesvm::types::TransactionMetadata;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use solana_account::Account;
-use solana_account_decoder::parse_token::UiTokenAmount;
+use solana_account_decoder::{
+    parse_account_data::{AccountAdditionalDataV3, SplTokenAdditionalDataV2},
+    parse_token::UiTokenAmount,
+};
 use solana_clock::{Epoch, Slot};
 use solana_hash::Hash;
 use solana_message::{
@@ -33,7 +36,6 @@ use solana_transaction_status::{
     parse_accounts::{parse_legacy_message_accounts, parse_v0_message_accounts},
     parse_ui_inner_instructions,
 };
-use solana_account_decoder::parse_account_data::{AccountAdditionalDataV3, SplTokenAdditionalDataV2};
 use spl_token_2022_interface::extension::{
     StateWithExtensions, interest_bearing_mint::InterestBearingConfig,
     scaled_ui_amount::ScaledUiAmountConfig,

@@ -1,5 +1,7 @@
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
 use log::debug;
 use serde::{Deserialize, Serialize};
@@ -16,18 +18,28 @@ use crate::storage::{Storage, StorageConstructor, StorageError, StorageResult};
 /// Global shared connection pools keyed by database URL.
 /// This allows multiple PostgresStorage instances to share the same pool,
 /// which is essential for tests that run in parallel.
-static SHARED_POOLS: OnceLock<Mutex<HashMap<String, Pool<ConnectionManager<diesel::PgConnection>>>>> = OnceLock::new();
+static SHARED_POOLS: OnceLock<
+    Mutex<HashMap<String, Pool<ConnectionManager<diesel::PgConnection>>>>,
+> = OnceLock::new();
 
-fn get_or_create_shared_pool(database_url: &str) -> StorageResult<Pool<ConnectionManager<diesel::PgConnection>>> {
+fn get_or_create_shared_pool(
+    database_url: &str,
+) -> StorageResult<Pool<ConnectionManager<diesel::PgConnection>>> {
     let pools = SHARED_POOLS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut pools_guard = pools.lock().map_err(|_| StorageError::LockError)?;
 
     if let Some(pool) = pools_guard.get(database_url) {
-        debug!("Reusing existing shared PostgreSQL connection pool for {}", database_url);
+        debug!(
+            "Reusing existing shared PostgreSQL connection pool for {}",
+            database_url
+        );
         return Ok(pool.clone());
     }
 
-    debug!("Creating new shared PostgreSQL connection pool for {}", database_url);
+    debug!(
+        "Creating new shared PostgreSQL connection pool for {}",
+        database_url
+    );
     let manager = ConnectionManager::<diesel::PgConnection>::new(database_url);
     let pool = Pool::builder()
         .max_size(10) // Limit total connections across all tests

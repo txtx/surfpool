@@ -1,6 +1,7 @@
-use serde::{Deserialize, Serialize};
 pub use std::collections::HashMap;
 use std::hash::Hash;
+
+use serde::{Deserialize, Serialize};
 
 impl<K, V> super::Storage<K, V> for HashMap<K, V>
 where

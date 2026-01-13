@@ -6896,8 +6896,7 @@ async fn test_instruction_profiling_does_not_mutate_state(test_type: TestType) {
     // - First instruction: valid transfer from payer to recipient (would succeed alone)
     // - Second instruction: invalid transfer from unfunded account (will fail)
     let valid_instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
-    let invalid_instruction =
-        transfer(&payer_without_funds.pubkey(), &recipient, lamports_to_send);
+    let invalid_instruction = transfer(&payer_without_funds.pubkey(), &recipient, lamports_to_send);
 
     let latest_blockhash = svm_instance.latest_blockhash();
     let message = Message::new_with_blockhash(
@@ -6920,11 +6919,11 @@ async fn test_instruction_profiling_does_not_mutate_state(test_type: TestType) {
     // This will trigger instruction-level profiling since it's enabled by default
     let process_result = svm_locker
         .process_transaction(
-            &None,              // no remote context
+            &None, // no remote context
             transaction.clone(),
             status_tx,
-            true,               // skip_preflight
-            false,              // sigverify
+            true,  // skip_preflight
+            false, // sigverify
         )
         .await;
 
@@ -6998,8 +6997,7 @@ async fn test_instruction_profiling_does_not_mutate_state(test_type: TestType) {
         .with_svm_reader(|svm| svm.get_account(&recipient))
         .ok()
         .flatten();
-    let final_transactions_processed =
-        svm_locker.with_svm_reader(|svm| svm.transactions_processed);
+    let final_transactions_processed = svm_locker.with_svm_reader(|svm| svm.transactions_processed);
 
     // THE KEY ASSERTION: Recipient should NOT have received funds
     // This proves that the first instruction's transfer (which was profiled successfully)

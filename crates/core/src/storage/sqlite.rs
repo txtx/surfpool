@@ -1,5 +1,7 @@
-use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
+use std::{
+    collections::HashSet,
+    sync::{Mutex, OnceLock},
+};
 
 use log::debug;
 use serde::{Deserialize, Serialize};

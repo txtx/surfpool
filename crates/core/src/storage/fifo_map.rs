@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::hash::Hash;
+
+use serde::{Deserialize, Serialize};
 use surfpool_types::FifoMap;
 
 impl<K, V> super::Storage<K, V> for FifoMap<K, V>
