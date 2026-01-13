@@ -6697,3 +6697,154 @@ fn test_nonce_accounts() {
         "Recipient account did not receive correct amount"
     );
 }
+
+/// Tests that profiling a transaction does not mutate the original SVM state.
+/// This verifies the OverlayStorage implementation correctly isolates mutations
+/// during profiling from the underlying database.
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
+
+    // Setup: Create accounts and fund the payer
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 1_000_000;
+    let initial_payer_balance = lamports_to_send * 10;
+
+    svm_instance
+        .airdrop(&payer.pubkey(), initial_payer_balance)
+        .unwrap()
+        .unwrap();
+
+    // Create a transfer transaction
+    let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let latest_blockhash = svm_instance.latest_blockhash();
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message.clone()), &[&payer])
+        .unwrap();
+
+    let tx_bytes = bincode::serialize(&tx).unwrap();
+    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
+
+    // Record initial state BEFORE profiling
+    let initial_transactions_processed = svm_instance.transactions_processed;
+    let initial_payer_account = svm_instance.get_account(&payer.pubkey()).unwrap();
+    let initial_recipient_account = svm_instance.get_account(&recipient).ok().flatten();
+
+    // Create the locker and runloop context
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+    };
+
+    // Profile the transaction multiple times to ensure no state leakage
+    for i in 0..3 {
+        let response: JsonRpcResult<RpcResponse<UiKeyedProfileResult>> = rpc_server
+            .profile_transaction(
+                Some(runloop_context.clone()),
+                tx_b64.clone(),
+                Some(format!("test_isolation_{}", i)),
+                None,
+            )
+            .await;
+
+        assert!(
+            response.is_ok(),
+            "Profile transaction {} failed: {:?}",
+            i,
+            response.err()
+        );
+
+        let profile_result = response.unwrap().value;
+        assert!(
+            profile_result.transaction_profile.error_message.is_none(),
+            "Profile {} had unexpected error: {:?}",
+            i,
+            profile_result.transaction_profile.error_message
+        );
+
+        // The profile should show the transaction would succeed
+        assert!(
+            profile_result.transaction_profile.compute_units_consumed > 0,
+            "Profile {} should show compute units consumed",
+            i
+        );
+    }
+
+    // Verify state is UNCHANGED after profiling
+    let final_transactions_processed = svm_locker.with_svm_reader(|svm| svm.transactions_processed);
+    let final_payer_account = svm_locker
+        .with_svm_reader(|svm| svm.get_account(&payer.pubkey()))
+        .unwrap();
+    let final_recipient_account = svm_locker
+        .with_svm_reader(|svm| svm.get_account(&recipient))
+        .ok()
+        .flatten();
+
+    // Transaction count should not have increased from profiling
+    assert_eq!(
+        initial_transactions_processed, final_transactions_processed,
+        "transactions_processed should not change from profiling"
+    );
+
+    // Payer balance should be unchanged (transfer was only simulated)
+    assert_eq!(
+        initial_payer_account.as_ref().map(|a| a.lamports),
+        final_payer_account.as_ref().map(|a| a.lamports),
+        "Payer balance should not change from profiling"
+    );
+
+    // Recipient should still not exist or have the same balance
+    assert_eq!(
+        initial_recipient_account.as_ref().map(|a| a.lamports),
+        final_recipient_account.as_ref().map(|a| a.lamports),
+        "Recipient balance should not change from profiling"
+    );
+
+    // Now actually execute the transaction to prove the state can still be mutated
+    let execution_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(tx.clone(), false, false));
+
+    assert!(
+        execution_result.is_ok(),
+        "Actual transaction execution should succeed: {:?}",
+        execution_result.err()
+    );
+
+    // Verify state DID change after actual execution
+    let post_execution_transactions = svm_locker.with_svm_reader(|svm| svm.transactions_processed);
+    let post_execution_recipient = svm_locker
+        .with_svm_reader(|svm| svm.get_account(&recipient))
+        .unwrap();
+
+    assert_eq!(
+        post_execution_transactions,
+        initial_transactions_processed + 1,
+        "Transaction count should increase after actual execution"
+    );
+
+    assert!(
+        post_execution_recipient.is_some(),
+        "Recipient should exist after actual execution"
+    );
+
+    assert_eq!(
+        post_execution_recipient.unwrap().lamports,
+        lamports_to_send,
+        "Recipient should have received funds after actual execution"
+    );
+}
