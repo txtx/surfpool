@@ -594,11 +594,18 @@ impl SimnetConfig {
 #[derive(Clone, Debug, Default)]
 pub struct SubgraphConfig {}
 
+pub const DEFAULT_GOSSIP_PORT: u16 = 8001;
+pub const DEFAULT_TPU_PORT: u16 = 8003;
+pub const DEFAULT_TPU_QUIC_PORT: u16 = 8004;
+
 #[derive(Clone, Debug)]
 pub struct RpcConfig {
     pub bind_host: String,
     pub bind_port: u16,
     pub ws_port: u16,
+    pub gossip_port: u16,
+    pub tpu_port: u16,
+    pub tpu_quic_port: u16,
 }
 
 impl RpcConfig {
@@ -616,6 +623,9 @@ impl Default for RpcConfig {
             bind_host: DEFAULT_NETWORK_HOST.to_string(),
             bind_port: DEFAULT_RPC_PORT,
             ws_port: DEFAULT_WS_PORT,
+            gossip_port: DEFAULT_GOSSIP_PORT,
+            tpu_port: DEFAULT_TPU_PORT,
+            tpu_quic_port: DEFAULT_TPU_QUIC_PORT,
         }
     }
 }

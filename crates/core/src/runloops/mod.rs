@@ -939,6 +939,7 @@ async fn start_ws_rpc_server_runloop(
                                 .plugin_manager_commands_tx
                                 .clone(),
                             remote_rpc_client: middleware.remote_rpc_client.clone(),
+                            rpc_config: middleware.config.clone(),
                         };
                         Some(SurfpoolWebsocketMeta::new(
                             runloop_context,

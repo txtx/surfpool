@@ -8,6 +8,8 @@ test-ledger
 **/.DS_Store
 
 .surfpool
+surfpool.log
+
 
 # local
 txtx.yml
