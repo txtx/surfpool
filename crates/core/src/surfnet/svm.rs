@@ -1193,6 +1193,30 @@ impl SurfnetSvm {
             .inner
             .get_account(&spl_token_interface::native_mint::ID)?
             .unwrap();
+
+        let native_mint_associated_data = {
+            let mint = StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(
+                &native_mint_account.data,
+            )
+            .unwrap();
+            let unix_timestamp = self.inner.get_sysvar::<Clock>().unix_timestamp;
+            let interest_bearing_config = mint
+                .get_extension::<InterestBearingConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            let scaled_ui_amount_config = mint
+                .get_extension::<ScaledUiAmountConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            AccountAdditionalDataV3 {
+                spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                    decimals: mint.base.decimals,
+                    interest_bearing_config,
+                    scaled_ui_amount_config,
+                }),
+            }
+        };
+
         let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
 
         self.blocks.clear()?;
@@ -1210,6 +1234,10 @@ impl SurfnetSvm {
             vec![spl_token_interface::native_mint::ID.to_string()],
         )?;
         self.account_associated_data.clear()?;
+        self.account_associated_data.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            native_mint_associated_data.into(),
+        )?;
         self.token_accounts.clear()?;
         self.token_mints.clear()?;
         self.token_mints.store(
