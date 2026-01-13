@@ -97,7 +97,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
     scenarios::TemplateRegistry,
-    storage::{Storage, new_kv_store, new_kv_store_with_default},
+    storage::{OverlayStorage, Storage, new_kv_store, new_kv_store_with_default},
     surfnet::{
         LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
     },
@@ -312,6 +312,80 @@ impl SurfnetSvm {
         self.simulated_transaction_profiles.shutdown();
         self.executed_transaction_profiles.shutdown();
         self.account_associated_data.shutdown();
+    }
+
+    /// Creates a clone of the SVM with overlay storage wrappers for all database-backed fields.
+    /// This allows profiling transactions without affecting the underlying database.
+    /// All storage writes are buffered in memory and discarded when the clone is dropped.
+    pub fn clone_for_profiling(&self) -> Self {
+        let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
+        let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
+
+        Self {
+            inner: self.inner.clone_for_profiling(),
+            remote_rpc_url: self.remote_rpc_url.clone(),
+            chain_tip: self.chain_tip.clone(),
+
+            // Wrap all storage fields with OverlayStorage
+            blocks: OverlayStorage::wrap(self.blocks.clone_box()),
+            transactions: OverlayStorage::wrap(self.transactions.clone_box()),
+            profile_tag_map: OverlayStorage::wrap(self.profile_tag_map.clone_box()),
+            simulated_transaction_profiles: OverlayStorage::wrap(
+                self.simulated_transaction_profiles.clone_box(),
+            ),
+            executed_transaction_profiles: OverlayStorage::wrap(
+                self.executed_transaction_profiles.clone_box(),
+            ),
+            accounts_by_owner: OverlayStorage::wrap(self.accounts_by_owner.clone_box()),
+            account_associated_data: OverlayStorage::wrap(self.account_associated_data.clone_box()),
+            token_accounts: OverlayStorage::wrap(self.token_accounts.clone_box()),
+            token_mints: OverlayStorage::wrap(self.token_mints.clone_box()),
+            token_accounts_by_owner: OverlayStorage::wrap(self.token_accounts_by_owner.clone_box()),
+            token_accounts_by_delegate: OverlayStorage::wrap(
+                self.token_accounts_by_delegate.clone_box(),
+            ),
+            token_accounts_by_mint: OverlayStorage::wrap(self.token_accounts_by_mint.clone_box()),
+            registered_idls: OverlayStorage::wrap(self.registered_idls.clone_box()),
+            streamed_accounts: OverlayStorage::wrap(self.streamed_accounts.clone_box()),
+            scheduled_overrides: OverlayStorage::wrap(self.scheduled_overrides.clone_box()),
+
+            // Clone non-storage fields normally
+            transactions_queued_for_confirmation: self.transactions_queued_for_confirmation.clone(),
+            transactions_queued_for_finalization: self.transactions_queued_for_finalization.clone(),
+            perf_samples: self.perf_samples.clone(),
+            transactions_processed: self.transactions_processed,
+            latest_epoch_info: self.latest_epoch_info.clone(),
+
+            // Use dummy channels to prevent event propagation during profiling
+            simnet_events_tx: dummy_simnet_tx,
+            geyser_events_tx: dummy_geyser_tx,
+
+            signature_subscriptions: self.signature_subscriptions.clone(),
+            account_subscriptions: self.account_subscriptions.clone(),
+            // Don't clone subscriptions - profiling clone shouldn't send notifications
+            slot_subscriptions: Vec::new(),
+            logs_subscriptions: Vec::new(),
+            snapshot_subscriptions: Vec::new(),
+
+            updated_at: self.updated_at,
+            slot_time: self.slot_time,
+            start_time: self.start_time,
+
+            total_supply: self.total_supply,
+            circulating_supply: self.circulating_supply,
+            non_circulating_supply: self.non_circulating_supply,
+            non_circulating_accounts: self.non_circulating_accounts.clone(),
+            genesis_config: self.genesis_config.clone(),
+            inflation: self.inflation,
+            write_version: self.write_version,
+            feature_set: self.feature_set.clone(),
+            instruction_profiling_enabled: self.instruction_profiling_enabled,
+            max_profiles: self.max_profiles,
+            runbook_executions: self.runbook_executions.clone(),
+            account_update_slots: self.account_update_slots.clone(),
+            recent_blockhashes: self.recent_blockhashes.clone(),
+            closed_accounts: self.closed_accounts.clone(),
+        }
     }
 
     /// Creates a new instance of `SurfnetSvm`.

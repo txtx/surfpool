@@ -1,10 +1,12 @@
 mod fifo_map;
 mod hash_map;
+mod overlay;
 #[cfg(feature = "postgres")]
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 pub use hash_map::HashMap as StorageHashMap;
+pub use overlay::OverlayStorage;
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresStorage;
 #[cfg(feature = "sqlite")]

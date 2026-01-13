@@ -14,7 +14,7 @@ use solana_transaction::versioned::VersionedTransaction;
 
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    storage::{Storage, new_kv_store},
+    storage::{OverlayStorage, Storage, new_kv_store},
     surfnet::{GetAccountResult, locker::is_supported_token_program},
 };
 
@@ -29,6 +29,19 @@ impl SurfnetLiteSvm {
         Self {
             svm: LiteSVM::new(),
             db: None,
+        }
+    }
+
+    /// Creates a clone of the SVM with overlay storage wrapper for the database.
+    /// This allows profiling transactions without affecting the underlying database.
+    /// All database writes are buffered in memory and discarded when the clone is dropped.
+    pub fn clone_for_profiling(&self) -> Self {
+        Self {
+            svm: self.svm.clone(),
+            db: self
+                .db
+                .as_ref()
+                .map(|db| OverlayStorage::wrap(db.clone_box())),
         }
     }
 

@@ -1052,12 +1052,9 @@ impl SurfnetSvmLocker {
         transaction: VersionedTransaction,
         tag: Option<String>,
     ) -> SurfpoolContextualizedResult<Uuid> {
-        let mut svm_clone = self.with_svm_reader(|svm_reader| svm_reader.clone());
-
-        let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
-        let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
-        svm_clone.simnet_events_tx = dummy_simnet_tx;
-        svm_clone.geyser_events_tx = dummy_geyser_tx;
+        // Use clone_for_profiling to wrap all storage fields with overlay storage,
+        // ensuring mutations during profiling don't affect the underlying database
+        let svm_clone = self.with_svm_reader(|svm_reader| svm_reader.clone_for_profiling());
 
         let svm_locker = SurfnetSvmLocker::new(svm_clone);
 
@@ -1350,7 +1347,7 @@ impl SurfnetSvmLocker {
                     pre_execution_capture_cursor.insert(pubkey, pre_account);
                 }
             }
-            let mut svm_clone = self.with_svm_reader(|svm_reader| svm_reader.clone());
+            let mut svm_clone = self.with_svm_reader(|svm_reader| svm_reader.clone_for_profiling());
 
             let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
             let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
