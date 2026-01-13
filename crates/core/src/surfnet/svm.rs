@@ -1,6 +1,6 @@
 use std::{
     cmp::max,
-    collections::{BTreeMap, BinaryHeap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     str::FromStr,
     time::SystemTime,
 };
@@ -27,13 +27,9 @@ use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use convert_case::Casing;
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use litesvm::{
-    LiteSVM,
-    types::{
-        FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
-    },
+use litesvm::types::{
+    FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
 };
-use litesvm_token::create_native_mint;
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_account_decoder::{
     UiAccount, UiAccountData, UiAccountEncoding, UiDataSliceConfig, encode_ui_account,
@@ -101,10 +97,13 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
     scenarios::TemplateRegistry,
-    surfnet::{LogsSubscriptionData, locker::is_supported_token_program},
+    storage::{OverlayStorage, Storage, new_kv_store, new_kv_store_with_default},
+    surfnet::{
+        LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
+    },
     types::{
-        GeyserAccountUpdate, MintAccount, SurfnetTransactionStatus, SyntheticBlockhash,
-        TokenAccount, TransactionWithStatusMeta,
+        GeyserAccountUpdate, MintAccount, SerializableAccountAdditionalData,
+        SurfnetTransactionStatus, SyntheticBlockhash, TokenAccount, TransactionWithStatusMeta,
     },
 };
 
@@ -215,11 +214,11 @@ pub fn get_txtx_value_json_converters() -> Vec<AddonJsonConverter<'static>> {
 /// It also exposes channels to listen for simulation events (`SimnetEvent`) and Geyser plugin events (`GeyserEvent`).
 #[derive(Clone)]
 pub struct SurfnetSvm {
-    pub inner: LiteSVM,
+    pub inner: SurfnetLiteSvm,
     pub remote_rpc_url: Option<String>,
     pub chain_tip: BlockIdentifier,
-    pub blocks: HashMap<Slot, BlockHeader>,
-    pub transactions: HashMap<Signature, SurfnetTransactionStatus>,
+    pub blocks: Box<dyn Storage<u64, BlockHeader>>,
+    pub transactions: Box<dyn Storage<String, SurfnetTransactionStatus>>,
     pub transactions_queued_for_confirmation: VecDeque<(
         VersionedTransaction,
         Sender<TransactionStatusEvent>,
@@ -239,21 +238,21 @@ pub struct SurfnetSvm {
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub account_subscriptions: AccountSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
-    pub profile_tag_map: HashMap<String, Vec<UuidOrSignature>>,
-    pub simulated_transaction_profiles: HashMap<Uuid, KeyedProfileResult>,
-    pub executed_transaction_profiles: FifoMap<Signature, KeyedProfileResult>,
+    pub profile_tag_map: Box<dyn Storage<String, Vec<UuidOrSignature>>>,
+    pub simulated_transaction_profiles: Box<dyn Storage<String, KeyedProfileResult>>,
+    pub executed_transaction_profiles: Box<dyn Storage<String, KeyedProfileResult>>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
     pub snapshot_subscriptions: Vec<super::SnapshotSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
     pub start_time: SystemTime,
-    pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
-    pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
-    pub token_accounts: HashMap<Pubkey, TokenAccount>,
-    pub token_mints: HashMap<Pubkey, MintAccount>,
-    pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
-    pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
-    pub token_accounts_by_mint: HashMap<Pubkey, Vec<Pubkey>>,
+    pub accounts_by_owner: Box<dyn Storage<String, Vec<String>>>,
+    pub account_associated_data: Box<dyn Storage<String, SerializableAccountAdditionalData>>,
+    pub token_accounts: Box<dyn Storage<String, TokenAccount>>,
+    pub token_mints: Box<dyn Storage<String, MintAccount>>,
+    pub token_accounts_by_owner: Box<dyn Storage<String, Vec<String>>>,
+    pub token_accounts_by_delegate: Box<dyn Storage<String, Vec<String>>>,
+    pub token_accounts_by_mint: Box<dyn Storage<String, Vec<String>>>,
     pub total_supply: u64,
     pub circulating_supply: u64,
     pub non_circulating_supply: u64,
@@ -264,16 +263,15 @@ pub struct SurfnetSvm {
     /// For example, when an account is updated in the same slot multiple times,
     /// the update with higher write_version should supersede the one with lower write_version.
     pub write_version: u64,
-    pub registered_idls: HashMap<Pubkey, BinaryHeap<VersionedIdl>>,
-    // pub registered_idls: HashMap<[u8; 8], BinaryHeap<VersionedIdl>>,
+    pub registered_idls: Box<dyn Storage<String, Vec<VersionedIdl>>>,
     pub feature_set: FeatureSet,
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
     pub runbook_executions: Vec<RunbookExecutionStatusReport>,
     pub account_update_slots: HashMap<Pubkey, Slot>,
-    pub streamed_accounts: HashMap<Pubkey, bool>,
+    pub streamed_accounts: Box<dyn Storage<String, bool>>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
-    pub scheduled_overrides: HashMap<Slot, Vec<OverrideInstance>>,
+    pub scheduled_overrides: Box<dyn Storage<u64, Vec<OverrideInstance>>>,
     /// Tracks accounts that have been explicitly closed by the user.
     /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
     pub closed_accounts: HashSet<Pubkey>,
@@ -284,10 +282,119 @@ pub const FEATURE: Feature = Feature {
 };
 
 impl SurfnetSvm {
+    pub fn new() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
+        Self::_new(None, 0).unwrap()
+    }
+
+    pub fn new_with_db(
+        database_url: Option<&str>,
+        surfnet_id: u32,
+    ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
+        Self::_new(database_url, surfnet_id)
+    }
+
+    /// Explicitly shutdown the SVM, performing cleanup like WAL checkpoint for SQLite.
+    /// This should be called before the application exits to ensure data is persisted.
+    pub fn shutdown(&self) {
+        self.inner.shutdown();
+        self.blocks.shutdown();
+        self.transactions.shutdown();
+        self.token_accounts.shutdown();
+        self.token_mints.shutdown();
+        self.accounts_by_owner.shutdown();
+        self.token_accounts_by_owner.shutdown();
+        self.token_accounts_by_delegate.shutdown();
+        self.token_accounts_by_mint.shutdown();
+        self.streamed_accounts.shutdown();
+        self.scheduled_overrides.shutdown();
+        self.registered_idls.shutdown();
+        self.profile_tag_map.shutdown();
+        self.simulated_transaction_profiles.shutdown();
+        self.executed_transaction_profiles.shutdown();
+        self.account_associated_data.shutdown();
+    }
+
+    /// Creates a clone of the SVM with overlay storage wrappers for all database-backed fields.
+    /// This allows profiling transactions without affecting the underlying database.
+    /// All storage writes are buffered in memory and discarded when the clone is dropped.
+    pub fn clone_for_profiling(&self) -> Self {
+        let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
+        let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
+
+        Self {
+            inner: self.inner.clone_for_profiling(),
+            remote_rpc_url: self.remote_rpc_url.clone(),
+            chain_tip: self.chain_tip.clone(),
+
+            // Wrap all storage fields with OverlayStorage
+            blocks: OverlayStorage::wrap(self.blocks.clone_box()),
+            transactions: OverlayStorage::wrap(self.transactions.clone_box()),
+            profile_tag_map: OverlayStorage::wrap(self.profile_tag_map.clone_box()),
+            simulated_transaction_profiles: OverlayStorage::wrap(
+                self.simulated_transaction_profiles.clone_box(),
+            ),
+            executed_transaction_profiles: OverlayStorage::wrap(
+                self.executed_transaction_profiles.clone_box(),
+            ),
+            accounts_by_owner: OverlayStorage::wrap(self.accounts_by_owner.clone_box()),
+            account_associated_data: OverlayStorage::wrap(self.account_associated_data.clone_box()),
+            token_accounts: OverlayStorage::wrap(self.token_accounts.clone_box()),
+            token_mints: OverlayStorage::wrap(self.token_mints.clone_box()),
+            token_accounts_by_owner: OverlayStorage::wrap(self.token_accounts_by_owner.clone_box()),
+            token_accounts_by_delegate: OverlayStorage::wrap(
+                self.token_accounts_by_delegate.clone_box(),
+            ),
+            token_accounts_by_mint: OverlayStorage::wrap(self.token_accounts_by_mint.clone_box()),
+            registered_idls: OverlayStorage::wrap(self.registered_idls.clone_box()),
+            streamed_accounts: OverlayStorage::wrap(self.streamed_accounts.clone_box()),
+            scheduled_overrides: OverlayStorage::wrap(self.scheduled_overrides.clone_box()),
+
+            // Clone non-storage fields normally
+            transactions_queued_for_confirmation: self.transactions_queued_for_confirmation.clone(),
+            transactions_queued_for_finalization: self.transactions_queued_for_finalization.clone(),
+            perf_samples: self.perf_samples.clone(),
+            transactions_processed: self.transactions_processed,
+            latest_epoch_info: self.latest_epoch_info.clone(),
+
+            // Use dummy channels to prevent event propagation during profiling
+            simnet_events_tx: dummy_simnet_tx,
+            geyser_events_tx: dummy_geyser_tx,
+
+            signature_subscriptions: self.signature_subscriptions.clone(),
+            account_subscriptions: self.account_subscriptions.clone(),
+            // Don't clone subscriptions - profiling clone shouldn't send notifications
+            slot_subscriptions: Vec::new(),
+            logs_subscriptions: Vec::new(),
+            snapshot_subscriptions: Vec::new(),
+
+            updated_at: self.updated_at,
+            slot_time: self.slot_time,
+            start_time: self.start_time,
+
+            total_supply: self.total_supply,
+            circulating_supply: self.circulating_supply,
+            non_circulating_supply: self.non_circulating_supply,
+            non_circulating_accounts: self.non_circulating_accounts.clone(),
+            genesis_config: self.genesis_config.clone(),
+            inflation: self.inflation,
+            write_version: self.write_version,
+            feature_set: self.feature_set.clone(),
+            instruction_profiling_enabled: self.instruction_profiling_enabled,
+            max_profiles: self.max_profiles,
+            runbook_executions: self.runbook_executions.clone(),
+            account_update_slots: self.account_update_slots.clone(),
+            recent_blockhashes: self.recent_blockhashes.clone(),
+            closed_accounts: self.closed_accounts.clone(),
+        }
+    }
+
     /// Creates a new instance of `SurfnetSvm`.
     ///
     /// Returns a tuple containing the SVM instance, a receiver for simulation events, and a receiver for Geyser plugin events.
-    pub fn new() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
+    fn _new(
+        database_url: Option<&str>,
+        surfnet_id: u32,
+    ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
 
@@ -297,18 +404,14 @@ impl SurfnetSvm {
         // todo: consider making this configurable via config
         feature_set.deactivate(&enable_extend_program_checked::id());
 
-        let mut inner = LiteSVM::new()
-            .with_feature_set(feature_set.clone())
-            .with_blockhash_check(false)
-            .with_sigverify(false);
+        let inner =
+            SurfnetLiteSvm::new().initialize(feature_set.clone(), database_url, surfnet_id)?;
 
-        // Add the native mint (SOL) to the SVM
-        create_native_mint(&mut inner);
         let native_mint_account = inner
-            .get_account(&spl_token_interface::native_mint::ID)
+            .get_account(&spl_token_interface::native_mint::ID)?
             .unwrap();
 
-        let account_associated_data = {
+        let native_mint_associated_data = {
             let mint = StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(
                 &native_mint_account.data,
             )
@@ -322,36 +425,90 @@ impl SurfnetSvm {
                 .get_extension::<ScaledUiAmountConfig>()
                 .map(|x| (*x, unix_timestamp))
                 .ok();
-            let account_associated_data = HashMap::from([(
-                spl_token_interface::native_mint::ID,
-                AccountAdditionalDataV3 {
-                    spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
-                        decimals: mint.base.decimals,
-                        interest_bearing_config,
-                        scaled_ui_amount_config,
-                    }),
-                },
-            )]);
-            account_associated_data
+            AccountAdditionalDataV3 {
+                spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                    decimals: mint.base.decimals,
+                    interest_bearing_config,
+                    scaled_ui_amount_config,
+                }),
+            }
         };
         let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
 
         // Load native mint into owned account and token mint indexes
-        let accounts_by_owner = HashMap::from([(
-            native_mint_account.owner,
-            vec![spl_token_interface::native_mint::ID],
-        )]);
-        let token_mints =
-            HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
+        let mut accounts_by_owner_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "accounts_by_owner", surfnet_id)?;
+        accounts_by_owner_db.store(
+            native_mint_account.owner.to_string(),
+            vec![spl_token_interface::native_mint::ID.to_string()],
+        )?;
+        let blocks_db = new_kv_store(&database_url, "blocks", surfnet_id)?;
+        let transactions_db = new_kv_store(&database_url, "transactions", surfnet_id)?;
+        let token_accounts_db = new_kv_store(&database_url, "token_accounts", surfnet_id)?;
+        let mut token_mints_db: Box<dyn Storage<String, MintAccount>> =
+            new_kv_store(&database_url, "token_mints", surfnet_id)?;
+        let mut account_associated_data_db: Box<
+            dyn Storage<String, SerializableAccountAdditionalData>,
+        > = new_kv_store(&database_url, "account_associated_data", surfnet_id)?;
+        // Store initial account associated data (native mint)
+        account_associated_data_db.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            native_mint_associated_data.into(),
+        )?;
+        token_mints_db.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            parsed_mint_account,
+        )?;
+        let token_accounts_by_owner_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "token_accounts_by_owner", surfnet_id)?;
+        let token_accounts_by_delegate_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "token_accounts_by_delegate", surfnet_id)?;
+        let token_accounts_by_mint_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "token_accounts_by_mint", surfnet_id)?;
+        let streamed_accounts_db: Box<dyn Storage<String, bool>> =
+            new_kv_store(&database_url, "streamed_accounts", surfnet_id)?;
+        let scheduled_overrides_db: Box<dyn Storage<u64, Vec<OverrideInstance>>> =
+            new_kv_store(&database_url, "scheduled_overrides", surfnet_id)?;
+        let registered_idls_db: Box<dyn Storage<String, Vec<VersionedIdl>>> =
+            new_kv_store(&database_url, "registered_idls", surfnet_id)?;
+        let profile_tag_map_db: Box<dyn Storage<String, Vec<UuidOrSignature>>> =
+            new_kv_store(&database_url, "profile_tag_map", surfnet_id)?;
+        let simulated_transaction_profiles_db: Box<dyn Storage<String, KeyedProfileResult>> =
+            new_kv_store(&database_url, "simulated_transaction_profiles", surfnet_id)?;
+        let executed_transaction_profiles_db: Box<dyn Storage<String, KeyedProfileResult>> =
+            new_kv_store_with_default(
+                &database_url,
+                "executed_transaction_profiles",
+                surfnet_id,
+                // Use FifoMap for executed_transaction_profiles to maintain FIFO eviction behavior
+                // (when no on-disk DB is provided)
+                || Box::new(FifoMap::<String, KeyedProfileResult>::default()),
+            )?;
+
+        let chain_tip = if let Some((_, block)) = blocks_db
+            .into_iter()
+            .unwrap()
+            .max_by_key(|(slot, _): &(u64, BlockHeader)| *slot)
+        {
+            BlockIdentifier {
+                index: block.block_height,
+                hash: block.hash,
+            }
+        } else {
+            BlockIdentifier::zero()
+        };
+
+        // Initialize transactions_processed from database count for persistent storage
+        let transactions_processed = transactions_db.count()?;
 
         let mut svm = Self {
             inner,
             remote_rpc_url: None,
-            chain_tip: BlockIdentifier::zero(),
-            blocks: HashMap::new(),
-            transactions: HashMap::new(),
+            chain_tip,
+            blocks: blocks_db,
+            transactions: transactions_db,
             perf_samples: VecDeque::new(),
-            transactions_processed: 0,
+            transactions_processed,
             simnet_events_tx,
             geyser_events_tx,
             latest_epoch_info: EpochInfo {
@@ -367,21 +524,21 @@ impl SurfnetSvm {
             signature_subscriptions: HashMap::new(),
             account_subscriptions: HashMap::new(),
             slot_subscriptions: Vec::new(),
-            profile_tag_map: HashMap::new(),
-            simulated_transaction_profiles: HashMap::new(),
-            executed_transaction_profiles: FifoMap::default(),
+            profile_tag_map: profile_tag_map_db,
+            simulated_transaction_profiles: simulated_transaction_profiles_db,
+            executed_transaction_profiles: executed_transaction_profiles_db,
             logs_subscriptions: Vec::new(),
             snapshot_subscriptions: Vec::new(),
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
             start_time: SystemTime::now(),
-            accounts_by_owner,
-            account_associated_data,
-            token_accounts: HashMap::new(),
-            token_mints,
-            token_accounts_by_owner: HashMap::new(),
-            token_accounts_by_delegate: HashMap::new(),
-            token_accounts_by_mint: HashMap::new(),
+            accounts_by_owner: accounts_by_owner_db,
+            account_associated_data: account_associated_data_db,
+            token_accounts: token_accounts_db,
+            token_mints: token_mints_db,
+            token_accounts_by_owner: token_accounts_by_owner_db,
+            token_accounts_by_delegate: token_accounts_by_delegate_db,
+            token_accounts_by_mint: token_accounts_by_mint_db,
             total_supply: 0,
             circulating_supply: 0,
             non_circulating_supply: 0,
@@ -389,22 +546,22 @@ impl SurfnetSvm {
             genesis_config: GenesisConfig::default(),
             inflation: Inflation::default(),
             write_version: 0,
-            registered_idls: HashMap::new(),
+            registered_idls: registered_idls_db,
             feature_set,
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             runbook_executions: Vec::new(),
             account_update_slots: HashMap::new(),
-            streamed_accounts: HashMap::new(),
+            streamed_accounts: streamed_accounts_db,
             recent_blockhashes: VecDeque::new(),
-            scheduled_overrides: HashMap::new(),
+            scheduled_overrides: scheduled_overrides_db,
             closed_accounts: HashSet::new(),
         };
 
         // Generate the initial synthetic blockhash
         svm.chain_tip = svm.new_blockhash();
 
-        (svm, simnet_events_rx, geyser_events_rx)
+        Ok((svm, simnet_events_rx, geyser_events_rx))
     }
 
     /// Applies the SVM feature configuration to the internal feature set.
@@ -429,14 +586,8 @@ impl SurfnetSvm {
             }
         }
 
-        // Rebuild LiteSVM with updated feature set
-        self.inner = LiteSVM::new()
-            .with_feature_set(self.feature_set.clone())
-            .with_blockhash_check(false)
-            .with_sigverify(false);
-
-        // Re-add the native mint
-        create_native_mint(&mut self.inner);
+        // Rebuild inner VM with updated feature set
+        self.inner.apply_feature_config(self.feature_set.clone());
     }
 
     /// Maps an SvmFeature enum variant to its corresponding feature ID (Pubkey).
@@ -557,7 +708,7 @@ impl SurfnetSvm {
 
         let registry = TemplateRegistry::new();
         for (_, template) in registry.templates.into_iter() {
-            self.register_idl(template.idl, None);
+            let _ = self.register_idl(template.idl, None);
         }
 
         if let Some(remote_client) = remote_ctx {
@@ -587,7 +738,11 @@ impl SurfnetSvm {
     pub fn set_profiling_map_capacity(&mut self, capacity: usize) {
         let clamped_capacity = max(1, capacity);
         self.max_profiles = clamped_capacity;
-        self.executed_transaction_profiles = FifoMap::new(clamped_capacity);
+        let is_on_disk_db = self.inner.db.is_some();
+        if !is_on_disk_db {
+            // when using on-disk DB, we're not using the Fifo Map to manage entries
+            self.executed_transaction_profiles = Box::new(FifoMap::new(clamped_capacity));
+        }
     }
 
     /// Airdrops a specified amount of lamports to a single public key.
@@ -599,13 +754,13 @@ impl SurfnetSvm {
     /// # Returns
     /// A `TransactionResult` indicating success or failure.
     #[allow(clippy::result_large_err)]
-    pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
+    pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> SurfpoolResult<TransactionResult> {
         let res = self.inner.airdrop(pubkey, lamports);
         let (status_tx, _rx) = unbounded();
         if let Ok(ref tx_result) = res {
             let airdrop_keypair = Keypair::new();
             let slot = self.latest_epoch_info.absolute_slot;
-            let account = self.get_account(pubkey).unwrap();
+            let account = self.get_account(pubkey)?.unwrap();
 
             let mut tx = VersionedTransaction::try_new(
                 VersionedMessage::Legacy(Message::new(
@@ -626,11 +781,11 @@ impl SurfnetSvm {
             tx.signatures[0] = tx_result.signature;
 
             let system_lamports = self
-                .get_account(&system_program::id())
+                .get_account(&system_program::id())?
                 .map(|a| a.lamports())
                 .unwrap_or(1);
-            self.transactions.insert(
-                *tx.get_signature(),
+            self.transactions.store(
+                tx.get_signature().to_string(),
                 SurfnetTransactionStatus::processed(
                     TransactionWithStatusMeta {
                         slot,
@@ -661,7 +816,7 @@ impl SurfnetSvm {
                     },
                     HashSet::from([*pubkey]),
                 ),
-            );
+            )?;
             self.notify_signature_subscribers(
                 SignatureSubscriptionType::processed(),
                 tx.get_signature(),
@@ -676,10 +831,10 @@ impl SurfnetSvm {
             );
             self.transactions_queued_for_confirmation
                 .push_back((tx, status_tx.clone(), None));
-            let account = self.get_account(pubkey).unwrap();
-            let _ = self.set_account(pubkey, account);
+            let account = self.get_account(pubkey)?.unwrap();
+            self.set_account(pubkey, account)?;
         }
-        res
+        Ok(res)
     }
 
     /// Airdrops a specified amount of lamports to a list of public keys.
@@ -689,11 +844,20 @@ impl SurfnetSvm {
     /// * `addresses` - Slice of recipient public keys.
     pub fn airdrop_pubkeys(&mut self, lamports: u64, addresses: &[Pubkey]) {
         for recipient in addresses {
-            let _ = self.airdrop(recipient, lamports);
-            let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
-                "Genesis airdrop successful {}: {}",
-                recipient, lamports
-            )));
+            match self.airdrop(recipient, lamports) {
+                Ok(_) => {
+                    let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Genesis airdrop successful {}: {}",
+                        recipient, lamports
+                    )));
+                }
+                Err(e) => {
+                    let _ = self.simnet_events_tx.send(SimnetEvent::error(format!(
+                        "Genesis airdrop failed {}: {}",
+                        recipient, e
+                    )));
+                }
+            };
         }
     }
 
@@ -855,7 +1019,9 @@ impl SurfnetSvm {
 
             trace!("Nonce account pubkey: {:?}", nonce_account_pubkey,);
 
-            let Some(nonce_account) = self.get_account(nonce_account_pubkey) else {
+            // Here we're swallowing errors in the storage - if we fail to fetch the account because of a storage error,
+            // we're just considering the blockhash to be invalid.
+            let Ok(Some(nonce_account)) = self.get_account(nonce_account_pubkey) else {
                 return false;
             };
             trace!("Nonce account: {:?}", nonce_account);
@@ -911,60 +1077,95 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         account: &Account,
     ) -> SurfpoolResult<()> {
-        if account == &Account::default() {
+        let is_deleted_account = account == &Account::default();
+
+        // When this function is called after processing a transaction, the account is already updated
+        // in the inner SVM. However, the database hasn't been updated yet, so we need to manually update the db.
+        if is_deleted_account {
+            // This amounts to deleting the account from the db if the account is deleted in the SVM
+            self.inner.delete_account_in_db(pubkey)?;
+        } else {
+            // Or updating the db account to match the SVM account if not deleted
+            self.inner
+                .set_account_in_db(*pubkey, account.clone().into())?;
+        }
+
+        if is_deleted_account {
             self.closed_accounts.insert(*pubkey);
-            if let Some(old_account) = self.get_account(pubkey) {
-                self.remove_from_indexes(pubkey, &old_account);
+            if let Some(old_account) = self.get_account(pubkey)? {
+                self.remove_from_indexes(pubkey, &old_account)?;
             }
             return Ok(());
         }
 
         // only update our indexes if the account exists in the svm accounts db
-        if let Some(old_account) = self.get_account(pubkey) {
-            self.remove_from_indexes(pubkey, &old_account);
+        if let Some(old_account) = self.get_account(pubkey)? {
+            self.remove_from_indexes(pubkey, &old_account)?;
         }
         // add to owner index (check for duplicates)
-        let owner_accounts = self.accounts_by_owner.entry(account.owner).or_default();
-        if !owner_accounts.contains(pubkey) {
-            owner_accounts.push(*pubkey);
+        let owner_key = account.owner.to_string();
+        let pubkey_str = pubkey.to_string();
+        let mut owner_accounts = self
+            .accounts_by_owner
+            .get(&owner_key)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        if !owner_accounts.contains(&pubkey_str) {
+            owner_accounts.push(pubkey_str.clone());
+            self.accounts_by_owner.store(owner_key, owner_accounts)?;
         }
 
         // if it's a token account, update token-specific indexes
         if is_supported_token_program(&account.owner) {
             if let Ok(token_account) = TokenAccount::unpack(&account.data) {
                 // index by owner -> check for duplicates
-                let token_owner_accounts = self
+                let owner_key = token_account.owner().to_string();
+                let mut token_owner_accounts = self
                     .token_accounts_by_owner
-                    .entry(token_account.owner())
-                    .or_default();
-
-                if !token_owner_accounts.contains(pubkey) {
-                    token_owner_accounts.push(*pubkey);
+                    .get(&owner_key)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                if !token_owner_accounts.contains(&pubkey_str) {
+                    token_owner_accounts.push(pubkey_str.clone());
+                    self.token_accounts_by_owner
+                        .store(owner_key, token_owner_accounts)?;
                 }
 
                 // index by mint -> check for duplicates
-                let mint_accounts = self
+                let mint_key = token_account.mint().to_string();
+                let mut mint_accounts = self
                     .token_accounts_by_mint
-                    .entry(token_account.mint())
-                    .or_default();
-
-                if !mint_accounts.contains(pubkey) {
-                    mint_accounts.push(*pubkey);
+                    .get(&mint_key)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                if !mint_accounts.contains(&pubkey_str) {
+                    mint_accounts.push(pubkey_str.clone());
+                    self.token_accounts_by_mint.store(mint_key, mint_accounts)?;
                 }
 
                 if let COption::Some(delegate) = token_account.delegate() {
-                    let delegate_accounts =
-                        self.token_accounts_by_delegate.entry(delegate).or_default();
-                    if !delegate_accounts.contains(pubkey) {
-                        delegate_accounts.push(*pubkey);
+                    let delegate_key = delegate.to_string();
+                    let mut delegate_accounts = self
+                        .token_accounts_by_delegate
+                        .get(&delegate_key)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+                    if !delegate_accounts.contains(&pubkey_str) {
+                        delegate_accounts.push(pubkey_str);
+                        self.token_accounts_by_delegate
+                            .store(delegate_key, delegate_accounts)?;
                     }
                 }
-
-                self.token_accounts.insert(*pubkey, token_account);
+                self.token_accounts
+                    .store(pubkey.to_string(), token_account)?;
             }
 
             if let Ok(mint_account) = MintAccount::unpack(&account.data) {
-                self.token_mints.insert(*pubkey, mint_account);
+                self.token_mints.store(pubkey.to_string(), mint_account)?;
             }
 
             if let Ok(mint) =
@@ -979,109 +1180,152 @@ impl SurfnetSvm {
                     .get_extension::<ScaledUiAmountConfig>()
                     .map(|x| (*x, unix_timestamp))
                     .ok();
-                self.account_associated_data.insert(
-                    *pubkey,
-                    AccountAdditionalDataV3 {
-                        spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
-                            decimals: mint.base.decimals,
-                            interest_bearing_config,
-                            scaled_ui_amount_config,
-                        }),
-                    },
-                );
+                let additional_data: SerializableAccountAdditionalData = AccountAdditionalDataV3 {
+                    spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                        decimals: mint.base.decimals,
+                        interest_bearing_config,
+                        scaled_ui_amount_config,
+                    }),
+                }
+                .into();
+                self.account_associated_data
+                    .store(pubkey.to_string(), additional_data)?;
             };
         }
         Ok(())
     }
 
-    fn remove_from_indexes(&mut self, pubkey: &Pubkey, old_account: &Account) {
-        if let Some(accounts) = self.accounts_by_owner.get_mut(&old_account.owner) {
-            accounts.retain(|pk| pk != pubkey);
+    fn remove_from_indexes(
+        &mut self,
+        pubkey: &Pubkey,
+        old_account: &Account,
+    ) -> SurfpoolResult<()> {
+        let owner_key = old_account.owner.to_string();
+        let pubkey_str = pubkey.to_string();
+        if let Some(mut accounts) = self.accounts_by_owner.get(&owner_key).ok().flatten() {
+            accounts.retain(|pk| pk != &pubkey_str);
             if accounts.is_empty() {
-                self.accounts_by_owner.remove(&old_account.owner);
+                self.accounts_by_owner.take(&owner_key)?;
+            } else {
+                self.accounts_by_owner.store(owner_key, accounts)?;
             }
         }
 
         // if it was a token account, remove from token indexes
         if is_supported_token_program(&old_account.owner) {
-            if let Some(old_token_account) = self.token_accounts.remove(pubkey) {
-                if let Some(accounts) = self
-                    .token_accounts_by_owner
-                    .get_mut(&old_token_account.owner())
+            if let Some(old_token_account) = self.token_accounts.take(&pubkey.to_string())? {
+                let owner_key = old_token_account.owner().to_string();
+                if let Some(mut accounts) =
+                    self.token_accounts_by_owner.get(&owner_key).ok().flatten()
                 {
-                    accounts.retain(|pk| pk != pubkey);
+                    accounts.retain(|pk| pk != &pubkey_str);
                     if accounts.is_empty() {
-                        self.token_accounts_by_owner
-                            .remove(&old_token_account.owner());
+                        self.token_accounts_by_owner.take(&owner_key)?;
+                    } else {
+                        self.token_accounts_by_owner.store(owner_key, accounts)?;
                     }
                 }
 
-                if let Some(accounts) = self
-                    .token_accounts_by_mint
-                    .get_mut(&old_token_account.mint())
+                let mint_key = old_token_account.mint().to_string();
+                if let Some(mut accounts) =
+                    self.token_accounts_by_mint.get(&mint_key).ok().flatten()
                 {
-                    accounts.retain(|pk| pk != pubkey);
+                    accounts.retain(|pk| pk != &pubkey_str);
                     if accounts.is_empty() {
-                        self.token_accounts_by_mint
-                            .remove(&old_token_account.mint());
+                        self.token_accounts_by_mint.take(&mint_key)?;
+                    } else {
+                        self.token_accounts_by_mint.store(mint_key, accounts)?;
                     }
                 }
 
                 if let COption::Some(delegate) = old_token_account.delegate() {
-                    if let Some(accounts) = self.token_accounts_by_delegate.get_mut(&delegate) {
-                        accounts.retain(|pk| pk != pubkey);
+                    let delegate_key = delegate.to_string();
+                    if let Some(mut accounts) = self
+                        .token_accounts_by_delegate
+                        .get(&delegate_key)
+                        .ok()
+                        .flatten()
+                    {
+                        accounts.retain(|pk| pk != &pubkey_str);
                         if accounts.is_empty() {
-                            self.token_accounts_by_delegate.remove(&delegate);
+                            self.token_accounts_by_delegate.take(&delegate_key)?;
+                        } else {
+                            self.token_accounts_by_delegate
+                                .store(delegate_key, accounts)?;
                         }
                     }
                 }
             }
         }
+        Ok(())
     }
 
     pub fn reset_network(&mut self) -> SurfpoolResult<()> {
-        // pub inner: LiteSVM,
-        let mut inner = LiteSVM::new()
-            .with_feature_set(self.feature_set.clone())
-            .with_blockhash_check(false)
-            .with_sigverify(false);
+        self.inner.reset(self.feature_set.clone())?;
 
-        // Add the native mint (SOL) to the SVM
-        create_native_mint(&mut inner);
-        let native_mint_account = inner
-            .get_account(&spl_token_interface::native_mint::ID)
+        let native_mint_account = self
+            .inner
+            .get_account(&spl_token_interface::native_mint::ID)?
             .unwrap();
+
+        let native_mint_associated_data = {
+            let mint = StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(
+                &native_mint_account.data,
+            )
+            .unwrap();
+            let unix_timestamp = self.inner.get_sysvar::<Clock>().unix_timestamp;
+            let interest_bearing_config = mint
+                .get_extension::<InterestBearingConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            let scaled_ui_amount_config = mint
+                .get_extension::<ScaledUiAmountConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            AccountAdditionalDataV3 {
+                spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                    decimals: mint.base.decimals,
+                    interest_bearing_config,
+                    scaled_ui_amount_config,
+                }),
+            }
+        };
+
         let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
 
-        // Load native mint into owned account and token mint indexes
-        let accounts_by_owner = HashMap::from([(
-            native_mint_account.owner,
-            vec![spl_token_interface::native_mint::ID],
-        )]);
-        let token_mints =
-            HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
-
-        self.inner = inner;
-        self.blocks.clear();
-        self.transactions.clear();
+        self.blocks.clear()?;
+        self.transactions.clear()?;
         self.transactions_queued_for_confirmation.clear();
         self.transactions_queued_for_finalization.clear();
         self.perf_samples.clear();
         self.transactions_processed = 0;
-        self.profile_tag_map.clear();
-        self.simulated_transaction_profiles.clear();
-        self.accounts_by_owner = accounts_by_owner;
-        self.account_associated_data.clear();
-        self.token_accounts.clear();
-        self.token_mints = token_mints;
-        self.token_accounts_by_owner.clear();
-        self.token_accounts_by_delegate.clear();
-        self.token_accounts_by_mint.clear();
+        self.profile_tag_map.clear()?;
+        self.simulated_transaction_profiles.clear()?;
+        self.executed_transaction_profiles.clear()?;
+        self.accounts_by_owner.clear()?;
+        self.accounts_by_owner.store(
+            native_mint_account.owner.to_string(),
+            vec![spl_token_interface::native_mint::ID.to_string()],
+        )?;
+        self.account_associated_data.clear()?;
+        self.account_associated_data.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            native_mint_associated_data.into(),
+        )?;
+        self.token_accounts.clear()?;
+        self.token_mints.clear()?;
+        self.token_mints.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            parsed_mint_account,
+        )?;
+        self.token_accounts_by_owner.clear()?;
+        self.token_accounts_by_delegate.clear()?;
+        self.token_accounts_by_mint.clear()?;
         self.non_circulating_accounts.clear();
-        self.registered_idls.clear();
+        self.registered_idls.clear()?;
         self.runbook_executions.clear();
-        self.streamed_accounts.clear();
-        self.scheduled_overrides.clear();
+        self.streamed_accounts.clear()?;
+        self.scheduled_overrides.clear()?;
         Ok(())
     }
 
@@ -1090,7 +1334,7 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         include_owned_accounts: bool,
     ) -> SurfpoolResult<()> {
-        let Some(account) = self.get_account(pubkey) else {
+        let Some(account) = self.get_account(pubkey)? else {
             return Ok(());
         };
 
@@ -1105,7 +1349,7 @@ impl SurfnetSvm {
             }
         }
         if include_owned_accounts {
-            let owned_accounts = self.get_account_owned_by(pubkey);
+            let owned_accounts = self.get_account_owned_by(pubkey)?;
             for (owned_pubkey, _) in owned_accounts {
                 // Avoid infinite recursion by not cascading further
                 self.purge_account_from_cache(&account, &owned_pubkey)?;
@@ -1121,12 +1365,9 @@ impl SurfnetSvm {
         account: &Account,
         pubkey: &Pubkey,
     ) -> SurfpoolResult<()> {
-        self.remove_from_indexes(pubkey, account);
+        self.remove_from_indexes(pubkey, account)?;
 
-        // Set the empty account
-        self.inner
-            .set_account(*pubkey, Account::default())
-            .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+        self.inner.delete_account(pubkey)?;
 
         Ok(())
     }
@@ -1308,7 +1549,7 @@ impl SurfnetSvm {
             );
 
             let Some(SurfnetTransactionStatus::Processed(tx_data)) =
-                self.transactions.get(&signature)
+                self.transactions.get(&signature.to_string()).ok().flatten()
             else {
                 continue;
             };
@@ -1357,7 +1598,7 @@ impl SurfnetSvm {
                     error,
                 );
                 let Some(SurfnetTransactionStatus::Processed(tx_data)) =
-                    self.transactions.get(signature)
+                    self.transactions.get(&signature.to_string()).ok().flatten()
                 else {
                     continue;
                 };
@@ -1426,10 +1667,18 @@ impl SurfnetSvm {
                     if let Some((programdata_address, programdata_account)) =
                         init_programdata_account(&account)
                     {
-                        if self.get_account(&programdata_address).is_none() {
-                            if let Err(e) =
-                                self.set_account(&programdata_address, programdata_account)
-                            {
+                        match self.get_account(&programdata_address) {
+                            Ok(None) => {
+                                if let Err(e) =
+                                    self.set_account(&programdata_address, programdata_account)
+                                {
+                                    let _ = self
+                                        .simnet_events_tx
+                                        .send(SimnetEvent::error(e.to_string()));
+                                }
+                            }
+                            Ok(Some(_)) => {}
+                            Err(e) => {
                                 let _ = self
                                     .simnet_events_tx
                                     .send(SimnetEvent::error(e.to_string()));
@@ -1447,9 +1696,18 @@ impl SurfnetSvm {
                 if let Some((programdata_address, programdata_account)) =
                     init_programdata_account(&account)
                 {
-                    if self.get_account(&programdata_address).is_none() {
-                        if let Err(e) = self.set_account(&programdata_address, programdata_account)
-                        {
+                    match self.get_account(&programdata_address) {
+                        Ok(None) => {
+                            if let Err(e) =
+                                self.set_account(&programdata_address, programdata_account)
+                            {
+                                let _ = self
+                                    .simnet_events_tx
+                                    .send(SimnetEvent::error(e.to_string()));
+                            }
+                        }
+                        Ok(Some(_)) => {}
+                        Err(e) => {
                             let _ = self
                                 .simnet_events_tx
                                 .send(SimnetEvent::error(e.to_string()));
@@ -1493,9 +1751,13 @@ impl SurfnetSvm {
         }
     }
 
-    pub fn confirm_current_block(&mut self) -> Result<(), SurfpoolError> {
+    pub fn confirm_current_block(&mut self) -> SurfpoolResult<()> {
         let slot = self.get_latest_absolute_slot();
         let previous_chain_tip = self.chain_tip.clone();
+        if slot % 100 == 0 {
+            debug!("Clearing liteSVM cache at slot {}", slot);
+            self.inner.garbage_collect(self.feature_set.clone());
+        }
         self.chain_tip = self.new_blockhash();
         // Confirm processed transactions
         let (confirmed_signatures, all_mutated_account_keys) = self.confirm_transactions()?;
@@ -1503,7 +1765,7 @@ impl SurfnetSvm {
 
         // Notify Geyser plugin of account updates
         for pubkey in all_mutated_account_keys {
-            let Some(account) = self.inner.get_account(&pubkey) else {
+            let Some(account) = self.inner.get_account(&pubkey)? else {
                 continue;
             };
             self.geyser_events_tx
@@ -1516,7 +1778,7 @@ impl SurfnetSvm {
         let num_transactions = confirmed_signatures.len() as u64;
         self.updated_at += self.slot_time;
 
-        self.blocks.insert(
+        self.blocks.store(
             slot,
             BlockHeader {
                 hash: self.chain_tip.hash.clone(),
@@ -1526,7 +1788,7 @@ impl SurfnetSvm {
                 parent_slot: slot,
                 signatures: confirmed_signatures,
             },
-        );
+        )?;
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
         }
@@ -1569,9 +1831,11 @@ impl SurfnetSvm {
         self.finalize_transactions()?;
 
         // Evict the accounts marked as streamed from cache to enforce them to be fetched again
-        let accounts_to_reset = self.streamed_accounts.clone();
-        for (pubkey, include_owned_accounts) in accounts_to_reset.iter() {
-            self.reset_account(pubkey, *include_owned_accounts)?;
+        let accounts_to_reset: Vec<_> = self.streamed_accounts.into_iter()?.collect();
+        for (pubkey_str, include_owned_accounts) in accounts_to_reset {
+            let pubkey = Pubkey::from_str(&pubkey_str)
+                .map_err(|e| SurfpoolError::invalid_pubkey(&pubkey_str, e.to_string()))?;
+            self.reset_account(&pubkey, include_owned_accounts)?;
         }
 
         Ok(())
@@ -1592,7 +1856,7 @@ impl SurfnetSvm {
         let current_slot = self.latest_epoch_info.absolute_slot;
 
         // Remove and get overrides for this slot
-        let Some(overrides) = self.scheduled_overrides.remove(&current_slot) else {
+        let Some(overrides) = self.scheduled_overrides.take(&current_slot)? else {
             // No overrides for this slot
             return Ok(());
         };
@@ -1693,7 +1957,7 @@ impl SurfnetSvm {
                 );
 
                 // Get the account from the SVM
-                let Some(account) = self.inner.get_account(&account_pubkey) else {
+                let Some(account) = self.inner.get_account(&account_pubkey)? else {
                     warn!(
                         "Account {} not found in SVM for override {}, skipping modifications",
                         account_pubkey, override_instance.id
@@ -1705,16 +1969,26 @@ impl SurfnetSvm {
                 let owner_program_id = account.owner();
 
                 // Look up the IDL for the owner program
-                let Some(idl_versions) = self.registered_idls.get(owner_program_id) else {
-                    warn!(
-                        "No IDL registered for program {} (owner of account {}), skipping override {}",
-                        owner_program_id, account_pubkey, override_instance.id
-                    );
-                    continue;
+                let idl_versions = match self.registered_idls.get(&owner_program_id.to_string()) {
+                    Ok(Some(versions)) => versions,
+                    Ok(None) => {
+                        warn!(
+                            "No IDL registered for program {} (owner of account {}), skipping override {}",
+                            owner_program_id, account_pubkey, override_instance.id
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to get IDL for program {}: {}, skipping override {}",
+                            owner_program_id, e, override_instance.id
+                        );
+                        continue;
+                    }
                 };
 
-                // Get the latest IDL version
-                let Some(versioned_idl) = idl_versions.peek() else {
+                // Get the latest IDL version (first in the sorted Vec)
+                let Some(versioned_idl) = idl_versions.first() else {
                     warn!(
                         "IDL versions empty for program {}, skipping override {}",
                         owner_program_id, override_instance.id
@@ -2008,7 +2282,7 @@ impl SurfnetSvm {
         slot: Slot,
         config: &RpcBlockConfig,
     ) -> SurfpoolResult<Option<UiConfirmedBlock>> {
-        let Some(block) = self.blocks.get(&slot) else {
+        let Some(block) = self.blocks.get(&slot)? else {
             return Ok(None);
         };
 
@@ -2022,7 +2296,7 @@ impl SurfnetSvm {
                 block
                     .signatures
                     .iter()
-                    .filter_map(|sig| self.transactions.get(sig))
+                    .filter_map(|sig| self.transactions.get(&sig.to_string()).ok().flatten())
                     .map(|tx_with_meta| {
                         let (meta, _) = tx_with_meta.expect_processed();
                         meta.encode(
@@ -2042,7 +2316,7 @@ impl SurfnetSvm {
                 block
                     .signatures
                     .iter()
-                    .filter_map(|sig| self.transactions.get(sig))
+                    .filter_map(|sig| self.transactions.get(&sig.to_string()).ok().flatten())
                     .map(|tx_with_meta| {
                         let (meta, _) = tx_with_meta.expect_processed();
                         meta.to_json_accounts(
@@ -2082,6 +2356,7 @@ impl SurfnetSvm {
     pub fn blockhash_for_slot(&self, slot: Slot) -> Option<Hash> {
         self.blocks
             .get(&slot)
+            .unwrap()
             .and_then(|header| header.hash.parse().ok())
     }
 
@@ -2094,18 +2369,26 @@ impl SurfnetSvm {
     /// # Returns
     ///
     /// * A vector of (account_pubkey, account) tuples for all accounts owned by the program.
-    pub fn get_account_owned_by(&self, program_id: &Pubkey) -> Vec<(Pubkey, Account)> {
-        if let Some(account_pubkeys) = self.accounts_by_owner.get(program_id) {
-            account_pubkeys
-                .iter()
-                .filter_map(|pubkey| {
-                    self.get_account(pubkey)
-                        .map(|account| (*pubkey, account.clone()))
-                })
-                .collect()
-        } else {
-            Vec::new()
-        }
+    pub fn get_account_owned_by(
+        &self,
+        program_id: &Pubkey,
+    ) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
+        let account_pubkeys = self
+            .accounts_by_owner
+            .get(&program_id.to_string())
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
+        account_pubkeys
+            .iter()
+            .filter_map(|pk_str| {
+                let pk = Pubkey::from_str(pk_str).ok()?;
+                self.get_account(&pk)
+                    .map(|res| res.map(|account| (pk, account.clone())))
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, SurfpoolError>>()
     }
 
     fn get_additional_data(
@@ -2116,10 +2399,20 @@ impl SurfnetSvm {
         let token_mint = if let Some(mint) = token_mint {
             Some(mint)
         } else {
-            self.token_accounts.get(pubkey).map(|ta| ta.mint())
+            self.token_accounts
+                .get(&pubkey.to_string())
+                .ok()
+                .flatten()
+                .map(|ta| ta.mint())
         };
 
-        token_mint.and_then(|mint| self.account_associated_data.get(&mint).cloned())
+        token_mint.and_then(|mint| {
+            self.account_associated_data
+                .get(&mint.to_string())
+                .ok()
+                .flatten()
+                .and_then(|data| data.try_into().ok())
+        })
     }
 
     pub fn account_to_rpc_keyed_account<T: ReadableAccount>(
@@ -2153,10 +2446,22 @@ impl SurfnetSvm {
     ///
     /// * A vector of (account_pubkey, token_account) tuples for all token accounts delegated to the specified delegate.
     pub fn get_token_accounts_by_delegate(&self, delegate: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
-        if let Some(account_pubkeys) = self.token_accounts_by_delegate.get(delegate) {
+        if let Some(account_pubkeys) = self
+            .token_accounts_by_delegate
+            .get(&delegate.to_string())
+            .ok()
+            .flatten()
+        {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .filter_map(|pk_str| {
+                    let pk = Pubkey::from_str(pk_str).ok()?;
+                    self.token_accounts
+                        .get(pk_str)
+                        .ok()
+                        .flatten()
+                        .map(|ta| (pk, ta))
+                })
                 .collect()
         } else {
             Vec::new()
@@ -2176,26 +2481,48 @@ impl SurfnetSvm {
         &self,
         owner: &Pubkey,
     ) -> Vec<(Pubkey, TokenAccount)> {
-        if let Some(account_pubkeys) = self.token_accounts_by_owner.get(owner) {
+        if let Some(account_pubkeys) = self
+            .token_accounts_by_owner
+            .get(&owner.to_string())
+            .ok()
+            .flatten()
+        {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .filter_map(|pk_str| {
+                    let pk = Pubkey::from_str(pk_str).ok()?;
+                    self.token_accounts
+                        .get(pk_str)
+                        .ok()
+                        .flatten()
+                        .map(|ta| (pk, ta))
+                })
                 .collect()
         } else {
             Vec::new()
         }
     }
 
-    pub fn get_token_accounts_by_owner(&self, owner: &Pubkey) -> Vec<(Pubkey, Account)> {
-        self.token_accounts_by_owner
-            .get(owner)
-            .map(|account_pubkeys| {
-                account_pubkeys
-                    .iter()
-                    .filter_map(|pk| self.get_account(pk).map(|account| (*pk, account.clone())))
-                    .collect()
+    pub fn get_token_accounts_by_owner(
+        &self,
+        owner: &Pubkey,
+    ) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
+        let account_pubkeys = self
+            .token_accounts_by_owner
+            .get(&owner.to_string())
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
+        account_pubkeys
+            .iter()
+            .filter_map(|pk_str| {
+                let pk = Pubkey::from_str(pk_str).ok()?;
+                self.get_account(&pk)
+                    .map(|res| res.map(|account| (pk, account.clone())))
+                    .transpose()
             })
-            .unwrap_or_default()
+            .collect::<Result<Vec<_>, SurfpoolError>>()
     }
 
     /// Gets all token accounts for a specific mint (token type).
@@ -2208,10 +2535,22 @@ impl SurfnetSvm {
     ///
     /// * A vector of (account_pubkey, token_account) tuples for all token accounts of the specified mint.
     pub fn get_token_accounts_by_mint(&self, mint: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
-        if let Some(account_pubkeys) = self.token_accounts_by_mint.get(mint) {
+        if let Some(account_pubkeys) = self
+            .token_accounts_by_mint
+            .get(&mint.to_string())
+            .ok()
+            .flatten()
+        {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .filter_map(|pk_str| {
+                    let pk = Pubkey::from_str(pk_str).ok()?;
+                    self.token_accounts
+                        .get(pk_str)
+                        .ok()
+                        .flatten()
+                        .map(|ta| (pk, ta))
+                })
                 .collect()
         } else {
             Vec::new()
@@ -2234,35 +2573,39 @@ impl SurfnetSvm {
         uuid: Uuid,
         tag: Option<String>,
         profile_result: KeyedProfileResult,
-    ) {
+    ) -> SurfpoolResult<()> {
         self.simulated_transaction_profiles
-            .insert(uuid, profile_result);
+            .store(uuid.to_string(), profile_result)?;
 
         let tag = tag.unwrap_or_else(|| uuid.to_string());
-        self.profile_tag_map
-            .entry(tag)
-            .or_default()
-            .push(UuidOrSignature::Uuid(uuid));
+        let mut tags = self
+            .profile_tag_map
+            .get(&tag)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        tags.push(UuidOrSignature::Uuid(uuid));
+        self.profile_tag_map.store(tag, tags)?;
+        Ok(())
     }
 
     pub fn write_executed_profile_result(
         &mut self,
         signature: Signature,
         profile_result: KeyedProfileResult,
-    ) {
-        let (_, evicted_key) = self
-            .executed_transaction_profiles
-            .insert(signature, profile_result);
-
-        // Clean up profile_tag_map entry for evicted profile
-        if let Some(evicted_signature) = evicted_key {
-            self.profile_tag_map.remove(&evicted_signature.to_string());
-        }
-
-        self.profile_tag_map
-            .entry(signature.to_string())
-            .or_default()
-            .push(UuidOrSignature::Signature(signature));
+    ) -> SurfpoolResult<()> {
+        self.executed_transaction_profiles
+            .store(signature.to_string(), profile_result)?;
+        let tag = signature.to_string();
+        let mut tags = self
+            .profile_tag_map
+            .get(&tag)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        tags.push(UuidOrSignature::Signature(signature));
+        self.profile_tag_map.store(tag, tags)?;
+        Ok(())
     }
 
     pub fn subscribe_for_logs_updates(
@@ -2295,7 +2638,7 @@ impl SurfnetSvm {
                     // Get the tx accounts including loaded addresses
                     let transaction_accounts =
                         if let Some(SurfnetTransactionStatus::Processed(tx_data)) =
-                            self.transactions.get(signature)
+                            self.transactions.get(&signature.to_string()).ok().flatten()
                         {
                             let (tx_meta, _) = tx_data.as_ref();
                             let mut accounts = match &tx_meta.transaction.message {
@@ -2364,13 +2707,21 @@ impl SurfnetSvm {
         Ok(snapshot)
     }
 
-    pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) {
+    pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) -> SurfpoolResult<()> {
         let slot = slot.unwrap_or(self.latest_epoch_info.absolute_slot);
         let program_id = Pubkey::from_str_const(&idl.address);
-        self.registered_idls
-            .entry(program_id)
-            .or_default()
-            .push(VersionedIdl(slot, idl));
+        let program_id_str = program_id.to_string();
+        let mut idl_versions = self
+            .registered_idls
+            .get(&program_id_str)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        idl_versions.push(VersionedIdl(slot, idl));
+        // Sort by slot descending so the latest IDL is first
+        idl_versions.sort_by(|a, b| b.0.cmp(&a.0));
+        self.registered_idls.store(program_id_str, idl_versions)?;
+        Ok(())
     }
 
     fn encode_ui_account_profile_state(
@@ -2527,7 +2878,10 @@ impl SurfnetSvm {
 
         let filter_slot = self.latest_epoch_info.absolute_slot; // todo: consider if we should pass in a slot
         if encoding == UiAccountEncoding::JsonParsed {
-            if let Some(registered_idls) = self.registered_idls.get(owner_program_id) {
+            if let Ok(Some(registered_idls)) =
+                self.registered_idls.get(&owner_program_id.to_string())
+            {
+                // IDLs are stored sorted by slot descending (most recent first)
                 let ordered_available_idls = registered_idls
                     .iter()
                     // only get IDLs that are active (their slot is before the latest slot)
@@ -2607,12 +2961,19 @@ impl SurfnetSvm {
         )
     }
 
-    pub fn get_account(&self, pubkey: &Pubkey) -> Option<Account> {
+    pub fn get_account(&self, pubkey: &Pubkey) -> SurfpoolResult<Option<Account>> {
         self.inner.get_account(pubkey)
     }
 
-    pub fn iter_accounts(&self) -> std::collections::hash_map::Iter<'_, Pubkey, AccountSharedData> {
-        self.inner.accounts_db().inner.iter()
+    pub fn get_all_accounts(&self) -> SurfpoolResult<Vec<(Pubkey, AccountSharedData)>> {
+        self.inner.get_all_accounts()
+    }
+
+    pub fn get_transaction(
+        &self,
+        signature: &Signature,
+    ) -> SurfpoolResult<Option<SurfnetTransactionStatus>> {
+        Ok(self.transactions.get(&signature.to_string())?)
     }
 
     pub fn start_runbook_execution(&mut self, runbook_id: String) {
@@ -2640,7 +3001,7 @@ impl SurfnetSvm {
     pub fn export_snapshot(
         &self,
         config: ExportSnapshotConfig,
-    ) -> BTreeMap<String, AccountSnapshot> {
+    ) -> SurfpoolResult<BTreeMap<String, AccountSnapshot>> {
         let mut fixtures = BTreeMap::new();
         let encoding = if config.include_parsed_accounts.unwrap_or_default() {
             UiAccountEncoding::JsonParsed
@@ -2670,18 +3031,29 @@ impl SurfnetSvm {
             }
 
             // For token accounts, we need to provide the mint additional data
-            let additional_data = if account.owner == spl_token_interface::id()
+            let additional_data: Option<AccountAdditionalDataV3> = if account.owner
+                == spl_token_interface::id()
                 || account.owner == spl_token_2022_interface::id()
             {
                 if let Ok(token_account) = TokenAccount::unpack(&account.data) {
                     self.account_associated_data
-                        .get(&token_account.mint())
-                        .cloned()
+                        .get(&token_account.mint().to_string())
+                        .ok()
+                        .flatten()
+                        .and_then(|data| data.try_into().ok())
                 } else {
-                    self.account_associated_data.get(pubkey).cloned()
+                    self.account_associated_data
+                        .get(&pubkey.to_string())
+                        .ok()
+                        .flatten()
+                        .and_then(|data| data.try_into().ok())
                 }
             } else {
-                self.account_associated_data.get(pubkey).cloned()
+                self.account_associated_data
+                    .get(&pubkey.to_string())
+                    .ok()
+                    .flatten()
+                    .and_then(|data| data.try_into().ok())
             };
 
             let ui_account =
@@ -2710,7 +3082,7 @@ impl SurfnetSvm {
         match &config.scope {
             ExportSnapshotScope::Network => {
                 // Export all network accounts (current behavior)
-                for (pubkey, account_shared_data) in self.iter_accounts() {
+                for (pubkey, account_shared_data) in self.get_all_accounts()? {
                     let account = Account::from(account_shared_data.clone());
                     process_account(&pubkey, &account);
                 }
@@ -2718,7 +3090,10 @@ impl SurfnetSvm {
             ExportSnapshotScope::PreTransaction(signature_str) => {
                 // Export accounts from a specific transaction's pre-execution state
                 if let Ok(signature) = Signature::from_str(signature_str) {
-                    if let Some(profile) = self.executed_transaction_profiles.get(&signature) {
+                    if let Ok(Some(profile)) = self
+                        .executed_transaction_profiles
+                        .get(&signature.to_string())
+                    {
                         // Collect accounts from pre-execution capture only
                         // This gives us the account state BEFORE the transaction executed
                         for (pubkey, account_opt) in
@@ -2738,7 +3113,7 @@ impl SurfnetSvm {
             }
         }
 
-        fixtures
+        Ok(fixtures)
     }
 
     /// Registers a scenario for execution by scheduling its overrides
@@ -2771,10 +3146,15 @@ impl SurfnetSvm {
                 absolute_slot, base_slot, scenario_relative_slot
             );
 
+            let mut slot_overrides = self
+                .scheduled_overrides
+                .get(&absolute_slot)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            slot_overrides.push(override_instance);
             self.scheduled_overrides
-                .entry(absolute_slot)
-                .or_insert_with(Vec::new)
-                .push(override_instance);
+                .store(absolute_slot, slot_overrides)?;
         }
 
         Ok(())
@@ -2790,12 +3170,17 @@ mod tests {
     use solana_loader_v3_interface::get_program_data_address;
     use solana_program_pack::Pack;
     use spl_token_interface::state::{Account as TokenAccount, AccountState};
+    use test_case::test_case;
 
     use super::*;
+    use crate::storage::tests::TestType;
 
-    #[test]
-    fn test_synthetic_blockhash_generation() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_synthetic_blockhash_generation(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Test with different chain tip indices
         let test_cases = vec![0, 1, 42, 255, 1000, 0x12345678];
@@ -2854,9 +3239,12 @@ mod tests {
         println!("Generated hash: {}", hash_str);
     }
 
-    #[test]
-    fn test_blockhash_consistency_across_calls() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_blockhash_consistency_across_calls(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Set a specific chain tip
         svm.chain_tip = BlockIdentifier::new(123, "initial_hash");
@@ -2886,9 +3274,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_token_account_indexing() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_token_account_indexing(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let owner = Pubkey::new_unique();
         let delegate = Pubkey::new_unique();
@@ -2920,7 +3311,7 @@ mod tests {
         svm.set_account(&token_account_pubkey, account).unwrap();
 
         // test all indexes were created correctly
-        assert_eq!(svm.token_accounts.len(), 1);
+        assert_eq!(svm.token_accounts.keys().unwrap().len(), 1);
 
         // test owner index
         let owner_accounts = svm.get_parsed_token_accounts_by_owner(&owner);
@@ -2938,9 +3329,12 @@ mod tests {
         assert_eq!(mint_accounts[0].0, token_account_pubkey);
     }
 
-    #[test]
-    fn test_account_update_removes_old_indexes() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_account_update_removes_old_indexes(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let owner = Pubkey::new_unique();
         let old_delegate = Pubkey::new_unique();
@@ -3008,9 +3402,12 @@ mod tests {
         assert_eq!(svm.get_parsed_token_accounts_by_owner(&owner).len(), 1);
     }
 
-    #[test]
-    fn test_non_token_accounts_not_indexed() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_non_token_accounts_not_indexed(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let system_account_pubkey = Pubkey::new_unique();
         let account = Account {
@@ -3024,10 +3421,10 @@ mod tests {
         svm.set_account(&system_account_pubkey, account).unwrap();
 
         // should be in general registry but not token indexes
-        assert_eq!(svm.token_accounts.len(), 0);
-        assert_eq!(svm.token_accounts_by_owner.len(), 0);
-        assert_eq!(svm.token_accounts_by_delegate.len(), 0);
-        assert_eq!(svm.token_accounts_by_mint.len(), 0);
+        assert_eq!(svm.token_accounts.keys().unwrap().len(), 0);
+        assert_eq!(svm.token_accounts_by_owner.keys().unwrap().len(), 0);
+        assert_eq!(svm.token_accounts_by_delegate.keys().unwrap().len(), 0);
+        assert_eq!(svm.token_accounts_by_mint.keys().unwrap().len(), 0);
     }
 
     fn expect_account_update_event(
@@ -3040,7 +3437,10 @@ mod tests {
             Ok(event) => match event {
                 SimnetEvent::AccountUpdate(_, account_pubkey) => {
                     assert_eq!(pubkey, &account_pubkey);
-                    assert_eq!(svm.get_account(&pubkey).as_ref(), Some(expected_account));
+                    assert_eq!(
+                        svm.get_account(&pubkey).unwrap().as_ref(),
+                        Some(expected_account)
+                    );
                     true
                 }
                 event => {
@@ -3109,9 +3509,12 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_inserting_account_updates() {
-        let (mut svm, events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_inserting_account_updates(test_type: TestType) {
+        let (mut svm, events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let pubkey = Pubkey::new_unique();
         let account = Account {
@@ -3124,27 +3527,27 @@ mod tests {
 
         // GetAccountResult::None should be a noop when writing account updates
         {
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let empty_update = GetAccountResult::None(pubkey);
             svm.write_account_update(empty_update);
-            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
+            assert_eq!(svm.get_all_accounts().unwrap(), index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to false should be a noop
         {
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), false);
             svm.write_account_update(found_update);
-            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
+            assert_eq!(svm.get_all_accounts().unwrap(), index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to true should update the account
         {
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), true);
             svm.write_account_update(found_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(&events_rx, &svm, &pubkey, &account) {
@@ -3178,7 +3581,7 @@ mod tests {
                 rent_epoch: 0,
             };
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
@@ -3202,7 +3605,7 @@ mod tests {
                 );
             }
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 2
             );
         }
@@ -3212,14 +3615,14 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, Some(program_data_account.clone())),
             );
             svm.write_account_update(found_program_account_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 2
             );
             if !expect_account_update_event(
@@ -3246,7 +3649,7 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(
                 program_data_address,
                 program_data_account.clone(),
@@ -3254,7 +3657,7 @@ mod tests {
             );
             svm.write_account_update(found_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(
@@ -3268,14 +3671,14 @@ mod tests {
                 );
             }
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let program_account_found_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
             );
             svm.write_account_update(program_account_found_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
@@ -3286,15 +3689,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_encode_ui_account() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_encode_ui_account(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let idl_v1: Idl =
             serde_json::from_slice(&include_bytes!("../tests/assets/idl_v1.json").to_vec())
                 .unwrap();
 
-        svm.register_idl(idl_v1.clone(), Some(0));
+        svm.register_idl(idl_v1.clone(), Some(0)).unwrap();
 
         let account_pubkey = Pubkey::new_unique();
 
@@ -3389,7 +3795,7 @@ mod tests {
             serde_json::from_slice(&include_bytes!("../tests/assets/idl_v2.json").to_vec())
                 .unwrap();
 
-        svm.register_idl(idl_v2.clone(), Some(100));
+        svm.register_idl(idl_v2.clone(), Some(100)).unwrap();
 
         // even though we have a new IDL that is more recent, we should be able to match with the old IDL
         {
@@ -3514,20 +3920,23 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_profiling_map_capacity_default() {
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
-        assert_eq!(
-            svm.executed_transaction_profiles.capacity(),
-            DEFAULT_PROFILING_MAP_CAPACITY
-        );
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_profiling_map_capacity_default(test_type: TestType) {
+        let (svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+        assert_eq!(svm.max_profiles, DEFAULT_PROFILING_MAP_CAPACITY);
     }
 
-    #[test]
-    fn test_profiling_map_capacity_set() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_profiling_map_capacity_set(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
         svm.set_profiling_map_capacity(10);
-        assert_eq!(svm.executed_transaction_profiles.capacity(), 10);
+        assert_eq!(svm.max_profiles, 10);
     }
 
     // Feature configuration tests
@@ -3576,18 +3985,24 @@ mod tests {
         assert_ne!(loader_v4_id, disable_fees_id);
     }
 
-    #[test]
-    fn test_apply_feature_config_empty() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_empty(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
         let config = SvmFeatureConfig::new();
 
         // Should not panic with empty config
         svm.apply_feature_config(&config);
     }
 
-    #[test]
-    fn test_apply_feature_config_enable_feature() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_enable_feature(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Disable a feature first
         let feature_id = enable_loader_v4::id();
@@ -3601,9 +4016,12 @@ mod tests {
         assert!(svm.feature_set.is_active(&feature_id));
     }
 
-    #[test]
-    fn test_apply_feature_config_disable_feature() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_disable_feature(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Feature should be active by default (all_enabled)
         let feature_id = disable_fees_sysvar::id();
@@ -3616,9 +4034,12 @@ mod tests {
         assert!(!svm.feature_set.is_active(&feature_id));
     }
 
-    #[test]
-    fn test_apply_feature_config_mainnet_defaults() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_mainnet_defaults(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
         let config = SvmFeatureConfig::default_mainnet_features();
 
         svm.apply_feature_config(&config);
@@ -3660,9 +4081,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_apply_feature_config_mainnet_with_override() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_mainnet_with_override(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Start with mainnet defaults, but enable loader v4
         let config =
@@ -3681,9 +4105,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_apply_feature_config_multiple_changes() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_multiple_changes(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let config = SvmFeatureConfig::new()
             .enable(SvmFeature::EnableLoaderV4)
@@ -3702,14 +4129,18 @@ mod tests {
         assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
     }
 
-    #[test]
-    fn test_apply_feature_config_preserves_native_mint() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_preserves_native_mint(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Native mint should exist before
         assert!(
             svm.inner
                 .get_account(&spl_token_interface::native_mint::ID)
+                .unwrap()
                 .is_some()
         );
 
@@ -3720,13 +4151,17 @@ mod tests {
         assert!(
             svm.inner
                 .get_account(&spl_token_interface::native_mint::ID)
+                .unwrap()
                 .is_some()
         );
     }
 
-    #[test]
-    fn test_apply_feature_config_idempotent() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_idempotent(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let config = SvmFeatureConfig::new()
             .enable(SvmFeature::EnableLoaderV4)
@@ -3743,9 +4178,12 @@ mod tests {
 
     // Garbage collection tests
 
-    #[test]
-    fn test_garbage_collected_account_tracking() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_garbage_collected_account_tracking(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let owner = Pubkey::new_unique();
         let account_pubkey = Pubkey::new_unique();
@@ -3760,9 +4198,9 @@ mod tests {
 
         svm.set_account(&account_pubkey, account.clone()).unwrap();
 
-        assert!(svm.get_account(&account_pubkey).is_some());
+        assert!(svm.get_account(&account_pubkey).unwrap().is_some());
         assert!(!svm.closed_accounts.contains(&account_pubkey));
-        assert_eq!(svm.get_account_owned_by(&owner).len(), 1);
+        assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 1);
 
         let empty_account = Account::default();
         svm.update_account_registries(&account_pubkey, &empty_account)
@@ -3770,15 +4208,18 @@ mod tests {
 
         assert!(svm.closed_accounts.contains(&account_pubkey));
 
-        assert_eq!(svm.get_account_owned_by(&owner).len(), 0);
+        assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 0);
 
-        let owned_accounts = svm.get_account_owned_by(&owner);
+        let owned_accounts = svm.get_account_owned_by(&owner).unwrap();
         assert!(!owned_accounts.iter().any(|(pk, _)| *pk == account_pubkey));
     }
 
-    #[test]
-    fn test_garbage_collected_token_account_cleanup() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_garbage_collected_token_account_cleanup(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let token_owner = Pubkey::new_unique();
         let delegate = Pubkey::new_unique();
@@ -3808,7 +4249,10 @@ mod tests {
 
         svm.set_account(&token_account_pubkey, account).unwrap();
 
-        assert_eq!(svm.get_token_accounts_by_owner(&token_owner).len(), 1);
+        assert_eq!(
+            svm.get_token_accounts_by_owner(&token_owner).unwrap().len(),
+            1
+        );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 1);
         assert!(!svm.closed_accounts.contains(&token_account_pubkey));
 
@@ -3818,8 +4262,16 @@ mod tests {
 
         assert!(svm.closed_accounts.contains(&token_account_pubkey));
 
-        assert_eq!(svm.get_token_accounts_by_owner(&token_owner).len(), 0);
+        assert_eq!(
+            svm.get_token_accounts_by_owner(&token_owner).unwrap().len(),
+            0
+        );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 0);
-        assert!(svm.token_accounts.get(&token_account_pubkey).is_none());
+        assert!(
+            svm.token_accounts
+                .get(&token_account_pubkey.to_string())
+                .unwrap()
+                .is_none()
+        );
     }
 }

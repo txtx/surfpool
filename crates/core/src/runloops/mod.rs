@@ -168,7 +168,8 @@ pub async fn start_local_surfnet_runloop(
     let (clock_event_rx, clock_command_tx) =
         start_clock_runloop(simnet_config.slot_time, Some(simnet_events_tx_cc.clone()));
 
-    let _ = simnet_events_tx_cc.send(SimnetEvent::Ready);
+    let initial_transactions = svm_locker.with_svm_reader(|svm| svm.transactions_processed);
+    let _ = simnet_events_tx_cc.send(SimnetEvent::Ready(initial_transactions));
 
     start_block_production_runloop(
         clock_event_rx,
@@ -350,7 +351,8 @@ pub async fn start_block_production_runloop(
                        }
                     }
                     SimnetCommand::Terminate(_) => {
-                        let _ = svm_locker.simnet_events_tx().send(SimnetEvent::Aborted("Terminated due to inactivity.".to_string()));
+                        // Explicitly shutdown storage to trigger WAL checkpoint before exiting
+                        svm_locker.shutdown();
                         break;
                     }
                     SimnetCommand::StartRunbookExecution(runbook_id) => {

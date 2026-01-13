@@ -23,6 +23,7 @@ use crate::{
 
 pub mod locker;
 pub mod remote;
+pub mod surfnet_lite_svm;
 pub mod svm;
 
 pub const FINALIZATION_SLOT_THRESHOLD: u64 = 31;
@@ -62,7 +63,7 @@ impl BlockIdentifier {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockHeader {
     pub hash: String,
     pub previous_blockhash: String,

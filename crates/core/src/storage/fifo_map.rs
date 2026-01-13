@@ -1,0 +1,48 @@
+use std::hash::Hash;
+
+use serde::{Deserialize, Serialize};
+use surfpool_types::FifoMap;
+
+impl<K, V> super::Storage<K, V> for FifoMap<K, V>
+where
+    K: Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static + std::cmp::Eq + Hash,
+    V: Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
+{
+    fn store(&mut self, key: K, value: V) -> super::StorageResult<()> {
+        self.insert(key, value);
+        Ok(())
+    }
+
+    fn clear(&mut self) -> super::StorageResult<()> {
+        self.clear();
+        Ok(())
+    }
+
+    fn get(&self, key: &K) -> super::StorageResult<Option<V>> {
+        Ok(self.get(key).cloned())
+    }
+
+    fn take(&mut self, key: &K) -> super::StorageResult<Option<V>> {
+        Ok(self.remove(key))
+    }
+
+    fn keys(&self) -> super::StorageResult<Vec<K>> {
+        Ok(self.iter().map(|(k, _)| k.clone()).collect())
+    }
+
+    fn into_iter(&self) -> super::StorageResult<Box<dyn Iterator<Item = (K, V)> + '_>> {
+        Ok(Box::new(self.iter().map(|(k, v)| (k.clone(), v.clone()))))
+    }
+
+    fn clone_box(&self) -> Box<dyn super::Storage<K, V>> {
+        Box::new(self.clone())
+    }
+
+    fn contains_key(&self, key: &K) -> super::StorageResult<bool> {
+        Ok(self.contains_key(key))
+    }
+
+    fn count(&self) -> super::StorageResult<u64> {
+        Ok(self.len() as u64)
+    }
+}

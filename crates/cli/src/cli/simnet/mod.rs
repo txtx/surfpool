@@ -60,7 +60,9 @@ pub async fn handle_start_local_surfnet_command(
     }
 
     // We start the simnet as soon as possible, as it needs to be ready for deployments
-    let (mut surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (mut surfnet_svm, simnet_events_rx, geyser_events_rx) =
+        SurfnetSvm::new_with_db(cmd.db.as_deref(), cmd.surfnet_id)
+            .map_err(|e| format!("Failed to initialize Surfnet SVM: {}", e))?;
 
     // Apply feature configuration from CLI flags
     let feature_config = cmd.feature_config();
@@ -168,7 +170,7 @@ pub async fn handle_start_local_surfnet_command(
     let config_copy = config.clone();
 
     let simnet_events_tx_for_thread = simnet_events_tx.clone();
-    let _handle = hiro_system_kit::thread_named("simnet")
+    let simnet_handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
             let future = start_local_surfnet(
                 surfnet_svm,
@@ -188,18 +190,18 @@ pub async fn handle_start_local_surfnet_command(
 
     // Collect events that occur before Ready so we can re-send them to the TUI
     let mut early_events = Vec::new();
-    loop {
+    let initial_transactions = loop {
         match simnet_events_rx.recv() {
             Ok(SimnetEvent::Aborted(error)) => {
                 eprintln!("Error: {}", error);
                 return Err(error);
             }
             Ok(SimnetEvent::Shutdown) => return Ok(()),
-            Ok(SimnetEvent::Ready) => break,
+            Ok(SimnetEvent::Ready(initial_transactions)) => break initial_transactions,
             Ok(other) => early_events.push(other),
             Err(_) => continue,
         }
-    }
+    };
 
     // Re-send early events (like snapshot loading messages) so the TUI receives them
     for event in early_events {
@@ -262,8 +264,12 @@ pub async fn handle_start_local_surfnet_command(
         explorer_handle,
         ctx_cc,
         Some(runloop_terminator),
+        initial_transactions,
     )
     .await;
+
+    // Wait for the simnet thread to finish cleanup (including Drop/checkpoint)
+    let _ = simnet_handle.join();
 
     Ok(())
 }
@@ -280,6 +286,7 @@ async fn start_service(
     explorer_handle: Option<ServerHandle>,
     _ctx: Context,
     runloop_terminator: Option<Arc<AtomicBool>>,
+    initial_transactions: u64,
 ) -> Result<(), String> {
     let displayed_url = if cmd.no_studio {
         DisplayedUrl::Datasource(sanitized_config)
@@ -306,12 +313,14 @@ async fn start_service(
             deploy_progress_rx,
             displayed_url,
             breaker,
+            initial_transactions,
         )
         .map_err(|e| format!("{}", e))?;
     }
     if let Some(explorer_handle) = explorer_handle {
         let _ = explorer_handle.stop(true).await;
     }
+
     Ok(())
 }
 
@@ -325,8 +334,11 @@ fn log_events(
 ) -> Result<(), String> {
     let mut deployment_completed = false;
     let do_stop_loop = runloop_terminator.clone();
+    let terminate_tx = simnet_commands_tx.clone();
     ctrlc::set_handler(move || {
         do_stop_loop.store(true, Ordering::Relaxed);
+        // Send terminate command to allow graceful shutdown (Drop to run)
+        let _ = terminate_tx.send(SimnetCommand::Terminate(None));
     })
     .expect("Error setting Ctrl-C handler");
 
@@ -399,7 +411,7 @@ fn log_events(
                         error!("{}", error);
                         return Err(error);
                     }
-                    SimnetEvent::Ready => {}
+                    SimnetEvent::Ready(_) => {}
                     SimnetEvent::Connected(_rpc_url) => {}
                     SimnetEvent::Shutdown => {
                         break;

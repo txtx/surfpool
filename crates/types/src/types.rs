@@ -139,12 +139,13 @@ pub struct ComputeUnitsEstimationResult {
 }
 
 /// The struct for storing the profiling results.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyedProfileResult {
     pub slot: u64,
     pub key: UuidOrSignature,
     pub instruction_profiles: Option<Vec<ProfileResult>>,
     pub transaction_profile: ProfileResult,
+    #[serde(with = "pubkey_account_map")]
     pub readonly_account_states: HashMap<Pubkey, Account>,
 }
 
@@ -166,9 +167,11 @@ impl KeyedProfileResult {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProfileResult {
+    #[serde(with = "pubkey_option_account_map")]
     pub pre_execution_capture: ExecutionCapture,
+    #[serde(with = "pubkey_option_account_map")]
     pub post_execution_capture: ExecutionCapture,
     pub compute_units_consumed: u64,
     pub log_messages: Option<Vec<String>>,
@@ -340,6 +343,69 @@ pub mod profile_state_map {
     }
 }
 
+/// Serialization module for HashMap<Pubkey, Account>
+pub mod pubkey_account_map {
+    use super::*;
+
+    pub fn serialize<S>(map: &HashMap<Pubkey, Account>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let str_map: HashMap<String, &Account> =
+            map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        str_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<Pubkey, Account>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let str_map: HashMap<String, Account> = HashMap::deserialize(deserializer)?;
+        str_map
+            .into_iter()
+            .map(|(k, v)| {
+                Pubkey::from_str(&k)
+                    .map(|pk| (pk, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
+    }
+}
+
+/// Serialization module for BTreeMap<Pubkey, Option<Account>>
+pub mod pubkey_option_account_map {
+    use super::*;
+
+    pub fn serialize<S>(
+        map: &BTreeMap<Pubkey, Option<Account>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let str_map: BTreeMap<String, &Option<Account>> =
+            map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        str_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<BTreeMap<Pubkey, Option<Account>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let str_map: BTreeMap<String, Option<Account>> = BTreeMap::deserialize(deserializer)?;
+        str_map
+            .into_iter()
+            .map(|(k, v)| {
+                Pubkey::from_str(&k)
+                    .map(|pk| (pk, v))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum SubgraphCommand {
     CreateCollection(Uuid, SubgraphRequest, Sender<String>),
@@ -350,7 +416,8 @@ pub enum SubgraphCommand {
 
 #[derive(Debug)]
 pub enum SimnetEvent {
-    Ready,
+    /// Surfnet is ready, with the initial count of processed transactions from storage
+    Ready(u64),
     Connected(String),
     Aborted(String),
     Shutdown,
@@ -549,6 +616,9 @@ pub struct SimnetConfig {
     pub log_bytes_limit: Option<usize>,
     pub feature_config: SvmFeatureConfig,
     pub skip_signature_verification: bool,
+    /// Unique identifier for this surfnet instance. Used to isolate database storage
+    /// when multiple surfnets share the same database. Defaults to 0.
+    pub surfnet_id: u32,
     /// Snapshot accounts to preload at startup.
     /// Keys are pubkey strings, values can be None to fetch from remote RPC.
     pub snapshot: BTreeMap<String, Option<AccountSnapshot>>,
@@ -569,6 +639,7 @@ impl Default for SimnetConfig {
             log_bytes_limit: Some(10_000),
             feature_config: SvmFeatureConfig::default(),
             skip_signature_verification: false,
+            surfnet_id: 0,
             snapshot: BTreeMap::new(),
         }
     }
@@ -898,7 +969,7 @@ pub enum DataIndexingCommand {
 }
 
 // Define a wrapper struct
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VersionedIdl(pub Slot, pub Idl);
 
 // Implement ordering based on Slot
@@ -987,6 +1058,11 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
 
     pub fn contains_key(&self, key: &K) -> bool {
         self.map.contains_key(key)
+    }
+
+    /// Removes a key from the map, returning the value if present.
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.map.shift_remove(key)
     }
 
     // This is a wrapper around the IndexMap::iter() method, but it preserves the insertion order of the keys.
@@ -1103,14 +1179,17 @@ pub struct GetStreamedAccountsResponse {
     accounts: Vec<StreamedAccountInfo>,
 }
 impl GetStreamedAccountsResponse {
-    pub fn new(streamed_accounts: &HashMap<Pubkey, bool>) -> Self {
-        let mut accounts = vec![];
-        for (pubkey, include_owned_accounts) in streamed_accounts {
-            accounts.push(StreamedAccountInfo {
-                pubkey: pubkey.to_string(),
-                include_owned_accounts: *include_owned_accounts,
-            });
-        }
+    pub fn from_iter<I>(streamed_accounts: I) -> Self
+    where
+        I: IntoIterator<Item = (String, bool)>,
+    {
+        let accounts = streamed_accounts
+            .into_iter()
+            .map(|(pubkey, include_owned_accounts)| StreamedAccountInfo {
+                pubkey,
+                include_owned_accounts,
+            })
+            .collect();
         Self { accounts }
     }
 }

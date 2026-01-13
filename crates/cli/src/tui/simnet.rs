@@ -285,6 +285,7 @@ impl App {
         deploy_progress_rx: Vec<Receiver<BlockEvent>>,
         displayed_url: DisplayedUrl,
         breaker: Option<Keypair>,
+        initial_transactions: u64,
     ) -> App {
         let theme = Theme::detect();
         let palette = theme.palette();
@@ -328,7 +329,7 @@ impl App {
                 block_height: 0,
                 transaction_count: None,
             },
-            successful_transactions: 0,
+            successful_transactions: initial_transactions as u32,
             events,
             include_debug_logs,
             deploy_progress_rx,
@@ -403,6 +404,7 @@ pub fn start_app(
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     displayed_url: DisplayedUrl,
     breaker: Option<Keypair>,
+    initial_transactions: u64,
 ) -> Result<(), Box<dyn Error>> {
     // setup terminal
     enable_raw_mode()?;
@@ -419,6 +421,7 @@ pub fn start_app(
         deploy_progress_rx,
         displayed_url,
         breaker,
+        initial_transactions,
     );
     let res = run_app(&mut terminal, app);
 
@@ -553,7 +556,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             SimnetEvent::Aborted(_error) => {
                                 break;
                             }
-                            SimnetEvent::Ready => {}
+                            SimnetEvent::Ready(_) => {}
                             SimnetEvent::Connected(_) => {}
                             SimnetEvent::Shutdown => {
                                 break;
@@ -705,10 +708,16 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                 if key_event.kind == KeyEventKind::Press {
                     use KeyCode::*;
                     if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == Char('c') {
+                        // Send terminate command to allow graceful shutdown (Drop to run)
+                        let _ = app.simnet_commands_tx.send(SimnetCommand::Terminate(None));
                         return Ok(());
                     }
                     match key_event.code {
-                        Char('q') | Esc => return Ok(()),
+                        Char('q') | Esc => {
+                            // Send terminate command to allow graceful shutdown (Drop to run)
+                            let _ = app.simnet_commands_tx.send(SimnetCommand::Terminate(None));
+                            return Ok(());
+                        }
                         Down => app.next(),
                         Up => app.previous(),
                         Char('f') | Char('j') => {
