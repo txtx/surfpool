@@ -9,6 +9,7 @@ test-ledger
 
 .surfpool
 surfpool.log
+reproduce_issue.sh
 
 
 # local

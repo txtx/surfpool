@@ -3210,7 +3210,14 @@ fn boot_simnet(
             block_production_mode,
             ..SimnetConfig::default()
         }],
-        rpc: RpcConfig::default(),
+        rpc: RpcConfig {
+            bind_host: bind_host.to_string(),
+            bind_port,
+            ws_port,
+            gossip_port: 0,
+            tpu_port: 0,
+            tpu_quic_port: 0,
+        },
         subgraph: SubgraphConfig::default(),
         ..SurfpoolConfig::default()
     };
