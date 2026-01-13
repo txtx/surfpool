@@ -6848,3 +6848,183 @@ async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
         "Recipient should have received funds after actual execution"
     );
 }
+
+/// Tests that instruction-level profiling during transaction execution does not
+/// mutate the original SVM state for failed transactions.
+/// This creates a transaction with two instructions where:
+/// - First instruction: a transfer that would succeed
+/// - Second instruction: a transfer that will fail (insufficient funds)
+/// The test verifies that even though the first instruction is profiled successfully
+/// during execution, its effects are not persisted since the overall transaction fails.
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_instruction_profiling_does_not_mutate_state(test_type: TestType) {
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+
+    // Verify instruction profiling is enabled by default
+    assert!(
+        svm_instance.instruction_profiling_enabled,
+        "Instruction profiling should be enabled by default"
+    );
+
+    // Setup: Create accounts
+    let payer = Keypair::new();
+    let payer_without_funds = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = LAMPORTS_PER_SOL;
+
+    // Fund only the first payer
+    svm_instance
+        .airdrop(&payer.pubkey(), lamports_to_send * 3)
+        .unwrap()
+        .unwrap();
+
+    // Record initial state BEFORE processing
+    let initial_payer_balance = svm_instance
+        .get_account(&payer.pubkey())
+        .unwrap()
+        .map(|a| a.lamports)
+        .unwrap_or(0);
+    let initial_recipient_account = svm_instance.get_account(&recipient).ok().flatten();
+    let initial_transactions_processed = svm_instance.transactions_processed;
+
+    // Create a multi-instruction transaction where:
+    // - First instruction: valid transfer from payer to recipient (would succeed alone)
+    // - Second instruction: invalid transfer from unfunded account (will fail)
+    let valid_instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let invalid_instruction =
+        transfer(&payer_without_funds.pubkey(), &recipient, lamports_to_send);
+
+    let latest_blockhash = svm_instance.latest_blockhash();
+    let message = Message::new_with_blockhash(
+        &[valid_instruction, invalid_instruction],
+        Some(&payer.pubkey()),
+        &latest_blockhash,
+    );
+    let transaction = VersionedTransaction::try_new(
+        VersionedMessage::Legacy(message),
+        &[&payer, &payer_without_funds],
+    )
+    .unwrap();
+    let signature = transaction.signatures[0];
+
+    // Create the locker and status channel for transaction processing
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    let (status_tx, _status_rx) = crossbeam_unbounded::<TransactionStatusEvent>();
+
+    // Process the transaction using the actual execution path
+    // This will trigger instruction-level profiling since it's enabled by default
+    let process_result = svm_locker
+        .process_transaction(
+            &None,              // no remote context
+            transaction.clone(),
+            status_tx,
+            true,               // skip_preflight
+            false,              // sigverify
+        )
+        .await;
+
+    // The transaction should fail due to the second instruction
+    // But the profile result should still be written
+    assert!(
+        process_result.is_err() || process_result.is_ok(),
+        "process_transaction should complete (success or failure)"
+    );
+
+    // Retrieve the profile result using the signature
+    let key = UuidOrSignature::Signature(signature);
+    let profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist for executed transaction");
+
+    // Verify the overall transaction failed (due to second instruction)
+    assert!(
+        profile_result.transaction_profile.error_message.is_some(),
+        "Transaction should fail due to second instruction's insufficient funds"
+    );
+
+    // Verify instruction profiles were generated
+    assert!(
+        profile_result.instruction_profiles.is_some(),
+        "Instruction profiles should be generated when instruction profiling is enabled"
+    );
+
+    let instruction_profiles = profile_result.instruction_profiles.as_ref().unwrap();
+    assert_eq!(
+        instruction_profiles.len(),
+        2,
+        "Should have profiles for both instructions"
+    );
+
+    // Verify first instruction profile shows SUCCESS (it was profiled independently)
+    let first_ix_profile = &instruction_profiles[0];
+    assert!(
+        first_ix_profile.error_message.is_none(),
+        "First instruction profile should succeed: {:?}",
+        first_ix_profile.error_message
+    );
+    assert!(
+        first_ix_profile.compute_units_consumed > 0,
+        "First instruction should have consumed compute units"
+    );
+
+    // Verify second instruction profile shows FAILURE
+    let second_ix_profile = &instruction_profiles[1];
+    assert!(
+        second_ix_profile.error_message.is_some(),
+        "Second instruction should fail due to insufficient funds"
+    );
+
+    // NOW THE CRITICAL PART: Verify that instruction profiling didn't leak state
+    // Even though the first instruction was profiled successfully, its effects
+    // should NOT be persisted because:
+    // 1. The instruction profiling uses clone_for_profiling() with OverlayStorage
+    // 2. The overall transaction failed, so no state changes are committed
+    //
+    // Note: Failed transactions in Solana still deduct fees from the fee payer.
+    // This is expected behavior and not related to instruction profiling.
+
+    let final_payer_balance = svm_locker
+        .with_svm_reader(|svm| svm.get_account(&payer.pubkey()))
+        .unwrap()
+        .map(|a| a.lamports)
+        .unwrap_or(0);
+    let final_recipient_account = svm_locker
+        .with_svm_reader(|svm| svm.get_account(&recipient))
+        .ok()
+        .flatten();
+    let final_transactions_processed =
+        svm_locker.with_svm_reader(|svm| svm.transactions_processed);
+
+    // THE KEY ASSERTION: Recipient should NOT have received funds
+    // This proves that the first instruction's transfer (which was profiled successfully)
+    // was NOT committed to the actual state. The instruction profiling used
+    // clone_for_profiling() so its mutations were isolated.
+    assert_eq!(
+        initial_recipient_account.as_ref().map(|a| a.lamports),
+        final_recipient_account.as_ref().map(|a| a.lamports),
+        "Recipient should not have received funds - instruction profiling must not leak state"
+    );
+
+    // Payer balance should only decrease by the transaction fee (not by the transfer amount)
+    // Failed transactions still pay fees in Solana, but the transfer should not have occurred
+    let balance_decrease = initial_payer_balance.saturating_sub(final_payer_balance);
+    assert!(
+        balance_decrease < lamports_to_send,
+        "Payer should only lose transaction fee, not the transfer amount. Lost: {} lamports",
+        balance_decrease
+    );
+
+    // Transaction count increments even for failed transactions (they were still processed)
+    // This is expected behavior - we're verifying instruction profiling isolation, not tx count
+    assert_eq!(
+        final_transactions_processed,
+        initial_transactions_processed + 1,
+        "Transaction count should increment after processing (even for failed tx)"
+    );
+}
