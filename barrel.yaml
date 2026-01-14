@@ -1,0 +1,119 @@
+# Barrel workspace configuration
+# Documentation: https://docs.barrel.rs
+#
+# Launch with: barrel
+# Launch with profile: barrel --profile <name>
+# Kill session: barrel -k surfpool
+
+workspace: surfpool
+
+# =============================================================================
+# Agent directories
+# =============================================================================
+# Search paths for agent files (first match wins for duplicate names)
+# Supports: ./relative, ~/home, /absolute paths
+
+agents:
+  - path: ./agents
+  - path: ~/.config/barrel/agents
+
+# =============================================================================
+# Shell definitions
+# =============================================================================
+# Define shells that can be used in terminal profiles
+#
+# Built-in types: claude, codex, opencode, antigravity, shell
+# Custom types use the 'command' field
+
+shells:
+  # Claude Code - AI coding assistant
+  - type: claude
+    color: gray
+    agents:
+      - "*"                    # Load all agents, or list specific: ["agent1", "agent2"]
+    # model: sonnet            # Model: sonnet, opus, haiku
+    # prompt: "Your task..."   # Initial prompt
+    # allowed_tools: []        # Restrict to specific tools
+    # disallowed_tools: []     # Block specific tools
+    # args: []                 # Additional CLI arguments
+
+  # Codex - OpenAI coding assistant
+  # - type: codex
+  #   color: green
+  #   agents: ["*"]
+  #   # model: gpt-4           # Model to use
+
+  # OpenCode - Open-source coding assistant
+  # - type: opencode
+  #   color: blue
+  #   agents: ["*"]
+
+  # Antigravity - Google coding assistant
+  # - type: antigravity
+  #   color: orange
+  #   agents: ["*"]
+  #   # model: gemini-3-pro    # Model to use
+
+  # Regular shell with notes displayed on startup
+  - type: shell
+    notes:
+      - "$ barrel -k surfpool"
+
+  # Custom command example
+  # - type: logs
+  #   command: "tail -f /var/log/app.log"
+  #   color: red
+
+# =============================================================================
+# Terminal profiles
+# =============================================================================
+# Layout configurations for tmux sessions
+#
+# Profile types:
+#   tmux    - Standard tmux session (default)
+#   tmux_cc - iTerm2 tmux integration mode
+#   shell   - No tmux, run first pane directly
+#
+# Pane positioning:
+#   col: 0, 1, 2...  - Column position (left to right)
+#   row: 0, 1, 2...  - Row position within column (top to bottom)
+#   width: 50        - Column width percentage
+#   height: 30       - Row height percentage
+#
+# Colors: purple, yellow, red, green, blue, gray, orange
+
+terminal:
+  profiles:
+    # Default profile - two columns
+    default:
+      type: tmux
+      claude:
+        col: 0
+        row: 0
+      shell:
+        col: 1
+        row: 0
+        color: yellow
+
+    # Solo mode - single AI pane
+    # solo:
+    #   type: shell
+    #   claude:
+    #     col: 0
+    #     row: 0
+
+    # Three column layout
+    # wide:
+    #   type: tmux
+    #   claude:
+    #     col: 0
+    #     row: 0
+    #     width: 40
+    #   codex:
+    #     col: 1
+    #     row: 0
+    #     width: 40
+    #   shell:
+    #     col: 2
+    #     row: 0
+    #     width: 20
