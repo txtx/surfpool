@@ -44,6 +44,7 @@ pub struct TransactionMetadata {
     pub inner_instructions: InnerInstructionsList,
     pub compute_units_consumed: u64,
     pub return_data: TransactionReturnData,
+    pub fee: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
