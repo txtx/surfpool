@@ -391,7 +391,7 @@ impl SurfnetSvm {
     /// Creates a new instance of `SurfnetSvm`.
     ///
     /// Returns a tuple containing the SVM instance, a receiver for simulation events, and a receiver for Geyser plugin events.
-    fn new(
+    pub fn new(
         database_url: Option<&str>,
         surfnet_id: &str,
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
