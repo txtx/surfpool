@@ -28,11 +28,27 @@ jobs:
         run: cargo clippy --all-targets
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: surfpool
+          POSTGRES_PASSWORD: surfpool
+          POSTGRES_DB: surfpool_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libudev-dev clang libclang-dev
       - uses: actions/checkout@v4
       - name: Build
-        run: cargo build
+        run: cargo build --features postgres
       - name: Run tests
-        run: cargo test --all --verbose --features "ignore_tests_ci"
+        env:
+          SURFPOOL_TEST_POSTGRES_URL: postgresql://surfpool:surfpool@localhost:5432/surfpool_test
+        run: cargo test --all --verbose --features "postgres,ignore_tests_ci"
