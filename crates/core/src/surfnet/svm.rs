@@ -283,12 +283,12 @@ pub const FEATURE: Feature = Feature {
 
 impl SurfnetSvm {
     pub fn new() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
-        Self::_new(None, 0).unwrap()
+        Self::_new(None, "0").unwrap()
     }
 
     pub fn new_with_db(
         database_url: Option<&str>,
-        surfnet_id: u32,
+        surfnet_id: &str,
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
         Self::_new(database_url, surfnet_id)
     }
@@ -393,7 +393,7 @@ impl SurfnetSvm {
     /// Returns a tuple containing the SVM instance, a receiver for simulation events, and a receiver for Geyser plugin events.
     fn _new(
         database_url: Option<&str>,
-        surfnet_id: u32,
+        surfnet_id: &str,
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
