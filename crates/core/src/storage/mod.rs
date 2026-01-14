@@ -18,7 +18,7 @@ use crate::error::SurfpoolError;
 pub fn new_kv_store<K, V>(
     database_url: &Option<&str>,
     table_name: &str,
-    surfnet_id: u32,
+    surfnet_id: &str,
 ) -> StorageResult<Box<dyn Storage<K, V>>>
 where
     K: serde::Serialize
@@ -39,7 +39,7 @@ where
 pub fn new_kv_store_with_default<K, V>(
     database_url: &Option<&str>,
     table_name: &str,
-    surfnet_id: u32,
+    surfnet_id: &str,
     default_storage_constructor: fn() -> Box<dyn Storage<K, V>>,
 ) -> StorageResult<Box<dyn Storage<K, V>>>
 where
@@ -256,40 +256,28 @@ impl<K, V> Clone for Box<dyn Storage<K, V>> {
 
 // Separate trait for construction - this doesn't need to be dyn-compatible
 pub trait StorageConstructor<K, V>: Storage<K, V> + Clone {
-    fn connect(database_url: &str, table_name: &str, surfnet_id: u32) -> StorageResult<Self>
+    fn connect(database_url: &str, table_name: &str, surfnet_id: &str) -> StorageResult<Self>
     where
         Self: Sized;
 }
 
 #[cfg(test)]
 pub mod tests {
-    use std::{
-        collections::hash_map::RandomState,
-        hash::{BuildHasher, Hasher},
-        os::unix::fs::PermissionsExt,
-    };
+    use std::os::unix::fs::PermissionsExt;
 
     use crossbeam_channel::Receiver;
     use surfpool_types::SimnetEvent;
+    use uuid::Uuid;
 
     use crate::surfnet::{GeyserEvent, svm::SurfnetSvm};
 
     /// Environment variable for PostgreSQL database URL used in tests
     pub const POSTGRES_TEST_URL_ENV: &str = "SURFPOOL_TEST_POSTGRES_URL";
 
-    /// Generates a random u32 using std's RandomState (no external dependencies)
-    pub fn random_surfnet_id() -> u32 {
-        let state = RandomState::new();
-        let mut hasher = state.build_hasher();
-        // Use thread name/id as string since as_u64() is unstable
-        hasher.write(format!("{:?}", std::thread::current().id()).as_bytes());
-        hasher.write_u128(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos(),
-        );
-        hasher.finish() as u32
+    /// Generates a random surfnet_id
+    pub fn random_surfnet_id() -> String {
+        let uuid = Uuid::new_v4();
+        uuid.to_string()
     }
 
     pub enum TestType {
@@ -300,7 +288,7 @@ pub mod tests {
         #[cfg(feature = "postgres")]
         Postgres {
             url: String,
-            surfnet_id: u32,
+            surfnet_id: String,
         },
     }
 
@@ -308,13 +296,13 @@ pub mod tests {
         pub fn initialize_svm(&self) -> (SurfnetSvm, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
             match &self {
                 TestType::NoDb => SurfnetSvm::new(),
-                TestType::InMemorySqlite => SurfnetSvm::new_with_db(Some(":memory:"), 0).unwrap(),
+                TestType::InMemorySqlite => SurfnetSvm::new_with_db(Some(":memory:"), "0").unwrap(),
                 TestType::OnDiskSqlite(db_path) => {
-                    SurfnetSvm::new_with_db(Some(db_path.as_ref()), 0).unwrap()
+                    SurfnetSvm::new_with_db(Some(db_path.as_ref()), "0").unwrap()
                 }
                 #[cfg(feature = "postgres")]
                 TestType::Postgres { url, surfnet_id } => {
-                    SurfnetSvm::new_with_db(Some(url.as_ref()), *surfnet_id).unwrap()
+                    SurfnetSvm::new_with_db(Some(url.as_ref()), surfnet_id).unwrap()
                 }
             }
         }

@@ -54,7 +54,7 @@ pub struct SqliteStorage<K, V> {
     pool: Pool<ConnectionManager<diesel::SqliteConnection>>,
     _phantom: std::marker::PhantomData<(K, V)>,
     table_name: String,
-    surfnet_id: u32,
+    surfnet_id: String,
     /// Whether this is a file-based database (not :memory:)
     /// Used to determine if WAL checkpoint should be performed on drop
     is_file_based: bool,
@@ -143,7 +143,7 @@ where
         let create_table_sql = format!(
             "
             CREATE TABLE IF NOT EXISTS {} (
-                surfnet_id INTEGER NOT NULL,
+                surfnet_id TEXT NOT NULL,
                 key TEXT NOT NULL,
                 value TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -207,7 +207,7 @@ where
             "SELECT value FROM {} WHERE surfnet_id = ? AND key = ?",
             self.table_name
         ))
-        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32)
+        .bind::<Text, _>(&self.surfnet_id)
         .bind::<Text, _>(key_str);
 
         trace!("Getting connection from pool for loading value");
@@ -243,7 +243,7 @@ where
             "INSERT OR REPLACE INTO {} (surfnet_id, key, value, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
             self.table_name
         ))
-        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32)
+        .bind::<Text, _>(&self.surfnet_id)
         .bind::<Text, _>(&key_str)
         .bind::<Text, _>(&value_str);
 
@@ -277,7 +277,7 @@ where
                 "DELETE FROM {} WHERE surfnet_id = ? AND key = ?",
                 self.table_name
             ))
-            .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32)
+            .bind::<Text, _>(&self.surfnet_id)
             .bind::<Text, _>(&key_str);
 
             trace!("Getting connection from pool for delete operation");
@@ -304,7 +304,7 @@ where
             "DELETE FROM {} WHERE surfnet_id = ?",
             self.table_name
         ))
-        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32);
+        .bind::<Text, _>(&self.surfnet_id);
 
         trace!("Getting connection from pool for clear operation");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
@@ -323,7 +323,7 @@ where
             "SELECT key FROM {} WHERE surfnet_id = ?",
             self.table_name
         ))
-        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32);
+        .bind::<Text, _>(&self.surfnet_id);
 
         trace!("Getting connection from pool for keys operation");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
@@ -361,7 +361,7 @@ where
             "SELECT COUNT(*) as count FROM {} WHERE surfnet_id = ?",
             self.table_name
         ))
-        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32);
+        .bind::<Text, _>(&self.surfnet_id);
 
         trace!("Getting connection from pool for count operation");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
@@ -384,7 +384,7 @@ where
             "SELECT key, value FROM {} WHERE surfnet_id = ?",
             self.table_name
         ))
-        .bind::<diesel::sql_types::Integer, _>(self.surfnet_id as i32);
+        .bind::<Text, _>(&self.surfnet_id);
 
         trace!("Getting connection from pool for into_iter operation");
         let mut conn = self.pool.get().map_err(|_| StorageError::LockError)?;
@@ -424,7 +424,7 @@ where
     K: Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
     V: Serialize + for<'de> Deserialize<'de> + Clone + Send + Sync + 'static,
 {
-    fn connect(database_url: &str, table_name: &str, surfnet_id: u32) -> StorageResult<Self> {
+    fn connect(database_url: &str, table_name: &str, surfnet_id: &str) -> StorageResult<Self> {
         debug!(
             "Connecting to SQLite database: {} with table: {} and surfnet_id: {}",
             database_url, table_name, surfnet_id
@@ -454,7 +454,7 @@ where
             pool,
             _phantom: std::marker::PhantomData,
             table_name: table_name.to_string(),
-            surfnet_id,
+            surfnet_id: surfnet_id.to_string(),
             is_file_based,
             connection_string,
         };

@@ -49,7 +49,7 @@ impl SurfnetLiteSvm {
         mut self,
         feature_set: FeatureSet,
         database_url: Option<&str>,
-        surfnet_id: u32,
+        surfnet_id: &str,
     ) -> SurfpoolResult<Self> {
         self.svm = LiteSVM::new()
             .with_blockhash_check(false)
