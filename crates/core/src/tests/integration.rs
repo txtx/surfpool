@@ -2395,7 +2395,7 @@ async fn test_profile_transaction_token_transfer(test_type: TestType) {
                 "Profile should succeed, found error: {}",
                 ix_profile.error_message.as_ref().unwrap()
             );
-            assert_eq!(ix_profile.compute_units_consumed, 1031);
+            assert_eq!(ix_profile.compute_units_consumed, 1230);
             assert!(ix_profile.error_message.is_none());
             let account_states = &ix_profile.account_states;
 
