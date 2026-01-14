@@ -33,9 +33,6 @@ pub struct Context {
     pub tracer: bool,
 }
 
-pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
-pub const DEVNET_RPC_URL: &str = "https://api.devnet.solana.com";
-pub const TESTNET_RPC_URL: &str = "https://api.testnet.solana.com";
 pub const DEFAULT_ID_SVC_URL: &str = "https://id.txtx.run/v1";
 pub const DEFAULT_CLOUD_URL: &str = "https://cloud.txtx.run";
 pub const DEFAULT_SVM_GQL_URL: &str = "https://svm-cloud.gql.txtx.run/v1/graphql";
@@ -419,13 +416,13 @@ impl StartSimnet {
 
     pub fn datasource_rpc_url(&self) -> String {
         match self.network {
-            Some(NetworkType::Mainnet) => DEFAULT_RPC_URL.to_string(),
-            Some(NetworkType::Devnet) => DEVNET_RPC_URL.to_string(),
-            Some(NetworkType::Testnet) => TESTNET_RPC_URL.to_string(),
+            Some(NetworkType::Mainnet) => DEFAULT_MAINNET_RPC_URL.to_string(),
+            Some(NetworkType::Devnet) => DEFAULT_DEVNET_RPC_URL.to_string(),
+            Some(NetworkType::Testnet) => DEFAULT_TESTNET_RPC_URL.to_string(),
             None => self
                 .rpc_url
                 .clone()
-                .unwrap_or_else(|| DEFAULT_RPC_URL.to_string()),
+                .unwrap_or_else(|| DEFAULT_MAINNET_RPC_URL.to_string()),
         }
     }
 

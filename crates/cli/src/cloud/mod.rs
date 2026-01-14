@@ -8,7 +8,7 @@ use txtx_cloud::{
 };
 use txtx_gql::kit::{reqwest, uuid::Uuid};
 
-use crate::cli::DEFAULT_RPC_URL;
+use surfpool_types::DEFAULT_MAINNET_RPC_URL;
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 pub struct CloudStartCommand {
@@ -25,7 +25,7 @@ pub struct CloudStartCommand {
     pub description: Option<String>,
 
     /// The RPC url to use for the datasource
-    #[arg(long = "rpc-url", short = 'u', default_value = DEFAULT_RPC_URL)]
+    #[arg(long = "rpc-url", short = 'u', default_value = DEFAULT_MAINNET_RPC_URL)]
     pub datasource_rpc_url: String,
 
     /// The block production mode for the surfnet. Options are `clock`, `transaction`, and `manual`.
