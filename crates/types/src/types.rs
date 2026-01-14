@@ -617,8 +617,8 @@ pub struct SimnetConfig {
     pub feature_config: SvmFeatureConfig,
     pub skip_signature_verification: bool,
     /// Unique identifier for this surfnet instance. Used to isolate database storage
-    /// when multiple surfnets share the same database. Defaults to 0.
-    pub surfnet_id: u32,
+    /// when multiple surfnets share the same database. Defaults to "default".
+    pub surfnet_id: String,
     /// Snapshot accounts to preload at startup.
     /// Keys are pubkey strings, values can be None to fetch from remote RPC.
     pub snapshot: BTreeMap<String, Option<AccountSnapshot>>,
@@ -639,7 +639,7 @@ impl Default for SimnetConfig {
             log_bytes_limit: Some(10_000),
             feature_config: SvmFeatureConfig::default(),
             skip_signature_verification: false,
-            surfnet_id: 0,
+            surfnet_id: "default".to_string(),
             snapshot: BTreeMap::new(),
         }
     }
