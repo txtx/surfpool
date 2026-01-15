@@ -25,7 +25,7 @@ use txtx_addon_kit::indexmap::IndexMap;
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
 
-use crate::{SvmFeatureConfig, DEFAULT_MAINNET_RPC_URL};
+use crate::{DEFAULT_MAINNET_RPC_URL, SvmFeatureConfig};
 
 pub const DEFAULT_RPC_PORT: u16 = 8899;
 pub const DEFAULT_WS_PORT: u16 = 8900;

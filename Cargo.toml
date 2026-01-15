@@ -83,8 +83,8 @@ juniper_codegen = { version = "0.16.0", default-features = false }
 juniper_graphql_ws = { version = "0.4.0", default-features = false }
 lazy_static = "1.5.0"
 libloading = "0.7.4"
-litesvm = { version = "0.9.0", features = ["nodejs-internal"] }
-litesvm-token = "0.9.0"
+litesvm = { version = "0.9.1", features = ["nodejs-internal"] }
+litesvm-token = "0.9.1"
 log = "0.4.27"
 mime_guess = { version = "2.0.4", default-features = false }
 mustache = "0.9.0"
@@ -116,7 +116,7 @@ solana-epoch-info = { version = "3.1", default-features = false }
 solana-epoch-schedule = { version = "3.0", default-features = false }
 solana-feature-gate-interface = { version = "3.0", default-features = false }
 solana-genesis-config = { version = "3.0", default-features = false }
-# solana-geyser-plugin-manager = { version = "=3.1.6", default-features = false }  # TEMPORARILY DISABLED - version conflicts with litesvm
+# solana-geyser-plugin-manager = { version = "=3.1.6", default-features = false }  # Disabled: version conflicts with litesvm 0.9.1 (requires solana-instruction =3.0.0 vs ~3.1)
 solana-hash = { version = "3.1", default-features = false }
 solana-inflation = { version = "3.0", default-features = false }
 solana-instruction = { version = "3.1", default-features = false }

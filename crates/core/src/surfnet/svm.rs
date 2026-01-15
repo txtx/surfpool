@@ -4564,7 +4564,7 @@ mod tests {
 
     #[test]
     fn test_is_slot_in_valid_range_genesis_zero() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
 
         // Set up: genesis_slot = 0, latest absolute slot = 50
         svm.genesis_slot = 0;

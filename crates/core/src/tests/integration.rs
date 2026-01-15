@@ -140,6 +140,7 @@ async fn test_simnet_ticks(test_type: TestType) {
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -209,6 +210,7 @@ async fn test_simnet_some_sol_transfers(test_type: TestType) {
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -366,6 +368,7 @@ async fn test_add_alt_entries_fetching(test_type: TestType) {
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -539,6 +542,7 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -674,6 +678,7 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -4370,6 +4375,7 @@ fn start_surfnet(
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -4561,7 +4567,7 @@ async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionTyp
     use crossbeam_channel::unbounded;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::default();
 
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
@@ -6638,7 +6644,7 @@ fn test_nonce_accounts() {
     setup();
     use solana_system_interface::instruction::create_nonce_account;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::default();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
@@ -6790,6 +6796,7 @@ async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Profile the transaction multiple times to ensure no state leakage
