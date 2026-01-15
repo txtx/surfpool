@@ -4870,8 +4870,7 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 [[package]]
 name = "litesvm"
 version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c835e9bf4590c115245fe15f15025527f88738f96b1993b16cc6f1d572c4979"
+source = "git+https://github.com/txtx/litesvm?branch=zk-edge#9be02db02ee7fa49ef5658b152134d5d96ddbe4a"
 dependencies = [
  "agave-feature-set",
  "agave-reserved-account-keys",
@@ -4934,8 +4933,7 @@ dependencies = [
 [[package]]
 name = "litesvm-token"
 version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc6dd44f9d2839209ba227d03cba0f45616f639d029ab6f238cb75b4e9ab46be"
+source = "git+https://github.com/txtx/litesvm?branch=zk-edge#9be02db02ee7fa49ef5658b152134d5d96ddbe4a"
 dependencies = [
  "litesvm",
  "smallvec",
