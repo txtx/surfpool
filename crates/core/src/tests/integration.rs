@@ -4520,7 +4520,7 @@ async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionTyp
     use crossbeam_channel::unbounded;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::default();
 
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
@@ -6597,7 +6597,7 @@ fn test_nonce_accounts() {
     setup();
     use solana_system_interface::instruction::create_nonce_account;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::default();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
