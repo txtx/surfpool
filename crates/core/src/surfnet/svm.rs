@@ -929,6 +929,42 @@ impl SurfnetSvm {
         self.genesis_updated_at + (slots_since_genesis * self.slot_time)
     }
 
+    /// Checks if a slot is within the valid range for sparse block storage.
+    /// A slot is valid if it's between genesis_slot (inclusive) and latest_slot (inclusive).
+    ///
+    /// # Arguments
+    /// * `slot` - The slot number to check.
+    ///
+    /// # Returns
+    /// `true` if the slot is within the valid range, `false` otherwise.
+    pub fn is_slot_in_valid_range(&self, slot: Slot) -> bool {
+        let latest_slot = self.get_latest_absolute_slot();
+        slot >= self.genesis_slot && slot <= latest_slot
+    }
+
+    /// Gets a block from storage, or reconstructs an empty block if the slot is within
+    /// the valid range (sparse block storage).
+    ///
+    /// # Arguments
+    /// * `slot` - The slot number to retrieve.
+    ///
+    /// # Returns
+    /// * `Ok(Some(BlockHeader))` - If the block exists or can be reconstructed
+    /// * `Ok(None)` - If the slot is outside the valid range
+    /// * `Err(_)` - If there was an error accessing storage
+    pub fn get_block_or_reconstruct(&self, slot: Slot) -> SurfpoolResult<Option<BlockHeader>> {
+        match self.blocks.get(&slot)? {
+            Some(block) => Ok(Some(block)),
+            None => {
+                if self.is_slot_in_valid_range(slot) {
+                    Ok(Some(self.reconstruct_empty_block(slot)))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+
     /// Reconstructs an empty block header for a slot that wasn't stored.
     /// This is used for sparse block storage where empty blocks are not persisted.
     pub fn reconstruct_empty_block(&self, slot: Slot) -> BlockHeader {
@@ -2420,18 +2456,8 @@ impl SurfnetSvm {
         config: &RpcBlockConfig,
     ) -> SurfpoolResult<Option<UiConfirmedBlock>> {
         // Try to get stored block, or reconstruct empty block if within valid range
-        let block = match self.blocks.get(&slot)? {
-            Some(b) => b,
-            None => {
-                // Check if slot is within valid range (not before genesis and not in the future)
-                let latest_slot = self.get_latest_absolute_slot();
-                if slot >= self.genesis_slot && slot <= latest_slot {
-                    // Reconstruct empty block since it wasn't stored (sparse storage)
-                    self.reconstruct_empty_block(slot)
-                } else {
-                    return Ok(None);
-                }
-            }
+        let Some(block) = self.get_block_or_reconstruct(slot)? else {
+            return Ok(None);
         };
 
         let show_rewards = config.rewards.unwrap_or(true);
@@ -4421,5 +4447,163 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_is_slot_in_valid_range(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 100, latest absolute slot = 110
+        svm.genesis_slot = 100;
+        svm.latest_epoch_info.absolute_slot = 110;
+
+        // Test slots within valid range
+        assert!(
+            svm.is_slot_in_valid_range(100),
+            "genesis_slot should be valid"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(105),
+            "middle slot should be valid"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(110),
+            "latest slot should be valid"
+        );
+
+        // Test slots outside valid range
+        assert!(
+            !svm.is_slot_in_valid_range(99),
+            "slot before genesis should be invalid"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(111),
+            "slot after latest should be invalid"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(0),
+            "slot 0 should be invalid when genesis > 0"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(1000),
+            "far future slot should be invalid"
+        );
+    }
+
+    #[test]
+    fn test_is_slot_in_valid_range_genesis_zero() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+
+        // Set up: genesis_slot = 0, latest absolute slot = 50
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 50;
+
+        // Test boundary conditions with genesis at 0
+        assert!(
+            svm.is_slot_in_valid_range(0),
+            "slot 0 should be valid when genesis = 0"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(25),
+            "middle slot should be valid"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(50),
+            "latest slot should be valid"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(51),
+            "slot after latest should be invalid"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_get_block_or_reconstruct_stored_block(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 0, latest absolute slot = 100
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 100;
+
+        // Store a block with transactions
+        let stored_block = BlockHeader {
+            hash: "stored_block_hash".to_string(),
+            previous_blockhash: "prev_hash".to_string(),
+            parent_slot: 49,
+            block_time: 1234567890,
+            block_height: 50,
+            signatures: vec![Signature::new_unique()],
+        };
+        svm.blocks.store(50, stored_block.clone()).unwrap();
+
+        // Retrieve the stored block
+        let result = svm.get_block_or_reconstruct(50).unwrap();
+        assert!(result.is_some(), "should return stored block");
+        let block = result.unwrap();
+        assert_eq!(block.hash, "stored_block_hash");
+        assert_eq!(block.signatures.len(), 1);
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_get_block_or_reconstruct_empty_block(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 0, latest absolute slot = 100
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 100;
+        svm.genesis_updated_at = 1000000; // 1 second in ms
+        svm.slot_time = 400; // 400ms per slot
+
+        // Request a slot that wasn't stored (no block stored at slot 50)
+        let result = svm.get_block_or_reconstruct(50).unwrap();
+        assert!(
+            result.is_some(),
+            "should reconstruct empty block for valid slot"
+        );
+
+        let block = result.unwrap();
+        // Verify it's a reconstructed empty block
+        assert!(
+            block.signatures.is_empty(),
+            "reconstructed block should have no signatures"
+        );
+        assert_eq!(block.block_height, 50);
+        assert_eq!(block.parent_slot, 49);
+
+        // Verify the block time is calculated correctly
+        // genesis_updated_at (1000000ms) + (50 slots * 400ms) = 1020000ms = 1020 seconds
+        assert_eq!(block.block_time, 1020);
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_get_block_or_reconstruct_out_of_range(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 100, latest absolute slot = 110
+        svm.genesis_slot = 100;
+        svm.latest_epoch_info.absolute_slot = 110;
+
+        // Request slot before genesis
+        let result = svm.get_block_or_reconstruct(50).unwrap();
+        assert!(
+            result.is_none(),
+            "should return None for slot before genesis"
+        );
+
+        // Request slot after latest
+        let result = svm.get_block_or_reconstruct(200).unwrap();
+        assert!(result.is_none(), "should return None for slot after latest");
     }
 }

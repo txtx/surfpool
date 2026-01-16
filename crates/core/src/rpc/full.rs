@@ -1834,8 +1834,7 @@ impl Full for SurfpoolFullRpc {
                     Some(block) => Some(block.block_time),
                     None => {
                         // With sparse block storage, calculate time for missing blocks
-                        let latest_slot = svm_reader.get_latest_absolute_slot();
-                        if slot >= svm_reader.genesis_slot && slot <= latest_slot {
+                        if svm_reader.is_slot_in_valid_range(slot) {
                             let time_ms = svm_reader.calculate_block_time_for_slot(slot);
                             Some((time_ms / 1_000) as i64)
                         } else {
