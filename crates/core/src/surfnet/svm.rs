@@ -4606,4 +4606,204 @@ mod tests {
         let result = svm.get_block_or_reconstruct(200).unwrap();
         assert!(result.is_none(), "should return None for slot after latest");
     }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_recent_blockhashes(test_type: TestType) {
+        use solana_sysvar::recent_blockhashes::RecentBlockhashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 10, genesis_slot = 0
+        svm.chain_tip = BlockIdentifier::new(10, "test_hash");
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 10;
+
+        svm.reconstruct_sysvars();
+
+        // Verify RecentBlockhashes sysvar
+        let recent_blockhashes = svm.inner.get_sysvar::<RecentBlockhashes>();
+
+        // Should have 11 entries (indices 0 through 10)
+        assert_eq!(recent_blockhashes.len(), 11);
+
+        // First entry should be the hash for chain_tip.index (10)
+        let expected_hash = SyntheticBlockhash::new(10);
+        assert_eq!(
+            recent_blockhashes.first().unwrap().blockhash,
+            *expected_hash.hash(),
+            "First blockhash should match SyntheticBlockhash for chain_tip.index"
+        );
+
+        // Last entry should be the hash for index 0
+        let expected_last_hash = SyntheticBlockhash::new(0);
+        assert_eq!(
+            recent_blockhashes.last().unwrap().blockhash,
+            *expected_last_hash.hash(),
+            "Last blockhash should match SyntheticBlockhash for index 0"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_slot_hashes(test_type: TestType) {
+        use solana_slot_hashes::SlotHashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 5, genesis_slot = 100 (absolute slot = 105)
+        svm.chain_tip = BlockIdentifier::new(5, "test_hash");
+        svm.genesis_slot = 100;
+        svm.latest_epoch_info.absolute_slot = 105;
+
+        svm.reconstruct_sysvars();
+
+        // Verify SlotHashes sysvar
+        let slot_hashes = svm.inner.get_sysvar::<SlotHashes>();
+
+        // Should have 6 entries (indices 0 through 5, mapped to slots 100 through 105)
+        assert_eq!(slot_hashes.len(), 6);
+
+        // Check that slot 105 maps to hash for index 5
+        let expected_hash_105 = SyntheticBlockhash::new(5);
+        let hash_for_105 = slot_hashes.get(&105);
+        assert!(hash_for_105.is_some(), "SlotHashes should contain slot 105");
+        assert_eq!(
+            hash_for_105.unwrap(),
+            expected_hash_105.hash(),
+            "Hash for slot 105 should match SyntheticBlockhash for index 5"
+        );
+
+        // Check that slot 100 maps to hash for index 0
+        let expected_hash_100 = SyntheticBlockhash::new(0);
+        let hash_for_100 = slot_hashes.get(&100);
+        assert!(hash_for_100.is_some(), "SlotHashes should contain slot 100");
+        assert_eq!(
+            hash_for_100.unwrap(),
+            expected_hash_100.hash(),
+            "Hash for slot 100 should match SyntheticBlockhash for index 0"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_reconstruct_sysvars_clock(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 50, genesis_slot = 1000 (absolute slot = 1050)
+        svm.chain_tip = BlockIdentifier::new(50, "test_hash");
+        svm.genesis_slot = 1000;
+        svm.latest_epoch_info.absolute_slot = 1050;
+        svm.latest_epoch_info.epoch = 5;
+        svm.genesis_updated_at = 2_000_000; // 2 seconds in ms
+        svm.slot_time = 400; // 400ms per slot
+
+        svm.reconstruct_sysvars();
+
+        // Verify Clock sysvar
+        let clock = svm.inner.get_sysvar::<Clock>();
+
+        assert_eq!(clock.slot, 1050, "Clock slot should be absolute slot");
+        assert_eq!(clock.epoch, 5, "Clock epoch should match latest_epoch_info");
+
+        // Expected timestamp: genesis_updated_at + (50 slots * 400ms) = 2_000_000 + 20_000 = 2_020_000ms = 2020 seconds
+        assert_eq!(
+            clock.unix_timestamp, 2020,
+            "Clock unix_timestamp should be calculated correctly"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_max_blockhashes(test_type: TestType) {
+        use solana_sysvar::recent_blockhashes::RecentBlockhashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 200 (more than MAX_RECENT_BLOCKHASHES_STANDARD = 150)
+        svm.chain_tip = BlockIdentifier::new(200, "test_hash");
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 200;
+
+        svm.reconstruct_sysvars();
+
+        // Verify RecentBlockhashes sysvar is capped at MAX_RECENT_BLOCKHASHES_STANDARD
+        let recent_blockhashes = svm.inner.get_sysvar::<RecentBlockhashes>();
+
+        assert_eq!(
+            recent_blockhashes.len(),
+            MAX_RECENT_BLOCKHASHES_STANDARD,
+            "RecentBlockhashes should be capped at MAX_RECENT_BLOCKHASHES_STANDARD"
+        );
+
+        // First entry should still be for chain_tip.index (200)
+        let expected_hash = SyntheticBlockhash::new(200);
+        assert_eq!(
+            recent_blockhashes.first().unwrap().blockhash,
+            *expected_hash.hash(),
+            "First blockhash should match SyntheticBlockhash for chain_tip.index"
+        );
+
+        // Last entry should be for index 51 (200 - 149)
+        let expected_last_hash = SyntheticBlockhash::new(51);
+        assert_eq!(
+            recent_blockhashes.last().unwrap().blockhash,
+            *expected_last_hash.hash(),
+            "Last blockhash should match SyntheticBlockhash for start_index"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_deterministic(test_type: TestType) {
+        use solana_slot_hashes::SlotHashes;
+        use solana_sysvar::recent_blockhashes::RecentBlockhashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up initial state
+        svm.chain_tip = BlockIdentifier::new(25, "test_hash");
+        svm.genesis_slot = 50;
+        svm.latest_epoch_info.absolute_slot = 75;
+        svm.latest_epoch_info.epoch = 2;
+        svm.genesis_updated_at = 1_000_000;
+        svm.slot_time = 400;
+
+        // First reconstruction
+        svm.reconstruct_sysvars();
+        let blockhashes_1 = svm.inner.get_sysvar::<RecentBlockhashes>();
+        let slot_hashes_1 = svm.inner.get_sysvar::<SlotHashes>();
+        let clock_1 = svm.inner.get_sysvar::<Clock>();
+
+        // Second reconstruction with same state
+        svm.reconstruct_sysvars();
+        let blockhashes_2 = svm.inner.get_sysvar::<RecentBlockhashes>();
+        let slot_hashes_2 = svm.inner.get_sysvar::<SlotHashes>();
+        let clock_2 = svm.inner.get_sysvar::<Clock>();
+
+        // Verify determinism - results should be identical
+        assert_eq!(blockhashes_1.len(), blockhashes_2.len());
+        for (b1, b2) in blockhashes_1.iter().zip(blockhashes_2.iter()) {
+            assert_eq!(b1.blockhash, b2.blockhash, "RecentBlockhashes should be deterministic");
+        }
+
+        assert_eq!(slot_hashes_1.len(), slot_hashes_2.len());
+        assert_eq!(clock_1.slot, clock_2.slot);
+        assert_eq!(clock_1.epoch, clock_2.epoch);
+        assert_eq!(clock_1.unix_timestamp, clock_2.unix_timestamp);
+    }
 }
