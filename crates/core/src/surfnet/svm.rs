@@ -107,9 +107,27 @@ use crate::{
     },
 };
 
-/// Interval (in slots) at which to perform garbage collection on the lite SVM cache
-/// About 1 hour at standard 400ms slot time
-const GARBAGE_COLLECTION_INTERVAL_SLOTS: u64 = 9_000;
+lazy_static::lazy_static! {
+    /// Interval (in slots) at which to perform garbage collection on the lite SVM cache.
+    /// About 1 hour at standard 400ms slot time.
+    /// Configurable via SURFPOOL_GARBAGE_COLLECTION_INTERVAL_SLOTS env var.
+    pub static ref GARBAGE_COLLECTION_INTERVAL_SLOTS: u64 = {
+        std::env::var("SURFPOOL_GARBAGE_COLLECTION_INTERVAL_SLOTS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(9_000)
+    };
+
+    /// Interval (in slots) at which to checkpoint the latest slot to storage.
+    /// About 1 minute at standard 400ms slot time (60000ms / 400ms = 150 slots).
+    /// Configurable via SURFPOOL_CHECKPOINT_INTERVAL_SLOTS env var.
+    pub static ref CHECKPOINT_INTERVAL_SLOTS: u64 = {
+        std::env::var("SURFPOOL_CHECKPOINT_INTERVAL_SLOTS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(150)
+    };
+}
 
 /// Helper function to apply an override to a decoded account value using dot notation
 pub fn apply_override_to_decoded_account(
@@ -288,8 +306,8 @@ pub struct SurfnetSvm {
     /// Storage for persisting the latest slot checkpoint.
     /// Used for recovery on restart with sparse block storage.
     pub slot_checkpoint: Box<dyn Storage<String, u64>>,
-    /// Tracks when we last persisted the slot checkpoint (in milliseconds).
-    pub last_slot_checkpoint_ms: u64,
+    /// Tracks the slot at which we last persisted the checkpoint.
+    pub last_checkpoint_slot: u64,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -403,7 +421,7 @@ impl SurfnetSvm {
             genesis_slot: self.genesis_slot,
             genesis_updated_at: self.genesis_updated_at,
             slot_checkpoint: OverlayStorage::wrap(self.slot_checkpoint.clone_box()),
-            last_slot_checkpoint_ms: self.last_slot_checkpoint_ms,
+            last_checkpoint_slot: self.last_checkpoint_slot,
         }
     }
 
@@ -602,7 +620,7 @@ impl SurfnetSvm {
             genesis_slot: 0, // Will be updated when connecting to remote network
             genesis_updated_at: Utc::now().timestamp_millis() as u64,
             slot_checkpoint: slot_checkpoint_db,
-            last_slot_checkpoint_ms: Utc::now().timestamp_millis() as u64,
+            last_checkpoint_slot: 0,
         };
 
         // Generate the initial synthetic blockhash
@@ -1912,7 +1930,7 @@ impl SurfnetSvm {
     pub fn confirm_current_block(&mut self) -> SurfpoolResult<()> {
         let slot = self.get_latest_absolute_slot();
         let previous_chain_tip = self.chain_tip.clone();
-        if slot % GARBAGE_COLLECTION_INTERVAL_SLOTS == 0 {
+        if slot % *GARBAGE_COLLECTION_INTERVAL_SLOTS == 0 {
             debug!("Clearing liteSVM cache at slot {}", slot);
             self.inner.garbage_collect(self.feature_set.clone());
         }
@@ -1952,14 +1970,12 @@ impl SurfnetSvm {
             )?;
         }
 
-        // Checkpoint the latest slot periodically (~every 1 minute)
+        // Checkpoint the latest slot periodically (~every 150 slots / 1 minute at standard slot time)
         // This allows recovery after restart without storing every empty block
-        const CHECKPOINT_INTERVAL_MS: u64 = 60_000; // 1 minute
-        let current_time_ms = Utc::now().timestamp_millis() as u64;
-        if current_time_ms.saturating_sub(self.last_slot_checkpoint_ms) >= CHECKPOINT_INTERVAL_MS {
+        if slot.saturating_sub(self.last_checkpoint_slot) >= *CHECKPOINT_INTERVAL_SLOTS {
             self.slot_checkpoint
                 .store("latest_slot".to_string(), slot)?;
-            self.last_slot_checkpoint_ms = current_time_ms;
+            self.last_checkpoint_slot = slot;
         }
 
         if self.perf_samples.len() > 30 {
