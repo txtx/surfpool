@@ -107,6 +107,10 @@ use crate::{
     },
 };
 
+/// Interval (in slots) at which to perform garbage collection on the lite SVM cache
+/// About 1 hour at standard 400ms slot time
+const GARBAGE_COLLECTION_INTERVAL_SLOTS: u64 = 9_000;
+
 /// Helper function to apply an override to a decoded account value using dot notation
 pub fn apply_override_to_decoded_account(
     decoded_value: &mut Value,
@@ -1872,7 +1876,7 @@ impl SurfnetSvm {
     pub fn confirm_current_block(&mut self) -> SurfpoolResult<()> {
         let slot = self.get_latest_absolute_slot();
         let previous_chain_tip = self.chain_tip.clone();
-        if slot % 100 == 0 {
+        if slot % GARBAGE_COLLECTION_INTERVAL_SLOTS == 0 {
             debug!("Clearing liteSVM cache at slot {}", slot);
             self.inner.garbage_collect(self.feature_set.clone());
         }
