@@ -768,15 +768,8 @@ impl SurfnetSvm {
             .simnet_events_tx
             .send(SimnetEvent::EpochInfoUpdate(epoch_info));
 
-        let clock: Clock = Clock {
-            slot: self.latest_epoch_info.absolute_slot,
-            epoch: self.latest_epoch_info.epoch,
-            unix_timestamp: self.updated_at as i64 / 1_000,
-            epoch_start_timestamp: 0, // todo
-            leader_schedule_epoch: 0, // todo
-        };
-
-        self.inner.set_sysvar(&clock);
+        // Reconstruct all sysvars (RecentBlockhashes, SlotHashes, Clock)
+        self.reconstruct_sysvars();
     }
 
     pub fn set_profile_instructions(&mut self, do_profile_instructions: bool) {
@@ -960,6 +953,61 @@ impl SurfnetSvm {
                 rent_epoch: 0,
             }
         })
+    }
+
+    /// Reconstructs RecentBlockhashes, SlotHashes, and Clock sysvars deterministically
+    /// from the current slot. Called on startup and after garbage collection to ensure
+    /// consistent sysvar state without requiring database persistence.
+    ///
+    /// Note: SyntheticBlockhash uses chain_tip.index (relative index), while SlotHashes
+    /// and Clock use absolute slots (chain_tip.index + genesis_slot).
+    #[allow(deprecated)]
+    pub fn reconstruct_sysvars(&mut self) {
+        use solana_slot_hashes::SlotHashes;
+        use solana_sysvar::recent_blockhashes::{IterItem, RecentBlockhashes};
+
+        let current_index = self.chain_tip.index;
+        let current_absolute_slot = self.get_latest_absolute_slot();
+
+        // Calculate range for blockhashes - use relative indices for SyntheticBlockhash
+        let start_index = current_index.saturating_sub(MAX_RECENT_BLOCKHASHES_STANDARD as u64 - 1);
+
+        // Generate all synthetic blockhashes using relative indices (chain_tip.index style)
+        // This matches how new_blockhash() generates hashes
+        let synthetic_hashes: Vec<_> = (start_index..=current_index)
+            .rev()
+            .map(SyntheticBlockhash::new)
+            .collect();
+
+        // 1. Reconstruct RecentBlockhashes (last 150 blockhashes)
+        let recent_blockhashes_vec: Vec<_> = synthetic_hashes
+            .iter()
+            .enumerate()
+            .map(|(index, hash)| IterItem(index as u64, hash.hash(), 0))
+            .collect();
+        let recent_blockhashes = RecentBlockhashes::from_iter(recent_blockhashes_vec);
+        self.inner.set_sysvar(&recent_blockhashes);
+
+        // 2. Reconstruct SlotHashes - maps absolute slots to blockhashes
+        let start_absolute_slot = start_index + self.genesis_slot;
+        let slot_hashes_vec: Vec<_> = (start_absolute_slot..=current_absolute_slot)
+            .rev()
+            .zip(synthetic_hashes.iter())
+            .map(|(slot, hash)| (slot, *hash.hash()))
+            .collect();
+        let slot_hashes = SlotHashes::new(&slot_hashes_vec);
+        self.inner.set_sysvar(&slot_hashes);
+
+        // 3. Reconstruct Clock using absolute slot
+        let unix_timestamp = self.calculate_block_time_for_slot(current_absolute_slot) / 1_000;
+        let clock = Clock {
+            slot: current_absolute_slot,
+            epoch: self.latest_epoch_info.epoch,
+            unix_timestamp: unix_timestamp as i64,
+            epoch_start_timestamp: 0,
+            leader_schedule_epoch: 0,
+        };
+        self.inner.set_sysvar(&clock);
     }
 
     /// Generates and sets a new blockhash, updating the RecentBlockhashes sysvar.
