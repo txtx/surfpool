@@ -52,6 +52,12 @@ This allows you to stress test your protocol in key real-world situations and to
 
 ## Installation
 
+Surfpool installer:
+
+```console
+curl -sL https://run.surfpool.run/ | bash
+```
+
 Install pre-built binaries:
 
 ```console
@@ -61,10 +67,6 @@ brew install txtx/taps/surfpool
 # Updating surfpool for Homebrew users
 brew tap txtx/taps
 brew reinstall surfpool
-
-# Linux (Snap Store)
-# Note: there have been errors updating the Snap Store to the latest version
-# While this is being resolved, Linux users should install from source
 ```
 
 Install from source:
