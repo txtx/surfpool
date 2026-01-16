@@ -161,6 +161,10 @@ impl SurfnetLiteSvm {
         self.svm.simulate_transaction(tx)
     }
 
+    pub fn airdrop_pubkey(&self) -> Pubkey {
+        self.svm.airdrop_pubkey()
+    }
+
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
         self.svm.airdrop(pubkey, lamports)
     }
