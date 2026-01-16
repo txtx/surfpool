@@ -2018,7 +2018,8 @@ impl Full for SurfpoolFullRpc {
             // With sparse block storage, all slots from genesis_slot onwards are valid
             // Return all slots in the requested range instead of filtering by stored blocks
             let local_min_slot = Some(genesis_slot);
-            let local_slots: Vec<Slot> = (start_slot.max(genesis_slot)..=committed_latest_slot).collect();
+            let local_slots: Vec<Slot> =
+                (start_slot.max(genesis_slot)..=committed_latest_slot).collect();
 
             if let Some(min_context_slot) = config.min_context_slot {
                 if committed_latest_slot < min_context_slot {
@@ -3140,7 +3141,10 @@ mod tests {
             .unwrap();
 
         // With sparse block storage, block time is calculated for any slot within range
-        assert!(res.is_some(), "Block time should be calculated for valid slots");
+        assert!(
+            res.is_some(),
+            "Block time should be calculated for valid slots"
+        );
     }
 
     #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
@@ -3949,10 +3953,15 @@ mod tests {
         insert_test_blocks(&setup, local_slots.clone());
 
         // Verify stored blocks minimum (used to be the local_min, but with sparse storage local_min is always 0)
-        let stored_min = setup.context.svm_locker.with_svm_reader(|svm_reader| {
-            svm_reader.blocks.keys().unwrap().into_iter().min()
-        });
-        assert_eq!(stored_min, Some(50), "Stored blocks minimum should be slot 50");
+        let stored_min = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.blocks.keys().unwrap().into_iter().min());
+        assert_eq!(
+            stored_min,
+            Some(50),
+            "Stored blocks minimum should be slot 50"
+        );
 
         // case 1: request blocks 10-30 (entirely "before" stored blocks, but within reconstructible range)
         // With sparse storage, local_min is 0, so slots 10-30 are all within local range

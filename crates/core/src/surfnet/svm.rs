@@ -4814,7 +4814,10 @@ mod tests {
         // Verify determinism - results should be identical
         assert_eq!(blockhashes_1.len(), blockhashes_2.len());
         for (b1, b2) in blockhashes_1.iter().zip(blockhashes_2.iter()) {
-            assert_eq!(b1.blockhash, b2.blockhash, "RecentBlockhashes should be deterministic");
+            assert_eq!(
+                b1.blockhash, b2.blockhash,
+                "RecentBlockhashes should be deterministic"
+            );
         }
 
         assert_eq!(slot_hashes_1.len(), slot_hashes_2.len());
