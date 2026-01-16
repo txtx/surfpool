@@ -35,7 +35,8 @@ use surfpool_types::{
     DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
     SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
     types::{
-        BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
+        BlockProductionMode, RpcConfig, SimnetConfig, SubgraphConfig, TransactionStatusEvent,
+        UuidOrSignature,
     },
 };
 use test_case::test_case;
@@ -764,6 +765,7 @@ async fn test_surfnet_estimate_compute_units(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test with None tag
@@ -1057,6 +1059,7 @@ async fn test_get_transaction_profile(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test 1: Profile a transaction with a tag and retrieve by UUID
@@ -1255,6 +1258,7 @@ fn test_register_and_get_idl_without_slot(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test 1: Register IDL without slot
@@ -1309,6 +1313,7 @@ fn test_register_and_get_idl_with_slot(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test 1: Register IDL with slot
@@ -1389,6 +1394,7 @@ async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Step 1: Register IDL v1 at slot_1
@@ -3068,6 +3074,7 @@ async fn test_get_local_signatures_without_limit(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let payer = Keypair::new();
@@ -3171,6 +3178,7 @@ async fn test_get_local_signatures_with_limit(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let payer = Keypair::new();
@@ -3321,7 +3329,11 @@ fn boot_simnet(
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            gossip_port: 0,
+            tpu_port: 0,
+            tpu_quic_port: 0,
         },
+        subgraph: SubgraphConfig::default(),
         ..SurfpoolConfig::default()
     };
 
@@ -3373,6 +3385,7 @@ fn test_time_travel_resume_paused_clock(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Get initial epoch info
@@ -3453,6 +3466,7 @@ fn test_time_travel_absolute_timestamp(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let clock = Clock {
@@ -3534,6 +3548,7 @@ fn test_time_travel_absolute_slot(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let clock = Clock {
@@ -3609,6 +3624,7 @@ fn test_time_travel_absolute_epoch(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let clock = Clock {

@@ -5,7 +5,7 @@ use crossbeam_channel::Sender;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_transaction::versioned::VersionedTransaction;
-use surfpool_types::SimnetCommand;
+use surfpool_types::{RpcConfig, SimnetCommand};
 
 use crate::{
     rpc::RunloopContext,
@@ -61,11 +61,12 @@ where
 
         TestSetup {
             context: RunloopContext {
-                simnet_commands_tx,
-                plugin_manager_commands_tx,
+                simnet_commands_tx: simnet_commands_tx.clone(),
+                plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
                 id: None,
                 svm_locker: SurfnetSvmLocker::new(surfnet_svm),
                 remote_rpc_client: None,
+                rpc_config: RpcConfig::default(),
             },
             rpc,
         }

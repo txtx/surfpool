@@ -14,9 +14,9 @@ use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
 use surfpool_types::{
     AccountSnapshot, BlockProductionMode, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
-    DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT, DEFAULT_SLOT_TIME_MS, DEFAULT_WS_PORT, RpcConfig,
-    SimnetConfig, SimnetEvent, StudioConfig, SubgraphConfig, SurfpoolConfig, SvmFeature,
-    SvmFeatureConfig,
+    DEFAULT_GOSSIP_PORT, DEFAULT_NETWORK_HOST, DEFAULT_RPC_PORT, DEFAULT_SLOT_TIME_MS,
+    DEFAULT_TPU_PORT, DEFAULT_TPU_QUIC_PORT, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, SimnetEvent,
+    StudioConfig, SubgraphConfig, SurfpoolConfig, SvmFeature, SvmFeatureConfig,
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -342,6 +342,9 @@ impl StartSimnet {
             },
             bind_port: self.simnet_port,
             ws_port: self.ws_port,
+            gossip_port: DEFAULT_GOSSIP_PORT,
+            tpu_port: DEFAULT_TPU_PORT,
+            tpu_quic_port: DEFAULT_TPU_QUIC_PORT,
         }
     }
 
