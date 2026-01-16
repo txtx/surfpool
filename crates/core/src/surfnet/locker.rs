@@ -2957,8 +2957,10 @@ impl SurfnetSvmLocker {
 }
 
 impl SurfnetSvmLocker {
+    /// Returns the first local slot (the genesis_slot when this surfnet started).
+    /// Since empty blocks can be reconstructed on-the-fly, all slots from genesis_slot onwards are valid.
     pub fn get_first_local_slot(&self) -> Option<Slot> {
-        self.with_svm_reader(|svm_reader| svm_reader.blocks.keys().unwrap().into_iter().min())
+        self.with_svm_reader(|svm| Some(svm.genesis_slot))
     }
 
     pub async fn get_block(

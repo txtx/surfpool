@@ -275,6 +275,17 @@ pub struct SurfnetSvm {
     /// Tracks accounts that have been explicitly closed by the user.
     /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
     pub closed_accounts: HashSet<Pubkey>,
+    /// The slot at which this surfnet instance started (may be non-zero when connected to remote).
+    /// Used as the lower bound for block reconstruction.
+    pub genesis_slot: Slot,
+    /// The `updated_at` timestamp when this surfnet started at `genesis_slot`.
+    /// Used to reconstruct block_time: genesis_updated_at + ((slot - genesis_slot) * slot_time)
+    pub genesis_updated_at: u64,
+    /// Storage for persisting the latest slot checkpoint.
+    /// Used for recovery on restart with sparse block storage.
+    pub slot_checkpoint: Box<dyn Storage<String, u64>>,
+    /// Tracks when we last persisted the slot checkpoint (in milliseconds).
+    pub last_slot_checkpoint_ms: u64,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -385,6 +396,10 @@ impl SurfnetSvm {
             account_update_slots: self.account_update_slots.clone(),
             recent_blockhashes: self.recent_blockhashes.clone(),
             closed_accounts: self.closed_accounts.clone(),
+            genesis_slot: self.genesis_slot,
+            genesis_updated_at: self.genesis_updated_at,
+            slot_checkpoint: OverlayStorage::wrap(self.slot_checkpoint.clone_box()),
+            last_slot_checkpoint_ms: self.last_slot_checkpoint_ms,
         }
     }
 
@@ -484,18 +499,42 @@ impl SurfnetSvm {
                 // (when no on-disk DB is provided)
                 || Box::new(FifoMap::<String, KeyedProfileResult>::default()),
             )?;
+        let slot_checkpoint_db: Box<dyn Storage<String, u64>> =
+            new_kv_store(&database_url, "slot_checkpoint", surfnet_id)?;
 
-        let chain_tip = if let Some((_, block)) = blocks_db
+        // Recover chain state: prefer slot checkpoint, fall back to max block in DB
+        let checkpoint_slot = slot_checkpoint_db.get(&"latest_slot".to_string())?;
+        let max_block_slot = blocks_db
             .into_iter()
             .unwrap()
-            .max_by_key(|(slot, _): &(u64, BlockHeader)| *slot)
-        {
-            BlockIdentifier {
+            .max_by_key(|(slot, _): &(u64, BlockHeader)| *slot);
+
+        let chain_tip = match (checkpoint_slot, max_block_slot) {
+            // Prefer checkpoint if it's higher than the max stored block
+            (Some(checkpoint), Some((block_slot, block))) => {
+                if checkpoint > block_slot {
+                    // Use checkpoint slot with synthetic blockhash
+                    BlockIdentifier {
+                        index: checkpoint,
+                        hash: SyntheticBlockhash::new(checkpoint).to_string(),
+                    }
+                } else {
+                    // Use the stored block
+                    BlockIdentifier {
+                        index: block.block_height,
+                        hash: block.hash,
+                    }
+                }
+            }
+            (Some(checkpoint), None) => BlockIdentifier {
+                index: checkpoint,
+                hash: SyntheticBlockhash::new(checkpoint).to_string(),
+            },
+            (None, Some((_, block))) => BlockIdentifier {
                 index: block.block_height,
                 hash: block.hash,
-            }
-        } else {
-            BlockIdentifier::zero()
+            },
+            (None, None) => BlockIdentifier::zero(),
         };
 
         // Initialize transactions_processed from database count for persistent storage
@@ -556,6 +595,10 @@ impl SurfnetSvm {
             recent_blockhashes: VecDeque::new(),
             scheduled_overrides: scheduled_overrides_db,
             closed_accounts: HashSet::new(),
+            genesis_slot: 0, // Will be updated when connecting to remote network
+            genesis_updated_at: Utc::now().timestamp_millis() as u64,
+            slot_checkpoint: slot_checkpoint_db,
+            last_slot_checkpoint_ms: Utc::now().timestamp_millis() as u64,
         };
 
         // Generate the initial synthetic blockhash
@@ -700,7 +743,12 @@ impl SurfnetSvm {
     ) {
         self.chain_tip = self.new_blockhash();
         self.latest_epoch_info = epoch_info.clone();
+        // Set genesis_slot to the current slot when initializing (syncing with remote)
+        // This marks the starting point for this surfnet instance
+        self.genesis_slot = epoch_info.absolute_slot;
         self.updated_at = Utc::now().timestamp_millis() as u64;
+        // Update genesis_updated_at to match the new genesis_slot
+        self.genesis_updated_at = self.updated_at;
         self.slot_time = slot_time;
         self.instruction_profiling_enabled = do_profile_instructions;
         self.set_profiling_map_capacity(self.max_profiles);
@@ -874,6 +922,28 @@ impl SurfnetSvm {
     /// Returns the latest epoch info known by the `SurfnetSvm`.
     pub fn latest_epoch_info(&self) -> EpochInfo {
         self.latest_epoch_info.clone()
+    }
+
+    /// Calculates the block time for a given slot based on genesis timestamp.
+    /// Returns the time in milliseconds since genesis.
+    pub fn calculate_block_time_for_slot(&self, slot: Slot) -> u64 {
+        // Calculate time relative to genesis_slot (when this surfnet started)
+        let slots_since_genesis = slot.saturating_sub(self.genesis_slot);
+        self.genesis_updated_at + (slots_since_genesis * self.slot_time)
+    }
+
+    /// Reconstructs an empty block header for a slot that wasn't stored.
+    /// This is used for sparse block storage where empty blocks are not persisted.
+    pub fn reconstruct_empty_block(&self, slot: Slot) -> BlockHeader {
+        let block_height = slot;
+        BlockHeader {
+            hash: SyntheticBlockhash::new(block_height).to_string(),
+            previous_blockhash: SyntheticBlockhash::new(block_height.saturating_sub(1)).to_string(),
+            parent_slot: slot.saturating_sub(1),
+            block_time: (self.calculate_block_time_for_slot(slot) / 1_000) as i64,
+            block_height,
+            signatures: vec![],
+        }
     }
 
     pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
@@ -1778,17 +1848,32 @@ impl SurfnetSvm {
         let num_transactions = confirmed_signatures.len() as u64;
         self.updated_at += self.slot_time;
 
-        self.blocks.store(
-            slot,
-            BlockHeader {
-                hash: self.chain_tip.hash.clone(),
-                previous_blockhash: previous_chain_tip.hash,
-                block_time: self.updated_at as i64 / 1_000,
-                block_height: self.chain_tip.index,
-                parent_slot: slot,
-                signatures: confirmed_signatures,
-            },
-        )?;
+        // Only store blocks that have transactions (sparse block storage)
+        // Empty blocks can be reconstructed on-the-fly from their slot number
+        if !confirmed_signatures.is_empty() {
+            self.blocks.store(
+                slot,
+                BlockHeader {
+                    hash: self.chain_tip.hash.clone(),
+                    previous_blockhash: previous_chain_tip.hash,
+                    block_time: self.updated_at as i64 / 1_000,
+                    block_height: self.chain_tip.index,
+                    parent_slot: slot,
+                    signatures: confirmed_signatures,
+                },
+            )?;
+        }
+
+        // Checkpoint the latest slot periodically (~every 1 minute)
+        // This allows recovery after restart without storing every empty block
+        const CHECKPOINT_INTERVAL_MS: u64 = 60_000; // 1 minute
+        let current_time_ms = Utc::now().timestamp_millis() as u64;
+        if current_time_ms.saturating_sub(self.last_slot_checkpoint_ms) >= CHECKPOINT_INTERVAL_MS {
+            self.slot_checkpoint
+                .store("latest_slot".to_string(), slot)?;
+            self.last_slot_checkpoint_ms = current_time_ms;
+        }
+
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
         }
@@ -2282,8 +2367,19 @@ impl SurfnetSvm {
         slot: Slot,
         config: &RpcBlockConfig,
     ) -> SurfpoolResult<Option<UiConfirmedBlock>> {
-        let Some(block) = self.blocks.get(&slot)? else {
-            return Ok(None);
+        // Try to get stored block, or reconstruct empty block if within valid range
+        let block = match self.blocks.get(&slot)? {
+            Some(b) => b,
+            None => {
+                // Check if slot is within valid range (not before genesis and not in the future)
+                let latest_slot = self.get_latest_absolute_slot();
+                if slot >= self.genesis_slot && slot <= latest_slot {
+                    // Reconstruct empty block since it wasn't stored (sparse storage)
+                    self.reconstruct_empty_block(slot)
+                } else {
+                    return Ok(None);
+                }
+            }
         };
 
         let show_rewards = config.rewards.unwrap_or(true);
