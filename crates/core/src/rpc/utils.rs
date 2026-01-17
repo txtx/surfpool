@@ -33,6 +33,7 @@ pub fn convert_transaction_metadata_from_canonical(
         inner_instructions: transaction_metadata.inner_instructions.clone(),
         compute_units_consumed: transaction_metadata.compute_units_consumed,
         return_data: transaction_metadata.return_data.clone(),
+        fee: transaction_metadata.fee,
     }
 }
 

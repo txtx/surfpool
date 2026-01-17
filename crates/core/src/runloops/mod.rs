@@ -35,7 +35,7 @@ use solana_transaction::sanitized::{MessageHash, SanitizedTransaction};
 #[cfg(feature = "subgraph")]
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
-    BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_RPC_URL, DataIndexingCommand,
+    BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_MAINNET_RPC_URL, DataIndexingCommand,
     SimnetCommand, SimnetConfig, SimnetEvent, SubgraphCommand, SubgraphPluginConfig,
     SurfpoolConfig,
 };
@@ -95,7 +95,7 @@ pub async fn start_local_surfnet_runloop(
             simnet
                 .remote_rpc_url
                 .as_ref()
-                .unwrap_or(&DEFAULT_RPC_URL.to_string()),
+                .unwrap_or(&DEFAULT_MAINNET_RPC_URL.to_string()),
         ),
     };
 
