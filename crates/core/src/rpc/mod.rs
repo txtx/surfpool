@@ -26,6 +26,7 @@ pub mod accounts_scan;
 pub mod admin;
 pub mod bank_data;
 pub mod full;
+pub mod jito;
 pub mod minimal;
 pub mod surfnet_cheatcodes;
 pub mod utils;

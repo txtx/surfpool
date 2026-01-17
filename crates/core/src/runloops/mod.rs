@@ -47,7 +47,7 @@ use crate::{
     rpc::{
         self, RunloopContext, SurfpoolMiddleware, SurfpoolWebsocketMeta,
         SurfpoolWebsocketMiddleware, accounts_data::AccountsData, accounts_scan::AccountsScan,
-        admin::AdminRpc, bank_data::BankData, full::Full, minimal::Minimal,
+        admin::AdminRpc, bank_data::BankData, full::Full, jito::Jito, minimal::Minimal,
         surfnet_cheatcodes::SurfnetCheatcodes, ws::Rpc,
     },
     surfnet::{GeyserEvent, locker::SurfnetSvmLocker, remote::SurfnetRemoteClient},
@@ -858,6 +858,7 @@ async fn start_http_rpc_server_runloop(
     let mut io = MetaIoHandler::with_middleware(middleware);
     io.extend_with(rpc::minimal::SurfpoolMinimalRpc.to_delegate());
     io.extend_with(rpc::full::SurfpoolFullRpc.to_delegate());
+    io.extend_with(rpc::jito::SurfpoolJitoRpc.to_delegate());
     io.extend_with(rpc::accounts_data::SurfpoolAccountsDataRpc.to_delegate());
     io.extend_with(rpc::accounts_scan::SurfpoolAccountsScanRpc.to_delegate());
     io.extend_with(rpc::bank_data::SurfpoolBankDataRpc.to_delegate());
