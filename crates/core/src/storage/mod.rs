@@ -295,7 +295,7 @@ pub mod tests {
     impl TestType {
         pub fn initialize_svm(&self) -> (SurfnetSvm, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
             match &self {
-                TestType::NoDb => SurfnetSvm::new(),
+                TestType::NoDb => SurfnetSvm::default(),
                 TestType::InMemorySqlite => SurfnetSvm::new_with_db(Some(":memory:"), "0").unwrap(),
                 TestType::OnDiskSqlite(db_path) => {
                     SurfnetSvm::new_with_db(Some(db_path.as_ref()), "0").unwrap()

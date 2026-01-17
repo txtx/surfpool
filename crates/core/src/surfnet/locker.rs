@@ -3735,7 +3735,7 @@ mod tests {
         assert_eq!(account_def.unwrap().name, "PriceUpdateV2");
 
         // Step 1: Instantiate an offline Svm instance
-        let (surfnet_svm, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+        let (surfnet_svm, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::default();
         let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
         // Step 2: Register the IDL for this account
@@ -4212,7 +4212,7 @@ mod tests {
     async fn test_load_snapshot_basic() {
         use base64::{Engine, engine::general_purpose};
 
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
         let locker = SurfnetSvmLocker::new(svm);
 
         let pubkey = Pubkey::new_unique();
@@ -4254,7 +4254,7 @@ mod tests {
     async fn test_load_snapshot_multiple_accounts() {
         use base64::{Engine, engine::general_purpose};
 
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
         let locker = SurfnetSvmLocker::new(svm);
 
         let owner = Pubkey::new_unique();
@@ -4299,7 +4299,7 @@ mod tests {
     async fn test_load_snapshot_skips_none_without_remote() {
         use base64::{Engine, engine::general_purpose};
 
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
         let locker = SurfnetSvmLocker::new(svm);
 
         let pubkey1 = Pubkey::new_unique();
@@ -4351,7 +4351,7 @@ mod tests {
     async fn test_load_snapshot_invalid_pubkey() {
         use base64::{Engine, engine::general_purpose};
 
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
         let locker = SurfnetSvmLocker::new(svm);
 
         let owner = Pubkey::new_unique();
@@ -4380,7 +4380,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_load_snapshot_invalid_base64_data() {
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
         let locker = SurfnetSvmLocker::new(svm);
 
         let pubkey = Pubkey::new_unique();
@@ -4420,7 +4420,7 @@ mod tests {
     async fn test_load_snapshot_invalid_owner() {
         use base64::{Engine, engine::general_purpose};
 
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
         let locker = SurfnetSvmLocker::new(svm);
 
         let pubkey = Pubkey::new_unique();
@@ -4449,7 +4449,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_load_snapshot_empty() {
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
         let locker = SurfnetSvmLocker::new(svm);
 
         let snapshot = BTreeMap::new();
@@ -4464,7 +4464,7 @@ mod tests {
     async fn test_load_snapshot_updates_account_registries() {
         use base64::{Engine, engine::general_purpose};
 
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
         let locker = SurfnetSvmLocker::new(svm);
 
         let pubkey = Pubkey::new_unique();
@@ -4500,7 +4500,7 @@ mod tests {
     async fn test_load_snapshot_mixed_valid_invalid() {
         use base64::{Engine, engine::general_purpose};
 
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
         let locker = SurfnetSvmLocker::new(svm);
 
         let valid_pubkey = Pubkey::new_unique();

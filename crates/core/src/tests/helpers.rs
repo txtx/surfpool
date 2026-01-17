@@ -40,7 +40,7 @@ where
         let (simnet_commands_tx, _rx) = crossbeam_channel::unbounded();
         let (plugin_manager_commands_tx, _rx) = crossbeam_channel::unbounded();
 
-        let (mut surfnet_svm, _, _) = SurfnetSvm::new();
+        let (mut surfnet_svm, _, _) = SurfnetSvm::default();
         let clock = Clock {
             slot: 123,
             epoch_start_timestamp: 123,
