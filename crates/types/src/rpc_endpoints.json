@@ -692,6 +692,32 @@
           }
         },
         {
+          "method": "surfnet_stealCore",
+          "description": "A 'cheat code' method for developers to take ownership of core NFTs and collections locally. In core NFTs, this allows setting the owner to any address. In core collections, the authority is changed.",
+          "params": [
+            {
+              "name": "pubkey",
+              "type": "string",
+              "description": "The public key of the account to be updated, as a base-58 encoded string."
+            },
+            {
+              "name": "pubkey",
+              "type": "new_owner",
+              "description": "The public key of the new owner/authority, as a base-58 encoded string."
+            }
+          ],
+          "returns": "A `RpcResponse<()>` indicating whether the account update was successful.",
+          "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "surfnet_stealCore",
+            "params": [
+              "account_pubkey",
+              "new_owner_pubkey"
+            ]
+          }
+        },
+        {
           "method": "surfnet_cloneProgramAccount",
           "description": "Clones a program account from a source to a destination program ID. Since a program account points to a program data account (a PDA), this method clones the program data account as well. It gets the source program and data accounts, calculates the destination program data address, points the destination program account to it, and copies the data.",
           "params": [

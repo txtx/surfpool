@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
 use jsonrpc_derive::rpc;
+use mpl_core::DataBlob;
 use solana_account::Account;
 use solana_client::rpc_response::{RpcLogsResponse, RpcResponseContext};
 use solana_clock::Slot;
@@ -14,9 +15,10 @@ use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    AccountSnapshot, ClockCommand, ExportSnapshotConfig, GetStreamedAccountsResponse,
-    GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcProfileResultConfig, Scenario,
-    SimnetCommand, SimnetEvent, StreamAccountConfig, UiKeyedProfileResult,
+    AccountSnapshot, ClockCommand, CoreAssetUpdate, ExportSnapshotConfig,
+    GetStreamedAccountsResponse, GetSurfnetInfoResponse, Idl, ResetAccountConfig,
+    RpcProfileResultConfig, Scenario, SimnetCommand, SimnetEvent, StreamAccountConfig,
+    UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -234,6 +236,58 @@ pub trait SurfnetCheatcodes {
         meta: Self::Metadata,
         source_program_id: String,
         destination_program_id: String,
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
+
+    /// A "cheat code" method for developers to change the data of Core Assets (metaplex core NFTs).
+    ///
+    /// This method allows developers to, for example, change the ownership of a core Asset by changing its `owner` field.
+    ///
+    /// ## Parameters
+    /// - `pubkey`: The public key of the account to be updated, as a base-58 encoded string.
+    /// - `update`: The `CoreAssetUpdate` struct containing the fields to be updated.
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the account update was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_updateCoreAsset",
+    ///   "params": [
+    ///     "<account_pubkey>",
+    ///     {
+    ///       "owner": "<new owner>",
+    ///       "name": "some new name",
+    ///       "deleteAllPlugins": true,
+    ///       "updateAuthority": {
+    ///         "Address": "<new authority>"
+    ///       }
+    ///     }
+    ///   ]
+    /// }
+    /// 
+    /// 
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # See Also
+    /// - `setAccount`, `setTokenAccount`
+    #[rpc(meta, name = "surfnet_updateCoreAsset")]
+    fn update_core_asset(
+        &self,
+        meta: Self::Metadata,
+        pubkey: String,
+        update: CoreAssetUpdate,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
 
     /// Estimates the compute units that a given transaction will consume.
@@ -1308,6 +1362,533 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 context: RpcResponseContext::new(slot),
                 value: (),
             })
+        })
+    }
+
+    // TODO: figure out how to keep the external plugins
+    // TODO: make a macro so that the code is not so painful to look at
+    fn update_core_asset(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        update: CoreAssetUpdate,
+    ) -> BoxFuture<Result<RpcResponse<()>>> {
+        let pubkey = match verify_pubkey(&pubkey_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            // Fetch the account. It must exist either locally or in the remote.
+            let SvmAccessContext {
+                slot,
+                inner: account_result_to_update,
+                ..
+            } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
+
+            // treat different cases separately for better error messages
+            match account_result_to_update {
+                GetAccountResult::None(_) => {
+                    return Err(SurfpoolError::account_not_found(pubkey).into());
+                }
+                GetAccountResult::FoundProgramAccount(_, _) => {
+                    return Err(SurfpoolError::invalid_account_type(
+                        pubkey,
+                        Some("The account is a program account!"),
+                    )
+                    .into());
+                }
+                GetAccountResult::FoundTokenAccount(_, _) => {
+                    return Err(SurfpoolError::invalid_account_type(
+                        pubkey,
+                        Some("The account is a token account!"),
+                    )
+                    .into());
+                }
+                GetAccountResult::FoundAccount(_pubkey, mut account, _update) => {
+                    let mut asset = mpl_core::Asset::deserialize(&account.data)
+                        .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+
+                    if let Some(new_owner_str) = update.owner {
+                        let new_owner = verify_pubkey(&new_owner_str)?;
+                        // have to do this messy conversion because mpl-core's Pubkey is a different version from the one we are using
+                        asset.base.owner = new_owner.to_bytes().into();
+                    }
+
+                    if let Some(new_update_auth) = update.update_authority {
+                        asset.base.update_authority = new_update_auth;
+                    }
+
+                    if let Some(new_name) = update.name {
+                        asset.base.name = new_name;
+                    }
+
+                    if let Some(new_uri) = update.uri {
+                        asset.base.uri = new_uri;
+                    }
+
+                    if let Some(new_seq) = update.seq {
+                        asset.base.seq = new_seq;
+                    }
+
+                    if let Some(delete_all_plugins) = update.delete_all_plugins {
+                        if delete_all_plugins {
+                            asset.plugin_header = None;
+                        }
+                    }
+
+                    // there is no client-facing code to serialize assets.... will have to do it myself
+                    // this mimics the code from the instruction to create a core asset
+
+                    // header is always serialized no matter what
+                    let mut new_data = asset
+                        .base
+                        .to_vec()
+                        .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+
+                    // if there are plugins, they have to be serialized
+                    if let Some(_plugin_header) = asset.plugin_header {
+                        // for this to crash the header would need take up 2 GiBs which is impossible
+                        let new_header_offset = u64::try_from(asset.base.len()).unwrap();
+
+                        // new plugin header
+                        let mut plugin_header = mpl_core::accounts::PluginHeaderV1 {
+                            key: mpl_core::types::Key::PluginHeaderV1,
+                            plugin_registry_offset: new_header_offset
+                                + 1 // Plugin Header Key
+                                + 8, // Plugin Registry Offset
+                        };
+
+                        // we can serialize the plugin header right now. however, it's going to keep changing and we'll need to keep serializing it.
+                        // I'm going to keep a temporary data vector to serialize the plugins into
+                        // this means that in the end, I just have to concatenate: asset header + plugin header + temp data + plugin registry
+                        let mut temp_data: Vec<u8> = Vec::new();
+
+                        // they for some reason make a registry, write it to the account, then change it and write it again
+                        // they iterate plugins in a loop and write to the account after every single plugin (???)
+                        let mut plugin_registry = mpl_core::accounts::PluginRegistryV1 {
+                            key: mpl_core::types::Key::PluginRegistryV1,
+                            registry: vec![],
+                            external_registry: vec![],
+                        };
+
+                        // plugins are returned in a stupid data format. will have to make a gigantic if block
+                        // they return the header, with an offset that has now become useless, but can't just return the Vec<Plugin>?
+                        // they have the audacity to call this struct a list just to make me lose my sanity
+
+                        if let Some(royalties) = asset.plugin_list.royalties {
+                            // store the old offset of the plugin registry
+                            let old_plugin_registry_offset = plugin_header.plugin_registry_offset;
+
+                            // make a registry record indicating that this new plugin will be at the position the plugin registry used to be
+                            let new_registry_record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::Royalties,
+                                offset: old_plugin_registry_offset,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    royalties.base.authority,
+                                ),
+                            };
+
+                            // push to the registry
+                            plugin_registry.registry.push(new_registry_record.clone());
+
+                            // write the plugin to the location of the old plugin registry offset
+                            // in this case we can completely ignore this and just append it to the temporary data array. the locations will have to coincide
+                            let plugin = mpl_core::types::Plugin::Royalties(royalties.royalties);
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+
+                            // using the length of the new plugin, advance the plugin header's offset to point to the new position of the plugin registry
+                            plugin_header.plugin_registry_offset = old_plugin_registry_offset
+                                + (u64::try_from(new_registry_record.len())).unwrap();
+                        }
+
+                        if let Some(freeze_delegate) = asset.plugin_list.freeze_delegate {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::FreezeDelegate,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    freeze_delegate.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::FreezeDelegate(
+                                freeze_delegate.freeze_delegate,
+                            );
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(burn_delegate) = asset.plugin_list.burn_delegate {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::BurnDelegate,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    burn_delegate.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin =
+                                mpl_core::types::Plugin::BurnDelegate(burn_delegate.burn_delegate);
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(transfer_delegate) = asset.plugin_list.transfer_delegate {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::TransferDelegate,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    transfer_delegate.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::TransferDelegate(
+                                transfer_delegate.transfer_delegate,
+                            );
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                        }
+
+                        if let Some(update_delegate) = asset.plugin_list.update_delegate {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::UpdateDelegate,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    update_delegate.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::UpdateDelegate(
+                                update_delegate.update_delegate,
+                            );
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(permanent_freeze_delegate) =
+                            asset.plugin_list.permanent_freeze_delegate
+                        {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::PermanentFreezeDelegate,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    permanent_freeze_delegate.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::PermanentFreezeDelegate(
+                                permanent_freeze_delegate.permanent_freeze_delegate,
+                            );
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(attributes) = asset.plugin_list.attributes {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::Attributes,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    attributes.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::Attributes(attributes.attributes);
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(permanent_transfer_delegate) =
+                            asset.plugin_list.permanent_transfer_delegate
+                        {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::PermanentTransferDelegate,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    permanent_transfer_delegate.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::PermanentTransferDelegate(
+                                permanent_transfer_delegate.permanent_transfer_delegate,
+                            );
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(permanent_burn_delegate) =
+                            asset.plugin_list.permanent_burn_delegate
+                        {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::PermanentBurnDelegate,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    permanent_burn_delegate.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::PermanentBurnDelegate(
+                                permanent_burn_delegate.permanent_burn_delegate,
+                            );
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(edition) = asset.plugin_list.edition {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::Edition,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    edition.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::Edition(edition.edition);
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(master_edition) = asset.plugin_list.master_edition {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::MasterEdition,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    master_edition.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::MasterEdition(
+                                master_edition.master_edition,
+                            );
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(add_blocker) = asset.plugin_list.add_blocker {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::AddBlocker,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    add_blocker.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin =
+                                mpl_core::types::Plugin::AddBlocker(add_blocker.add_blocker);
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(immutable_metadata) = asset.plugin_list.immutable_metadata {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::ImmutableMetadata,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    immutable_metadata.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::ImmutableMetadata(
+                                immutable_metadata.immutable_metadata,
+                            );
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(verified_creators) = asset.plugin_list.verified_creators {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::VerifiedCreators,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    verified_creators.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::VerifiedCreators(
+                                verified_creators.verified_creators,
+                            );
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(autograph) = asset.plugin_list.autograph {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::Autograph,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    autograph.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::Autograph(autograph.autograph);
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(bubblegum_v2) = asset.plugin_list.bubblegum_v2 {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::BubblegumV2,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    bubblegum_v2.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin =
+                                mpl_core::types::Plugin::BubblegumV2(bubblegum_v2.bubblegum_v2);
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(freeze_execute) = asset.plugin_list.freeze_execute {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::FreezeExecute,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    freeze_execute.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::FreezeExecute(
+                                freeze_execute.freeze_execute,
+                            );
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        if let Some(permanent_freeze_execute) =
+                            asset.plugin_list.permanent_freeze_execute
+                        {
+                            let old_off = plugin_header.plugin_registry_offset;
+                            let record = mpl_core::types::RegistryRecord {
+                                plugin_type: mpl_core::types::PluginType::PermanentFreezeExecute,
+                                offset: old_off,
+                                authority: mpl_core::types::PluginAuthority::from(
+                                    permanent_freeze_execute.base.authority,
+                                ),
+                            };
+                            plugin_registry.registry.push(record.clone());
+                            let plugin = mpl_core::types::Plugin::PermanentFreezeExecute(
+                                permanent_freeze_execute.permanent_freeze_execute,
+                            );
+                            let plugin_data = plugin
+                                .to_vec()
+                                .map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                            temp_data.extend_from_slice(&plugin_data);
+                            plugin_header.plugin_registry_offset =
+                                old_off + u64::try_from(plugin_data.len()).unwrap();
+                        }
+
+                        // append the plugin data
+                        let plugin_header_data = plugin_header.to_vec().map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                        new_data.extend_from_slice(&plugin_header_data);
+
+                        new_data.extend_from_slice(&temp_data);
+                        
+                        let plugin_registry_data = plugin_registry.to_vec().map_err(|e| SurfpoolError::update_core_asset_error(pubkey, e))?;
+                        new_data.extend_from_slice(&plugin_registry_data);
+                    }
+                    
+                    account.data = new_data;                    
+
+                    svm_locker.write_account_update(GetAccountResult::FoundAccount(
+                        pubkey, account, true,
+                    ));
+
+                    Ok(RpcResponse {
+                        context: RpcResponseContext::new(slot),
+                        value: (),
+                    })
+                }
+            }
         })
     }
 

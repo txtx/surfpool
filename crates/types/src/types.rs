@@ -962,6 +962,25 @@ impl Serialize for UuidOrSignature {
     }
 }
 
+/// Arguments passed to the cheatcode, so you can update the account partially
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreAssetUpdate {
+    /// New owner
+    pub owner: Option<String>,
+    /// New update authority
+    pub update_authority: Option<mpl_core::types::UpdateAuthority>,
+    /// New name
+    pub name: Option<String>,
+    /// New off-chain uri
+    pub uri: Option<String>,
+    /// New seq number
+    pub seq: Option<Option<u64>>,
+    /// Delete all of the plugins
+    // Option so it works even if you pass nothing in. None is the same as Some(false)
+    pub delete_all_plugins: Option<bool>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum DataIndexingCommand {
     ProcessCollection(Uuid),

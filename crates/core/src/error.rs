@@ -339,6 +339,20 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn invalid_account_type<P, M>(pubkey: P, message: Option<M>) -> Self
+    where
+        P: Display,
+        M: Display,
+    {
+        let base_msg = format!("invalid account type {pubkey}");
+        let full_msg = if let Some(msg) = message {
+            format!("{base_msg}: {msg}")
+        } else {
+            base_msg
+        };
+        Self(Error::invalid_params(full_msg))
+    }
+
     pub fn invalid_account_owner<P, M>(pubkey: P, message: Option<M>) -> Self
     where
         P: Display,
@@ -447,6 +461,32 @@ impl SurfpoolError {
     pub(crate) fn expected_profile_not_found(key: &surfpool_types::UuidOrSignature) -> Self {
         let mut error = Error::internal_error();
         error.message = format!("Expected profile not found for key {key}");
+        Self(error)
+    }
+
+    pub fn update_core_asset_error<T>(pubkey: Pubkey, e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Error updating core asset {}: {}",
+            pubkey,
+            e.to_string()
+        )));
+        Self(error)
+    }
+
+    pub fn update_core_collection_error<T>(pubkey: Pubkey, e: T) -> Self
+    where
+        T: ToString,
+    {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!(
+            "Error updating core collection {}: {}",
+            pubkey,
+            e.to_string()
+        )));
         Self(error)
     }
 }
