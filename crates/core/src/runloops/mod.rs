@@ -487,7 +487,7 @@ fn start_geyser_runloop(
         let log_warn = |msg:String|{
             let _ = simnet_events_tx.send(SimnetEvent::warn(msg));
         };
-        
+
         let log_info = |msg:String|{
             let _ = simnet_events_tx.send(SimnetEvent::info(msg));
         };
@@ -546,7 +546,6 @@ fn start_geyser_runloop(
 
         let ipc_router = RouterProxy::new();
 
-        
         // Helper function to load a subgraph plugin
         #[cfg(feature = "subgraph")]
         let load_subgraph_plugin = |uuid: uuid::Uuid,
@@ -556,7 +555,6 @@ fn start_geyser_runloop(
                                       plugin_map: &mut HashMap<uuid::Uuid, (usize, String)>,
                                       indexing_enabled: &mut bool|
          -> Result<(), String> {
-           
             if let Err(e) = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(
                 uuid,
                 config.data.clone(),
@@ -704,14 +702,14 @@ fn start_geyser_runloop(
                                                 Ok(_)=>{
                                                     log_info(format!("Successfully reloaded plugin with UUID {}", uuid));
                                                     let _ = notifier.send(format!("Plugin {} reloaded successfully", uuid));
-                                                }   
+                                                }
                                                 Err(e)=>{
                                                     let error_msg = format!("Failed to reload plugin {}: {}", uuid, e);
                                                     log_error(error_msg.clone());
                                                     let _ = notifier.send(error_msg);
                                                 }
                                             }
-                                        }   
+                                        }
                                         Err(e)=>{
                                             let error_msg = format!("Failed to unload plugin {} during reload: {}", uuid, e);
                                             log_error(error_msg.clone());
