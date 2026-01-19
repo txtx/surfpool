@@ -47,7 +47,6 @@ use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
 use solana_inflation::Inflation;
-use solana_keypair::Keypair;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_message::{
     Message, VersionedMessage, inline_nonce::is_advance_nonce_instruction_data, v0::LoadedAddresses,
@@ -57,7 +56,6 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk_ids::{bpf_loader, system_program};
 use solana_signature::Signature;
-use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
@@ -784,10 +782,9 @@ impl SurfnetSvm {
                 .unwrap_or_else(|| Account::default());
 
             // Construct a synthetic transaction that mirrors the underlying airdrop.
-            // We sign with a throwaway keypair but set the fee payer to the real airdrop pubkey.
-            let synthetic_fee_payer = Keypair::new();
-            let mut tx = VersionedTransaction::try_new(
-                VersionedMessage::Legacy(Message::new(
+            let tx = VersionedTransaction {
+                signatures: vec![tx_result.signature],
+                message: VersionedMessage::Legacy(Message::new(
                     &[system_instruction::transfer(
                         &airdrop_pubkey,
                         pubkey,
@@ -795,14 +792,7 @@ impl SurfnetSvm {
                     )],
                     Some(&airdrop_pubkey),
                 )),
-                &[synthetic_fee_payer],
-            )
-            .unwrap();
-
-            // we need the airdrop tx to store in our transactions list,
-            // but for it to be properly processed we need its signature to match
-            // the actual underlying transaction
-            tx.signatures[0] = tx_result.signature;
+            };
 
             self.transactions.store(
                 tx.get_signature().to_string(),
