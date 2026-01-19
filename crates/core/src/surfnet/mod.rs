@@ -31,6 +31,43 @@ pub const SLOTS_PER_EPOCH: u64 = 432000;
 
 pub type AccountFactory = Box<dyn Fn(SurfnetSvmLocker) -> GetAccountResult + Send + Sync>;
 
+/// Slot status for geyser plugin notifications.
+/// Mirrors `agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeyserSlotStatus {
+    /// Slot is being processed
+    Processed,
+    /// Slot has been rooted (finalized)
+    Rooted,
+    /// Slot has been confirmed
+    Confirmed,
+}
+
+/// Block metadata for geyser plugin notifications.
+#[derive(Debug, Clone)]
+pub struct GeyserBlockMetadata {
+    pub slot: Slot,
+    pub blockhash: String,
+    pub parent_slot: Slot,
+    pub parent_blockhash: String,
+    pub block_time: Option<i64>,
+    pub block_height: Option<u64>,
+    pub executed_transaction_count: u64,
+    pub entry_count: u64,
+}
+
+/// Entry info for geyser plugin notifications.
+/// Surfpool emits one entry per block (simplified model).
+#[derive(Debug, Clone)]
+pub struct GeyserEntryInfo {
+    pub slot: Slot,
+    pub index: usize,
+    pub num_hashes: u64,
+    pub hash: Vec<u8>,
+    pub executed_transaction_count: u64,
+    pub starting_transaction_index: usize,
+}
+
 #[allow(clippy::large_enum_variant)]
 pub enum GeyserEvent {
     NotifyTransaction(TransactionWithStatusMeta, Option<VersionedTransaction>),
@@ -38,7 +75,18 @@ pub enum GeyserEvent {
     /// Account update sent at startup (before block production begins).
     /// These updates should be sent to geyser plugins with is_startup=true.
     StartupAccountUpdate(GeyserAccountUpdate),
-    // todo: add more events
+    /// Notify plugins that startup is complete.
+    EndOfStartup,
+    /// Update slot status (processed, confirmed, rooted/finalized).
+    UpdateSlotStatus {
+        slot: Slot,
+        parent: Option<Slot>,
+        status: GeyserSlotStatus,
+    },
+    /// Notify plugins of block metadata.
+    NotifyBlockMetadata(GeyserBlockMetadata),
+    /// Notify plugins of entry execution.
+    NotifyEntry(GeyserEntryInfo),
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
