@@ -1691,13 +1691,14 @@ impl Full for SurfpoolFullRpc {
             let mut seen_accounts = std::collections::HashSet::new();
             let mut loaded_accounts_data_size: u64 = 0;
 
-            for res in account_updates.iter() {
-                match res {
+            let mut track_accounts_data_size =
+                |account_update: &GetAccountResult| match account_update {
                     GetAccountResult::FoundAccount(pubkey, account, _) => {
                         if seen_accounts.insert(*pubkey) {
                             loaded_accounts_data_size += account.data.len() as u64;
                         }
                     }
+                    // According to SIMD 0186, program data is tracked as well as program accounts
                     GetAccountResult::FoundProgramAccount(
                         (pubkey, account),
                         (pd_pubkey, pd_account),
@@ -1719,13 +1720,19 @@ impl Full for SurfpoolFullRpc {
                             loaded_accounts_data_size += account.data.len() as u64;
                         }
                         if let Some(td) = td_account {
-                            if seen_accounts.insert(*td_pubkey) {
+                            let td_key_in_tx_pubkeys =
+                                transaction_pubkeys.iter().find(|k| **k == *td_pubkey);
+                            // Only count token data accounts that are explicitly loaded by the transaction
+                            if td_key_in_tx_pubkeys.is_some() && seen_accounts.insert(*td_pubkey) {
                                 loaded_accounts_data_size += td.data.len() as u64;
                             }
                         }
                     }
                     GetAccountResult::None(_) => {}
-                }
+                };
+
+            for res in account_updates.iter() {
+                track_accounts_data_size(res);
             }
 
             svm_locker.write_multiple_account_updates(&account_updates);
@@ -1739,40 +1746,7 @@ impl Full for SurfpoolFullRpc {
                     .await?
                     .inner;
                 for res in alt_updates.iter() {
-                    match res {
-                        GetAccountResult::FoundAccount(pubkey, account, _) => {
-                            if seen_accounts.insert(*pubkey) {
-                                loaded_accounts_data_size += account.data.len() as u64;
-                            }
-                        }
-                        GetAccountResult::FoundProgramAccount(
-                            (pubkey, account),
-                            (pd_pubkey, pd_account),
-                        ) => {
-                            if seen_accounts.insert(*pubkey) {
-                                loaded_accounts_data_size += account.data.len() as u64;
-                            }
-                            if let Some(pd) = pd_account {
-                                if seen_accounts.insert(*pd_pubkey) {
-                                    loaded_accounts_data_size += pd.data.len() as u64;
-                                }
-                            }
-                        }
-                        GetAccountResult::FoundTokenAccount(
-                            (pubkey, account),
-                            (td_pubkey, td_account),
-                        ) => {
-                            if seen_accounts.insert(*pubkey) {
-                                loaded_accounts_data_size += account.data.len() as u64;
-                            }
-                            if let Some(td) = td_account {
-                                if seen_accounts.insert(*td_pubkey) {
-                                    loaded_accounts_data_size += td.data.len() as u64;
-                                }
-                            }
-                        }
-                        GetAccountResult::None(_) => {}
-                    }
+                    track_accounts_data_size(res);
                 }
                 svm_locker.write_multiple_account_updates(&alt_updates);
             }
