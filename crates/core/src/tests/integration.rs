@@ -609,6 +609,15 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
         simulation_res.value.err, None,
         "Unexpected simulation error"
     );
+    assert!(
+        simulation_res.value.loaded_accounts_data_size.is_some(),
+        "Expected loaded_accounts_data_size to be present"
+    );
+    assert_eq!(
+        simulation_res.value.loaded_accounts_data_size.unwrap(),
+        140134,
+        "Incorrect loaded_accounts_data_size value"
+    );
     let simulation_res2 = full_client
         .simulate_transaction(
             data,
@@ -627,6 +636,14 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
     assert_eq!(
         simulation_res2.value.err, None,
         "Unexpected simulation error"
+    );
+    assert!(
+        simulation_res2.value.loaded_accounts_data_size.is_some(),
+        "Expected loaded_accounts_data_size to be present"
+    );
+    assert!(
+        simulation_res2.value.loaded_accounts_data_size.unwrap() > 0,
+        "Expected loaded_accounts_data_size to be greater than 0"
     );
 }
 
@@ -721,6 +738,14 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
     assert_eq!(
         simulation_res.value.err, None,
         "Unexpected simulation error"
+    );
+    assert!(
+        simulation_res.value.loaded_accounts_data_size.is_some(),
+        "Expected loaded_accounts_data_size to be present"
+    );
+    assert!(
+        simulation_res.value.loaded_accounts_data_size.unwrap() > 0,
+        "Expected loaded_accounts_data_size to be greater than 0"
     );
 }
 
