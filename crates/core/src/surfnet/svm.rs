@@ -47,7 +47,6 @@ use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
 use solana_inflation::Inflation;
-use solana_keypair::Keypair;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_message::{
     Message, VersionedMessage, inline_nonce::is_advance_nonce_instruction_data, v0::LoadedAddresses,
@@ -57,7 +56,6 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk_ids::{bpf_loader, system_program};
 use solana_signature::Signature;
-use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
@@ -819,35 +817,47 @@ impl SurfnetSvm {
     /// A `TransactionResult` indicating success or failure.
     #[allow(clippy::result_large_err)]
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> SurfpoolResult<TransactionResult> {
+        // Capture pre-airdrop balances for the airdrop account, recipient, and system program.
+        let airdrop_pubkey = self.inner.airdrop_pubkey();
+
+        let airdrop_account_before = self
+            .get_account(&airdrop_pubkey)?
+            .unwrap_or_else(|| Account::default());
+        let recipient_account_before = self
+            .get_account(pubkey)?
+            .unwrap_or_else(|| Account::default());
+        let system_account_before = self
+            .get_account(&system_program::id())?
+            .unwrap_or_else(|| Account::default());
+
         let res = self.inner.airdrop(pubkey, lamports);
         let (status_tx, _rx) = unbounded();
         if let Ok(ref tx_result) = res {
-            let airdrop_keypair = Keypair::new();
             let slot = self.latest_epoch_info.absolute_slot;
-            let account = self.get_account(pubkey)?.unwrap();
+            // Capture post-airdrop balances
+            let airdrop_account_after = self
+                .get_account(&airdrop_pubkey)?
+                .unwrap_or_else(|| Account::default());
+            let recipient_account_after = self
+                .get_account(pubkey)?
+                .unwrap_or_else(|| Account::default());
+            let system_account_after = self
+                .get_account(&system_program::id())?
+                .unwrap_or_else(|| Account::default());
 
-            let mut tx = VersionedTransaction::try_new(
-                VersionedMessage::Legacy(Message::new(
+            // Construct a synthetic transaction that mirrors the underlying airdrop.
+            let tx = VersionedTransaction {
+                signatures: vec![tx_result.signature],
+                message: VersionedMessage::Legacy(Message::new(
                     &[system_instruction::transfer(
-                        &airdrop_keypair.pubkey(),
+                        &airdrop_pubkey,
                         pubkey,
                         lamports,
                     )],
-                    Some(&airdrop_keypair.pubkey()),
+                    Some(&airdrop_pubkey),
                 )),
-                &[airdrop_keypair],
-            )
-            .unwrap();
+            };
 
-            // we need the airdrop tx to store in our transactions list,
-            // but for it to be properly processed we need its signature to match
-            // the actual underlying transaction
-            tx.signatures[0] = tx_result.signature;
-
-            let system_lamports = self
-                .get_account(&system_program::id())?
-                .map(|a| a.lamports())
-                .unwrap_or(1);
             self.transactions.store(
                 tx.get_signature().to_string(),
                 SurfnetTransactionStatus::processed(
@@ -858,14 +868,14 @@ impl SurfnetSvm {
                             status: Ok(()),
                             fee: 5000,
                             pre_balances: vec![
-                                account.lamports,
-                                account.lamports.saturating_sub(lamports),
-                                system_lamports,
+                                airdrop_account_before.lamports,
+                                recipient_account_before.lamports,
+                                system_account_before.lamports,
                             ],
                             post_balances: vec![
-                                account.lamports.saturating_sub(lamports + 5000),
-                                account.lamports,
-                                system_lamports,
+                                airdrop_account_after.lamports,
+                                recipient_account_after.lamports,
+                                system_account_after.lamports,
                             ],
                             inner_instructions: Some(vec![]),
                             log_messages: Some(tx_result.logs.clone()),
