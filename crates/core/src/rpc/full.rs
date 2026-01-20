@@ -1410,19 +1410,35 @@ impl Full for SurfpoolFullRpc {
         })
     }
 
-    fn get_cluster_nodes(&self, _meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
+    fn get_cluster_nodes(&self, meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
+        let (gossip, tpu, tpu_quic, rpc, pubsub) = if let Some(ctx) = meta {
+            let config = ctx.rpc_config;
+            let to_socket = |port: u16| -> Option<std::net::SocketAddr> {
+                format!("{}:{}", config.bind_host, port).parse().ok()
+            };
+            (
+                to_socket(config.gossip_port),
+                to_socket(config.tpu_port),
+                to_socket(config.tpu_quic_port),
+                to_socket(config.bind_port),
+                to_socket(config.ws_port),
+            )
+        } else {
+            (None, None, None, None, None)
+        };
+
         Ok(vec![RpcContactInfo {
             pubkey: SURFPOOL_IDENTITY_PUBKEY.to_string(),
-            gossip: None,
+            gossip,
             tvu: None,
-            tpu: None,
-            tpu_quic: None,
+            tpu,
+            tpu_quic,
             tpu_forwards: None,
             tpu_forwards_quic: None,
             tpu_vote: None,
             serve_repair: None,
-            rpc: None,
-            pubsub: None,
+            rpc,
+            pubsub,
             version: None,
             feature_set: None,
             shred_version: None,
@@ -4158,16 +4174,16 @@ mod tests {
             cluster_nodes,
             vec![RpcContactInfo {
                 pubkey: SURFPOOL_IDENTITY_PUBKEY.to_string(),
-                gossip: None,
+                gossip: Some("127.0.0.1:8001".parse().unwrap()),
                 tvu: None,
-                tpu: None,
-                tpu_quic: None,
+                tpu: Some("127.0.0.1:8003".parse().unwrap()),
+                tpu_quic: Some("127.0.0.1:8004".parse().unwrap()),
                 tpu_forwards: None,
                 tpu_forwards_quic: None,
                 tpu_vote: None,
                 serve_repair: None,
-                rpc: None,
-                pubsub: None,
+                rpc: Some("127.0.0.1:8899".parse().unwrap()),
+                pubsub: Some("127.0.0.1:8900".parse().unwrap()),
                 version: None,
                 feature_set: None,
                 shred_version: None,
