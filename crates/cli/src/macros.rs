@@ -176,3 +176,18 @@ macro_rules! format_note {
         }
     )
 }
+
+// Created macro to compare fields of snapshot and mainnet accounts
+#[allow(unused_macros)]
+#[macro_export]
+macro_rules! compare_field {
+    ($field_name:expr,$snapshot_val:expr,$mainnet_val:expr) => {
+        if $snapshot_val != $mainnet_val {
+            println!("    {} differs: Snapshot={}, Mainnet={}", 
+                     $field_name, $snapshot_val, $mainnet_val);
+            false
+        } else {
+            true
+        }
+    };
+}
