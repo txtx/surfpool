@@ -1078,7 +1078,7 @@ fn render_transactions(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let mut rows = Vec::new();
-    for (success, dt, sig) in app.transactions.iter().rev() {
+    for (success, dt, sig) in app.transactions.iter() {
         let color = if *success {
             app.colors.success
         } else {
