@@ -314,21 +314,35 @@ jobs:
           TAG=${{ needs.get_release_info.outputs.tag }}
           echo "Uploading artifacts to S3 for release $TAG"
 
-          # Upload all tarballs to S3 under releases/
+          # Upload all tarballs to S3 under versioned folder and latest folder
           for file in ./artifacts/**/*.tar.gz; do
             BASENAME=$(basename "$file")
-            echo "→ Uploading $BASENAME ..."
-            aws s3 cp "$file" "s3://${{ env.S3_BUCKET }}/releases/$BASENAME" \
+            echo "→ Uploading $BASENAME to versioned folder ($TAG)..."
+            aws s3 cp "$file" "s3://${{ env.S3_BUCKET }}/releases/surfpool/$TAG/$BASENAME" \
               --acl public-read \
               --cache-control "public, max-age=31536000"
+
+            echo "→ Uploading $BASENAME to latest folder..."
+            aws s3 cp "$file" "s3://${{ env.S3_BUCKET }}/releases/surfpool/latest/$BASENAME" \
+              --acl public-read \
+              --cache-control "public, max-age=300"
           done
 
       - name: Print public URLs
         run: |
+          TAG=${{ needs.get_release_info.outputs.tag }}
           echo "✅ Uploaded artifacts are available at:"
+          echo ""
+          echo "Versioned ($TAG):"
           for file in ./artifacts/**/*.tar.gz; do
             BASENAME=$(basename "$file")
-            echo "http://${{ env.S3_BUCKET }}.s3.amazonaws.com/releases/$BASENAME"
+            echo "  https://${{ env.S3_BUCKET }}.s3.amazonaws.com/releases/surfpool/$TAG/$BASENAME"
+          done
+          echo ""
+          echo "Latest:"
+          for file in ./artifacts/**/*.tar.gz; do
+            BASENAME=$(basename "$file")
+            echo "  https://${{ env.S3_BUCKET }}.s3.amazonaws.com/releases/surfpool/latest/$BASENAME"
           done
 
   homebrew:
