@@ -266,6 +266,13 @@ impl SurfnetTransactionStatus {
         }
     }
 
+    pub fn as_processed(self) -> Option<(TransactionWithStatusMeta, HashSet<Pubkey>)> {
+        match self {
+            SurfnetTransactionStatus::Received => None,
+            SurfnetTransactionStatus::Processed(data) => Some(*data),
+        }
+    }
+
     pub fn processed(status: TransactionWithStatusMeta, updated_accounts: HashSet<Pubkey>) -> Self {
         Self::Processed(Box::new((status, updated_accounts)))
     }
