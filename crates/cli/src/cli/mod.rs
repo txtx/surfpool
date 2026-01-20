@@ -155,14 +155,17 @@ enum StateAction {
 struct DiffArgs {
     // Snapshot to compare with mainnet accounts
     #[clap(value_name = "SNAPSHOT_FILE")]
-    snapshot : String,
+    snapshot: String,
     // Optional : Custom mainnet RPC url
-    #[clap(value_name = "MAINNET_URL", default_value = "https://api.mainnet-beta.solana.com")]
-    mainnet_url : String,
+    #[clap(
+        value_name = "MAINNET_URL",
+        default_value = "https://api.mainnet-beta.solana.com"
+    )]
+    mainnet_url: String,
     /// only show difference
-    #[clap(short , long)]
-    brief : bool
- }
+    #[clap(short, long)]
+    brief: bool,
+}
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 pub struct StartSimnet {

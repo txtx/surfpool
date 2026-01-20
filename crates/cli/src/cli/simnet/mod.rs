@@ -1,9 +1,14 @@
 use std::{
-    collections::BTreeMap, fs::{self}, path::{self, Path}, str::FromStr, sync::{
+    collections::BTreeMap,
+    fs::{self},
+    path::{self, Path},
+    str::FromStr,
+    sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
         mpsc,
-    }, time::Duration
+    },
+    time::Duration,
 };
 
 use actix_web::dev::ServerHandle;
@@ -23,7 +28,9 @@ use surfpool_core::{
     start_local_surfnet,
     surfnet::{GetAccountResult, remote::SurfnetRemoteClient, svm::SurfnetSvm},
 };
-use surfpool_types::{AccountSnapshot, DEFAULT_RPC_URL, SanitizedConfig, SimnetCommand, SimnetEvent, SubgraphEvent};
+use surfpool_types::{
+    AccountSnapshot, DEFAULT_RPC_URL, SanitizedConfig, SimnetCommand, SimnetEvent, SubgraphEvent,
+};
 use txtx_core::{
     kit::{
         channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
@@ -283,16 +290,16 @@ pub async fn handle_state_diff_command(state_cmd: &StateCmd) -> Result<(), Strin
         StateAction::Diff(args) => {
             // Get the snapshot file path provided by the user
             let snapshot = &args.snapshot;
-            
+
             // Load and parse the snapshot file
             let loaded_snapshot = load_snapshots(&snapshot)?;
-            
+
             // Get the mainnet RPC URL
             let mainnet = &args.mainnet_url;
-            
+
             // Create a client to connect to mainnet
             let mainnet_client = SurfnetRemoteClient::new(mainnet);
-            
+
             // Verify connection to mainnet by fetching epoch info
             match mainnet_client.get_epoch_info().await {
                 Ok(epoch_info) => {
@@ -306,24 +313,25 @@ pub async fn handle_state_diff_command(state_cmd: &StateCmd) -> Result<(), Strin
                     return Ok(());
                 }
             }
-            
+
             println!("Comparing {} accounts...\n", loaded_snapshot.len());
             println!("{}", "=".repeat(80));
-            
+
             let mut differences = 0;
-            
+
             // Iterate through each account in the snapshot
             for (publickey, snapshot_account) in loaded_snapshot {
                 // Fetch the corresponding account from mainnet
                 let mainnet_account = mainnet_client
                     .get_account(&publickey, CommitmentConfig::confirmed())
                     .await;
-                
+
                 match mainnet_account {
                     Ok(mainnet_account_result) => {
                         // Compare the snapshot account with mainnet account
-                        let checks = compare_single_accounts(&snapshot_account, &mainnet_account_result);
-                        
+                        let checks =
+                            compare_single_accounts(&snapshot_account, &mainnet_account_result);
+
                         match checks {
                             Ok(true) => {
                                 // Accounts match, continue to next
@@ -352,13 +360,13 @@ pub async fn handle_state_diff_command(state_cmd: &StateCmd) -> Result<(), Strin
                     }
                 }
             }
-            
+
             println!("{}", "=".repeat(80));
             println!("\nSummary:");
             println!("  Differences Found: {}\n", differences);
         }
     }
-    
+
     Ok(())
 }
 
@@ -368,24 +376,24 @@ fn load_snapshots(file_path: &str) -> Result<BTreeMap<Pubkey, AccountSnapshot>, 
     if !Path::new(file_path).exists() {
         return Err("File path does not exist".to_string());
     }
-    
+
     // Convert the file path to an absolute path
-    let absolute = path::absolute(file_path)
-        .map_err(|e| format!("Failed to resolve path: {}", e))?;
-    
+    let absolute =
+        path::absolute(file_path).map_err(|e| format!("Failed to resolve path: {}", e))?;
+
     // Read the entire file contents as a string
-    let contents = fs::read_to_string(&absolute)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
-    
+    let contents =
+        fs::read_to_string(&absolute).map_err(|e| format!("Failed to read file: {}", e))?;
+
     // Verify the file is not empty
     if contents.trim().is_empty() {
         return Err("File is empty".to_string());
     }
-    
+
     // Parse the JSON content into a BTreeMap with String keys
-    let json_data: BTreeMap<String, AccountSnapshot> = serde_json::from_str(&contents)
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
-    
+    let json_data: BTreeMap<String, AccountSnapshot> =
+        serde_json::from_str(&contents).map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
     // Convert String keys to Pubkey and collect into final result
     let result = json_data
         .into_iter()
@@ -395,14 +403,14 @@ fn load_snapshots(file_path: &str) -> Result<BTreeMap<Pubkey, AccountSnapshot>, 
                 .map_err(|e| format!("Invalid pubkey '{}': {}", key_str, e))
         })
         .collect();
-    
+
     result
 }
 
 /// Compares a snapshot account with its corresponding mainnet account
 fn compare_single_accounts(
     snapshot: &AccountSnapshot,
-    mainnet: &GetAccountResult
+    mainnet: &GetAccountResult,
 ) -> Result<bool, String> {
     // Extract the actual account data from the GetAccountResult enum
     let mainnet_account = match mainnet {
@@ -411,7 +419,7 @@ fn compare_single_accounts(
         GetAccountResult::FoundProgramAccount((_, account), _) => account,
         GetAccountResult::None(_) => return Ok(false),
     };
-    
+
     // Convert the snapshot owner string to a Pubkey
     let converted_owner_key = match Pubkey::from_str(&snapshot.owner) {
         Ok(key) => key,
@@ -421,16 +429,28 @@ fn compare_single_accounts(
             return Err(e.to_string());
         }
     };
-    
+
     // Compare all account fields using the compare_field macro
     let checks = [
         compare_field!("Lamports", snapshot.lamports, mainnet_account.lamports),
         compare_field!("Owner", converted_owner_key, mainnet_account.owner),
-        compare_field!("Executable", snapshot.executable, mainnet_account.executable),
-        compare_field!("Rent Epoch", snapshot.rent_epoch, mainnet_account.rent_epoch),
-        compare_field!("Data length", snapshot.data.len(), mainnet_account.data.len()),
+        compare_field!(
+            "Executable",
+            snapshot.executable,
+            mainnet_account.executable
+        ),
+        compare_field!(
+            "Rent Epoch",
+            snapshot.rent_epoch,
+            mainnet_account.rent_epoch
+        ),
+        compare_field!(
+            "Data length",
+            snapshot.data.len(),
+            mainnet_account.data.len()
+        ),
     ];
-    
+
     // Return true only if all checks passed
     Ok(checks.iter().all(|&matched| matched))
 }
@@ -878,4 +898,3 @@ fn assemble_runbook_execution_futures(
     }
     futures
 }
-
