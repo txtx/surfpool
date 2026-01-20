@@ -25,9 +25,8 @@ use txtx_addon_kit::indexmap::IndexMap;
 use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
 
-use crate::SvmFeatureConfig;
+use crate::{DEFAULT_MAINNET_RPC_URL, SvmFeatureConfig};
 
-pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub const DEFAULT_RPC_PORT: u16 = 8899;
 pub const DEFAULT_WS_PORT: u16 = 8900;
 pub const DEFAULT_STUDIO_PORT: u16 = 8488;
@@ -44,6 +43,7 @@ pub struct TransactionMetadata {
     pub inner_instructions: InnerInstructionsList,
     pub compute_units_consumed: u64,
     pub return_data: TransactionReturnData,
+    pub fee: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -628,7 +628,7 @@ impl Default for SimnetConfig {
     fn default() -> Self {
         Self {
             offline_mode: false,
-            remote_rpc_url: Some(DEFAULT_RPC_URL.to_string()),
+            remote_rpc_url: Some(DEFAULT_MAINNET_RPC_URL.to_string()),
             slot_time: DEFAULT_SLOT_TIME_MS, // Default to 400ms to match CLI default
             block_production_mode: BlockProductionMode::Clock,
             airdrop_addresses: vec![],
@@ -741,6 +741,7 @@ pub struct CreateSurfnetRequest {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "snake_case", default)]
 pub struct CloudSurfnetSettings {
+    pub database_url: Option<String>,
     pub profiling_disabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gating: Option<CloudSurfnetRpcGating>,
@@ -753,6 +754,35 @@ pub struct CloudSurfnetRpcGating {
     pub private_methods: Vec<String>,
     pub public_methods: Vec<String>,
     pub disabled_methods: Vec<String>,
+}
+
+impl CloudSurfnetRpcGating {
+    pub fn restricted() -> CloudSurfnetRpcGating {
+        CloudSurfnetRpcGating {
+            private_methods: vec![],
+            private_methods_secret_token: None,
+            public_methods: vec![],
+            disabled_methods: vec![
+                "surfnet_cloneProgramAccount".into(),
+                "surfnet_profileTransaction".into(),
+                "surfnet_getProfileResultsByTag".into(),
+                "surfnet_setSupply".into(),
+                "surfnet_setProgramAuthority".into(),
+                "surfnet_getTransactionProfile".into(),
+                "surfnet_registerIdl".into(),
+                "surfnet_getActiveIdl".into(),
+                "surfnet_getLocalSignatures".into(),
+                "surfnet_timeTravel".into(),
+                "surfnet_pauseClock".into(),
+                "surfnet_resumeClock".into(),
+                "surfnet_resetAccount".into(),
+                "surfnet_resetNetwork".into(),
+                "surfnet_exportSnapshot".into(),
+                "surfnet_streamAccount".into(),
+                "surfnet_getStreamedAccounts".into(),
+            ],
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

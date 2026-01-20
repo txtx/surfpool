@@ -46,7 +46,7 @@ struct BenchmarkFixture {
 
 impl BenchmarkFixture {
     fn new() -> Self {
-        let (surfnet_svm, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+        let (surfnet_svm, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::default();
         let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
         Self { svm_locker }

@@ -316,15 +316,15 @@ pub const FEATURE: Feature = Feature {
 };
 
 impl SurfnetSvm {
-    pub fn new() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
-        Self::_new(None, "0").unwrap()
+    pub fn default() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
+        Self::new(None, "0").unwrap()
     }
 
     pub fn new_with_db(
         database_url: Option<&str>,
         surfnet_id: &str,
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
-        Self::_new(database_url, surfnet_id)
+        Self::new(database_url, surfnet_id)
     }
 
     /// Explicitly shutdown the SVM, performing cleanup like WAL checkpoint for SQLite.
@@ -429,7 +429,7 @@ impl SurfnetSvm {
     /// Creates a new instance of `SurfnetSvm`.
     ///
     /// Returns a tuple containing the SVM instance, a receiver for simulation events, and a receiver for Geyser plugin events.
-    fn _new(
+    pub fn new(
         database_url: Option<&str>,
         surfnet_id: &str,
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
@@ -4564,7 +4564,7 @@ mod tests {
 
     #[test]
     fn test_is_slot_in_valid_range_genesis_zero() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
 
         // Set up: genesis_slot = 0, latest absolute slot = 50
         svm.genesis_slot = 0;
