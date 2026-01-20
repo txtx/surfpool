@@ -45,8 +45,8 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::{adjust_default_transaction_config, get_default_transaction_config},
     surfnet::{
-        FINALIZATION_SLOT_THRESHOLD, GetTransactionResult, locker::SvmAccessContext,
-        svm::MAX_RECENT_BLOCKHASHES_STANDARD,
+        FINALIZATION_SLOT_THRESHOLD, GetAccountResult, GetTransactionResult,
+        locker::SvmAccessContext, svm::MAX_RECENT_BLOCKHASHES_STANDARD,
     },
     types::{SurfnetTransactionStatus, surfpool_tx_metadata_to_litesvm_tx_metadata},
 };
@@ -1410,19 +1410,35 @@ impl Full for SurfpoolFullRpc {
         })
     }
 
-    fn get_cluster_nodes(&self, _meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
+    fn get_cluster_nodes(&self, meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
+        let (gossip, tpu, tpu_quic, rpc, pubsub) = if let Some(ctx) = meta {
+            let config = ctx.rpc_config;
+            let to_socket = |port: u16| -> Option<std::net::SocketAddr> {
+                format!("{}:{}", config.bind_host, port).parse().ok()
+            };
+            (
+                to_socket(config.gossip_port),
+                to_socket(config.tpu_port),
+                to_socket(config.tpu_quic_port),
+                to_socket(config.bind_port),
+                to_socket(config.ws_port),
+            )
+        } else {
+            (None, None, None, None, None)
+        };
+
         Ok(vec![RpcContactInfo {
             pubkey: SURFPOOL_IDENTITY_PUBKEY.to_string(),
-            gossip: None,
+            gossip,
             tvu: None,
-            tpu: None,
-            tpu_quic: None,
+            tpu,
+            tpu_quic,
             tpu_forwards: None,
             tpu_forwards_quic: None,
             tpu_vote: None,
             serve_repair: None,
-            rpc: None,
-            pubsub: None,
+            rpc,
+            pubsub,
             version: None,
             feature_set: None,
             shred_version: None,
@@ -1594,6 +1610,7 @@ impl Full for SurfpoolFullRpc {
                             false,
                             &tx_message,
                             None, // No loaded addresses available in error reporting context
+                            None,
                         ))
                         .map_err(|e| {
                             Error::invalid_params(format!(
@@ -1687,6 +1704,53 @@ impl Full for SurfpoolFullRpc {
                 .get_multiple_accounts(&remote_ctx, &transaction_pubkeys, None)
                 .await?;
 
+            let mut seen_accounts = std::collections::HashSet::new();
+            let mut loaded_accounts_data_size: u64 = 0;
+
+            let mut track_accounts_data_size =
+                |account_update: &GetAccountResult| match account_update {
+                    GetAccountResult::FoundAccount(pubkey, account, _) => {
+                        if seen_accounts.insert(*pubkey) {
+                            loaded_accounts_data_size += account.data.len() as u64;
+                        }
+                    }
+                    // According to SIMD 0186, program data is tracked as well as program accounts
+                    GetAccountResult::FoundProgramAccount(
+                        (pubkey, account),
+                        (pd_pubkey, pd_account),
+                    ) => {
+                        if seen_accounts.insert(*pubkey) {
+                            loaded_accounts_data_size += account.data.len() as u64;
+                        }
+                        if let Some(pd) = pd_account {
+                            if seen_accounts.insert(*pd_pubkey) {
+                                loaded_accounts_data_size += pd.data.len() as u64;
+                            }
+                        }
+                    }
+                    GetAccountResult::FoundTokenAccount(
+                        (pubkey, account),
+                        (td_pubkey, td_account),
+                    ) => {
+                        if seen_accounts.insert(*pubkey) {
+                            loaded_accounts_data_size += account.data.len() as u64;
+                        }
+                        if let Some(td) = td_account {
+                            let td_key_in_tx_pubkeys =
+                                transaction_pubkeys.iter().find(|k| **k == *td_pubkey);
+                            // Only count token data accounts that are explicitly loaded by the transaction
+                            if td_key_in_tx_pubkeys.is_some() && seen_accounts.insert(*td_pubkey) {
+                                loaded_accounts_data_size += td.data.len() as u64;
+                            }
+                        }
+                    }
+                    GetAccountResult::None(_) => {}
+                };
+
+            for res in account_updates.iter() {
+                track_accounts_data_size(res);
+            }
+
             svm_locker.write_multiple_account_updates(&account_updates);
 
             // Convert TransactionLoadedAddresses to LoadedAddresses before it gets consumed
@@ -1697,6 +1761,9 @@ impl Full for SurfpoolFullRpc {
                     .get_multiple_accounts(&remote_ctx, &alt_pubkeys, None)
                     .await?
                     .inner;
+                for res in alt_updates.iter() {
+                    track_accounts_data_size(res);
+                }
                 svm_locker.write_multiple_account_updates(&alt_updates);
             }
 
@@ -1751,6 +1818,7 @@ impl Full for SurfpoolFullRpc {
                         config.inner_instructions,
                         &tx_message,
                         loaded_addresses_data.as_ref(),
+                        Some(loaded_accounts_data_size as u32),
                     )
                 }
                 Err(tx_info) => get_simulate_transaction_result(
@@ -1761,6 +1829,7 @@ impl Full for SurfpoolFullRpc {
                     config.inner_instructions,
                     &tx_message,
                     loaded_addresses_data.as_ref(),
+                    Some(loaded_accounts_data_size as u32),
                 ),
             };
 
@@ -1781,7 +1850,8 @@ impl Full for SurfpoolFullRpc {
         };
 
         Box::pin(async move {
-            // forward to remote if available, otherwise use local fallback
+            // Forward to remote if available, otherwise return genesis_slot for local chains
+            // With sparse block storage, all slots from genesis_slot onwards are valid
             if let Some((remote_client, _)) = remote_ctx {
                 remote_client
                     .client
@@ -1789,11 +1859,7 @@ impl Full for SurfpoolFullRpc {
                     .await
                     .map_err(|e| SurfpoolError::client_error(e).into())
             } else {
-                svm_locker.with_svm_reader(|svm_reader| {
-                    Ok::<_, jsonrpc_core::Error>(
-                        svm_reader.blocks.keys()?.into_iter().min().unwrap_or(0),
-                    )
-                })
+                Ok(svm_locker.with_svm_reader(|svm| svm.genesis_slot))
             }
         })
     }
@@ -1833,12 +1899,18 @@ impl Full for SurfpoolFullRpc {
 
         Box::pin(async move {
             let block_time = svm_locker.with_svm_reader(|svm_reader| {
-                Ok::<_, jsonrpc_core::Error>(
-                    svm_reader
-                        .blocks
-                        .get(&slot)?
-                        .map(|block| (block.block_time / 1_000) as UnixTimestamp),
-                )
+                Ok::<_, jsonrpc_core::Error>(match svm_reader.blocks.get(&slot)? {
+                    Some(block) => Some(block.block_time),
+                    None => {
+                        // With sparse block storage, calculate time for missing blocks
+                        if svm_reader.is_slot_in_valid_range(slot) {
+                            let time_ms = svm_reader.calculate_block_time_for_slot(slot);
+                            Some((time_ms / 1_000) as i64)
+                        } else {
+                            None
+                        }
+                    }
+                })
             })?;
             Ok(block_time)
         })
@@ -1894,27 +1966,21 @@ impl Full for SurfpoolFullRpc {
                 .map(|end| end.min(committed_latest_slot))
                 .unwrap_or(committed_latest_slot);
 
+            let genesis_slot = svm_locker.with_svm_reader(|svm| svm.genesis_slot);
+
             let (local_min_slot, local_slots, effective_end_slot) = if effective_end_slot
                 < start_slot
             {
                 (None, vec![], effective_end_slot)
             } else {
-                svm_locker.with_svm_reader(|svm_reader| {
-                    let local_min_slot = svm_reader.blocks.keys()?.into_iter().min();
+                // With sparse block storage, all slots from genesis_slot onwards are valid
+                // Return all slots in the requested range instead of filtering by stored blocks
+                let local_min_slot = Some(genesis_slot);
+                let local_slots: Vec<Slot> = (start_slot.max(genesis_slot)..=effective_end_slot)
+                    .filter(|slot| *slot <= committed_latest_slot)
+                    .collect();
 
-                    let local_slots: Vec<Slot> = svm_reader
-                        .blocks
-                        .keys()?
-                        .into_iter()
-                        .filter(|slot| {
-                            *slot >= start_slot
-                                && *slot <= effective_end_slot
-                                && *slot <= committed_latest_slot
-                        })
-                        .collect();
-
-                    Ok::<_, jsonrpc_core::Error>((local_min_slot, local_slots, effective_end_slot))
-                })?
+                (local_min_slot, local_slots, effective_end_slot)
             };
 
             if let Some(min_context_slot) = config.min_context_slot {
@@ -2016,18 +2082,13 @@ impl Full for SurfpoolFullRpc {
 
         Box::pin(async move {
             let committed_latest_slot = svm_locker.get_slot_for_commitment(&commitment);
-            let (local_min_slot, local_slots) = svm_locker.with_svm_reader(|svm_reader| {
-                let local_min_slot = svm_reader.blocks.keys()?.into_iter().min();
+            let genesis_slot = svm_locker.with_svm_reader(|svm| svm.genesis_slot);
 
-                let local_slots: Vec<Slot> = svm_reader
-                    .blocks
-                    .keys()?
-                    .into_iter()
-                    .filter(|slot| *slot >= start_slot && *slot <= committed_latest_slot)
-                    .collect();
-
-                Ok::<_, jsonrpc_core::Error>((local_min_slot, local_slots))
-            })?;
+            // With sparse block storage, all slots from genesis_slot onwards are valid
+            // Return all slots in the requested range instead of filtering by stored blocks
+            let local_min_slot = Some(genesis_slot);
+            let local_slots: Vec<Slot> =
+                (start_slot.max(genesis_slot)..=committed_latest_slot).collect();
 
             if let Some(min_context_slot) = config.min_context_slot {
                 if committed_latest_slot < min_context_slot {
@@ -2402,6 +2463,7 @@ fn get_simulate_transaction_result(
     include_inner_instructions: bool,
     message: &VersionedMessage,
     loaded_addresses: Option<&solana_message::v0::LoadedAddresses>,
+    loaded_accounts_data_size: Option<u32>,
 ) -> RpcSimulateTransactionResult {
     RpcSimulateTransactionResult {
         accounts,
@@ -2425,7 +2487,7 @@ fn get_simulate_transaction_result(
             Some(metadata.return_data.clone().into())
         },
         units_consumed: Some(metadata.compute_units_consumed),
-        loaded_accounts_data_size: None,
+        loaded_accounts_data_size,
         fee: None,
         pre_balances: None,
         post_balances: None,
@@ -3112,25 +3174,47 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_block() {
         let setup = TestSetup::new(SurfpoolFullRpc);
+
+        // Set up the latest slot so slot 0 is within valid range
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer.latest_epoch_info.absolute_slot = 10;
+        });
+
         let res = setup
             .rpc
             .get_block(Some(setup.context), 0, None)
             .await
             .unwrap();
 
-        assert_eq!(res, None);
+        // With sparse block storage, empty blocks are reconstructed on-the-fly
+        assert!(res.is_some(), "Empty blocks should be reconstructed");
+        let block = res.unwrap();
+        assert!(
+            block.signatures.is_none() || block.signatures.as_ref().unwrap().is_empty(),
+            "Reconstructed empty block should have no signatures"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_block_time() {
         let setup = TestSetup::new(SurfpoolFullRpc);
+
+        // Set up the latest slot so slot 0 is within valid range
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer.latest_epoch_info.absolute_slot = 10;
+        });
+
         let res = setup
             .rpc
             .get_block_time(Some(setup.context), 0)
             .await
             .unwrap();
 
-        assert_eq!(res, None);
+        // With sparse block storage, block time is calculated for any slot within range
+        assert!(
+            res.is_some(),
+            "Block time should be calculated for valid slots"
+        );
     }
 
     #[test_case(TransactionVersion::Legacy(Legacy::Legacy) ; "Legacy transactions")]
@@ -3627,8 +3711,8 @@ mod tests {
             .await
             .unwrap();
 
-        // should return only slots that have blocks, up to the limit
-        assert_eq!(result, vec![100, 103, 105, 107, 109, 112]);
+        // With sparse block storage, all slots in range are returned (empty blocks are reconstructed)
+        assert_eq!(result, vec![100, 101, 102, 103, 104, 105]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -3638,17 +3722,19 @@ mod tests {
         {
             let mut svm_writer = setup.context.svm_locker.0.write().await;
             svm_writer.latest_epoch_info.absolute_slot = 100;
-            // no blocks added - empty blockchain state
+            // no blocks added - empty blockchain state (but empty blocks can be reconstructed)
         }
 
-        // request blocks where none exist
+        // request blocks starting at slot 50 with limit 10
         let result = setup
             .rpc
             .get_blocks_with_limit(Some(setup.context.clone()), 50, 10, None)
             .await
             .unwrap();
 
-        assert_eq!(result, Vec::<Slot>::new());
+        // With sparse block storage, empty blocks within the valid slot range are returned
+        let expected: Vec<Slot> = (50..60).collect();
+        assert_eq!(result, expected);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -3833,7 +3919,7 @@ mod tests {
     async fn test_get_blocks_sparse_blocks() {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
-        // sparse blocks (only some slots have blocks)
+        // sparse blocks (only some slots have blocks stored, but all can be reconstructed)
         insert_test_blocks(&setup, vec![100, 102, 105, 107, 110]);
 
         let result = setup
@@ -3847,8 +3933,10 @@ mod tests {
             .await
             .unwrap();
 
-        // should only return slots that actually have blocks
-        assert_eq!(result, vec![100, 102, 105, 107, 110]);
+        // With sparse block storage, all slots in range up to latest_slot are returned
+        // insert_test_blocks sets latest_slot to 110 (max of inserted slots)
+        let expected: Vec<Slot> = (100..=110).collect();
+        assert_eq!(result, expected);
     }
 
     // helper to insert blocks into the SVM at specific slots
@@ -3918,11 +4006,12 @@ mod tests {
             .await
             .unwrap();
 
-        // Should only return local blocks 50-60 (no remote fetching without remote context)
-        let expected: Vec<Slot> = (50..=60).collect();
+        // With sparse block storage, all slots in range are returned (empty blocks reconstructed)
+        // local_min is now 0, so slots 10-60 are all within local range
+        let expected: Vec<Slot> = (10..=60).collect();
         assert_eq!(
             result, expected,
-            "Should return only local blocks when no remote context"
+            "Should return all local blocks in range including reconstructed empty blocks"
         );
     }
 
@@ -3931,15 +4020,21 @@ mod tests {
         let setup = TestSetup::new(SurfpoolFullRpc);
 
         let local_slots = vec![50, 51, 52, 60, 61, 70, 80, 90, 100];
-        insert_test_blocks(&setup, local_slots);
+        insert_test_blocks(&setup, local_slots.clone());
 
-        let local_min = setup.context.svm_locker.with_svm_reader(|svm_reader| {
-            let min = svm_reader.blocks.keys().unwrap().into_iter().min();
-            min
-        });
-        assert_eq!(local_min, Some(50), "Local minimum should be slot 50");
+        // Verify stored blocks minimum (used to be the local_min, but with sparse storage local_min is always 0)
+        let stored_min = setup
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.blocks.keys().unwrap().into_iter().min());
+        assert_eq!(
+            stored_min,
+            Some(50),
+            "Stored blocks minimum should be slot 50"
+        );
 
-        // case 1: request blocks 10-30 (entirely before local minimum)
+        // case 1: request blocks 10-30 (entirely "before" stored blocks, but within reconstructible range)
+        // With sparse storage, local_min is 0, so slots 10-30 are all within local range
         let result = setup
             .rpc
             .get_blocks(
@@ -3951,13 +4046,14 @@ mod tests {
             .await
             .unwrap();
 
+        // With sparse storage, all slots in range up to latest_slot (100) can be reconstructed
+        let expected: Vec<Slot> = (10..=30).collect();
         assert_eq!(
-            result,
-            Vec::<Slot>::new(),
-            "Should return empty when no remote context available for pre-local range"
+            result, expected,
+            "Should return all slots in range (empty blocks are reconstructed)"
         );
 
-        // case 2: request blocks 10-60 (spans below and into local range)
+        // case 2: request blocks 10-60 (spans entire reconstructible range)
         let result = setup
             .rpc
             .get_blocks(
@@ -3969,13 +4065,13 @@ mod tests {
             .await
             .unwrap();
 
-        let expected_local_portion = vec![50, 51, 52, 60];
+        let expected: Vec<Slot> = (10..=60).collect();
         assert_eq!(
-            result, expected_local_portion,
-            "Should return only local blocks when no remote context"
+            result, expected,
+            "Should return all local slots (empty blocks reconstructed)"
         );
 
-        // test Case 3: request blocks 45-55 (some before, some in local range)
+        // case 3: request blocks 45-55
         let result = setup
             .rpc
             .get_blocks(
@@ -3987,13 +4083,13 @@ mod tests {
             .await
             .unwrap();
 
-        let expected = vec![50, 51, 52];
+        let expected: Vec<Slot> = (45..=55).collect();
         assert_eq!(
             result, expected,
-            "Should return only available local blocks in range"
+            "Should return all slots in range (empty blocks reconstructed)"
         );
 
-        // case 4: Request blocks 55-65 (entirely within/after local minimum)
+        // case 4: Request blocks 55-65
         let result = setup
             .rpc
             .get_blocks(
@@ -4005,11 +4101,10 @@ mod tests {
             .await
             .unwrap();
 
-        //return local blocks [60, 61] -> no remote fetch needed since start_slot >= local_min
-        let expected = vec![60, 61];
+        let expected: Vec<Slot> = (55..=65).collect();
         assert_eq!(
             result, expected,
-            "Should return local blocks when request is at/after local minimum"
+            "Should return all slots in range (empty blocks reconstructed)"
         );
     }
 
@@ -4023,14 +4118,15 @@ mod tests {
             svm_writer.latest_epoch_info.absolute_slot = 200; // set to 200 so all blocks are "committed"
         });
 
-        let (local_min, latest_slot) = setup.context.svm_locker.with_svm_reader(|svm_reader| {
+        let (stored_min, latest_slot) = setup.context.svm_locker.with_svm_reader(|svm_reader| {
             let min = svm_reader.blocks.keys().unwrap().into_iter().min();
             let latest = svm_reader.get_latest_absolute_slot();
             (min, latest)
         });
-        assert_eq!(local_min, Some(100), "Local minimum should be 100");
+        assert_eq!(stored_min, Some(100), "Stored blocks minimum should be 100");
         assert_eq!(latest_slot, 200, "Latest slot should be 200");
 
+        // Case 1: slots 10-50 - with sparse storage, all slots in range are returned
         let result = setup
             .rpc
             .get_blocks(
@@ -4042,13 +4138,13 @@ mod tests {
             .await
             .unwrap();
 
+        let expected: Vec<Slot> = (10..=50).collect();
         assert_eq!(
-            result,
-            Vec::<Slot>::new(),
-            "Should be empty without remote context"
+            result, expected,
+            "Should return all slots (empty blocks reconstructed)"
         );
 
-        // case 2: Request blocks 5-30 (even further below)
+        // case 2: Request blocks 5-30
         let result = setup
             .rpc
             .get_blocks(
@@ -4060,13 +4156,13 @@ mod tests {
             .await
             .unwrap();
 
+        let expected: Vec<Slot> = (5..=30).collect();
         assert_eq!(
-            result,
-            Vec::<Slot>::new(),
-            "Should be empty without remote context"
+            result, expected,
+            "Should return all slots (empty blocks reconstructed)"
         );
 
-        // case 3: Request blocks 80-120 (spans below and into local)
+        // case 3: Request blocks 80-120
         let result = setup
             .rpc
             .get_blocks(
@@ -4078,8 +4174,8 @@ mod tests {
             .await
             .unwrap();
 
-        let expected_local: Vec<Slot> = (100..=120).collect();
-        assert_eq!(result, expected_local, "Should return local blocks 100-120");
+        let expected: Vec<Slot> = (80..=120).collect();
+        assert_eq!(result, expected, "Should return all slots 80-120");
     }
 
     #[test]
@@ -4132,16 +4228,16 @@ mod tests {
             cluster_nodes,
             vec![RpcContactInfo {
                 pubkey: SURFPOOL_IDENTITY_PUBKEY.to_string(),
-                gossip: None,
+                gossip: Some("127.0.0.1:8001".parse().unwrap()),
                 tvu: None,
-                tpu: None,
-                tpu_quic: None,
+                tpu: Some("127.0.0.1:8003".parse().unwrap()),
+                tpu_quic: Some("127.0.0.1:8004".parse().unwrap()),
                 tpu_forwards: None,
                 tpu_forwards_quic: None,
                 tpu_vote: None,
                 serve_repair: None,
-                rpc: None,
-                pubsub: None,
+                rpc: Some("127.0.0.1:8899".parse().unwrap()),
+                pubsub: Some("127.0.0.1:8900".parse().unwrap()),
                 version: None,
                 feature_set: None,
                 shred_version: None,
@@ -4440,7 +4536,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_minimum_ledger_slot_finds_minimum() {
-        // find correct minimum from sparse, unordered blocks (local fallback)
+        // With sparse block storage, minimum ledger slot is always 0 for local surfnets
         let setup = TestSetup::new(SurfpoolFullRpc);
 
         insert_test_blocks(&setup, vec![500, 100, 1000, 50, 750]);
@@ -4451,9 +4547,11 @@ mod tests {
             .await
             .unwrap();
 
+        // With sparse block storage, get_first_local_slot() returns 0 since all
+        // blocks from slot 0 can be reconstructed on-the-fly
         assert_eq!(
-            result, 50,
-            "Should return minimum slot (50) regardless of insertion order"
+            result, 0,
+            "Should return 0 since empty blocks can be reconstructed from slot 0"
         );
     }
 

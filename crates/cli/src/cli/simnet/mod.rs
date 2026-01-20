@@ -366,7 +366,12 @@ fn log_events(
             }
         }
 
-        let oper = selector.select();
+        // Use select_timeout to periodically check the termination flag
+        // This ensures Ctrl+C is responsive even when no events are arriving
+        let oper = match selector.select_timeout(Duration::from_millis(100)) {
+            Ok(oper) => oper,
+            Err(_) => continue, // Timeout - check termination flag at top of loop
+        };
         match oper.index() {
             0 => match oper.recv(&simnet_events_rx) {
                 Ok(event) => match event {

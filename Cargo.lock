@@ -11390,6 +11390,7 @@ dependencies = [
  "jsonrpc-http-server",
  "jsonrpc-pubsub",
  "jsonrpc-ws-server",
+ "lazy_static",
  "libloading",
  "litesvm",
  "litesvm-token",

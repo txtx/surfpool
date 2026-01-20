@@ -88,8 +88,9 @@ use uuid::Uuid;
 
 use super::{
     AccountSubscriptionData, BlockHeader, BlockIdentifier, FINALIZATION_SLOT_THRESHOLD,
-    GetAccountResult, GeyserEvent, SLOTS_PER_EPOCH, SignatureSubscriptionData,
-    SignatureSubscriptionType, remote::SurfnetRemoteClient,
+    GetAccountResult, GeyserBlockMetadata, GeyserEntryInfo, GeyserEvent, GeyserSlotStatus,
+    SLOTS_PER_EPOCH, SignatureSubscriptionData, SignatureSubscriptionType,
+    remote::SurfnetRemoteClient,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -104,6 +105,28 @@ use crate::{
         SurfnetTransactionStatus, SyntheticBlockhash, TokenAccount, TransactionWithStatusMeta,
     },
 };
+
+lazy_static::lazy_static! {
+    /// Interval (in slots) at which to perform garbage collection on the lite SVM cache.
+    /// About 1 hour at standard 400ms slot time.
+    /// Configurable via SURFPOOL_GARBAGE_COLLECTION_INTERVAL_SLOTS env var.
+    pub static ref GARBAGE_COLLECTION_INTERVAL_SLOTS: u64 = {
+        std::env::var("SURFPOOL_GARBAGE_COLLECTION_INTERVAL_SLOTS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(9_000)
+    };
+
+    /// Interval (in slots) at which to checkpoint the latest slot to storage.
+    /// About 1 minute at standard 400ms slot time (60000ms / 400ms = 150 slots).
+    /// Configurable via SURFPOOL_CHECKPOINT_INTERVAL_SLOTS env var.
+    pub static ref CHECKPOINT_INTERVAL_SLOTS: u64 = {
+        std::env::var("SURFPOOL_CHECKPOINT_INTERVAL_SLOTS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(150)
+    };
+}
 
 /// Helper function to apply an override to a decoded account value using dot notation
 pub fn apply_override_to_decoded_account(
@@ -273,6 +296,17 @@ pub struct SurfnetSvm {
     /// Tracks accounts that have been explicitly closed by the user.
     /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
     pub closed_accounts: HashSet<Pubkey>,
+    /// The slot at which this surfnet instance started (may be non-zero when connected to remote).
+    /// Used as the lower bound for block reconstruction.
+    pub genesis_slot: Slot,
+    /// The `updated_at` timestamp when this surfnet started at `genesis_slot`.
+    /// Used to reconstruct block_time: genesis_updated_at + ((slot - genesis_slot) * slot_time)
+    pub genesis_updated_at: u64,
+    /// Storage for persisting the latest slot checkpoint.
+    /// Used for recovery on restart with sparse block storage.
+    pub slot_checkpoint: Box<dyn Storage<String, u64>>,
+    /// Tracks the slot at which we last persisted the checkpoint.
+    pub last_checkpoint_slot: u64,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -383,6 +417,10 @@ impl SurfnetSvm {
             account_update_slots: self.account_update_slots.clone(),
             recent_blockhashes: self.recent_blockhashes.clone(),
             closed_accounts: self.closed_accounts.clone(),
+            genesis_slot: self.genesis_slot,
+            genesis_updated_at: self.genesis_updated_at,
+            slot_checkpoint: OverlayStorage::wrap(self.slot_checkpoint.clone_box()),
+            last_checkpoint_slot: self.last_checkpoint_slot,
         }
     }
 
@@ -482,18 +520,42 @@ impl SurfnetSvm {
                 // (when no on-disk DB is provided)
                 || Box::new(FifoMap::<String, KeyedProfileResult>::default()),
             )?;
+        let slot_checkpoint_db: Box<dyn Storage<String, u64>> =
+            new_kv_store(&database_url, "slot_checkpoint", surfnet_id)?;
 
-        let chain_tip = if let Some((_, block)) = blocks_db
+        // Recover chain state: prefer slot checkpoint, fall back to max block in DB
+        let checkpoint_slot = slot_checkpoint_db.get(&"latest_slot".to_string())?;
+        let max_block_slot = blocks_db
             .into_iter()
             .unwrap()
-            .max_by_key(|(slot, _): &(u64, BlockHeader)| *slot)
-        {
-            BlockIdentifier {
+            .max_by_key(|(slot, _): &(u64, BlockHeader)| *slot);
+
+        let chain_tip = match (checkpoint_slot, max_block_slot) {
+            // Prefer checkpoint if it's higher than the max stored block
+            (Some(checkpoint), Some((block_slot, block))) => {
+                if checkpoint > block_slot {
+                    // Use checkpoint slot with synthetic blockhash
+                    BlockIdentifier {
+                        index: checkpoint,
+                        hash: SyntheticBlockhash::new(checkpoint).to_string(),
+                    }
+                } else {
+                    // Use the stored block
+                    BlockIdentifier {
+                        index: block.block_height,
+                        hash: block.hash,
+                    }
+                }
+            }
+            (Some(checkpoint), None) => BlockIdentifier {
+                index: checkpoint,
+                hash: SyntheticBlockhash::new(checkpoint).to_string(),
+            },
+            (None, Some((_, block))) => BlockIdentifier {
                 index: block.block_height,
                 hash: block.hash,
-            }
-        } else {
-            BlockIdentifier::zero()
+            },
+            (None, None) => BlockIdentifier::zero(),
         };
 
         // Initialize transactions_processed from database count for persistent storage
@@ -554,6 +616,10 @@ impl SurfnetSvm {
             recent_blockhashes: VecDeque::new(),
             scheduled_overrides: scheduled_overrides_db,
             closed_accounts: HashSet::new(),
+            genesis_slot: 0, // Will be updated when connecting to remote network
+            genesis_updated_at: Utc::now().timestamp_millis() as u64,
+            slot_checkpoint: slot_checkpoint_db,
+            last_checkpoint_slot: 0,
         };
 
         // Generate the initial synthetic blockhash
@@ -698,7 +764,12 @@ impl SurfnetSvm {
     ) {
         self.chain_tip = self.new_blockhash();
         self.latest_epoch_info = epoch_info.clone();
+        // Set genesis_slot to the current slot when initializing (syncing with remote)
+        // This marks the starting point for this surfnet instance
+        self.genesis_slot = epoch_info.absolute_slot;
         self.updated_at = Utc::now().timestamp_millis() as u64;
+        // Update genesis_updated_at to match the new genesis_slot
+        self.genesis_updated_at = self.updated_at;
         self.slot_time = slot_time;
         self.instruction_profiling_enabled = do_profile_instructions;
         self.set_profiling_map_capacity(self.max_profiles);
@@ -718,15 +789,8 @@ impl SurfnetSvm {
             .simnet_events_tx
             .send(SimnetEvent::EpochInfoUpdate(epoch_info));
 
-        let clock: Clock = Clock {
-            slot: self.latest_epoch_info.absolute_slot,
-            epoch: self.latest_epoch_info.epoch,
-            unix_timestamp: self.updated_at as i64 / 1_000,
-            epoch_start_timestamp: 0, // todo
-            leader_schedule_epoch: 0, // todo
-        };
-
-        self.inner.set_sysvar(&clock);
+        // Reconstruct all sysvars (RecentBlockhashes, SlotHashes, Clock)
+        self.reconstruct_sysvars();
     }
 
     pub fn set_profile_instructions(&mut self, do_profile_instructions: bool) {
@@ -886,6 +950,64 @@ impl SurfnetSvm {
         self.latest_epoch_info.clone()
     }
 
+    /// Calculates the block time for a given slot based on genesis timestamp.
+    /// Returns the time in milliseconds since genesis.
+    pub fn calculate_block_time_for_slot(&self, slot: Slot) -> u64 {
+        // Calculate time relative to genesis_slot (when this surfnet started)
+        let slots_since_genesis = slot.saturating_sub(self.genesis_slot);
+        self.genesis_updated_at + (slots_since_genesis * self.slot_time)
+    }
+
+    /// Checks if a slot is within the valid range for sparse block storage.
+    /// A slot is valid if it's between genesis_slot (inclusive) and latest_slot (inclusive).
+    ///
+    /// # Arguments
+    /// * `slot` - The slot number to check.
+    ///
+    /// # Returns
+    /// `true` if the slot is within the valid range, `false` otherwise.
+    pub fn is_slot_in_valid_range(&self, slot: Slot) -> bool {
+        let latest_slot = self.get_latest_absolute_slot();
+        slot >= self.genesis_slot && slot <= latest_slot
+    }
+
+    /// Gets a block from storage, or reconstructs an empty block if the slot is within
+    /// the valid range (sparse block storage).
+    ///
+    /// # Arguments
+    /// * `slot` - The slot number to retrieve.
+    ///
+    /// # Returns
+    /// * `Ok(Some(BlockHeader))` - If the block exists or can be reconstructed
+    /// * `Ok(None)` - If the slot is outside the valid range
+    /// * `Err(_)` - If there was an error accessing storage
+    pub fn get_block_or_reconstruct(&self, slot: Slot) -> SurfpoolResult<Option<BlockHeader>> {
+        match self.blocks.get(&slot)? {
+            Some(block) => Ok(Some(block)),
+            None => {
+                if self.is_slot_in_valid_range(slot) {
+                    Ok(Some(self.reconstruct_empty_block(slot)))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    /// Reconstructs an empty block header for a slot that wasn't stored.
+    /// This is used for sparse block storage where empty blocks are not persisted.
+    pub fn reconstruct_empty_block(&self, slot: Slot) -> BlockHeader {
+        let block_height = slot;
+        BlockHeader {
+            hash: SyntheticBlockhash::new(block_height).to_string(),
+            previous_blockhash: SyntheticBlockhash::new(block_height.saturating_sub(1)).to_string(),
+            parent_slot: slot.saturating_sub(1),
+            block_time: (self.calculate_block_time_for_slot(slot) / 1_000) as i64,
+            block_height,
+            signatures: vec![],
+        }
+    }
+
     pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
         self.feature_set.active().get(pubkey).map(|_| {
             let feature_bytes = bincode::serialize(&FEATURE).unwrap();
@@ -900,6 +1022,61 @@ impl SurfnetSvm {
                 rent_epoch: 0,
             }
         })
+    }
+
+    /// Reconstructs RecentBlockhashes, SlotHashes, and Clock sysvars deterministically
+    /// from the current slot. Called on startup and after garbage collection to ensure
+    /// consistent sysvar state without requiring database persistence.
+    ///
+    /// Note: SyntheticBlockhash uses chain_tip.index (relative index), while SlotHashes
+    /// and Clock use absolute slots (chain_tip.index + genesis_slot).
+    #[allow(deprecated)]
+    pub fn reconstruct_sysvars(&mut self) {
+        use solana_slot_hashes::SlotHashes;
+        use solana_sysvar::recent_blockhashes::{IterItem, RecentBlockhashes};
+
+        let current_index = self.chain_tip.index;
+        let current_absolute_slot = self.get_latest_absolute_slot();
+
+        // Calculate range for blockhashes - use relative indices for SyntheticBlockhash
+        let start_index = current_index.saturating_sub(MAX_RECENT_BLOCKHASHES_STANDARD as u64 - 1);
+
+        // Generate all synthetic blockhashes using relative indices (chain_tip.index style)
+        // This matches how new_blockhash() generates hashes
+        let synthetic_hashes: Vec<_> = (start_index..=current_index)
+            .rev()
+            .map(SyntheticBlockhash::new)
+            .collect();
+
+        // 1. Reconstruct RecentBlockhashes (last 150 blockhashes)
+        let recent_blockhashes_vec: Vec<_> = synthetic_hashes
+            .iter()
+            .enumerate()
+            .map(|(index, hash)| IterItem(index as u64, hash.hash(), 0))
+            .collect();
+        let recent_blockhashes = RecentBlockhashes::from_iter(recent_blockhashes_vec);
+        self.inner.set_sysvar(&recent_blockhashes);
+
+        // 2. Reconstruct SlotHashes - maps absolute slots to blockhashes
+        let start_absolute_slot = start_index + self.genesis_slot;
+        let slot_hashes_vec: Vec<_> = (start_absolute_slot..=current_absolute_slot)
+            .rev()
+            .zip(synthetic_hashes.iter())
+            .map(|(slot, hash)| (slot, *hash.hash()))
+            .collect();
+        let slot_hashes = SlotHashes::new(&slot_hashes_vec);
+        self.inner.set_sysvar(&slot_hashes);
+
+        // 3. Reconstruct Clock using absolute slot
+        let unix_timestamp = self.calculate_block_time_for_slot(current_absolute_slot) / 1_000;
+        let clock = Clock {
+            slot: current_absolute_slot,
+            epoch: self.latest_epoch_info.epoch,
+            unix_timestamp: unix_timestamp as i64,
+            epoch_start_timestamp: 0,
+            leader_schedule_epoch: 0,
+        };
+        self.inner.set_sysvar(&clock);
     }
 
     /// Generates and sets a new blockhash, updating the RecentBlockhashes sysvar.
@@ -1764,7 +1941,7 @@ impl SurfnetSvm {
     pub fn confirm_current_block(&mut self) -> SurfpoolResult<()> {
         let slot = self.get_latest_absolute_slot();
         let previous_chain_tip = self.chain_tip.clone();
-        if slot % 100 == 0 {
+        if slot % *GARBAGE_COLLECTION_INTERVAL_SLOTS == 0 {
             debug!("Clearing liteSVM cache at slot {}", slot);
             self.inner.garbage_collect(self.feature_set.clone());
         }
@@ -1788,17 +1965,30 @@ impl SurfnetSvm {
         let num_transactions = confirmed_signatures.len() as u64;
         self.updated_at += self.slot_time;
 
-        self.blocks.store(
-            slot,
-            BlockHeader {
-                hash: self.chain_tip.hash.clone(),
-                previous_blockhash: previous_chain_tip.hash,
-                block_time: self.updated_at as i64 / 1_000,
-                block_height: self.chain_tip.index,
-                parent_slot: slot,
-                signatures: confirmed_signatures,
-            },
-        )?;
+        // Only store blocks that have transactions (sparse block storage)
+        // Empty blocks can be reconstructed on-the-fly from their slot number
+        if !confirmed_signatures.is_empty() {
+            self.blocks.store(
+                slot,
+                BlockHeader {
+                    hash: self.chain_tip.hash.clone(),
+                    previous_blockhash: previous_chain_tip.hash.clone(),
+                    block_time: self.updated_at as i64 / 1_000,
+                    block_height: self.chain_tip.index,
+                    parent_slot: slot,
+                    signatures: confirmed_signatures,
+                },
+            )?;
+        }
+
+        // Checkpoint the latest slot periodically (~every 150 slots / 1 minute at standard slot time)
+        // This allows recovery after restart without storing every empty block
+        if slot.saturating_sub(self.last_checkpoint_slot) >= *CHECKPOINT_INTERVAL_SLOTS {
+            self.slot_checkpoint
+                .store("latest_slot".to_string(), slot)?;
+            self.last_checkpoint_slot = slot;
+        }
+
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
         }
@@ -1825,6 +2015,46 @@ impl SurfnetSvm {
         let root = new_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD);
         self.notify_slot_subscribers(new_slot, parent_slot, root);
 
+        // Notify geyser plugins of slot status (Confirmed)
+        self.geyser_events_tx
+            .send(GeyserEvent::UpdateSlotStatus {
+                slot: new_slot,
+                parent: Some(parent_slot),
+                status: GeyserSlotStatus::Confirmed,
+            })
+            .ok();
+
+        // Notify geyser plugins of block metadata
+        let block_metadata = GeyserBlockMetadata {
+            slot: new_slot,
+            blockhash: self.chain_tip.hash.clone(),
+            parent_slot,
+            parent_blockhash: previous_chain_tip.hash.clone(),
+            block_time: Some(self.updated_at as i64 / 1_000),
+            block_height: Some(self.chain_tip.index),
+            executed_transaction_count: num_transactions,
+            entry_count: 1, // Surfpool produces 1 entry per block
+        };
+        self.geyser_events_tx
+            .send(GeyserEvent::NotifyBlockMetadata(block_metadata))
+            .ok();
+
+        // Notify geyser plugins of entry (Surfpool emits 1 entry per block)
+        let entry_hash = solana_hash::Hash::from_str(&self.chain_tip.hash)
+            .map(|h| h.to_bytes().to_vec())
+            .unwrap_or_else(|_| vec![0u8; 32]);
+        let entry_info = GeyserEntryInfo {
+            slot: new_slot,
+            index: 0, // Single entry per block
+            num_hashes: 1,
+            hash: entry_hash,
+            executed_transaction_count: num_transactions,
+            starting_transaction_index: 0,
+        };
+        self.geyser_events_tx
+            .send(GeyserEvent::NotifyEntry(entry_info))
+            .ok();
+
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
@@ -1839,6 +2069,18 @@ impl SurfnetSvm {
         self.inner.set_sysvar(&clock);
 
         self.finalize_transactions()?;
+
+        // Notify geyser plugins of newly rooted (finalized) slot
+        // Only emit if root is a valid slot (greater than genesis)
+        if root >= self.genesis_slot {
+            self.geyser_events_tx
+                .send(GeyserEvent::UpdateSlotStatus {
+                    slot: root,
+                    parent: root.checked_sub(1),
+                    status: GeyserSlotStatus::Rooted,
+                })
+                .ok();
+        }
 
         // Evict the accounts marked as streamed from cache to enforce them to be fetched again
         let accounts_to_reset: Vec<_> = self.streamed_accounts.into_iter()?.collect();
@@ -2292,7 +2534,8 @@ impl SurfnetSvm {
         slot: Slot,
         config: &RpcBlockConfig,
     ) -> SurfpoolResult<Option<UiConfirmedBlock>> {
-        let Some(block) = self.blocks.get(&slot)? else {
+        // Try to get stored block, or reconstruct empty block if within valid range
+        let Some(block) = self.get_block_or_reconstruct(slot)? else {
             return Ok(None);
         };
 
@@ -4283,5 +4526,366 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_is_slot_in_valid_range(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 100, latest absolute slot = 110
+        svm.genesis_slot = 100;
+        svm.latest_epoch_info.absolute_slot = 110;
+
+        // Test slots within valid range
+        assert!(
+            svm.is_slot_in_valid_range(100),
+            "genesis_slot should be valid"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(105),
+            "middle slot should be valid"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(110),
+            "latest slot should be valid"
+        );
+
+        // Test slots outside valid range
+        assert!(
+            !svm.is_slot_in_valid_range(99),
+            "slot before genesis should be invalid"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(111),
+            "slot after latest should be invalid"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(0),
+            "slot 0 should be invalid when genesis > 0"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(1000),
+            "far future slot should be invalid"
+        );
+    }
+
+    #[test]
+    fn test_is_slot_in_valid_range_genesis_zero() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+
+        // Set up: genesis_slot = 0, latest absolute slot = 50
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 50;
+
+        // Test boundary conditions with genesis at 0
+        assert!(
+            svm.is_slot_in_valid_range(0),
+            "slot 0 should be valid when genesis = 0"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(25),
+            "middle slot should be valid"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(50),
+            "latest slot should be valid"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(51),
+            "slot after latest should be invalid"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_get_block_or_reconstruct_stored_block(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 0, latest absolute slot = 100
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 100;
+
+        // Store a block with transactions
+        let stored_block = BlockHeader {
+            hash: "stored_block_hash".to_string(),
+            previous_blockhash: "prev_hash".to_string(),
+            parent_slot: 49,
+            block_time: 1234567890,
+            block_height: 50,
+            signatures: vec![Signature::new_unique()],
+        };
+        svm.blocks.store(50, stored_block.clone()).unwrap();
+
+        // Retrieve the stored block
+        let result = svm.get_block_or_reconstruct(50).unwrap();
+        assert!(result.is_some(), "should return stored block");
+        let block = result.unwrap();
+        assert_eq!(block.hash, "stored_block_hash");
+        assert_eq!(block.signatures.len(), 1);
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_get_block_or_reconstruct_empty_block(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 0, latest absolute slot = 100
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 100;
+        svm.genesis_updated_at = 1000000; // 1 second in ms
+        svm.slot_time = 400; // 400ms per slot
+
+        // Request a slot that wasn't stored (no block stored at slot 50)
+        let result = svm.get_block_or_reconstruct(50).unwrap();
+        assert!(
+            result.is_some(),
+            "should reconstruct empty block for valid slot"
+        );
+
+        let block = result.unwrap();
+        // Verify it's a reconstructed empty block
+        assert!(
+            block.signatures.is_empty(),
+            "reconstructed block should have no signatures"
+        );
+        assert_eq!(block.block_height, 50);
+        assert_eq!(block.parent_slot, 49);
+
+        // Verify the block time is calculated correctly
+        // genesis_updated_at (1000000ms) + (50 slots * 400ms) = 1020000ms = 1020 seconds
+        assert_eq!(block.block_time, 1020);
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_get_block_or_reconstruct_out_of_range(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 100, latest absolute slot = 110
+        svm.genesis_slot = 100;
+        svm.latest_epoch_info.absolute_slot = 110;
+
+        // Request slot before genesis
+        let result = svm.get_block_or_reconstruct(50).unwrap();
+        assert!(
+            result.is_none(),
+            "should return None for slot before genesis"
+        );
+
+        // Request slot after latest
+        let result = svm.get_block_or_reconstruct(200).unwrap();
+        assert!(result.is_none(), "should return None for slot after latest");
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_recent_blockhashes(test_type: TestType) {
+        use solana_sysvar::recent_blockhashes::RecentBlockhashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 10, genesis_slot = 0
+        svm.chain_tip = BlockIdentifier::new(10, "test_hash");
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 10;
+
+        svm.reconstruct_sysvars();
+
+        // Verify RecentBlockhashes sysvar
+        let recent_blockhashes = svm.inner.get_sysvar::<RecentBlockhashes>();
+
+        // Should have 11 entries (indices 0 through 10)
+        assert_eq!(recent_blockhashes.len(), 11);
+
+        // First entry should be the hash for chain_tip.index (10)
+        let expected_hash = SyntheticBlockhash::new(10);
+        assert_eq!(
+            recent_blockhashes.first().unwrap().blockhash,
+            *expected_hash.hash(),
+            "First blockhash should match SyntheticBlockhash for chain_tip.index"
+        );
+
+        // Last entry should be the hash for index 0
+        let expected_last_hash = SyntheticBlockhash::new(0);
+        assert_eq!(
+            recent_blockhashes.last().unwrap().blockhash,
+            *expected_last_hash.hash(),
+            "Last blockhash should match SyntheticBlockhash for index 0"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_slot_hashes(test_type: TestType) {
+        use solana_slot_hashes::SlotHashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 5, genesis_slot = 100 (absolute slot = 105)
+        svm.chain_tip = BlockIdentifier::new(5, "test_hash");
+        svm.genesis_slot = 100;
+        svm.latest_epoch_info.absolute_slot = 105;
+
+        svm.reconstruct_sysvars();
+
+        // Verify SlotHashes sysvar
+        let slot_hashes = svm.inner.get_sysvar::<SlotHashes>();
+
+        // Should have 6 entries (indices 0 through 5, mapped to slots 100 through 105)
+        assert_eq!(slot_hashes.len(), 6);
+
+        // Check that slot 105 maps to hash for index 5
+        let expected_hash_105 = SyntheticBlockhash::new(5);
+        let hash_for_105 = slot_hashes.get(&105);
+        assert!(hash_for_105.is_some(), "SlotHashes should contain slot 105");
+        assert_eq!(
+            hash_for_105.unwrap(),
+            expected_hash_105.hash(),
+            "Hash for slot 105 should match SyntheticBlockhash for index 5"
+        );
+
+        // Check that slot 100 maps to hash for index 0
+        let expected_hash_100 = SyntheticBlockhash::new(0);
+        let hash_for_100 = slot_hashes.get(&100);
+        assert!(hash_for_100.is_some(), "SlotHashes should contain slot 100");
+        assert_eq!(
+            hash_for_100.unwrap(),
+            expected_hash_100.hash(),
+            "Hash for slot 100 should match SyntheticBlockhash for index 0"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_reconstruct_sysvars_clock(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 50, genesis_slot = 1000 (absolute slot = 1050)
+        svm.chain_tip = BlockIdentifier::new(50, "test_hash");
+        svm.genesis_slot = 1000;
+        svm.latest_epoch_info.absolute_slot = 1050;
+        svm.latest_epoch_info.epoch = 5;
+        svm.genesis_updated_at = 2_000_000; // 2 seconds in ms
+        svm.slot_time = 400; // 400ms per slot
+
+        svm.reconstruct_sysvars();
+
+        // Verify Clock sysvar
+        let clock = svm.inner.get_sysvar::<Clock>();
+
+        assert_eq!(clock.slot, 1050, "Clock slot should be absolute slot");
+        assert_eq!(clock.epoch, 5, "Clock epoch should match latest_epoch_info");
+
+        // Expected timestamp: genesis_updated_at + (50 slots * 400ms) = 2_000_000 + 20_000 = 2_020_000ms = 2020 seconds
+        assert_eq!(
+            clock.unix_timestamp, 2020,
+            "Clock unix_timestamp should be calculated correctly"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_max_blockhashes(test_type: TestType) {
+        use solana_sysvar::recent_blockhashes::RecentBlockhashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 200 (more than MAX_RECENT_BLOCKHASHES_STANDARD = 150)
+        svm.chain_tip = BlockIdentifier::new(200, "test_hash");
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 200;
+
+        svm.reconstruct_sysvars();
+
+        // Verify RecentBlockhashes sysvar is capped at MAX_RECENT_BLOCKHASHES_STANDARD
+        let recent_blockhashes = svm.inner.get_sysvar::<RecentBlockhashes>();
+
+        assert_eq!(
+            recent_blockhashes.len(),
+            MAX_RECENT_BLOCKHASHES_STANDARD,
+            "RecentBlockhashes should be capped at MAX_RECENT_BLOCKHASHES_STANDARD"
+        );
+
+        // First entry should still be for chain_tip.index (200)
+        let expected_hash = SyntheticBlockhash::new(200);
+        assert_eq!(
+            recent_blockhashes.first().unwrap().blockhash,
+            *expected_hash.hash(),
+            "First blockhash should match SyntheticBlockhash for chain_tip.index"
+        );
+
+        // Last entry should be for index 51 (200 - 149)
+        let expected_last_hash = SyntheticBlockhash::new(51);
+        assert_eq!(
+            recent_blockhashes.last().unwrap().blockhash,
+            *expected_last_hash.hash(),
+            "Last blockhash should match SyntheticBlockhash for start_index"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_deterministic(test_type: TestType) {
+        use solana_slot_hashes::SlotHashes;
+        use solana_sysvar::recent_blockhashes::RecentBlockhashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up initial state
+        svm.chain_tip = BlockIdentifier::new(25, "test_hash");
+        svm.genesis_slot = 50;
+        svm.latest_epoch_info.absolute_slot = 75;
+        svm.latest_epoch_info.epoch = 2;
+        svm.genesis_updated_at = 1_000_000;
+        svm.slot_time = 400;
+
+        // First reconstruction
+        svm.reconstruct_sysvars();
+        let blockhashes_1 = svm.inner.get_sysvar::<RecentBlockhashes>();
+        let slot_hashes_1 = svm.inner.get_sysvar::<SlotHashes>();
+        let clock_1 = svm.inner.get_sysvar::<Clock>();
+
+        // Second reconstruction with same state
+        svm.reconstruct_sysvars();
+        let blockhashes_2 = svm.inner.get_sysvar::<RecentBlockhashes>();
+        let slot_hashes_2 = svm.inner.get_sysvar::<SlotHashes>();
+        let clock_2 = svm.inner.get_sysvar::<Clock>();
+
+        // Verify determinism - results should be identical
+        assert_eq!(blockhashes_1.len(), blockhashes_2.len());
+        for (b1, b2) in blockhashes_1.iter().zip(blockhashes_2.iter()) {
+            assert_eq!(
+                b1.blockhash, b2.blockhash,
+                "RecentBlockhashes should be deterministic"
+            );
+        }
+
+        assert_eq!(slot_hashes_1.len(), slot_hashes_2.len());
+        assert_eq!(clock_1.slot, clock_2.slot);
+        assert_eq!(clock_1.epoch, clock_2.epoch);
+        assert_eq!(clock_1.unix_timestamp, clock_2.unix_timestamp);
     }
 }

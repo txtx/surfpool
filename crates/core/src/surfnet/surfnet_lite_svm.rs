@@ -7,9 +7,13 @@ use litesvm::{
     types::{FailedTransactionMetadata, SimulatedTransactionInfo, TransactionResult},
 };
 use solana_account::{Account, AccountSharedData};
+use solana_clock::Clock;
 use solana_loader_v3_interface::get_program_data_address;
 use solana_program_option::COption;
 use solana_pubkey::Pubkey;
+use solana_slot_hashes::SlotHashes;
+#[allow(deprecated)]
+use solana_sysvar::recent_blockhashes::RecentBlockhashes;
 use solana_transaction::versioned::VersionedTransaction;
 
 use crate::{
@@ -91,11 +95,21 @@ impl SurfnetLiteSvm {
     /// Perform garbage collection by resetting the SVM state while retaining the database.
     /// This is useful for cleaning up unused accounts and reducing memory usage.
     /// If no database is configured, this function is a no-op.
+    #[allow(deprecated)]
     pub fn garbage_collect(&mut self, feature_set: FeatureSet) {
         // If no DB is configured, skip garbage collection
         if self.db.is_none() {
             return;
         }
+
+        // Preserve all critical sysvars across garbage collection
+        // - RecentBlockhashes: for blockhash validation
+        // - SlotHashes: for ALT resolution
+        // - Clock: for time-dependent programs
+        let recent_blockhashes = self.svm.get_sysvar::<RecentBlockhashes>();
+        let slot_hashes = self.svm.get_sysvar::<SlotHashes>();
+        let clock = self.svm.get_sysvar::<Clock>();
+
         // todo: this is also resetting the log bytes limit and airdrop keypair, would be nice to avoid
         self.svm = LiteSVM::new()
             .with_blockhash_check(false)
@@ -103,6 +117,11 @@ impl SurfnetLiteSvm {
             .with_feature_set(feature_set);
 
         create_native_mint(self);
+
+        // Restore all preserved sysvars
+        self.svm.set_sysvar(&recent_blockhashes);
+        self.svm.set_sysvar(&slot_hashes);
+        self.svm.set_sysvar(&clock);
     }
 
     pub fn apply_feature_config(&mut self, feature_set: FeatureSet) -> &mut Self {
