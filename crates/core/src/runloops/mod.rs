@@ -20,6 +20,7 @@ use ipc_channel::{
     ipc::{IpcOneShotServer, IpcReceiver},
     router::RouterProxy,
 };
+use itertools::Itertools;
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
@@ -170,8 +171,63 @@ pub async fn start_local_surfnet_runloop(
     let (clock_event_rx, clock_command_tx) =
         start_clock_runloop(simnet_config.slot_time, Some(simnet_events_tx_cc.clone()));
 
-    let initial_transactions = svm_locker.with_svm_reader(|svm| svm.transactions_processed);
-    let _ = simnet_events_tx_cc.send(SimnetEvent::Ready(initial_transactions));
+    // Emit TransactionProcessed events for each stored transaction before Ready
+    let initial_transaction_count = svm_locker.with_svm_reader(|svm| {
+        let iter_result = svm.transactions.into_iter();
+        let mut count: u64 = 0;
+
+        if let Ok(iter) = iter_result {
+            let mut events = vec![];
+            for (_, status) in iter {
+                if let Some((tx_meta, _updated_accounts)) = status.as_processed() {
+                    let signature = tx_meta.transaction.signatures[0];
+                    let err = tx_meta.meta.status.clone().err();
+
+                    // Build TransactionMetadata from stored data
+                    let meta = surfpool_types::TransactionMetadata {
+                        signature,
+                        logs: tx_meta.meta.log_messages.clone().unwrap_or_default(),
+                        inner_instructions: tx_meta
+                            .meta
+                            .inner_instructions
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|inner_ixs| {
+                                inner_ixs
+                                    .instructions
+                                    .into_iter()
+                                    .map(|ix| solana_message::inner_instruction::InnerInstruction {
+                                        instruction: ix.instruction,
+                                        stack_height: ix.stack_height.unwrap_or(1) as u8,
+                                    })
+                                    .collect()
+                            })
+                            .collect(),
+                        compute_units_consumed: tx_meta.meta.compute_units_consumed.unwrap_or(0),
+                        return_data: tx_meta.meta.return_data.clone().unwrap_or_default(),
+                        fee: tx_meta.meta.fee,
+                    };
+
+                    events.push((
+                        tx_meta.slot,
+                        SimnetEvent::TransactionProcessed(Local::now(), meta, err.clone()),
+                    ));
+
+                    count += 1;
+                }
+            }
+            for (_, event) in events
+                .into_iter()
+                .sorted_by(|(a_slot, _), (b_slot, _)| a_slot.cmp(b_slot))
+            {
+                let _ = svm.simnet_events_tx.send(event);
+            }
+        }
+
+        count
+    });
+    let _ = simnet_events_tx_cc.send(SimnetEvent::Ready(initial_transaction_count));
 
     // Notify geyser plugins that startup is complete
     let _ = svm_locker.with_svm_reader(|svm| svm.geyser_events_tx.send(GeyserEvent::EndOfStartup));
