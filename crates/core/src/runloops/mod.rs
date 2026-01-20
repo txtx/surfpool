@@ -10,7 +10,8 @@ use std::{
 };
 
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
-    GeyserPlugin, ReplicaTransactionInfoV3, ReplicaTransactionInfoVersions,
+    GeyserPlugin, ReplicaBlockInfoV4, ReplicaBlockInfoVersions, ReplicaEntryInfoV2,
+    ReplicaEntryInfoVersions, ReplicaTransactionInfoV3, ReplicaTransactionInfoVersions, SlotStatus,
 };
 use chrono::{Local, Utc};
 use crossbeam::select;
@@ -32,6 +33,7 @@ use solana_geyser_plugin_manager::geyser_plugin_manager::{
 };
 use solana_message::SimpleAddressLoader;
 use solana_transaction::sanitized::{MessageHash, SanitizedTransaction};
+use solana_transaction_status::RewardsAndNumPartitions;
 #[cfg(feature = "subgraph")]
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
@@ -170,6 +172,9 @@ pub async fn start_local_surfnet_runloop(
 
     let initial_transactions = svm_locker.with_svm_reader(|svm| svm.transactions_processed);
     let _ = simnet_events_tx_cc.send(SimnetEvent::Ready(initial_transactions));
+
+    // Notify geyser plugins that startup is complete
+    let _ = svm_locker.with_svm_reader(|svm| svm.geyser_events_tx.send(GeyserEvent::EndOfStartup));
 
     start_block_production_runloop(
         clock_event_rx,
@@ -837,6 +842,94 @@ fn start_geyser_runloop(
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, true) {
                                 log_error(format!("Failed to send startup account update to Geyser plugin: {:?}", e))
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::EndOfStartup) => {
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.notify_end_of_startup() {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify end of startup to Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.notify_end_of_startup() {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify end of startup to Geyser plugin: {:?}", e)));
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::UpdateSlotStatus { slot, parent, status }) => {
+                        let slot_status = match status {
+                            crate::surfnet::GeyserSlotStatus::Processed => SlotStatus::Processed,
+                            crate::surfnet::GeyserSlotStatus::Confirmed => SlotStatus::Confirmed,
+                            crate::surfnet::GeyserSlotStatus::Rooted => SlotStatus::Rooted,
+                        };
+
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.update_slot_status(slot, parent, &slot_status) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update slot status in Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.update_slot_status(slot, parent, &slot_status) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update slot status in Geyser plugin: {:?}", e)));
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::NotifyBlockMetadata(block_metadata)) => {
+                        let rewards = RewardsAndNumPartitions {
+                            rewards: vec![],
+                            num_partitions: None,
+                        };
+
+                        let block_info = ReplicaBlockInfoV4 {
+                            slot: block_metadata.slot,
+                            blockhash: &block_metadata.blockhash,
+                            rewards: &rewards,
+                            block_time: block_metadata.block_time,
+                            block_height: block_metadata.block_height,
+                            parent_slot: block_metadata.parent_slot,
+                            parent_blockhash: &block_metadata.parent_blockhash,
+                            executed_transaction_count: block_metadata.executed_transaction_count,
+                            entry_count: block_metadata.entry_count,
+                        };
+
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.notify_block_metadata(ReplicaBlockInfoVersions::V0_0_4(&block_info)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify block metadata to Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.notify_block_metadata(ReplicaBlockInfoVersions::V0_0_4(&block_info)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify block metadata to Geyser plugin: {:?}", e)));
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::NotifyEntry(entry_info)) => {
+                        let entry_replica = ReplicaEntryInfoV2 {
+                            slot: entry_info.slot,
+                            index: entry_info.index,
+                            num_hashes: entry_info.num_hashes,
+                            hash: &entry_info.hash,
+                            executed_transaction_count: entry_info.executed_transaction_count,
+                            starting_transaction_index: entry_info.starting_transaction_index,
+                        };
+
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.notify_entry(ReplicaEntryInfoVersions::V0_0_2(&entry_replica)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify entry to Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.notify_entry(ReplicaEntryInfoVersions::V0_0_2(&entry_replica)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify entry to Geyser plugin: {:?}", e)));
                             }
                         }
                     }

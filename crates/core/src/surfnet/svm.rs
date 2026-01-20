@@ -90,8 +90,9 @@ use uuid::Uuid;
 
 use super::{
     AccountSubscriptionData, BlockHeader, BlockIdentifier, FINALIZATION_SLOT_THRESHOLD,
-    GetAccountResult, GeyserEvent, SLOTS_PER_EPOCH, SignatureSubscriptionData,
-    SignatureSubscriptionType, remote::SurfnetRemoteClient,
+    GetAccountResult, GeyserBlockMetadata, GeyserEntryInfo, GeyserEvent, GeyserSlotStatus,
+    SLOTS_PER_EPOCH, SignatureSubscriptionData, SignatureSubscriptionType,
+    remote::SurfnetRemoteClient,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -1961,7 +1962,7 @@ impl SurfnetSvm {
                 slot,
                 BlockHeader {
                     hash: self.chain_tip.hash.clone(),
-                    previous_blockhash: previous_chain_tip.hash,
+                    previous_blockhash: previous_chain_tip.hash.clone(),
                     block_time: self.updated_at as i64 / 1_000,
                     block_height: self.chain_tip.index,
                     parent_slot: slot,
@@ -2004,6 +2005,46 @@ impl SurfnetSvm {
         let root = new_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD);
         self.notify_slot_subscribers(new_slot, parent_slot, root);
 
+        // Notify geyser plugins of slot status (Confirmed)
+        self.geyser_events_tx
+            .send(GeyserEvent::UpdateSlotStatus {
+                slot: new_slot,
+                parent: Some(parent_slot),
+                status: GeyserSlotStatus::Confirmed,
+            })
+            .ok();
+
+        // Notify geyser plugins of block metadata
+        let block_metadata = GeyserBlockMetadata {
+            slot: new_slot,
+            blockhash: self.chain_tip.hash.clone(),
+            parent_slot,
+            parent_blockhash: previous_chain_tip.hash.clone(),
+            block_time: Some(self.updated_at as i64 / 1_000),
+            block_height: Some(self.chain_tip.index),
+            executed_transaction_count: num_transactions,
+            entry_count: 1, // Surfpool produces 1 entry per block
+        };
+        self.geyser_events_tx
+            .send(GeyserEvent::NotifyBlockMetadata(block_metadata))
+            .ok();
+
+        // Notify geyser plugins of entry (Surfpool emits 1 entry per block)
+        let entry_hash = solana_hash::Hash::from_str(&self.chain_tip.hash)
+            .map(|h| h.to_bytes().to_vec())
+            .unwrap_or_else(|_| vec![0u8; 32]);
+        let entry_info = GeyserEntryInfo {
+            slot: new_slot,
+            index: 0, // Single entry per block
+            num_hashes: 1,
+            hash: entry_hash,
+            executed_transaction_count: num_transactions,
+            starting_transaction_index: 0,
+        };
+        self.geyser_events_tx
+            .send(GeyserEvent::NotifyEntry(entry_info))
+            .ok();
+
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
@@ -2018,6 +2059,18 @@ impl SurfnetSvm {
         self.inner.set_sysvar(&clock);
 
         self.finalize_transactions()?;
+
+        // Notify geyser plugins of newly rooted (finalized) slot
+        // Only emit if root is a valid slot (greater than genesis)
+        if root >= self.genesis_slot {
+            self.geyser_events_tx
+                .send(GeyserEvent::UpdateSlotStatus {
+                    slot: root,
+                    parent: root.checked_sub(1),
+                    status: GeyserSlotStatus::Rooted,
+                })
+                .ok();
+        }
 
         // Evict the accounts marked as streamed from cache to enforce them to be fetched again
         let accounts_to_reset: Vec<_> = self.streamed_accounts.into_iter()?.collect();
