@@ -10,7 +10,8 @@ use std::{
 };
 
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
-    GeyserPlugin, ReplicaTransactionInfoV3, ReplicaTransactionInfoVersions,
+    GeyserPlugin, ReplicaBlockInfoV4, ReplicaBlockInfoVersions, ReplicaEntryInfoV2,
+    ReplicaEntryInfoVersions, ReplicaTransactionInfoV3, ReplicaTransactionInfoVersions, SlotStatus,
 };
 use chrono::{Local, Utc};
 use crossbeam::select;
@@ -19,6 +20,7 @@ use ipc_channel::{
     ipc::{IpcOneShotServer, IpcReceiver},
     router::RouterProxy,
 };
+use itertools::Itertools;
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
@@ -32,10 +34,11 @@ use solana_geyser_plugin_manager::geyser_plugin_manager::{
 };
 use solana_message::SimpleAddressLoader;
 use solana_transaction::sanitized::{MessageHash, SanitizedTransaction};
+use solana_transaction_status::RewardsAndNumPartitions;
 #[cfg(feature = "subgraph")]
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
-    BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_RPC_URL, DataIndexingCommand,
+    BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_MAINNET_RPC_URL, DataIndexingCommand,
     SimnetCommand, SimnetConfig, SimnetEvent, SubgraphCommand, SubgraphPluginConfig,
     SurfpoolConfig,
 };
@@ -95,7 +98,7 @@ pub async fn start_local_surfnet_runloop(
             simnet
                 .remote_rpc_url
                 .as_ref()
-                .unwrap_or(&DEFAULT_RPC_URL.to_string()),
+                .unwrap_or(&DEFAULT_MAINNET_RPC_URL.to_string()),
         ),
     };
 
@@ -168,8 +171,66 @@ pub async fn start_local_surfnet_runloop(
     let (clock_event_rx, clock_command_tx) =
         start_clock_runloop(simnet_config.slot_time, Some(simnet_events_tx_cc.clone()));
 
-    let initial_transactions = svm_locker.with_svm_reader(|svm| svm.transactions_processed);
-    let _ = simnet_events_tx_cc.send(SimnetEvent::Ready(initial_transactions));
+    // Emit TransactionProcessed events for each stored transaction before Ready
+    let initial_transaction_count = svm_locker.with_svm_reader(|svm| {
+        let iter_result = svm.transactions.into_iter();
+        let mut count: u64 = 0;
+
+        if let Ok(iter) = iter_result {
+            let mut events = vec![];
+            for (_, status) in iter {
+                if let Some((tx_meta, _updated_accounts)) = status.as_processed() {
+                    let signature = tx_meta.transaction.signatures[0];
+                    let err = tx_meta.meta.status.clone().err();
+
+                    // Build TransactionMetadata from stored data
+                    let meta = surfpool_types::TransactionMetadata {
+                        signature,
+                        logs: tx_meta.meta.log_messages.clone().unwrap_or_default(),
+                        inner_instructions: tx_meta
+                            .meta
+                            .inner_instructions
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|inner_ixs| {
+                                inner_ixs
+                                    .instructions
+                                    .into_iter()
+                                    .map(|ix| solana_message::inner_instruction::InnerInstruction {
+                                        instruction: ix.instruction,
+                                        stack_height: ix.stack_height.unwrap_or(1) as u8,
+                                    })
+                                    .collect()
+                            })
+                            .collect(),
+                        compute_units_consumed: tx_meta.meta.compute_units_consumed.unwrap_or(0),
+                        return_data: tx_meta.meta.return_data.clone().unwrap_or_default(),
+                        fee: tx_meta.meta.fee,
+                    };
+
+                    events.push((
+                        tx_meta.slot,
+                        SimnetEvent::TransactionProcessed(Local::now(), meta, err.clone()),
+                    ));
+
+                    count += 1;
+                }
+            }
+            for (_, event) in events
+                .into_iter()
+                .sorted_by(|(a_slot, _), (b_slot, _)| a_slot.cmp(b_slot))
+            {
+                let _ = svm.simnet_events_tx.send(event);
+            }
+        }
+
+        count
+    });
+    let _ = simnet_events_tx_cc.send(SimnetEvent::Ready(initial_transaction_count));
+
+    // Notify geyser plugins that startup is complete
+    let _ = svm_locker.with_svm_reader(|svm| svm.geyser_events_tx.send(GeyserEvent::EndOfStartup));
 
     start_block_production_runloop(
         clock_event_rx,
@@ -488,6 +549,7 @@ fn start_geyser_runloop(
             let _ = simnet_events_tx.send(SimnetEvent::warn(msg));
         };
         
+
         let log_info = |msg:String|{
             let _ = simnet_events_tx.send(SimnetEvent::info(msg));
         };
@@ -705,6 +767,7 @@ fn start_geyser_runloop(
                                                     log_info(format!("Successfully reloaded plugin with UUID {}", uuid));
                                                     let _ = notifier.send(format!("Plugin {} reloaded successfully", uuid));
                                                 }   
+                                                }
                                                 Err(e)=>{
                                                     let error_msg = format!("Failed to reload plugin {}: {}", uuid, e);
                                                     log_error(error_msg.clone());
@@ -712,6 +775,7 @@ fn start_geyser_runloop(
                                                 }
                                             }
                                         }   
+                                        }
                                         Err(e)=>{
                                             let error_msg = format!("Failed to unload plugin {} during reload: {}", uuid, e);
                                             log_error(error_msg.clone());
@@ -839,6 +903,94 @@ fn start_geyser_runloop(
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, true) {
                                 log_error(format!("Failed to send startup account update to Geyser plugin: {:?}", e))
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::EndOfStartup) => {
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.notify_end_of_startup() {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify end of startup to Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.notify_end_of_startup() {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify end of startup to Geyser plugin: {:?}", e)));
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::UpdateSlotStatus { slot, parent, status }) => {
+                        let slot_status = match status {
+                            crate::surfnet::GeyserSlotStatus::Processed => SlotStatus::Processed,
+                            crate::surfnet::GeyserSlotStatus::Confirmed => SlotStatus::Confirmed,
+                            crate::surfnet::GeyserSlotStatus::Rooted => SlotStatus::Rooted,
+                        };
+
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.update_slot_status(slot, parent, &slot_status) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update slot status in Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.update_slot_status(slot, parent, &slot_status) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update slot status in Geyser plugin: {:?}", e)));
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::NotifyBlockMetadata(block_metadata)) => {
+                        let rewards = RewardsAndNumPartitions {
+                            rewards: vec![],
+                            num_partitions: None,
+                        };
+
+                        let block_info = ReplicaBlockInfoV4 {
+                            slot: block_metadata.slot,
+                            blockhash: &block_metadata.blockhash,
+                            rewards: &rewards,
+                            block_time: block_metadata.block_time,
+                            block_height: block_metadata.block_height,
+                            parent_slot: block_metadata.parent_slot,
+                            parent_blockhash: &block_metadata.parent_blockhash,
+                            executed_transaction_count: block_metadata.executed_transaction_count,
+                            entry_count: block_metadata.entry_count,
+                        };
+
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.notify_block_metadata(ReplicaBlockInfoVersions::V0_0_4(&block_info)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify block metadata to Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.notify_block_metadata(ReplicaBlockInfoVersions::V0_0_4(&block_info)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify block metadata to Geyser plugin: {:?}", e)));
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::NotifyEntry(entry_info)) => {
+                        let entry_replica = ReplicaEntryInfoV2 {
+                            slot: entry_info.slot,
+                            index: entry_info.index,
+                            num_hashes: entry_info.num_hashes,
+                            hash: &entry_info.hash,
+                            executed_transaction_count: entry_info.executed_transaction_count,
+                            starting_transaction_index: entry_info.starting_transaction_index,
+                        };
+
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.notify_entry(ReplicaEntryInfoVersions::V0_0_2(&entry_replica)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify entry to Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.notify_entry(ReplicaEntryInfoVersions::V0_0_2(&entry_replica)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify entry to Geyser plugin: {:?}", e)));
                             }
                         }
                     }
@@ -991,6 +1143,7 @@ async fn start_ws_rpc_server_runloop(
                                 .plugin_manager_commands_tx
                                 .clone(),
                             remote_rpc_client: middleware.remote_rpc_client.clone(),
+                            rpc_config: middleware.config.clone(),
                         };
                         Some(SurfpoolWebsocketMeta::new(
                             runloop_context,

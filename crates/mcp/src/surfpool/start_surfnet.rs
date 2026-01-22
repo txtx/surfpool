@@ -77,7 +77,7 @@ pub fn run_command(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnet
 }
 
 pub fn run_headless(surfnet_id: u16, rpc_port: u16, ws_port: u16) -> StartSurfnetResponse {
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::default();
 
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam_channel::unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = crossbeam_channel::unbounded();
