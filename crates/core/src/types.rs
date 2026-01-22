@@ -266,6 +266,13 @@ impl SurfnetTransactionStatus {
         }
     }
 
+    pub fn as_processed(self) -> Option<(TransactionWithStatusMeta, HashSet<Pubkey>)> {
+        match self {
+            SurfnetTransactionStatus::Received => None,
+            SurfnetTransactionStatus::Processed(data) => Some(*data),
+        }
+    }
+
     pub fn processed(status: TransactionWithStatusMeta, updated_accounts: HashSet<Pubkey>) -> Self {
         Self::Processed(Box::new((status, updated_accounts)))
     }
@@ -770,6 +777,7 @@ pub fn surfpool_tx_metadata_to_litesvm_tx_metadata(
         return_data: metadata.return_data.clone(),
         inner_instructions: metadata.inner_instructions.clone(),
         signature: metadata.signature,
+        fee: metadata.fee,
     }
 }
 

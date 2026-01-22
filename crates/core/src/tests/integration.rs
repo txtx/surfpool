@@ -35,7 +35,8 @@ use surfpool_types::{
     DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
     SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
     types::{
-        BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
+        BlockProductionMode, RpcConfig, SimnetConfig, SubgraphConfig, TransactionStatusEvent,
+        UuidOrSignature,
     },
 };
 use test_case::test_case;
@@ -139,6 +140,7 @@ async fn test_simnet_ticks(test_type: TestType) {
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -208,6 +210,7 @@ async fn test_simnet_some_sol_transfers(test_type: TestType) {
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -365,6 +368,7 @@ async fn test_add_alt_entries_fetching(test_type: TestType) {
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -538,6 +542,7 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -609,6 +614,15 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
         simulation_res.value.err, None,
         "Unexpected simulation error"
     );
+    assert!(
+        simulation_res.value.loaded_accounts_data_size.is_some(),
+        "Expected loaded_accounts_data_size to be present"
+    );
+    assert_eq!(
+        simulation_res.value.loaded_accounts_data_size.unwrap(),
+        140134,
+        "Incorrect loaded_accounts_data_size value"
+    );
     let simulation_res2 = full_client
         .simulate_transaction(
             data,
@@ -627,6 +641,14 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
     assert_eq!(
         simulation_res2.value.err, None,
         "Unexpected simulation error"
+    );
+    assert!(
+        simulation_res2.value.loaded_accounts_data_size.is_some(),
+        "Expected loaded_accounts_data_size to be present"
+    );
+    assert!(
+        simulation_res2.value.loaded_accounts_data_size.unwrap() > 0,
+        "Expected loaded_accounts_data_size to be greater than 0"
     );
 }
 
@@ -656,6 +678,7 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -722,6 +745,14 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
         simulation_res.value.err, None,
         "Unexpected simulation error"
     );
+    assert!(
+        simulation_res.value.loaded_accounts_data_size.is_some(),
+        "Expected loaded_accounts_data_size to be present"
+    );
+    assert!(
+        simulation_res.value.loaded_accounts_data_size.unwrap() > 0,
+        "Expected loaded_accounts_data_size to be greater than 0"
+    );
 }
 
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
@@ -764,6 +795,7 @@ async fn test_surfnet_estimate_compute_units(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test with None tag
@@ -1057,6 +1089,7 @@ async fn test_get_transaction_profile(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test 1: Profile a transaction with a tag and retrieve by UUID
@@ -1255,6 +1288,7 @@ fn test_register_and_get_idl_without_slot(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test 1: Register IDL without slot
@@ -1309,6 +1343,7 @@ fn test_register_and_get_idl_with_slot(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test 1: Register IDL with slot
@@ -1389,6 +1424,7 @@ async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Step 1: Register IDL v1 at slot_1
@@ -2364,7 +2400,7 @@ async fn test_profile_transaction_token_transfer(test_type: TestType) {
                 "Profile should succeed, found error: {}",
                 ix_profile.error_message.as_ref().unwrap()
             );
-            assert_eq!(ix_profile.compute_units_consumed, 1031);
+            assert_eq!(ix_profile.compute_units_consumed, 1230);
             assert!(ix_profile.error_message.is_none());
             let account_states = &ix_profile.account_states;
 
@@ -3068,6 +3104,7 @@ async fn test_get_local_signatures_without_limit(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let payer = Keypair::new();
@@ -3171,6 +3208,7 @@ async fn test_get_local_signatures_with_limit(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let payer = Keypair::new();
@@ -3321,7 +3359,11 @@ fn boot_simnet(
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            gossip_port: 0,
+            tpu_port: 0,
+            tpu_quic_port: 0,
         },
+        subgraph: SubgraphConfig::default(),
         ..SurfpoolConfig::default()
     };
 
@@ -3373,6 +3415,7 @@ fn test_time_travel_resume_paused_clock(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Get initial epoch info
@@ -3453,6 +3496,7 @@ fn test_time_travel_absolute_timestamp(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let clock = Clock {
@@ -3534,6 +3578,7 @@ fn test_time_travel_absolute_slot(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let clock = Clock {
@@ -3609,6 +3654,7 @@ fn test_time_travel_absolute_epoch(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let clock = Clock {
@@ -4329,6 +4375,7 @@ fn start_surfnet(
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
@@ -4520,7 +4567,7 @@ async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionTyp
     use crossbeam_channel::unbounded;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::default();
 
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
@@ -6597,7 +6644,7 @@ fn test_nonce_accounts() {
     setup();
     use solana_system_interface::instruction::create_nonce_account;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::default();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
@@ -6749,6 +6796,7 @@ async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Profile the transaction multiple times to ensure no state leakage

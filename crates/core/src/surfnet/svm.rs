@@ -47,7 +47,6 @@ use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
 use solana_inflation::Inflation;
-use solana_keypair::Keypair;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_message::{
     Message, VersionedMessage, inline_nonce::is_advance_nonce_instruction_data, v0::LoadedAddresses,
@@ -57,7 +56,6 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk_ids::{bpf_loader, system_program};
 use solana_signature::Signature;
-use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
@@ -90,8 +88,9 @@ use uuid::Uuid;
 
 use super::{
     AccountSubscriptionData, BlockHeader, BlockIdentifier, FINALIZATION_SLOT_THRESHOLD,
-    GetAccountResult, GeyserEvent, SLOTS_PER_EPOCH, SignatureSubscriptionData,
-    SignatureSubscriptionType, remote::SurfnetRemoteClient,
+    GetAccountResult, GeyserBlockMetadata, GeyserEntryInfo, GeyserEvent, GeyserSlotStatus,
+    SLOTS_PER_EPOCH, SignatureSubscriptionData, SignatureSubscriptionType,
+    remote::SurfnetRemoteClient,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -315,15 +314,15 @@ pub const FEATURE: Feature = Feature {
 };
 
 impl SurfnetSvm {
-    pub fn new() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
-        Self::_new(None, "0").unwrap()
+    pub fn default() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
+        Self::new(None, "0").unwrap()
     }
 
     pub fn new_with_db(
         database_url: Option<&str>,
         surfnet_id: &str,
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
-        Self::_new(database_url, surfnet_id)
+        Self::new(database_url, surfnet_id)
     }
 
     /// Explicitly shutdown the SVM, performing cleanup like WAL checkpoint for SQLite.
@@ -428,7 +427,7 @@ impl SurfnetSvm {
     /// Creates a new instance of `SurfnetSvm`.
     ///
     /// Returns a tuple containing the SVM instance, a receiver for simulation events, and a receiver for Geyser plugin events.
-    fn _new(
+    pub fn new(
         database_url: Option<&str>,
         surfnet_id: &str,
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
@@ -818,35 +817,47 @@ impl SurfnetSvm {
     /// A `TransactionResult` indicating success or failure.
     #[allow(clippy::result_large_err)]
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> SurfpoolResult<TransactionResult> {
+        // Capture pre-airdrop balances for the airdrop account, recipient, and system program.
+        let airdrop_pubkey = self.inner.airdrop_pubkey();
+
+        let airdrop_account_before = self
+            .get_account(&airdrop_pubkey)?
+            .unwrap_or_else(|| Account::default());
+        let recipient_account_before = self
+            .get_account(pubkey)?
+            .unwrap_or_else(|| Account::default());
+        let system_account_before = self
+            .get_account(&system_program::id())?
+            .unwrap_or_else(|| Account::default());
+
         let res = self.inner.airdrop(pubkey, lamports);
         let (status_tx, _rx) = unbounded();
         if let Ok(ref tx_result) = res {
-            let airdrop_keypair = Keypair::new();
             let slot = self.latest_epoch_info.absolute_slot;
-            let account = self.get_account(pubkey)?.unwrap();
+            // Capture post-airdrop balances
+            let airdrop_account_after = self
+                .get_account(&airdrop_pubkey)?
+                .unwrap_or_else(|| Account::default());
+            let recipient_account_after = self
+                .get_account(pubkey)?
+                .unwrap_or_else(|| Account::default());
+            let system_account_after = self
+                .get_account(&system_program::id())?
+                .unwrap_or_else(|| Account::default());
 
-            let mut tx = VersionedTransaction::try_new(
-                VersionedMessage::Legacy(Message::new(
+            // Construct a synthetic transaction that mirrors the underlying airdrop.
+            let tx = VersionedTransaction {
+                signatures: vec![tx_result.signature],
+                message: VersionedMessage::Legacy(Message::new(
                     &[system_instruction::transfer(
-                        &airdrop_keypair.pubkey(),
+                        &airdrop_pubkey,
                         pubkey,
                         lamports,
                     )],
-                    Some(&airdrop_keypair.pubkey()),
+                    Some(&airdrop_pubkey),
                 )),
-                &[airdrop_keypair],
-            )
-            .unwrap();
+            };
 
-            // we need the airdrop tx to store in our transactions list,
-            // but for it to be properly processed we need its signature to match
-            // the actual underlying transaction
-            tx.signatures[0] = tx_result.signature;
-
-            let system_lamports = self
-                .get_account(&system_program::id())?
-                .map(|a| a.lamports())
-                .unwrap_or(1);
             self.transactions.store(
                 tx.get_signature().to_string(),
                 SurfnetTransactionStatus::processed(
@@ -857,14 +868,14 @@ impl SurfnetSvm {
                             status: Ok(()),
                             fee: 5000,
                             pre_balances: vec![
-                                account.lamports,
-                                account.lamports.saturating_sub(lamports),
-                                system_lamports,
+                                airdrop_account_before.lamports,
+                                recipient_account_before.lamports,
+                                system_account_before.lamports,
                             ],
                             post_balances: vec![
-                                account.lamports.saturating_sub(lamports + 5000),
-                                account.lamports,
-                                system_lamports,
+                                airdrop_account_after.lamports,
+                                recipient_account_after.lamports,
+                                system_account_after.lamports,
                             ],
                             inner_instructions: Some(vec![]),
                             log_messages: Some(tx_result.logs.clone()),
@@ -1961,7 +1972,7 @@ impl SurfnetSvm {
                 slot,
                 BlockHeader {
                     hash: self.chain_tip.hash.clone(),
-                    previous_blockhash: previous_chain_tip.hash,
+                    previous_blockhash: previous_chain_tip.hash.clone(),
                     block_time: self.updated_at as i64 / 1_000,
                     block_height: self.chain_tip.index,
                     parent_slot: slot,
@@ -2004,6 +2015,46 @@ impl SurfnetSvm {
         let root = new_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD);
         self.notify_slot_subscribers(new_slot, parent_slot, root);
 
+        // Notify geyser plugins of slot status (Confirmed)
+        self.geyser_events_tx
+            .send(GeyserEvent::UpdateSlotStatus {
+                slot: new_slot,
+                parent: Some(parent_slot),
+                status: GeyserSlotStatus::Confirmed,
+            })
+            .ok();
+
+        // Notify geyser plugins of block metadata
+        let block_metadata = GeyserBlockMetadata {
+            slot: new_slot,
+            blockhash: self.chain_tip.hash.clone(),
+            parent_slot,
+            parent_blockhash: previous_chain_tip.hash.clone(),
+            block_time: Some(self.updated_at as i64 / 1_000),
+            block_height: Some(self.chain_tip.index),
+            executed_transaction_count: num_transactions,
+            entry_count: 1, // Surfpool produces 1 entry per block
+        };
+        self.geyser_events_tx
+            .send(GeyserEvent::NotifyBlockMetadata(block_metadata))
+            .ok();
+
+        // Notify geyser plugins of entry (Surfpool emits 1 entry per block)
+        let entry_hash = solana_hash::Hash::from_str(&self.chain_tip.hash)
+            .map(|h| h.to_bytes().to_vec())
+            .unwrap_or_else(|_| vec![0u8; 32]);
+        let entry_info = GeyserEntryInfo {
+            slot: new_slot,
+            index: 0, // Single entry per block
+            num_hashes: 1,
+            hash: entry_hash,
+            executed_transaction_count: num_transactions,
+            starting_transaction_index: 0,
+        };
+        self.geyser_events_tx
+            .send(GeyserEvent::NotifyEntry(entry_info))
+            .ok();
+
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
@@ -2018,6 +2069,18 @@ impl SurfnetSvm {
         self.inner.set_sysvar(&clock);
 
         self.finalize_transactions()?;
+
+        // Notify geyser plugins of newly rooted (finalized) slot
+        // Only emit if root is a valid slot (greater than genesis)
+        if root >= self.genesis_slot {
+            self.geyser_events_tx
+                .send(GeyserEvent::UpdateSlotStatus {
+                    slot: root,
+                    parent: root.checked_sub(1),
+                    status: GeyserSlotStatus::Rooted,
+                })
+                .ok();
+        }
 
         // Evict the accounts marked as streamed from cache to enforce them to be fetched again
         let accounts_to_reset: Vec<_> = self.streamed_accounts.into_iter()?.collect();
@@ -4511,7 +4574,7 @@ mod tests {
 
     #[test]
     fn test_is_slot_in_valid_range_genesis_zero() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
 
         // Set up: genesis_slot = 0, latest absolute slot = 50
         svm.genesis_slot = 0;

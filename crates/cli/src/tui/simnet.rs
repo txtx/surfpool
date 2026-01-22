@@ -61,14 +61,9 @@ impl Theme {
     /// Get the color palette for this theme
     fn palette(&self) -> &'static tailwind::Palette {
         match self {
-            Theme::Classic => &palette::tailwind::EMERALD,
+            Theme::Classic => &palette::tailwind::CYAN,
             Theme::Halloween => &palette::tailwind::ORANGE,
         }
-    }
-
-    /// Get the slot symbol for this theme
-    fn slot_symbol(&self) -> &'static str {
-        "● "
     }
 }
 
@@ -193,9 +188,8 @@ impl TerminalChecks {
 
 struct ColorTheme {
     background: Color,
+    content_background: Color,
     accent: Color,
-    primary: Color,
-    secondary: Color,
     white: Color,
     dark_gray: Color,
     light_gray: Color,
@@ -218,9 +212,8 @@ impl ColorTheme {
     fn new_full_colors(color: &tailwind::Palette) -> Self {
         Self {
             background: tailwind::ZINC.c900,
+            content_background: tailwind::ZINC.c950,
             accent: color.c400,
-            primary: color.c500,
-            secondary: color.c300,
             white: tailwind::SLATE.c100,
             dark_gray: tailwind::ZINC.c800,
             light_gray: tailwind::ZINC.c400,
@@ -234,9 +227,8 @@ impl ColorTheme {
     fn new_safe_colors(_color: &tailwind::Palette) -> Self {
         Self {
             background: Color::Reset,
-            accent: Color::Green,
-            primary: Color::Green,
-            secondary: Color::White,
+            content_background: Color::Black,
+            accent: Color::Cyan,
             white: Color::White,
             dark_gray: Color::DarkGray,
             light_gray: Color::Gray,
@@ -266,6 +258,7 @@ struct App {
     epoch_info: EpochInfo,
     successful_transactions: u32,
     events: Vec<(EventType, DateTime<Local>, String)>,
+    transactions: Vec<(bool, DateTime<Local>, String)>, // (success, time, signature)
     include_debug_logs: bool,
     deploy_progress_rx: Vec<Receiver<BlockEvent>>,
     status_bar_message: Option<String>,
@@ -274,7 +267,7 @@ struct App {
     paused: bool,
     blink_state: bool,
     last_blink: Instant,
-    theme: Theme,
+    selected_tab: usize,
 }
 
 impl App {
@@ -331,6 +324,7 @@ impl App {
             },
             successful_transactions: initial_transactions as u32,
             events,
+            transactions: vec![],
             include_debug_logs,
             deploy_progress_rx,
             status_bar_message: None,
@@ -339,7 +333,7 @@ impl App {
             paused: false,
             blink_state: false,
             last_blink: Instant::now(),
-            theme,
+            selected_tab: 0,
         }
     }
 
@@ -526,6 +520,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             }
                             SimnetEvent::TransactionReceived(_dt, _transaction) => {}
                             SimnetEvent::TransactionProcessed(dt, meta, err) => {
+                                let success = err.is_none();
+                                let sig = meta.signature.to_string();
+                                app.transactions.push((success, *dt, sig));
+
                                 if let Some(err) = err {
                                     new_events.push((
                                         EventType::Failure,
@@ -720,6 +718,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         }
                         Down => app.next(),
                         Up => app.previous(),
+                        Left => app.selected_tab = 0,
+                        Right => app.selected_tab = 1,
                         Char('f') | Char('j') => {
                             // Break Solana
                             let sender = app.breaker.as_ref().unwrap();
@@ -732,6 +732,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             let _ = tx.send((message, sender.insecure_clone()));
                         }
                         Char(' ') => {
+                            app.paused = !app.paused;
                             let _ = app
                                 .simnet_commands_tx
                                 .send(SimnetCommand::CommandClock(None, ClockCommand::Toggle));
@@ -768,26 +769,21 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
 
 fn ui(f: &mut Frame, app: &mut App) {
     let rects = Layout::vertical([
-        Constraint::Length(8),
-        Constraint::Min(5),
-        Constraint::Length(3),
+        Constraint::Length(3), // Header with border (2 content + 1 bottom border)
+        Constraint::Length(1), // Gap
+        Constraint::Min(5),    // Events
+        Constraint::Length(2), // Footer
     ])
     .split(f.area());
 
-    let default_style = Style::new()
-        .fg(app.colors.secondary)
-        .bg(app.colors.background);
-    let chrome = Block::default()
-        .style(default_style)
-        .borders(Borders::ALL)
-        .border_style(default_style)
-        .border_type(BorderType::Plain);
-    f.render_widget(chrome, f.area());
+    // Background
+    let bg_style = Style::new().bg(app.colors.background);
+    f.render_widget(Block::default().style(bg_style), f.area());
 
-    render_epoch(f, app, rects[0].inner(Margin::new(1, 1)));
-    render_events(f, app, rects[1].inner(Margin::new(2, 0)));
-    render_scrollbar(f, app, rects[1].inner(Margin::new(0, 0)));
-    render_footer(f, app, rects[2].inner(Margin::new(2, 1)));
+    render_header(f, app, rects[0]);
+    render_events(f, app, rects[2]);
+    render_scrollbar(f, app, rects[2]);
+    render_footer(f, app, rects[3]);
 }
 
 fn title_block(title: &str, alignment: Alignment) -> Block<'_> {
@@ -795,191 +791,199 @@ fn title_block(title: &str, alignment: Alignment) -> Block<'_> {
     Block::new().borders(Borders::NONE).title(title)
 }
 
-fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_header(f: &mut Frame, app: &mut App, area: Rect) {
+    // Layout: [slot/epoch box with gray border] [gap] [studio box with cyan border]
+    let url = match &app.displayed_url {
+        DisplayedUrl::Datasource(config) => config.rpc_url.clone(),
+        DisplayedUrl::Studio(config) => config.studio_url.clone(),
+    };
+    let studio_width = (url.len() + 13) as u16; // "Studio │ " + url + borders + padding
+
     let columns = Layout::horizontal([
-        Constraint::Length(7),  // Slots Title
-        Constraint::Min(30),    // Slots
-        Constraint::Length(1),  // Leader Details
-        Constraint::Length(56), // Leader Details
+        Constraint::Min(30),              // Slot/epoch box
+        Constraint::Length(1),            // Gap
+        Constraint::Length(studio_width), // Studio box
     ])
     .split(area);
 
-    let titles = Layout::vertical([
-        Constraint::Length(3), // Slots
-        Constraint::Length(1), // Divider
-        Constraint::Length(1), // Epoch
+    // Left box: slot/epoch with light gray border
+    let slot_box = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(app.colors.light_gray))
+        .border_type(BorderType::Rounded);
+    f.render_widget(slot_box, columns[0]);
+    let inner_left = columns[0].inner(Margin::new(1, 0));
+    // Vertical center: skip line 0, render on line 1
+    let centered_left = Rect::new(inner_left.x, inner_left.y + 1, inner_left.width, 1);
+    render_epoch(f, app, centered_left);
+
+    // Right box: Studio with cyan border
+    let studio_box = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(app.colors.accent))
+        .border_type(BorderType::Rounded);
+    f.render_widget(studio_box, columns[2]);
+    let inner_right = columns[2].inner(Margin::new(1, 0));
+    // Vertical center: skip line 0, render on line 1
+    let centered_right = Rect::new(inner_right.x, inner_right.y + 1, inner_right.width, 1);
+    render_stats(f, app, centered_right);
+}
+
+fn render_epoch(f: &mut Frame, app: &mut App, area: Rect) {
+    // The compact bar row: [progress] SLOT xxx    EPOCH xxx ●
+    let slot_str = format!("{}", app.clock.slot);
+    let epoch_str = format!("{}", app.epoch_info.epoch);
+
+    let bar_row = Layout::horizontal([
+        Constraint::Length(1),                          // Left bracket
+        Constraint::Min(5),                             // Progress bars (min 5 slots)
+        Constraint::Length(1),                          // Right bracket
+        Constraint::Length(2),                          // Space
+        Constraint::Length(5),                          // "SLOT "
+        Constraint::Length(slot_str.len() as u16),      // Slot number
+        Constraint::Length(4),                          // Space
+        Constraint::Length(7),                          // "EPOCH  "
+        Constraint::Length(epoch_str.len() as u16 + 1), // Epoch number + space
+        Constraint::Length(2),                          // Space + circle
     ])
-    .split(columns[0]);
+    .split(area);
 
-    let widgets = Layout::vertical([
-        Constraint::Length(3), // Slots
-        Constraint::Length(1), // Divider
-        Constraint::Length(1), // Epoch
-    ])
-    .split(columns[1]);
+    // Left bracket
+    let bracket = Paragraph::new("▕").style(Style::default().fg(app.colors.dark_gray));
+    f.render_widget(bracket, bar_row[0]);
 
-    let title = title_block("Slots", Alignment::Center).style(app.colors.secondary);
-    f.render_widget(title, titles[0].inner(Margin::new(1, 1)));
+    // Progress bars
+    render_slot_bar(f, app, bar_row[1]);
 
-    render_slots(f, app, widgets[0].inner(Margin::new(1, 0)));
+    // Right bracket
+    let bracket = Paragraph::new("▏").style(Style::default().fg(app.colors.dark_gray));
+    f.render_widget(bracket, bar_row[2]);
 
-    let title = title_block("Epoch", Alignment::Center);
-    f.render_widget(title, titles[2].inner(Margin::new(1, 0)));
+    // SLOT label
+    let slot_label = Paragraph::new("SLOT ").style(Style::default().fg(app.colors.light_gray));
+    f.render_widget(slot_label, bar_row[4]);
 
-    let epoch_progress = Gauge::default()
-        .gauge_style(app.colors.primary)
-        .bg(app.colors.dark_gray)
-        .percent(app.epoch_progress());
-    f.render_widget(epoch_progress, widgets[2].inner(Margin::new(1, 0)));
+    // Slot number
+    let slot_num = Paragraph::new(slot_str).style(Style::default().fg(app.colors.white));
+    f.render_widget(slot_num, bar_row[5]);
 
-    let default_style = Style::new().fg(app.colors.dark_gray);
+    // EPOCH label
+    let epoch_label = Paragraph::new("EPOCH  ").style(Style::default().fg(app.colors.light_gray));
+    f.render_widget(epoch_label, bar_row[7]);
 
-    let separator = Block::default()
-        .style(default_style)
-        .borders(Borders::LEFT)
-        .border_style(default_style)
-        .border_type(BorderType::Plain);
-    f.render_widget(separator, columns[3]);
+    // Epoch number + space
+    let epoch_num =
+        Paragraph::new(format!("{} ", epoch_str)).style(Style::default().fg(app.colors.white));
+    f.render_widget(epoch_num, bar_row[8]);
 
-    render_stats(f, app, columns[3].inner(Margin::new(2, 0)));
+    // Circular progress indicator based on epoch progress
+    let epoch_progress = app.epoch_progress();
+    let circle_char = match epoch_progress {
+        0..=12 => "○",  // Empty
+        13..=37 => "◔", // Quarter
+        38..=62 => "◑", // Half
+        63..=87 => "◕", // Three quarters
+        _ => "●",       // Full
+    };
+    let circle = Paragraph::new(circle_char).style(Style::default().fg(app.colors.accent));
+    f.render_widget(circle, bar_row[9]);
 }
 
 fn render_stats(f: &mut Frame, app: &mut App, area: Rect) {
-    match app.displayed_url {
-        DisplayedUrl::Datasource(ref config) => {
-            let mut lines = vec![Line::from(vec![
-                Span::styled("۬", app.colors.white),
-                Span::styled("Surfnet   ", app.colors.light_gray),
-                Span::styled(&config.rpc_url, app.colors.white),
-            ])];
-            if let Some(datasource_url) = &config.rpc_datasource_url {
-                lines.push(Line::from(vec![
-                    Span::styled("۬", app.colors.white),
-                    Span::styled("Provider  ", app.colors.light_gray),
-                    Span::styled(datasource_url, app.colors.white),
-                ]));
-            }
-            lines.push(Line::from(vec![Span::styled("۬-", app.colors.light_gray)]));
-            lines.push(Line::from(vec![
-                Span::styled("۬", app.colors.white),
-                Span::styled(
-                    format!("{} ", app.successful_transactions),
-                    app.colors.accent,
-                ),
-                Span::styled("transactions processed", app.colors.white),
-            ]));
-            let title = Paragraph::new(lines);
-            f.render_widget(title.style(app.colors.white), area);
-        }
-        DisplayedUrl::Studio(ref config) => {
-            let rects = Layout::vertical([
-                Constraint::Length(3), // Bordered URL area
-                Constraint::Length(1), // Transactions
-            ])
-            .split(area);
+    let url = match &app.displayed_url {
+        DisplayedUrl::Datasource(config) => config.rpc_url.clone(),
+        DisplayedUrl::Studio(config) => config.studio_url.clone(),
+    };
 
-            // Bordered URL area split horizontally
-            let url_rects = Layout::horizontal([
-                Constraint::Length(1), // Studio label width
-                Constraint::Length(8), // Studio label width
-                Constraint::Min(1),    // URL takes remaining space
-            ])
-            .split(rects[0].inner(Margin::new(1, 1)));
+    // Content: "Studio │ <url>"
+    let content = Line::from(vec![
+        Span::styled("Studio ", Style::default().fg(app.colors.white)),
+        Span::styled("│ ", Style::default().fg(app.colors.light_gray)),
+        Span::styled(url, Style::default().fg(app.colors.accent)),
+    ]);
 
-            // Left side: Studio label with purple background
-            let studio_label =
-                Paragraph::new(" Studio ").style(Style::new().white().on_light_magenta());
-            f.render_widget(studio_label, url_rects[1]);
+    let paragraph = Paragraph::new(content).alignment(Alignment::Center);
 
-            // Right side: URL
-            let url_paragraph = Paragraph::new(format!("  {}", config.studio_url.clone()))
-                .style(Style::default().fg(app.colors.white));
-            f.render_widget(url_paragraph, url_rects[2]);
-
-            // Border around the entire area
-            let bordered_area = Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Rgb(154, 92, 255)))
-                .border_type(BorderType::Plain);
-            f.render_widget(bordered_area, rects[0]);
-
-            // Transactions
-            let transactions = Line::from(vec![
-                Span::styled("۬", app.colors.white),
-                Span::styled(
-                    format!("{} ", app.successful_transactions),
-                    app.colors.accent,
-                ),
-                Span::styled("transactions processed", app.colors.white),
-            ]);
-            let title = Paragraph::new(transactions);
-            f.render_widget(title.style(app.colors.white), rects[1]);
-        }
-    }
+    f.render_widget(paragraph, area);
 }
 
-fn render_slots(f: &mut Frame, app: &mut App, area: Rect) {
-    if area.height == 0 {
+fn render_slot_bar(f: &mut Frame, app: &mut App, area: Rect) {
+    if area.width == 0 {
         return;
     }
-    let line_len = area.width.max(1) as usize / 2;
-    let total_chars = line_len * 3;
-    let cursor = app.slot() % total_chars;
 
-    let symbol = app.theme.slot_symbol();
+    let total_bars = area.width as usize;
+    let cursor = app.slot() % (total_bars + 1);
 
-    let mut lines = Vec::new();
-    for chunk in (0..total_chars).collect::<Vec<_>>().chunks(line_len) {
-        let mut spans = Vec::new();
-        for &i in chunk {
-            let color = if i < cursor {
-                if app.paused && app.blink_state {
-                    app.colors.dark_gray
-                } else {
-                    app.colors.accent
-                }
+    let mut spans = Vec::new();
+
+    for i in 0..total_bars {
+        let is_filled = i < cursor;
+        let style = if is_filled {
+            if app.paused && app.blink_state {
+                Style::default().fg(app.colors.dark_gray)
             } else {
-                app.colors.dark_gray
-            };
-            spans.push(Span::styled(symbol, color));
-        }
-        lines.push(Line::from(spans));
+                Style::default().fg(app.colors.accent)
+            }
+        } else {
+            Style::default().fg(app.colors.dark_gray)
+        };
+
+        spans.push(Span::styled("▌", style));
     }
 
-    let title = Paragraph::new(lines);
-    f.render_widget(title.style(app.colors.accent), area);
+    let line = Line::from(spans);
+    let paragraph = Paragraph::new(line);
+    f.render_widget(paragraph, area);
 }
 
 fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
     let rects = Layout::vertical([
-        Constraint::Length(2), // Title
-        Constraint::Min(1),    // Logs
+        Constraint::Length(1), // Tabs
+        Constraint::Min(1),    // Content (with separator)
     ])
     .split(area);
 
-    let (title, color) = if !app.paused {
-        let symbol = ["⢎ ", "⠎⠁", "⠊⠑", "⠈⠱", " ⡱", "⢀⡰", "⢄⡠", "⢆⡀"];
-        let cursor = symbol[app.slot() % symbol.len()];
-        (
-            format!("{} Processing incoming transactions", cursor),
-            app.colors.accent,
-        )
-    } else {
-        (
-            "Transaction processing paused".to_string(),
-            app.colors.warning,
-        )
-    };
+    // Render tabs
+    let tx_label = format!("Transactions ({})", app.transactions.len());
+    let tabs = Tabs::new(vec!["Logs", &tx_label])
+        .select(app.selected_tab)
+        .style(Style::default().fg(app.colors.light_gray))
+        .highlight_style(Style::default().fg(app.colors.accent))
+        .divider("│")
+        .padding(" ", " ");
+    f.render_widget(tabs, rects[0]);
 
-    let title = Block::new()
-        .padding(Padding::symmetric(4, 4))
-        .borders(Borders::NONE)
-        .style(Style::new().fg(color))
-        .title(Line::from(title));
-    f.render_widget(title, rects[0]);
+    // Fill content area with darker background
+    let bg_fill = Block::default().style(Style::default().bg(app.colors.content_background));
+    f.render_widget(bg_fill, rects[1]);
+
+    // Separator line at top of dark area using overline character (thinner)
+    let separator_line = Line::from("‾".repeat(rects[1].width as usize)).style(
+        Style::default()
+            .fg(app.colors.light_gray)
+            .bg(app.colors.content_background),
+    );
+    let separator_area = Rect::new(rects[1].x, rects[1].y, rects[1].width, 1);
+    f.render_widget(Paragraph::new(separator_line), separator_area);
+
+    // Content area below separator
+    let content_area = Rect::new(
+        rects[1].x,
+        rects[1].y + 1,
+        rects[1].width,
+        rects[1].height.saturating_sub(1),
+    );
+
+    // Render content based on selected tab
+    if app.selected_tab == 1 {
+        // Transactions tab
+        render_transactions(f, app, content_area);
+        return;
+    }
 
     // Estimate available width for the log column
-    let log_col_width = area.width.saturating_sub(1 + 12 + 2); // event + timestamp + padding
+    let log_col_width = content_area.width.saturating_sub(1 + 12 + 2); // event + timestamp + padding
 
     let mut rows = Vec::new();
     for (event_type, dt, log) in &app.events {
@@ -1057,9 +1061,63 @@ fn render_events(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Min(1),
         ],
     )
-    .style(Style::new().fg(app.colors.white).bg(app.colors.background))
+    .style(
+        Style::new()
+            .fg(app.colors.white)
+            .bg(app.colors.content_background),
+    )
     .highlight_spacing(HighlightSpacing::Always);
-    f.render_stateful_widget(table, rects[1], &mut app.state);
+    f.render_stateful_widget(table, content_area, &mut app.state);
+}
+
+fn render_transactions(f: &mut Frame, app: &mut App, area: Rect) {
+    // Get studio URL if available
+    let studio_url = match &app.displayed_url {
+        DisplayedUrl::Studio(config) => Some(config.studio_url.clone()),
+        DisplayedUrl::Datasource(_) => None,
+    };
+
+    let mut rows = Vec::new();
+    for (success, dt, sig) in app.transactions.iter() {
+        let color = if *success {
+            app.colors.success
+        } else {
+            app.colors.error
+        };
+
+        // Build the URL or just show signature
+        let url_or_sig = match &studio_url {
+            Some(base_url) => format!("{}?t={}", base_url, sig),
+            None => sig.clone(),
+        };
+
+        let row = vec![
+            Cell::new("⏐").style(color),
+            Cell::new(dt.format("%H:%M:%S.%3f").to_string()).style(app.colors.light_gray),
+            Cell::new(url_or_sig).style(Style::default().fg(app.colors.white)),
+        ];
+        rows.push(
+            Row::new(row)
+                .style(Style::new().fg(app.colors.white))
+                .height(1),
+        );
+    }
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(1),
+            Constraint::Length(12),
+            Constraint::Min(1),
+        ],
+    )
+    .style(
+        Style::new()
+            .fg(app.colors.white)
+            .bg(app.colors.content_background),
+    )
+    .highlight_spacing(HighlightSpacing::Always);
+    f.render_stateful_widget(table, area, &mut app.state);
 }
 
 fn render_scrollbar(f: &mut Frame, app: &mut App, area: Rect) {

@@ -45,8 +45,8 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::{adjust_default_transaction_config, get_default_transaction_config},
     surfnet::{
-        FINALIZATION_SLOT_THRESHOLD, GetTransactionResult, locker::SvmAccessContext,
-        svm::MAX_RECENT_BLOCKHASHES_STANDARD,
+        FINALIZATION_SLOT_THRESHOLD, GetAccountResult, GetTransactionResult,
+        locker::SvmAccessContext, svm::MAX_RECENT_BLOCKHASHES_STANDARD,
     },
     types::{SurfnetTransactionStatus, surfpool_tx_metadata_to_litesvm_tx_metadata},
 };
@@ -1410,19 +1410,35 @@ impl Full for SurfpoolFullRpc {
         })
     }
 
-    fn get_cluster_nodes(&self, _meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
+    fn get_cluster_nodes(&self, meta: Self::Metadata) -> Result<Vec<RpcContactInfo>> {
+        let (gossip, tpu, tpu_quic, rpc, pubsub) = if let Some(ctx) = meta {
+            let config = ctx.rpc_config;
+            let to_socket = |port: u16| -> Option<std::net::SocketAddr> {
+                format!("{}:{}", config.bind_host, port).parse().ok()
+            };
+            (
+                to_socket(config.gossip_port),
+                to_socket(config.tpu_port),
+                to_socket(config.tpu_quic_port),
+                to_socket(config.bind_port),
+                to_socket(config.ws_port),
+            )
+        } else {
+            (None, None, None, None, None)
+        };
+
         Ok(vec![RpcContactInfo {
             pubkey: SURFPOOL_IDENTITY_PUBKEY.to_string(),
-            gossip: None,
+            gossip,
             tvu: None,
-            tpu: None,
-            tpu_quic: None,
+            tpu,
+            tpu_quic,
             tpu_forwards: None,
             tpu_forwards_quic: None,
             tpu_vote: None,
             serve_repair: None,
-            rpc: None,
-            pubsub: None,
+            rpc,
+            pubsub,
             version: None,
             feature_set: None,
             shred_version: None,
@@ -1594,6 +1610,7 @@ impl Full for SurfpoolFullRpc {
                             false,
                             &tx_message,
                             None, // No loaded addresses available in error reporting context
+                            None,
                         ))
                         .map_err(|e| {
                             Error::invalid_params(format!(
@@ -1687,6 +1704,53 @@ impl Full for SurfpoolFullRpc {
                 .get_multiple_accounts(&remote_ctx, &transaction_pubkeys, None)
                 .await?;
 
+            let mut seen_accounts = std::collections::HashSet::new();
+            let mut loaded_accounts_data_size: u64 = 0;
+
+            let mut track_accounts_data_size =
+                |account_update: &GetAccountResult| match account_update {
+                    GetAccountResult::FoundAccount(pubkey, account, _) => {
+                        if seen_accounts.insert(*pubkey) {
+                            loaded_accounts_data_size += account.data.len() as u64;
+                        }
+                    }
+                    // According to SIMD 0186, program data is tracked as well as program accounts
+                    GetAccountResult::FoundProgramAccount(
+                        (pubkey, account),
+                        (pd_pubkey, pd_account),
+                    ) => {
+                        if seen_accounts.insert(*pubkey) {
+                            loaded_accounts_data_size += account.data.len() as u64;
+                        }
+                        if let Some(pd) = pd_account {
+                            if seen_accounts.insert(*pd_pubkey) {
+                                loaded_accounts_data_size += pd.data.len() as u64;
+                            }
+                        }
+                    }
+                    GetAccountResult::FoundTokenAccount(
+                        (pubkey, account),
+                        (td_pubkey, td_account),
+                    ) => {
+                        if seen_accounts.insert(*pubkey) {
+                            loaded_accounts_data_size += account.data.len() as u64;
+                        }
+                        if let Some(td) = td_account {
+                            let td_key_in_tx_pubkeys =
+                                transaction_pubkeys.iter().find(|k| **k == *td_pubkey);
+                            // Only count token data accounts that are explicitly loaded by the transaction
+                            if td_key_in_tx_pubkeys.is_some() && seen_accounts.insert(*td_pubkey) {
+                                loaded_accounts_data_size += td.data.len() as u64;
+                            }
+                        }
+                    }
+                    GetAccountResult::None(_) => {}
+                };
+
+            for res in account_updates.iter() {
+                track_accounts_data_size(res);
+            }
+
             svm_locker.write_multiple_account_updates(&account_updates);
 
             // Convert TransactionLoadedAddresses to LoadedAddresses before it gets consumed
@@ -1697,6 +1761,9 @@ impl Full for SurfpoolFullRpc {
                     .get_multiple_accounts(&remote_ctx, &alt_pubkeys, None)
                     .await?
                     .inner;
+                for res in alt_updates.iter() {
+                    track_accounts_data_size(res);
+                }
                 svm_locker.write_multiple_account_updates(&alt_updates);
             }
 
@@ -1751,6 +1818,7 @@ impl Full for SurfpoolFullRpc {
                         config.inner_instructions,
                         &tx_message,
                         loaded_addresses_data.as_ref(),
+                        Some(loaded_accounts_data_size as u32),
                     )
                 }
                 Err(tx_info) => get_simulate_transaction_result(
@@ -1761,6 +1829,7 @@ impl Full for SurfpoolFullRpc {
                     config.inner_instructions,
                     &tx_message,
                     loaded_addresses_data.as_ref(),
+                    Some(loaded_accounts_data_size as u32),
                 ),
             };
 
@@ -2394,6 +2463,7 @@ fn get_simulate_transaction_result(
     include_inner_instructions: bool,
     message: &VersionedMessage,
     loaded_addresses: Option<&solana_message::v0::LoadedAddresses>,
+    loaded_accounts_data_size: Option<u32>,
 ) -> RpcSimulateTransactionResult {
     RpcSimulateTransactionResult {
         accounts,
@@ -2417,7 +2487,7 @@ fn get_simulate_transaction_result(
             Some(metadata.return_data.clone().into())
         },
         units_consumed: Some(metadata.compute_units_consumed),
-        loaded_accounts_data_size: None,
+        loaded_accounts_data_size,
         fee: None,
         pre_balances: None,
         post_balances: None,
@@ -4158,16 +4228,16 @@ mod tests {
             cluster_nodes,
             vec![RpcContactInfo {
                 pubkey: SURFPOOL_IDENTITY_PUBKEY.to_string(),
-                gossip: None,
+                gossip: Some("127.0.0.1:8001".parse().unwrap()),
                 tvu: None,
-                tpu: None,
-                tpu_quic: None,
+                tpu: Some("127.0.0.1:8003".parse().unwrap()),
+                tpu_quic: Some("127.0.0.1:8004".parse().unwrap()),
                 tpu_forwards: None,
                 tpu_forwards_quic: None,
                 tpu_vote: None,
                 serve_repair: None,
-                rpc: None,
-                pubsub: None,
+                rpc: Some("127.0.0.1:8899".parse().unwrap()),
+                pubsub: Some("127.0.0.1:8900".parse().unwrap()),
                 version: None,
                 feature_set: None,
                 shred_version: None,
