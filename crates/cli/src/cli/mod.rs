@@ -23,7 +23,10 @@ use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
 use txtx_gql::kit::{helpers::fs::FileLocation, types::frontend::LogLevel};
 
-use crate::{cli::simnet::handle_state_diff_command, cloud::CloudStartCommand, runbook::handle_execute_runbook_command};
+use crate::{
+    cli::simnet::handle_state_diff_command, cloud::CloudStartCommand,
+    runbook::handle_execute_runbook_command,
+};
 
 mod simnet;
 
@@ -146,14 +149,17 @@ enum StateAction {
 struct DiffArgs {
     // Snapshot to compare with mainnet accounts
     #[clap(value_name = "SNAPSHOT_FILE")]
-    snapshot : String,
+    snapshot: String,
     // Optional : Custom mainnet RPC url
-    #[clap(value_name = "MAINNET_URL", default_value = "https://api.mainnet-beta.solana.com")]
-    mainnet_url : String,
+    #[clap(
+        value_name = "MAINNET_URL",
+        default_value = "https://api.mainnet-beta.solana.com"
+    )]
+    mainnet_url: String,
     /// only show difference
-    #[clap(short , long)]
-    brief : bool
- }
+    #[clap(short, long)]
+    brief: bool,
+}
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 pub struct StartSimnet {
