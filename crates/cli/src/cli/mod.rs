@@ -8,9 +8,13 @@ use fern::colors::{Color, ColoredLevelConfig};
 use fork::{Fork, daemon};
 use hiro_system_kit::{self, Logger};
 use log::{error, info};
+use solana_commitment_config::CommitmentConfig;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
+use surfpool_core::{
+    solana_rpc_client::rpc_client::RpcClient, surfnet::remote::SurfnetRemoteClient,
+};
 use surfpool_mcp::McpOptions;
 use surfpool_types::{
     AccountSnapshot, BlockProductionMode, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
@@ -22,7 +26,10 @@ use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
 use txtx_gql::kit::{helpers::fs::FileLocation, types::frontend::LogLevel};
 
-use crate::{cloud::CloudStartCommand, runbook::handle_execute_runbook_command};
+use crate::{
+    cli::simnet::handle_state_diff_command, cloud::CloudStartCommand,
+    runbook::handle_execute_runbook_command,
+};
 
 mod simnet;
 
@@ -129,7 +136,33 @@ enum Command {
     /// Start MCP server
     #[clap(name = "mcp", bin_name = "mcp")]
     Mcp,
+    #[clap(name = "state", bin_name = "state")]
+    State(StateCmd),
 }
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+struct StateCmd {
+    #[command(subcommand)]
+    action: StateAction,
+}
+
+#[derive(Subcommand, Debug, PartialEq, Clone)]
+enum StateAction {
+    Diff(DiffArgs),
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+struct DiffArgs {
+    // Snapshot to compare with mainnet accounts
+    #[clap(value_name = "SNAPSHOT_FILE")]
+    snapshot : String,
+    // Optional : Custom mainnet RPC url
+    #[clap(value_name = "MAINNET_URL", default_value = "https://api.mainnet-beta.solana.com")]
+    mainnet_url : String,
+    /// only show difference
+    #[clap(short , long)]
+    brief : bool
+ }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
 pub struct StartSimnet {
@@ -645,6 +678,9 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::List(cmd) => hiro_system_kit::nestable_block_on(handle_list_command(cmd, ctx)),
         Command::Cloud(cmd) => hiro_system_kit::nestable_block_on(handle_cloud_commands(cmd)),
         Command::Mcp => hiro_system_kit::nestable_block_on(handle_mcp_command(ctx)),
+        Command::State(state_cmd) => {
+            hiro_system_kit::nestable_block_on(handle_state_diff_command(&state_cmd))
+        }
     }
 }
 
