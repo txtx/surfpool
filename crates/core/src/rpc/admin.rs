@@ -198,7 +198,7 @@ pub trait AdminRpc {
 }
 
 // Typed return objects for surfpool_status
-#[derive(Debug, Serialize,Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct WsSubscriptions {
     pub signatures: usize,
     pub accounts: usize,
@@ -206,7 +206,7 @@ pub struct WsSubscriptions {
     pub logs: usize,
 }
 
-#[derive(Debug, Serialize,Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SurfpoolStatus {
     pub slot: u64,
     pub epoch: u64,
