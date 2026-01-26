@@ -702,6 +702,9 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::List(cmd) => hiro_system_kit::nestable_block_on(handle_list_command(cmd, ctx)),
         Command::Cloud(cmd) => hiro_system_kit::nestable_block_on(handle_cloud_commands(cmd)),
         Command::Mcp => hiro_system_kit::nestable_block_on(handle_mcp_command(ctx)),
+        Command::Replay(cmd) => {
+            hiro_system_kit::nestable_block_on(replay::handle_replay_command(cmd, ctx))
+        }
     }
 }
 
