@@ -25,6 +25,7 @@ use txtx_gql::kit::{helpers::fs::FileLocation, types::frontend::LogLevel};
 
 use crate::{cloud::CloudStartCommand, runbook::handle_execute_runbook_command};
 
+mod replay;
 mod simnet;
 
 #[derive(Clone)]
@@ -127,6 +128,9 @@ enum Command {
     /// Start MCP server
     #[clap(name = "mcp", bin_name = "mcp")]
     Mcp,
+    /// Replay mainnet transactions locally
+    #[clap(name = "replay", bin_name = "replay")]
+    Replay(ReplayCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -271,6 +275,58 @@ pub enum NetworkType {
     Devnet,
     /// Solana Testnet (https://api.testnet.solana.com)
     Testnet,
+}
+
+/// Replay mainnet transactions locally for debugging and analysis.
+#[derive(Parser, PartialEq, Clone, Debug)]
+pub struct ReplayCommand {
+    /// Transaction signature(s) to replay
+    #[arg()]
+    pub signatures: Vec<String>,
+
+    /// Read transaction signatures from a file (one per line)
+    #[arg(long = "from-file", short = 'f')]
+    pub from_file: Option<String>,
+
+    /// RPC URL for fetching transaction data (eg. --rpc-url https://api.mainnet-beta.solana.com)
+    #[arg(
+        long = "rpc-url",
+        short = 'u',
+        conflicts_with = "network",
+        env = "SURFPOOL_DATASOURCE_RPC_URL"
+    )]
+    pub rpc_url: Option<String>,
+
+    /// Predefined network (mainnet, devnet, testnet)
+    #[arg(long = "network", short = 'n', value_enum, conflicts_with = "rpc_url")]
+    pub network: Option<NetworkType>,
+
+    /// Enable transaction profiling for detailed execution metrics
+    #[clap(long = "profile", action = ArgAction::SetTrue, default_value = "false")]
+    pub profile: bool,
+
+    /// Output results to a JSON file
+    #[arg(long = "output", short = 'o')]
+    pub output: Option<String>,
+
+    /// Skip time travel (use current slot instead of transaction's original slot)
+    #[clap(long = "skip-time-travel", action = ArgAction::SetTrue, default_value = "false")]
+    pub skip_time_travel: bool,
+}
+
+impl ReplayCommand {
+    /// Returns the RPC URL to use for fetching transaction data.
+    pub fn datasource_rpc_url(&self) -> String {
+        match self.network {
+            Some(NetworkType::Mainnet) => DEFAULT_MAINNET_RPC_URL.to_string(),
+            Some(NetworkType::Devnet) => DEFAULT_DEVNET_RPC_URL.to_string(),
+            Some(NetworkType::Testnet) => DEFAULT_TESTNET_RPC_URL.to_string(),
+            None => self
+                .rpc_url
+                .clone()
+                .unwrap_or_else(|| DEFAULT_MAINNET_RPC_URL.to_string()),
+        }
+    }
 }
 
 impl StartSimnet {
