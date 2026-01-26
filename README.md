@@ -26,27 +26,33 @@ It’s built local-first and offline-ready, so you can spin up networks on your 
 ## 💡 Key Features
 
 ### 🪄 Drop-in replacement for solana-test-validator
+
 Spin up local networks that mirror mainnet state instantly — no 2 TB snapshots, no heavy setup (yes, even runs on a Raspberry Pi).
 Surfpool has been battle-tested by hundreds of developers with existing Solana tools — including `solana-cli`, `anchor`, and `Kit` — so you can plug it into your workflow without changing a thing.
 
 ### 🧩 IDL-to-SQL
+
 Transform your on-chain IDL into a fully queryable SQL schema.
 Surfpool’s IDL-to-SQL engine bridges programs and databases — automatically generating tables and syncing chain data to local SQLite/Postgres for instant indexing and analytics.
 
 ### 🛡️ Infrastructure as Code (IaC) for Web3
+
 Define your stack once — then deploy and tweak it thousands of times before mainnet, with minimal friction.
 Inspired by Terraform, Surfpool’s IaC makes your setup reproducible by design:
 your local environment is optimized for speed and feedback, while production is optimized for safety and scales gracefully.
 
 ### 🎮 Cheatcodes for Builders
+
 Simulate, debug, and replay transactions — all without touching mainnet.
 Includes Stream Oracles, Universal Faucet, Transaction Inspector, and Time Travel for fast, fearless experimentation.
 
 ### ☁️ Surfpool Studio → Surfpool Cloud
+
 Surfpool Studio is your local dashboard to visualize, inspect, and manage your networks in real time.
 Surfpool Cloud extends that same experience to the cloud — letting you index mainnet data and run large-scale simulations with the same developer experience. It’s serverless, backend-as-a-service, and built for analytics at scale.
 
 ### 🧪 Surfpool Scenarios
+
 With Surfpool Scenarios you can curate slot-by-slot account states for key accounts, mixing live mainnet data with overridden account states.
 This allows you to stress test your protocol in key real-world situations and to reproduce any chain-state conditions. See the [Scenarios Docs](./crates/core/src/scenarios/README.md) for more details.
 
@@ -56,17 +62,6 @@ Surfpool installer:
 
 ```console
 curl -sL https://run.surfpool.run/ | bash
-```
-
-Install pre-built binaries:
-
-```console
-# macOS (Homebrew)
-brew install txtx/taps/surfpool
-
-# Updating surfpool for Homebrew users
-brew tap txtx/taps
-brew reinstall surfpool
 ```
 
 Install from source:
@@ -134,6 +129,7 @@ With Surfpool, every developer learns to deploy Solana programs the right way—
 
 - Surfpool is getting agentic friendly, thanks to a built-in MCP. We'll be adding more tools over time, the first use case we're covering is "Start a local network with 10 users loaded with SOL, USDC, JUP and TRUMP tokens" (#130 - @BretasArthur1, @lgalabru)
 - To get started, make `surfpool` available globally by opening the command palette (Cmd/Ctrl + Shift + P) and selecting > Cursor Settings > MCP > Add new global MCP server:
+
 ```json
 {
   "mcpServers": {

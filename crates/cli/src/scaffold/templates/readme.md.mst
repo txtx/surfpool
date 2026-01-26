@@ -26,17 +26,6 @@ Surfpool installer:
 curl -sL https://run.surfpool.run/ | bash
 ```
 
-Install pre-built binaries:
-
-```console
-# macOS (Homebrew)
-brew install txtx/taps/surfpool
-
-# Updating surfpool for Homebrew users
-brew tap txtx/taps
-brew reinstall surfpool
-```
-
 Install from source:
 
 ```console
