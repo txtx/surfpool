@@ -3,7 +3,7 @@ use std::{fs, str::FromStr};
 use log::info;
 use solana_signature::Signature;
 use surfpool_core::surfnet::{remote::SurfnetRemoteClient, svm::SurfnetSvm};
-use surfpool_types::{ReplayConfig, ReplayResult, SimnetCommand};
+use surfpool_types::{channel, ReplayConfig, ReplayResult, SimnetCommand};
 
 use super::{Context, ReplayCommand};
 
@@ -43,9 +43,9 @@ pub async fn handle_replay_command(cmd: ReplayCommand, _ctx: &Context) -> Result
 
     // Step 4: Create command channel (needed for time travel coordination)
     let (simnet_commands_tx, _simnet_commands_rx): (
-        crossbeam_channel::Sender<SimnetCommand>,
-        crossbeam_channel::Receiver<SimnetCommand>,
-    ) = crossbeam_channel::unbounded();
+        channel::Sender<SimnetCommand>,
+        channel::Receiver<SimnetCommand>,
+    ) = channel::unbounded();
 
     let svm_locker = surfpool_core::surfnet::locker::SurfnetSvmLocker::new(surfnet_svm);
 
