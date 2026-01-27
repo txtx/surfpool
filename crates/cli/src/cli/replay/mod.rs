@@ -1,4 +1,4 @@
-use std::{fs, str::FromStr};
+use std::{env, fs, str::FromStr};
 
 use log::info;
 use solana_signature::Signature;
@@ -7,25 +7,31 @@ use surfpool_types::{channel, ReplayConfig, ReplayResult, SimnetCommand};
 
 use super::{Context, ReplayCommand};
 
+/// Environment variable name for transaction signatures (semicolon-separated).
+const TX_SIGNATURES_ENV: &str = "TX_SIGNATURES";
+
 /// Handles the replay command by fetching and re-executing transactions from mainnet.
 ///
 /// This is a lightweight standalone handler that initializes an ephemeral SVM
 /// without a full RPC server. For interactive use with full surfpool features,
 /// use `surfpool start` with the `surfnet_replayTransaction` RPC method instead.
 pub async fn handle_replay_command(cmd: ReplayCommand, _ctx: &Context) -> Result<(), String> {
-    // Step 1: Parse signatures from args or file
+    // Step 1: Parse signatures from args, file, or environment variable
     let signatures = if let Some(file_path) = &cmd.from_file {
         parse_signatures_from_file(file_path)?
-    } else if cmd.signatures.is_empty() {
-        return Err(
-            "No transaction signatures provided. Use positional args or --from-file".to_string(),
-        );
-    } else {
+    } else if !cmd.signatures.is_empty() {
         cmd.signatures
             .iter()
             .map(|s| Signature::from_str(s))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Invalid signature: {}", e))?
+    } else if let Ok(env_sigs) = env::var(TX_SIGNATURES_ENV) {
+        parse_signatures_from_env(&env_sigs)?
+    } else {
+        return Err(format!(
+            "No transaction signatures provided. Use positional args, --from-file, or {} env var",
+            TX_SIGNATURES_ENV
+        ));
     };
 
     if signatures.is_empty() {
@@ -122,6 +128,21 @@ fn parse_signatures_from_file(file_path: &str) -> Result<Vec<Signature>, String>
         .map(|line| {
             Signature::from_str(line.trim())
                 .map_err(|e| format!("Invalid signature '{}': {}", line.trim(), e))
+        })
+        .collect()
+}
+
+/// Parses transaction signatures from an environment variable.
+/// Supports both comma and semicolon as delimiters.
+fn parse_signatures_from_env(env_value: &str) -> Result<Vec<Signature>, String> {
+    // Support both comma (shell-friendly) and semicolon as delimiters
+    let delimiter = if env_value.contains(',') { ',' } else { ';' };
+    env_value
+        .split(delimiter)
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            Signature::from_str(s).map_err(|e| format!("Invalid signature '{}': {}", s, e))
         })
         .collect()
 }
