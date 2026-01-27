@@ -77,6 +77,7 @@ sqlite = ["surfpool-gql/sqlite", "surfpool-core/sqlite"]
 postgres = ["surfpool-gql/postgres", "surfpool-core/postgres"]
 version_check = []
 subgraph = ["surfpool-core/subgraph"]
+register-tracing = ["surfpool-core/register-tracing"]
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 fork = "0.2.0"
