@@ -77,7 +77,7 @@ fn verify_hash(input: &str) -> Result<Hash> {
         .map_err(|e| Error::invalid_params(format!("Invalid param: {e:?}")))
 }
 
-fn verify_signature(input: &str) -> Result<Signature> {
+pub fn verify_signature(input: &str) -> Result<Signature> {
     input
         .parse()
         .map_err(|e| Error::invalid_params(format!("Invalid param: {e:?}")))
