@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use serde_json::json;
-use solana_account::Account;
+use solana_account_decoder::UiAccount;
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
     rpc_client::{GetConfirmedSignaturesForAddress2Config, RpcClientConfig},
@@ -297,10 +297,10 @@ impl SurfnetRemoteClient {
         program_id: &Pubkey,
         account_config: RpcAccountInfoConfig,
         filters: Option<Vec<RpcFilterType>>,
-    ) -> SurfpoolResult<RemoteRpcResult<Vec<(Pubkey, Account)>>> {
+    ) -> SurfpoolResult<RemoteRpcResult<Vec<(Pubkey, UiAccount)>>> {
         handle_remote_rpc(|| async {
             self.client
-                .get_program_accounts_with_config(
+                .get_program_ui_accounts_with_config(
                     program_id,
                     RpcProgramAccountsConfig {
                         filters,

@@ -2883,10 +2883,10 @@ impl SurfnetSvmLocker {
         Ok(self.with_contextualized_svm_reader(|_| res.clone()))
     }
 
-    pub fn encode_ui_account(
+    pub fn encode_ui_account<T: ReadableAccount + Sync>(
         &self,
         pubkey: &Pubkey,
-        account: &Account,
+        account: &T,
         encoding: UiAccountEncoding,
         additional_data: Option<AccountAdditionalDataV3>,
         data_slice: Option<UiDataSliceConfig>,
@@ -2911,9 +2911,6 @@ impl SurfnetSvmLocker {
             inner: local_accounts,
         } = self.get_program_accounts_local(program_id, account_config.clone(), filters.clone())?;
 
-        let encoding = account_config.encoding.unwrap_or(UiAccountEncoding::Base64);
-        let data_slice = account_config.data_slice;
-
         let remote_accounts_result = client
             .get_program_accounts(program_id, account_config, filters)
             .await?;
@@ -2928,7 +2925,7 @@ impl SurfnetSvmLocker {
             .iter()
             .map(|(pubkey, account)| RpcKeyedAccount {
                 pubkey: pubkey.to_string(),
-                account: self.encode_ui_account(pubkey, account, encoding, None, data_slice),
+                account: account.clone(),
             })
             .collect::<Vec<RpcKeyedAccount>>();
 
