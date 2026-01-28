@@ -1,4 +1,5 @@
 use std::{
+    io::IsTerminal,
     path::Path,
     sync::{
         Arc,
@@ -296,7 +297,10 @@ async fn start_service(
     let include_debug_logs = cmd.log_level.to_lowercase().eq("debug");
 
     // Start frontend - kept on main thread
-    if cmd.daemon || cmd.no_tui {
+    // Fall back to log_events mode if no TTY is available (e.g., when backgrounded with nohup)
+    // This prevents enable_raw_mode() from blocking forever
+    let use_tui = !cmd.daemon && !cmd.no_tui && std::io::stdout().is_terminal();
+    if !use_tui {
         log_events(
             simnet_events_rx,
             subgraph_events_rx,
@@ -333,14 +337,24 @@ fn log_events(
     runloop_terminator: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let mut deployment_completed = false;
-    let do_stop_loop = runloop_terminator.clone();
-    let terminate_tx = simnet_commands_tx.clone();
-    ctrlc::set_handler(move || {
-        do_stop_loop.store(true, Ordering::Relaxed);
-        // Send terminate command to allow graceful shutdown (Drop to run)
-        let _ = terminate_tx.send(SimnetCommand::Terminate(None));
-    })
-    .expect("Error setting Ctrl-C handler");
+    // Use signal_hook for SIGTERM, SIGINT, and SIGHUP (matches TUI mode)
+    if let Err(e) = signal_hook::flag::register(
+        signal_hook::consts::SIGTERM,
+        Arc::clone(&runloop_terminator),
+    ) {
+        warn!("Failed to register SIGTERM handler: {e}");
+    }
+    if let Err(e) =
+        signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&runloop_terminator))
+    {
+        warn!("Failed to register SIGINT handler: {e}");
+    }
+    #[cfg(unix)]
+    if let Err(e) =
+        signal_hook::flag::register(signal_hook::consts::SIGHUP, Arc::clone(&runloop_terminator))
+    {
+        warn!("Failed to register SIGHUP handler: {e}");
+    }
 
     let log_filter = if include_debug_logs {
         LogLevel::Debug
@@ -351,7 +365,8 @@ fn log_events(
     let mut multi_progress = MultiProgress::new();
 
     loop {
-        if runloop_terminator.load(Ordering::Relaxed) {
+        if runloop_terminator.load(Ordering::Acquire) {
+            let _ = simnet_commands_tx.send(SimnetCommand::Terminate(None));
             break;
         }
         let mut selector = Select::new();

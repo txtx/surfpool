@@ -395,12 +395,17 @@ fn start_subgraph_runloop(
                 for rx in observers.iter() {
                     handles.push(selector.recv(rx));
                 }
-                let oper = selector.select();
+                // Use timeout instead of blocking select to allow periodic loop iteration.
+                // Disconnection is detected on the next iteration via oper.recv() returning Err.
+                let oper = match selector.select_timeout(Duration::from_millis(100)) {
+                    Ok(oper) => oper,
+                    Err(_) => continue,
+                };
                 match oper.index() {
                     0 => match oper.recv(&subgraph_commands_rx) {
                         Err(_e) => {
-                            // todo
-                            std::process::exit(1);
+                            // Sender dropped - normal shutdown
+                            break;
                         }
                         Ok(cmd) => match cmd {
                             SubgraphCommand::CreateCollection(uuid, request, sender) => {
@@ -461,6 +466,7 @@ fn start_subgraph_runloop(
                             }
                             SubgraphCommand::Shutdown => {
                                 let _ = subgraph_events_tx.send(SubgraphEvent::Shutdown);
+                                break;
                             }
                         },
                     },

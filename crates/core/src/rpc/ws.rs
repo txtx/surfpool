@@ -830,6 +830,7 @@ pub struct SurfpoolWsRpc {
     pub snapshot_subscription_map:
         Arc<RwLock<HashMap<SubscriptionId, Sink<crate::surfnet::SnapshotImportNotification>>>>,
     pub tokio_handle: tokio::runtime::Handle,
+    pub terminate: Arc<atomic::AtomicBool>,
 }
 
 impl Rpc for SurfpoolWsRpc {
@@ -901,6 +902,7 @@ impl Rpc for SurfpoolWsRpc {
             }
         };
         let active = Arc::clone(&self.signature_subscription_map);
+        let terminate = Arc::clone(&self.terminate);
         let meta = meta.clone();
         self.tokio_handle.spawn(async move {
             if let Ok(mut guard) = active.write() {
@@ -1000,6 +1002,11 @@ impl Rpc for SurfpoolWsRpc {
                 svm_locker.subscribe_for_signature_updates(&signature, subscription_type.clone());
 
             loop {
+                // Check termination flag first
+                if terminate.load(atomic::Ordering::Acquire) {
+                    break;
+                }
+
                 let (slot, some_err) = match rx.try_recv() {
                     Ok(msg) => msg,
                     Err(e) => {
@@ -1154,6 +1161,7 @@ impl Rpc for SurfpoolWsRpc {
         };
 
         let account_active = Arc::clone(&self.account_subscription_map);
+        let terminate = Arc::clone(&self.terminate);
         let meta = meta.clone();
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
@@ -1181,6 +1189,11 @@ impl Rpc for SurfpoolWsRpc {
             let rx = svm_locker.subscribe_for_account_updates(&pubkey, config.encoding);
 
             loop {
+                // Check termination flag first
+                if terminate.load(atomic::Ordering::Acquire) {
+                    break;
+                }
+
                 // if the subscription has been removed, break the loop
                 if let Ok(guard) = account_active.read() {
                     if guard.get(&sub_id).is_none() {
@@ -1268,6 +1281,7 @@ impl Rpc for SurfpoolWsRpc {
         };
 
         let slot_active = Arc::clone(&self.slot_subscription_map);
+        let terminate = Arc::clone(&self.terminate);
         let meta = meta.clone();
 
         let svm_locker = match meta.get_svm_locker() {
@@ -1294,6 +1308,11 @@ impl Rpc for SurfpoolWsRpc {
             let rx = svm_locker.subscribe_for_slot_updates();
 
             loop {
+                // Check termination flag first
+                if terminate.load(atomic::Ordering::Acquire) {
+                    break;
+                }
+
                 // if the subscription has been removed, break the loop
                 if let Ok(guard) = slot_active.read() {
                     if guard.get(&sub_id).is_none() {
@@ -1370,6 +1389,7 @@ impl Rpc for SurfpoolWsRpc {
         let commitment = commitment.unwrap_or_default().commitment;
 
         let logs_active = Arc::clone(&self.logs_subscription_map);
+        let terminate = Arc::clone(&self.terminate);
         let meta = meta.clone();
 
         let svm_locker = match meta.get_svm_locker() {
@@ -1396,6 +1416,11 @@ impl Rpc for SurfpoolWsRpc {
             let rx = svm_locker.subscribe_for_logs_updates(&commitment, &mentions);
 
             loop {
+                // Check termination flag first
+                if terminate.load(atomic::Ordering::Acquire) {
+                    break;
+                }
+
                 // if the subscription has been removed, break the loop
                 if let Ok(guard) = logs_active.read() {
                     if guard.get(&sub_id).is_none() {
@@ -1558,6 +1583,7 @@ impl Rpc for SurfpoolWsRpc {
         };
 
         let snapshot_active = Arc::clone(&self.snapshot_subscription_map);
+        let terminate = Arc::clone(&self.terminate);
         let meta = meta.clone();
 
         let svm_locker = match meta.get_svm_locker() {
@@ -1592,6 +1618,11 @@ impl Rpc for SurfpoolWsRpc {
             let rx = svm_locker.subscribe_for_snapshot_import_updates(&snapshot_url, &snapshot_id);
 
             loop {
+                // Check termination flag first
+                if terminate.load(atomic::Ordering::Acquire) {
+                    break;
+                }
+
                 // if the subscription has been removed, break the loop
                 if let Ok(guard) = snapshot_active.read() {
                     if guard.get(&sub_id).is_none() {

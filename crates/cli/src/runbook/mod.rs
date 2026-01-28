@@ -412,7 +412,7 @@ pub async fn configure_supervised_execution(
         let runloop_future =
             start_supervised_runbook_runloop(&mut runbook, moved_block_tx, action_item_events_rx);
 
-        let success = process_runbook_execution_output(
+        let _success = process_runbook_execution_output(
             hiro_system_kit::nestable_block_on(runloop_future),
             &mut runbook,
             moved_runbook_state,
@@ -422,12 +422,10 @@ pub async fn configure_supervised_execution(
 
         if let Err(e) = moved_kill_loops_tx.send(true) {
             error!("Failed to send kill signal: {}", e);
-            std::process::exit(1);
+            // Thread will exit, main thread will notice channel closed
+            return;
         }
-
-        if !success {
-            std::process::exit(1);
-        }
+        // Thread exits - main thread handles success/failure via the channel
     });
 
     #[cfg(feature = "supervisor_ui")]
@@ -478,7 +476,7 @@ pub async fn configure_supervised_execution(
     };
     #[cfg(not(feature = "supervisor_ui"))]
     if cmd.do_start_supervisor_ui() {
-        panic!("Supervisor UI is not enabled in this build");
+        return Err("Supervisor UI is not enabled in this build".to_string());
     }
 
     let log_filter = cmd.log_level.as_str().into();
