@@ -33,8 +33,74 @@ pub const DEFAULT_STUDIO_PORT: u16 = 8488;
 pub const CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED: u16 = 18488;
 pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 pub const DEFAULT_SLOT_TIME_MS: u64 = 400;
-pub type Idl = anchor_lang_idl::types::Idl;
 pub const DEFAULT_PROFILING_MAP_CAPACITY: usize = 200;
+
+/// Type alias for Anchor IDL (backwards compatibility)
+pub type AnchorIdl = anchor_lang_idl::types::Idl;
+
+/// Type alias for Shank IDL
+pub type ShankIdl = shank_idl::idl::Idl;
+
+/// IDL reference that can hold either an Anchor or Shank IDL.
+///
+/// When deserializing from JSON, it tries Anchor format first (most common),
+/// then falls back to Shank format. This provides backwards compatibility
+/// with existing Anchor IDL registrations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum IdlRef {
+    /// Anchor IDL format (8-byte discriminators, metadata.spec field)
+    Anchor(AnchorIdl),
+    /// Shank IDL format (1-byte discriminators, metadata.origin = "shank")
+    Shank(ShankIdl),
+}
+
+impl IdlRef {
+    /// Returns the program address from the IDL
+    pub fn address(&self) -> &str {
+        match self {
+            IdlRef::Anchor(idl) => &idl.address,
+            IdlRef::Shank(idl) => idl.metadata.address.as_deref().unwrap_or(""),
+        }
+    }
+
+    /// Returns the program name from the IDL
+    pub fn name(&self) -> &str {
+        match self {
+            IdlRef::Anchor(idl) => &idl.metadata.name,
+            IdlRef::Shank(idl) => &idl.name,
+        }
+    }
+
+    /// Returns true if this is an Anchor IDL
+    pub fn is_anchor(&self) -> bool {
+        matches!(self, IdlRef::Anchor(_))
+    }
+
+    /// Returns true if this is a Shank IDL
+    pub fn is_shank(&self) -> bool {
+        matches!(self, IdlRef::Shank(_))
+    }
+
+    /// Returns the inner Anchor IDL if this is an Anchor IDL
+    pub fn as_anchor(&self) -> Option<&AnchorIdl> {
+        match self {
+            IdlRef::Anchor(idl) => Some(idl),
+            IdlRef::Shank(_) => None,
+        }
+    }
+
+    /// Returns the inner Shank IDL if this is a Shank IDL
+    pub fn as_shank(&self) -> Option<&ShankIdl> {
+        match self {
+            IdlRef::Anchor(_) => None,
+            IdlRef::Shank(idl) => Some(idl),
+        }
+    }
+}
+
+// For backwards compatibility, keep Idl as an alias to IdlRef
+pub type Idl = IdlRef;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionMetadata {

@@ -302,8 +302,8 @@ mod tests {
     fn test_jupiter_idl_has_token_ledger_account() {
         let registry = TemplateRegistry::new();
         let jupiter_template = registry.get("jupiter-token-ledger-override").unwrap();
-        let has_token_ledger = jupiter_template
-            .idl
+        let anchor_idl = jupiter_template.idl.as_anchor().expect("Template IDL should be Anchor");
+        let has_token_ledger = anchor_idl
             .accounts
             .iter()
             .any(|acc| acc.name == "TokenLedger");
@@ -378,9 +378,9 @@ fn test_switchboard_template_loads_correctly() {
 fn test_switchboard_idl_has_quote_account() {
     let registry = TemplateRegistry::new();
     let switchboard_template = registry.get("switchboard-quote-override").unwrap();
+    let anchor_idl = switchboard_template.idl.as_anchor().expect("Template IDL should be Anchor");
 
-    let has_quote_account = switchboard_template
-        .idl
+    let has_quote_account = anchor_idl
         .accounts
         .iter()
         .any(|acc| acc.name == "SwitchboardQuote");

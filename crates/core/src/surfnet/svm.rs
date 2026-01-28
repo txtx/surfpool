@@ -81,8 +81,14 @@ use txtx_addon_kit::{
 };
 use txtx_addon_network_svm::codec::idl::borsh_encode_value_to_idl_type;
 use txtx_addon_network_svm_types::subgraph::idl::{
-    parse_bytes_to_value_with_expected_idl_type_def_ty,
-    parse_bytes_to_value_with_expected_idl_type_def_ty_with_leftover_bytes,
+    anchor::{
+        parse_bytes_to_value_with_expected_idl_type_def_ty,
+        parse_bytes_to_value_with_expected_idl_type_def_ty_with_leftover_bytes,
+    },
+    shank::{
+        extract_shank_types, find_account_by_discriminator,
+        parse_bytes_to_value_with_shank_idl_type_def_ty,
+    },
 };
 use uuid::Uuid;
 
@@ -2325,6 +2331,16 @@ impl SurfnetSvm {
         idl: &Idl,
         overrides: &HashMap<String, serde_json::Value>,
     ) -> SurfpoolResult<Vec<u8>> {
+        // Account forging only works with Anchor IDLs (8-byte discriminators)
+        let anchor_idl = match idl {
+            Idl::Anchor(anchor_idl) => anchor_idl,
+            Idl::Shank(_) => {
+                return Err(SurfpoolError::internal(
+                    "Account forging is only supported for Anchor IDLs".to_string(),
+                ));
+            }
+        };
+
         // Validate account data size
         if account_data.len() < 8 {
             return Err(SurfpoolError::invalid_account_data(
@@ -2339,7 +2355,7 @@ impl SurfnetSvm {
         let serialized_data = &account_data[8..];
 
         // Find the account type using the discriminator
-        let account_def = idl
+        let account_def = anchor_idl
             .accounts
             .iter()
             .find(|acc| acc.discriminator.eq(discriminator))
@@ -2351,7 +2367,7 @@ impl SurfnetSvm {
             })?;
 
         // Find the corresponding type definition
-        let account_type = idl
+        let account_type = anchor_idl
             .types
             .iter()
             .find(|t| t.name == account_def.name)
@@ -2364,7 +2380,7 @@ impl SurfnetSvm {
 
         // Set up generics for parsing
         let empty_vec = vec![];
-        let idl_type_def_generics = idl
+        let idl_type_def_generics = anchor_idl
             .types
             .iter()
             .find(|t| t.name == account_type.name)
@@ -2376,7 +2392,7 @@ impl SurfnetSvm {
             parse_bytes_to_value_with_expected_idl_type_def_ty_with_leftover_bytes(
                 serialized_data,
                 &account_type.ty,
-                &idl.types,
+                &anchor_idl.types,
                 &vec![],
                 idl_type_def_generics.unwrap_or(&empty_vec),
             )
@@ -2408,13 +2424,13 @@ impl SurfnetSvm {
 
         // Re-encode the value using Borsh
         let re_encoded_data =
-            borsh_encode_value_to_idl_type(&parsed_value, &defined_type, &idl.types, None)
+            borsh_encode_value_to_idl_type(&parsed_value, &defined_type, &anchor_idl.types, None)
                 .map_err(|e| {
-                    SurfpoolError::internal(format!(
-                        "Failed to re-encode account data using Borsh: {}",
-                        e
-                    ))
-                })?;
+                SurfpoolError::internal(format!(
+                    "Failed to re-encode account data using Borsh: {}",
+                    e
+                ))
+            })?;
 
         // Reconstruct the account data with discriminator and preserve any trailing bytes
         let mut new_account_data =
@@ -2962,7 +2978,7 @@ impl SurfnetSvm {
 
     pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) -> SurfpoolResult<()> {
         let slot = slot.unwrap_or(self.latest_epoch_info.absolute_slot);
-        let program_id = Pubkey::from_str_const(&idl.address);
+        let program_id = Pubkey::from_str_const(idl.address());
         let program_id_str = program_id.to_string();
         let mut idl_versions = self
             .registered_idls
@@ -3119,6 +3135,136 @@ impl SurfnetSvm {
         }
     }
 
+    /// Try to parse account data using the provided IDL (Anchor or Shank).
+    /// Returns Some(UiAccount) if parsing succeeds, None otherwise.
+    fn try_parse_account_with_idl<T: ReadableAccount>(
+        &self,
+        pubkey: &Pubkey,
+        account: &T,
+        idl_ref: &Idl,
+        data: &[u8],
+    ) -> Option<UiAccount> {
+        match idl_ref {
+            Idl::Anchor(idl) => self.try_parse_account_with_anchor_idl(pubkey, account, idl, data),
+            Idl::Shank(idl) => self.try_parse_account_with_shank_idl(pubkey, account, idl, data),
+        }
+    }
+
+    /// Parse account data using Anchor IDL (8-byte discriminator matching).
+    fn try_parse_account_with_anchor_idl<T: ReadableAccount>(
+        &self,
+        _pubkey: &Pubkey,
+        account: &T,
+        idl: &surfpool_types::AnchorIdl,
+        data: &[u8],
+    ) -> Option<UiAccount> {
+        if data.len() < 8 {
+            return None;
+        }
+
+        let discriminator = &data[..8];
+        let matching_account = idl
+            .accounts
+            .iter()
+            .find(|a| a.discriminator.eq(&discriminator))?;
+
+        let account_type = idl.types.iter().find(|t| t.name == matching_account.name)?;
+
+        let empty_vec = vec![];
+        let idl_type_def_generics = idl
+            .types
+            .iter()
+            .find(|t| t.name == account_type.name)
+            .map(|t| &t.generics);
+
+        let rest = &data[8..];
+        let parsed_value = parse_bytes_to_value_with_expected_idl_type_def_ty(
+            rest,
+            &account_type.ty,
+            &idl.types,
+            &vec![],
+            idl_type_def_generics.unwrap_or(&empty_vec),
+        )
+        .ok()?;
+
+        Some(UiAccount {
+            lamports: account.lamports(),
+            data: UiAccountData::Json(ParsedAccount {
+                program: idl
+                    .metadata
+                    .name
+                    .to_string()
+                    .to_case(convert_case::Case::Kebab),
+                parsed: parsed_value.to_json(Some(&get_txtx_value_json_converters())),
+                space: data.len() as u64,
+            }),
+            owner: account.owner().to_string(),
+            executable: account.executable(),
+            rent_epoch: account.rent_epoch(),
+            space: Some(account.data().len() as u64),
+        })
+    }
+
+    /// Parse account data using Shank IDL.
+    ///
+    /// Shank IDLs don't have a built-in discriminator → account type mapping like Anchor.
+    /// Instead, we try to match account data against known account types in the IDL.
+    ///
+    /// Strategy:
+    /// 1. Look for types that have an 8-byte discriminator field at the start (common pattern)
+    /// 2. Try to parse the account data with each matching type
+    fn try_parse_account_with_shank_idl<T: ReadableAccount>(
+        &self,
+        _pubkey: &Pubkey,
+        account: &T,
+        idl: &surfpool_types::ShankIdl,
+        data: &[u8],
+    ) -> Option<UiAccount> {
+        // Extract Shank types from the IDL
+        let shank_types = extract_shank_types(idl).ok()?;
+
+        // Helper to create UiAccount from parsed value and type name
+        let create_ui_account = |parsed_value: txtx_addon_kit::types::types::Value,
+                                 _type_name: &str| UiAccount {
+            lamports: account.lamports(),
+            data: UiAccountData::Json(ParsedAccount {
+                program: idl.name.to_string().to_case(convert_case::Case::Kebab),
+                parsed: parsed_value.to_json(Some(&get_txtx_value_json_converters())),
+                space: data.len() as u64,
+            }),
+            owner: account.owner().to_string(),
+            executable: account.executable(),
+            rent_epoch: account.rent_epoch(),
+            space: Some(account.data().len() as u64),
+        };
+
+        // First, try discriminator-based detection if the IDL has an account_discriminator constant
+        if let Some(account_name) = find_account_by_discriminator(idl, data) {
+            // Find the account type definition
+            if let Some(type_def) = shank_types.iter().find(|t| t.name == account_name) {
+                if let Ok(parsed_value) = parse_bytes_to_value_with_shank_idl_type_def_ty(
+                    data,
+                    &type_def.ty,
+                    &shank_types,
+                ) {
+                    return Some(create_ui_account(parsed_value, &account_name));
+                }
+            }
+        }
+
+        // Fallback: try all types (brute force) when no discriminator is available
+        for type_def in &shank_types {
+            // Try to parse with this type
+            if let Ok(parsed_value) =
+                parse_bytes_to_value_with_shank_idl_type_def_ty(data, &type_def.ty, &shank_types)
+            {
+                return Some(create_ui_account(parsed_value, &type_def.name));
+            }
+        }
+
+        None
+    }
+
     pub fn encode_ui_account<T: ReadableAccount>(
         &self,
         pubkey: &Pubkey,
@@ -3149,56 +3295,14 @@ impl SurfnetSvm {
                 // if we have none in this loop, it means the only IDLs registered for this pubkey are for a
                 // future slot, for some reason. if we have some, we'll try each one in this loop, starting
                 // with the most recent one, to see if the account data can be parsed to the IDL type
-                for idl in &ordered_available_idls {
-                    // If we have a valid IDL, use it to parse the account data
+                for idl_ref in &ordered_available_idls {
                     let data = account.data();
-                    let discriminator = &data[..8];
-                    if let Some(matching_account) = idl
-                        .accounts
-                        .iter()
-                        .find(|a| a.discriminator.eq(&discriminator))
-                    {
-                        // If we found a matching account, we can look up the type to parse the account
-                        if let Some(account_type) =
-                            idl.types.iter().find(|t| t.name == matching_account.name)
-                        {
-                            let empty_vec = vec![];
-                            let idl_type_def_generics = idl
-                                .types
-                                .iter()
-                                .find(|t| t.name == account_type.name)
-                                .map(|t| &t.generics);
 
-                            // If we found a matching account type, we can use it to parse the account data
-                            let rest = data[8..].as_ref();
-                            if let Ok(parsed_value) =
-                                parse_bytes_to_value_with_expected_idl_type_def_ty(
-                                    rest,
-                                    &account_type.ty,
-                                    &idl.types,
-                                    &vec![],
-                                    idl_type_def_generics.unwrap_or(&empty_vec),
-                                )
-                            {
-                                return UiAccount {
-                                    lamports: account.lamports(),
-                                    data: UiAccountData::Json(ParsedAccount {
-                                        program: idl
-                                            .metadata
-                                            .name
-                                            .to_string()
-                                            .to_case(convert_case::Case::Kebab),
-                                        parsed: parsed_value
-                                            .to_json(Some(&get_txtx_value_json_converters())),
-                                        space: data.len() as u64,
-                                    }),
-                                    owner: account.owner().to_string(),
-                                    executable: account.executable(),
-                                    rent_epoch: account.rent_epoch(),
-                                    space: Some(account.data().len() as u64),
-                                };
-                            }
-                        }
+                    // Try to parse based on IDL type
+                    if let Some(ui_account) =
+                        self.try_parse_account_with_idl(pubkey, account, idl_ref, data)
+                    {
+                        return ui_account;
                     }
                 }
             }
@@ -3973,7 +4077,7 @@ mod tests {
             let account = Account {
                 lamports: 1000,
                 data: account_data,
-                owner: idl_v1.address.parse().unwrap(),
+                owner: idl_v1.address().parse().unwrap(),
                 executable: false,
                 rent_epoch: 0,
             };
@@ -3988,7 +4092,7 @@ mod tests {
             let expected_account = UiAccount {
                 lamports: 1000,
                 data: expected_data,
-                owner: idl_v1.address.clone(),
+                owner: idl_v1.address().to_string(),
                 executable: false,
                 rent_epoch: 0,
                 space: Some(account.data.len() as u64),
@@ -3998,7 +4102,9 @@ mod tests {
 
         // valid account data matching IDL schema should be parsed
         {
-            let mut account_data = idl_v1.accounts[0].discriminator.clone();
+            let mut account_data = idl_v1.as_anchor().unwrap().accounts[0]
+                .discriminator
+                .clone();
             let pubkey = Pubkey::new_unique();
             CustomAccount {
                 my_custom_data: 42,
@@ -4012,7 +4118,7 @@ mod tests {
             let account = Account {
                 lamports: 1000,
                 data: account_data,
-                owner: idl_v1.address.parse().unwrap(),
+                owner: idl_v1.address().parse().unwrap(),
                 executable: false,
                 rent_epoch: 0,
             };
@@ -4027,7 +4133,7 @@ mod tests {
             let expected_account = UiAccount {
                 lamports: 1000,
                 data: UiAccountData::Json(ParsedAccount {
-                    program: format!("{}", idl_v1.metadata.name).to_case(convert_case::Case::Kebab),
+                    program: format!("{}", idl_v1.name()).to_case(convert_case::Case::Kebab),
                     parsed: serde_json::json!({
                         "my_custom_data": 42,
                         "another_field": "test",
@@ -4036,7 +4142,7 @@ mod tests {
                     }),
                     space: account.data.len() as u64,
                 }),
-                owner: idl_v1.address.clone(),
+                owner: idl_v1.address().to_string(),
                 executable: false,
                 rent_epoch: 0,
                 space: Some(account.data.len() as u64),
@@ -4052,7 +4158,9 @@ mod tests {
 
         // even though we have a new IDL that is more recent, we should be able to match with the old IDL
         {
-            let mut account_data = idl_v1.accounts[0].discriminator.clone();
+            let mut account_data = idl_v1.as_anchor().unwrap().accounts[0]
+                .discriminator
+                .clone();
             let pubkey = Pubkey::new_unique();
             CustomAccount {
                 my_custom_data: 42,
@@ -4066,7 +4174,7 @@ mod tests {
             let account = Account {
                 lamports: 1000,
                 data: account_data,
-                owner: idl_v1.address.parse().unwrap(),
+                owner: idl_v1.address().parse().unwrap(),
                 executable: false,
                 rent_epoch: 0,
             };
@@ -4081,7 +4189,7 @@ mod tests {
             let expected_account = UiAccount {
                 lamports: 1000,
                 data: UiAccountData::Json(ParsedAccount {
-                    program: format!("{}", idl_v1.metadata.name).to_case(convert_case::Case::Kebab),
+                    program: format!("{}", idl_v1.name()).to_case(convert_case::Case::Kebab),
                     parsed: serde_json::json!({
                         "my_custom_data": 42,
                         "another_field": "test",
@@ -4090,7 +4198,7 @@ mod tests {
                     }),
                     space: account.data.len() as u64,
                 }),
-                owner: idl_v1.address.clone(),
+                owner: idl_v1.address().to_string(),
                 executable: false,
                 rent_epoch: 0,
                 space: Some(account.data.len() as u64),
@@ -4107,7 +4215,9 @@ mod tests {
                 pub another_field: String,
                 pub pubkey: Pubkey,
             }
-            let mut account_data = idl_v1.accounts[0].discriminator.clone();
+            let mut account_data = idl_v1.as_anchor().unwrap().accounts[0]
+                .discriminator
+                .clone();
             let pubkey = Pubkey::new_unique();
             CustomAccount {
                 my_custom_data: 42,
@@ -4120,7 +4230,7 @@ mod tests {
             let account = Account {
                 lamports: 1000,
                 data: account_data.clone(),
-                owner: idl_v1.address.parse().unwrap(),
+                owner: idl_v1.address().parse().unwrap(),
                 executable: false,
                 rent_epoch: 0,
             };
@@ -4137,7 +4247,7 @@ mod tests {
             let expected_account = UiAccount {
                 lamports: 1000,
                 data: expected_data,
-                owner: idl_v1.address.clone(),
+                owner: idl_v1.address().to_string(),
                 executable: false,
                 rent_epoch: 0,
                 space: Some(account.data.len() as u64),
@@ -4156,7 +4266,7 @@ mod tests {
             let expected_account = UiAccount {
                 lamports: 1000,
                 data: UiAccountData::Json(ParsedAccount {
-                    program: format!("{}", idl_v1.metadata.name).to_case(convert_case::Case::Kebab),
+                    program: format!("{}", idl_v1.name()).to_case(convert_case::Case::Kebab),
                     parsed: serde_json::json!({
                         "my_custom_data": 42,
                         "another_field": "test",
@@ -4164,7 +4274,160 @@ mod tests {
                     }),
                     space: account.data.len() as u64,
                 }),
-                owner: idl_v1.address.clone(),
+                owner: idl_v1.address().to_string(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(account.data.len() as u64),
+            };
+            assert_eq!(ui_account, expected_account);
+        }
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_encode_ui_account_shank(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        let shank_idl: Idl =
+            serde_json::from_slice(&include_bytes!("../tests/assets/shank_idl.json").to_vec())
+                .unwrap();
+
+        assert!(shank_idl.is_shank(), "IDL should be parsed as Shank format");
+
+        svm.register_idl(shank_idl.clone(), Some(0)).unwrap();
+
+        let account_pubkey = Pubkey::new_unique();
+
+        // Shank accounts use a 1-byte discriminator based on enum variant index
+        // CustomAccount is variant 0 in AccountType enum
+        // Account structure: account_type (1 byte) + my_custom_data (u64) + another_field (string) + flag (bool) + pubkey (32 bytes)
+
+        // Account data with invalid discriminator should use default encoding
+        {
+            let mut account_data = vec![0; 100];
+            account_data[0] = 255; // Invalid discriminator (no variant 255 exists)
+            let base64_data = general_purpose::STANDARD.encode(&account_data);
+            let expected_data = UiAccountData::Binary(base64_data, UiAccountEncoding::Base64);
+            let account = Account {
+                lamports: 1000,
+                data: account_data,
+                owner: shank_idl.address().parse().unwrap(),
+                executable: false,
+                rent_epoch: 0,
+            };
+
+            let ui_account = svm.encode_ui_account(
+                &account_pubkey,
+                &account,
+                UiAccountEncoding::JsonParsed,
+                None,
+                None,
+            );
+            let expected_account = UiAccount {
+                lamports: 1000,
+                data: expected_data,
+                owner: shank_idl.address().to_string(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(account.data.len() as u64),
+            };
+            assert_eq!(ui_account, expected_account);
+        }
+
+        // Valid account data matching Shank IDL schema should be parsed
+        {
+            let pubkey = Pubkey::new_unique();
+            let test_string = "hello";
+
+            // Build the account data manually following Borsh encoding:
+            // - account_type: 1 byte (discriminator = 0 for CustomAccount)
+            // - my_custom_data: 8 bytes (u64 little-endian)
+            // - another_field: 4 bytes length + string bytes
+            // - flag: 1 byte (bool)
+            // - pubkey: 32 bytes
+            let mut account_data = Vec::new();
+            account_data.push(0u8); // discriminator for CustomAccount (enum variant 0)
+            account_data.extend_from_slice(&42u64.to_le_bytes()); // my_custom_data
+            account_data.extend_from_slice(&(test_string.len() as u32).to_le_bytes()); // string length
+            account_data.extend_from_slice(test_string.as_bytes()); // string content
+            account_data.push(1u8); // flag = true
+            account_data.extend_from_slice(&pubkey.to_bytes()); // pubkey
+
+            let account = Account {
+                lamports: 1000,
+                data: account_data,
+                owner: shank_idl.address().parse().unwrap(),
+                executable: false,
+                rent_epoch: 0,
+            };
+
+            let ui_account = svm.encode_ui_account(
+                &account_pubkey,
+                &account,
+                UiAccountEncoding::JsonParsed,
+                None,
+                None,
+            );
+
+            let expected_account = UiAccount {
+                lamports: 1000,
+                data: UiAccountData::Json(ParsedAccount {
+                    program: format!("{}", shank_idl.name()).to_case(convert_case::Case::Kebab),
+                    parsed: serde_json::json!({
+                        "account_type": { "CustomAccount": null },
+                        "my_custom_data": 42,
+                        "another_field": test_string,
+                        "flag": true,
+                        "pubkey": pubkey.to_string(),
+                    }),
+                    space: account.data.len() as u64,
+                }),
+                owner: shank_idl.address().to_string(),
+                executable: false,
+                rent_epoch: 0,
+                space: Some(account.data.len() as u64),
+            };
+            assert_eq!(ui_account, expected_account);
+        }
+
+        // Test AnotherAccount (discriminator = 1)
+        {
+            // Build account data for AnotherAccount:
+            // - account_type: 1 byte (discriminator = 1 for AnotherAccount)
+            // - value: 4 bytes (u32 little-endian)
+            let mut account_data = Vec::new();
+            account_data.push(1u8); // discriminator for AnotherAccount (enum variant 1)
+            account_data.extend_from_slice(&999u32.to_le_bytes()); // value
+
+            let account = Account {
+                lamports: 500,
+                data: account_data,
+                owner: shank_idl.address().parse().unwrap(),
+                executable: false,
+                rent_epoch: 0,
+            };
+
+            let ui_account = svm.encode_ui_account(
+                &account_pubkey,
+                &account,
+                UiAccountEncoding::JsonParsed,
+                None,
+                None,
+            );
+
+            let expected_account = UiAccount {
+                lamports: 500,
+                data: UiAccountData::Json(ParsedAccount {
+                    program: format!("{}", shank_idl.name()).to_case(convert_case::Case::Kebab),
+                    parsed: serde_json::json!({
+                        "account_type": { "AnotherAccount": null },
+                        "value": 999,
+                    }),
+                    space: account.data.len() as u64,
+                }),
+                owner: shank_idl.address().to_string(),
                 executable: false,
                 rent_epoch: 0,
                 space: Some(account.data.len() as u64),

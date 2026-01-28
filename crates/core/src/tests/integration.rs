@@ -1305,7 +1305,7 @@ fn test_register_and_get_idl_without_slot(test_type: TestType) {
     // Test 2: Get IDL without slot
 
     let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> =
-        rpc_server.get_idl(Some(runloop_context.clone()), idl.address.to_string(), None);
+        rpc_server.get_idl(Some(runloop_context.clone()), idl.address().to_string(), None);
 
     assert!(
         get_idl_response.is_ok(),
@@ -1366,7 +1366,7 @@ fn test_register_and_get_idl_with_slot(test_type: TestType) {
 
     let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server.get_idl(
         Some(runloop_context.clone()),
-        idl.address.to_string(),
+        idl.address().to_string(),
         Some(Slot::from(
             svm_locker_for_context.get_latest_absolute_slot(),
         )),
@@ -1490,7 +1490,7 @@ async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType
 
         let get_idl_response: JsonRpcResult<RpcResponse<Option<Idl>>> = rpc_server.get_idl(
             Some(runloop_context.clone()),
-            idl_v1.address.to_string(),
+            idl_v1.address().to_string(),
             Some(Slot::from(*query_slot)),
         );
 

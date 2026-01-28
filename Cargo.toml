@@ -31,6 +31,7 @@ agave-feature-set = { version = "3.1", default-features = false }
 agave-geyser-plugin-interface = { version = "3.1", default-features = false }
 agave-reserved-account-keys = { version = "3.1", default-features = false }
 anchor-lang-idl = "0.1.2"
+shank_idl = "0.4.2"
 ansi_term = "0.12.1"
 anyhow = { version = "1.0.95", default-features = false }
 atty = "0.2.13"
@@ -178,15 +179,15 @@ txtx-core = { version = "0.4.14" }
 txtx-gql = { version = "0.3.8" }
 txtx-supervisor-ui = { version = "0.2.9", default-features = false }
 
-# [patch.crates-io]
-## Local
-# txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
-# txtx-core = { path = "../txtx/crates/txtx-core" }
-# txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
-# txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
-# txtx-gql = { path = "../txtx/crates/txtx-gql" }
-# txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
-# txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
+[patch.crates-io]
+# Local
+txtx-addon-kit = { path = "../txtx-shank/crates/txtx-addon-kit" }
+txtx-core = { path = "../txtx-shank/crates/txtx-core" }
+txtx-addon-network-svm = { path = "../txtx-shank/addons/svm/core" }
+txtx-addon-network-svm-types = { path = "../txtx-shank/addons/svm/types" }
+txtx-gql = { path = "../txtx-shank/crates/txtx-gql" }
+txtx-supervisor-ui = { path = "../txtx-shank/crates/txtx-supervisor-ui" }
+txtx-cloud = { path = "../txtx-shank/crates/txtx-cloud" }
 
 ## Git
 # txtx-addon-kit = { git = "https://github.com/txtx/txtx.git", branch = "main" }

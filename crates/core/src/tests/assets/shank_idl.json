@@ -1,0 +1,76 @@
+{
+    "name": "shank_test_program",
+    "version": "0.1.0",
+    "metadata": {
+        "origin": "shank",
+        "address": "ShankTest1111111111111111111111111111111111"
+    },
+    "constants": [
+        {
+            "name": "account_discriminator",
+            "type": "string",
+            "value": "\"AccountType\""
+        }
+    ],
+    "types": [
+        {
+            "name": "AccountType",
+            "type": {
+                "kind": "enum",
+                "variants": [
+                    { "name": "CustomAccount" },
+                    { "name": "AnotherAccount" }
+                ]
+            }
+        },
+        {
+            "name": "CustomAccount",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    { "name": "account_type", "type": { "defined": "AccountType" } },
+                    { "name": "my_custom_data", "type": "u64" },
+                    { "name": "another_field", "type": "string" },
+                    { "name": "flag", "type": "bool" },
+                    { "name": "pubkey", "type": "publicKey" }
+                ]
+            }
+        },
+        {
+            "name": "AnotherAccount",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    { "name": "account_type", "type": { "defined": "AccountType" } },
+                    { "name": "value", "type": "u32" }
+                ]
+            }
+        }
+    ],
+    "accounts": [
+        {
+            "name": "CustomAccount",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    { "name": "account_type", "type": { "defined": "AccountType" } },
+                    { "name": "my_custom_data", "type": "u64" },
+                    { "name": "another_field", "type": "string" },
+                    { "name": "flag", "type": "bool" },
+                    { "name": "pubkey", "type": "publicKey" }
+                ]
+            }
+        },
+        {
+            "name": "AnotherAccount",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    { "name": "account_type", "type": { "defined": "AccountType" } },
+                    { "name": "value", "type": "u32" }
+                ]
+            }
+        }
+    ],
+    "instructions": []
+}

@@ -3723,7 +3723,8 @@ mod tests {
         let mut overrides: HashMap<String, serde_json::Value> = HashMap::new();
 
         // Verify IDL has matching discriminator
-        let account_def = idl
+        let anchor_idl = idl.as_anchor().expect("Test IDL should be Anchor");
+        let account_def = anchor_idl
             .accounts
             .iter()
             .find(|acc| acc.discriminator.eq(&account_data_hex[..8]));

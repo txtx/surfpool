@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use anyhow::{Result, anyhow};
 use convert_case::{Case, Casing};
 use serde::Deserialize;
+use surfpool_types::txtx_svm_types::subgraph::idl::IdlKind;
 use txtx_addon_network_svm::codec::idl::IdlRef;
 use txtx_gql::kit::helpers::fs::FileLocation;
 
@@ -35,8 +36,11 @@ pub fn get_program_metadata_from_manifest_with_dep(
         let idl_ref = IdlRef::from_bytes(&idl_content)
             .map_err(|e| anyhow!("failed to convert idl to anchor-style idl: {e}"))?;
 
-        let idl = serde_json::to_string_pretty(&idl_ref.idl)
-            .map_err(|e| anyhow!("failed to serialize idl: {e}"))?;
+        let idl = match idl_ref.idl() {
+            IdlKind::Anchor(idl) => serde_json::to_string_pretty(&idl),
+            IdlKind::Shank(idl) => serde_json::to_string_pretty(&idl),
+        }
+        .map_err(|e| anyhow!("failed to serialize idl: {e}"))?;
         Some(idl)
     } else {
         None
