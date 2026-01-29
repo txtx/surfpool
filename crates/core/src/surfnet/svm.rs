@@ -1513,6 +1513,19 @@ impl SurfnetSvm {
         self.runbook_executions.clear();
         self.streamed_accounts.clear()?;
         self.scheduled_overrides.clear()?;
+
+        let current_time = chrono::Utc::now().timestamp_millis() as u64;
+        self.updated_at = current_time;
+        self.genesis_updated_at = current_time;
+        self.latest_epoch_info = solana_epoch_info::EpochInfo {
+            epoch: 0,
+            slot_index: 0,
+            slots_in_epoch: SLOTS_PER_EPOCH,
+            absolute_slot: 0,
+            block_height: 0,
+            transaction_count: None,
+        };
+
         Ok(())
     }
 
