@@ -139,8 +139,18 @@ impl SurfnetSvmLocker {
     pub fn shutdown(&self) {
         let read_lock = self.0.clone();
         tokio::task::block_in_place(move || {
-            let read_guard = read_lock.blocking_read();
-            read_guard.shutdown();
+            let handle = tokio::runtime::Handle::current();
+            match handle.block_on(tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                read_lock.read(),
+            )) {
+                Ok(read_guard) => read_guard.shutdown(),
+                Err(_) => {
+                    eprintln!(
+                        "Warning: timed out waiting for SVM lock during shutdown, skipping WAL checkpoint"
+                    );
+                }
+            }
         });
     }
 

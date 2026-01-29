@@ -2,6 +2,8 @@ use std::{
     env,
     error::Error,
     io,
+    sync::Arc,
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
@@ -34,6 +36,84 @@ use txtx_core::kit::{channel::Receiver, types::frontend::BlockEvent};
 use txtx_gql::kit::types::frontend::{LogEvent, LogLevel, TransientLogEventStatus};
 
 use crate::runbook::persist_log;
+
+/// Check if the terminal has been disconnected (hung up).
+/// Uses poll() with POLLHUP detection and parent-PID reparenting as a macOS fallback.
+/// Returns true when PTY is closed (e.g., terminal tab/window close).
+#[cfg(unix)]
+fn is_terminal_disconnected(initial_ppid: i32) -> bool {
+    let mut fds = [
+        libc::pollfd {
+            fd: 0,
+            events: libc::POLLIN,
+            revents: 0,
+        }, // stdin
+        libc::pollfd {
+            fd: 1,
+            events: libc::POLLOUT,
+            revents: 0,
+        }, // stdout
+    ];
+
+    // Non-blocking poll (timeout = 0)
+    let result = unsafe { libc::poll(fds.as_mut_ptr(), 2, 0) };
+
+    if result < 0 {
+        // EINTR = interrupted by signal (e.g. SIGWINCH on resize), not a disconnect
+        return std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted;
+    }
+
+    // Check for hangup/error on either fd
+    let stdin_bad = (fds[0].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)) != 0;
+    let stdout_bad = (fds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)) != 0;
+
+    if stdin_bad || stdout_bad {
+        return true;
+    }
+
+    // Fallback: parent process changed (we were orphaned / re-parented to init)
+    if unsafe { libc::getppid() } != initial_ppid {
+        return true;
+    }
+
+    false
+}
+
+/// Spawns a background thread that monitors for PTY disconnection.
+/// Sets `terminator` to `true` when the terminal is detected as dead.
+/// Checks every 100ms and exits when `terminator` is already set (normal shutdown).
+#[cfg(unix)]
+fn spawn_pty_watchdog(terminator: Arc<AtomicBool>) {
+    let initial_ppid = unsafe { libc::getppid() };
+    if let Err(e) = std::thread::Builder::new()
+        .name("pty-watchdog".into())
+        .spawn(move || {
+            while !terminator.load(Ordering::Acquire) {
+                if is_terminal_disconnected(initial_ppid) {
+                    terminator.store(true, Ordering::Release);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        })
+    {
+        eprintln!("Warning: failed to spawn pty-watchdog: {e}");
+    }
+}
+
+#[cfg(not(unix))]
+fn spawn_pty_watchdog(_terminator: Arc<AtomicBool>) {}
+
+/// Macro to check the terminator flag and exit early if set.
+/// Sends a Terminate command and returns Ok(()) from the enclosing function.
+macro_rules! check_exit {
+    ($terminator:expr, $tx:expr) => {
+        if $terminator.load(Ordering::Acquire) {
+            let _ = $tx.send(SimnetCommand::Terminate(None));
+            return Ok(());
+        }
+    };
+}
 
 const HELP_TEXT: &str = "(Esc) quit | (↑) move up | (↓) move down";
 const SURFPOOL_LINK: &str = "Need help? https://docs.surfpool.run/tui";
@@ -400,6 +480,29 @@ pub fn start_app(
     breaker: Option<Keypair>,
     initial_transactions: u64,
 ) -> Result<(), Box<dyn Error>> {
+    // Set up signal handler for graceful shutdown (SIGTERM, SIGHUP, SIGINT)
+    // Use flag::register which directly sets the atomic in signal context
+    let terminator = Arc::new(AtomicBool::new(false));
+    if let Err(e) =
+        signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&terminator))
+    {
+        eprintln!("Warning: failed to register SIGTERM handler: {e}");
+    }
+    if let Err(e) =
+        signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&terminator))
+    {
+        eprintln!("Warning: failed to register SIGINT handler: {e}");
+    }
+    #[cfg(unix)]
+    if let Err(e) =
+        signal_hook::flag::register(signal_hook::consts::SIGHUP, Arc::clone(&terminator))
+    {
+        eprintln!("Warning: failed to register SIGHUP handler: {e}");
+    }
+
+    // Spawn PTY watchdog thread to detect terminal disconnection
+    spawn_pty_watchdog(Arc::clone(&terminator));
+
     // setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -417,12 +520,12 @@ pub fn start_app(
         breaker,
         initial_transactions,
     );
-    let res = run_app(&mut terminal, app);
+    let res = run_app(&mut terminal, app, terminator);
 
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
+    // restore terminal (best-effort: terminal may already be dead)
+    let _ = disable_raw_mode();
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    let _ = terminal.show_cursor();
 
     if let Err(err) = res {
         println!("{err:?}");
@@ -431,7 +534,11 @@ pub fn start_app(
     Ok(())
 }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
+fn run_app<B: Backend>(
+    terminal: &mut Terminal<B>,
+    mut app: App,
+    terminator: Arc<AtomicBool>,
+) -> io::Result<()> {
     let (tx, rx) = unbounded();
     let rpc_api_url = match app.displayed_url {
         DisplayedUrl::Datasource(ref config) => config.rpc_url.clone(),
@@ -450,6 +557,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
 
     let mut deployment_completed = false;
     loop {
+        // Exit point 1: top of outer loop — catches signals, SIGHUP, PTY death (via watchdog)
+        check_exit!(terminator, app.simnet_commands_tx);
+
         let mut selector = Select::new();
         let mut handles = vec![];
         let mut new_events = vec![];
@@ -463,8 +573,12 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
             }
 
             loop {
-                let Ok(oper) = selector.try_select() else {
-                    break;
+                // Exit point 2: inner selector loop — responsive during channel-drain phase
+                check_exit!(terminator, app.simnet_commands_tx);
+
+                let oper = match selector.select_timeout(std::time::Duration::from_millis(10)) {
+                    Ok(oper) => oper,
+                    Err(_) => break, // Timeout or no events ready
                 };
                 match oper.index() {
                     0 => match oper.recv(&app.simnet_events_rx) {
@@ -701,69 +815,112 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
             app.tail();
         }
 
-        if event::poll(Duration::from_millis(50))? {
-            if let Event::Key(key_event) = event::read()? {
-                if key_event.kind == KeyEventKind::Press {
-                    use KeyCode::*;
-                    if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == Char('c') {
-                        // Send terminate command to allow graceful shutdown (Drop to run)
-                        let _ = app.simnet_commands_tx.send(SimnetCommand::Terminate(None));
-                        return Ok(());
-                    }
-                    match key_event.code {
-                        Char('q') | Esc => {
-                            // Send terminate command to allow graceful shutdown (Drop to run)
+        // Handle crossterm events with disconnection-safe polling.
+        // crossterm::event::poll() can hang indefinitely when the PTY master closes
+        // on macOS, so we use poll(Duration::ZERO) in a loop with a manual sleep.
+        // The PTY watchdog thread handles disconnection detection separately.
+        let poll_deadline = Instant::now() + Duration::from_millis(50);
+        loop {
+            // Exit point 3: inner poll loop — responsive during event polling phase
+            check_exit!(terminator, app.simnet_commands_tx);
+
+            match event::poll(Duration::ZERO) {
+                Ok(true) => {
+                    match event::read() {
+                        Ok(Event::Key(key_event)) => {
+                            if key_event.kind == KeyEventKind::Press {
+                                use KeyCode::*;
+                                // Exit point 4: user keypress (Ctrl+C / q / Esc)
+                                if key_event.modifiers == KeyModifiers::CONTROL
+                                    && key_event.code == Char('c')
+                                {
+                                    terminator.store(true, Ordering::Release);
+                                    let _ =
+                                        app.simnet_commands_tx.send(SimnetCommand::Terminate(None));
+                                    return Ok(());
+                                }
+                                match key_event.code {
+                                    Char('q') | Esc => {
+                                        terminator.store(true, Ordering::Release);
+                                        let _ = app
+                                            .simnet_commands_tx
+                                            .send(SimnetCommand::Terminate(None));
+                                        return Ok(());
+                                    }
+                                    Down => app.next(),
+                                    Up => app.previous(),
+                                    Left => app.selected_tab = 0,
+                                    Right => app.selected_tab = 1,
+                                    Char('f') | Char('j') => {
+                                        let sender = app.breaker.as_ref().unwrap();
+                                        let instruction = system_instruction::transfer(
+                                            &sender.pubkey(),
+                                            &Pubkey::new_unique(),
+                                            100,
+                                        );
+                                        let message =
+                                            Message::new(&[instruction], Some(&sender.pubkey()));
+                                        let _ = tx.send((message, sender.insecure_clone()));
+                                    }
+                                    Char(' ') => {
+                                        app.paused = !app.paused;
+                                        let _ = app.simnet_commands_tx.send(
+                                            SimnetCommand::CommandClock(None, ClockCommand::Toggle),
+                                        );
+                                    }
+                                    Tab => {
+                                        let _ = app
+                                            .simnet_commands_tx
+                                            .send(SimnetCommand::SlotForward(None));
+                                    }
+                                    Char('t') => {
+                                        let _ = app.simnet_commands_tx.send(
+                                            SimnetCommand::UpdateBlockProductionMode(
+                                                BlockProductionMode::Transaction,
+                                            ),
+                                        );
+                                    }
+                                    Char('c') => {
+                                        let _ = app.simnet_commands_tx.send(
+                                            SimnetCommand::UpdateBlockProductionMode(
+                                                BlockProductionMode::Clock,
+                                            ),
+                                        );
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        Ok(_) => {} // Other event types (resize, mouse, etc.)
+                        Err(_) => {
+                            // Exit point 5: unrecoverable I/O error from event::read()
                             let _ = app.simnet_commands_tx.send(SimnetCommand::Terminate(None));
                             return Ok(());
                         }
-                        Down => app.next(),
-                        Up => app.previous(),
-                        Left => app.selected_tab = 0,
-                        Right => app.selected_tab = 1,
-                        Char('f') | Char('j') => {
-                            // Break Solana
-                            let sender = app.breaker.as_ref().unwrap();
-                            let instruction = system_instruction::transfer(
-                                &sender.pubkey(),
-                                &Pubkey::new_unique(),
-                                100,
-                            );
-                            let message = Message::new(&[instruction], Some(&sender.pubkey()));
-                            let _ = tx.send((message, sender.insecure_clone()));
-                        }
-                        Char(' ') => {
-                            app.paused = !app.paused;
-                            let _ = app
-                                .simnet_commands_tx
-                                .send(SimnetCommand::CommandClock(None, ClockCommand::Toggle));
-                        }
-                        Tab => {
-                            let _ = app
-                                .simnet_commands_tx
-                                .send(SimnetCommand::SlotForward(None));
-                        }
-                        Char('t') => {
-                            let _ = app.simnet_commands_tx.send(
-                                SimnetCommand::UpdateBlockProductionMode(
-                                    BlockProductionMode::Transaction,
-                                ),
-                            );
-                        }
-                        Char('c') => {
-                            let _ = app.simnet_commands_tx.send(
-                                SimnetCommand::UpdateBlockProductionMode(
-                                    BlockProductionMode::Clock,
-                                ),
-                            );
-                        }
-                        _ => {}
                     }
+                    break; // Event processed, continue to draw
+                }
+                Ok(false) => {
+                    if Instant::now() >= poll_deadline {
+                        break; // Timeout reached, continue to draw
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(_) => {
+                    // Unrecoverable I/O error from event::poll()
+                    let _ = app.simnet_commands_tx.send(SimnetCommand::Terminate(None));
+                    return Ok(());
                 }
             }
         }
 
         app.update_blink_state();
-        terminal.draw(|f| ui(f, &mut app))?;
+
+        // Handle draw errors gracefully - PTY may be closed
+        if terminal.draw(|f| ui(f, &mut app)).is_err() {
+            let _ = app.simnet_commands_tx.send(SimnetCommand::Terminate(None));
+            return Ok(());
+        }
     }
 }
 

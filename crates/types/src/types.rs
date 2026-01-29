@@ -575,6 +575,8 @@ pub enum ClockCommand {
     Resume,
     Toggle,
     UpdateSlotInterval(u64),
+    /// Terminate the clock thread for graceful shutdown
+    Terminate,
 }
 
 pub enum ClockEvent {

@@ -66,6 +66,7 @@ pub enum PluginManagerCommand {
     UnloadPlugin(Uuid, Sender<Result<(), String>>),
     ReloadPlugin(Uuid, PluginConfig, Sender<String>),
     ListPlugins(Sender<Vec<PluginInfo>>),
+    Terminate,
 }
 
 #[cfg(test)]

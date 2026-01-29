@@ -344,7 +344,7 @@ dependencies = [
  "env_logger",
  "libc",
  "log 0.4.29",
- "signal-hook",
+ "signal-hook 0.3.18",
 ]
 
 [[package]]
@@ -2059,7 +2059,7 @@ dependencies = [
  "mio 1.1.1",
  "parking_lot 0.12.5",
  "rustix 0.38.44",
- "signal-hook",
+ "signal-hook 0.3.18",
  "signal-hook-mio",
  "winapi 0.3.9",
 ]
@@ -7265,6 +7265,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "signal-hook"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b57709da74f9ff9f4a27dce9526eec25ca8407c45a7887243b031a58935fb8e"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
 name = "signal-hook-mio"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7272,7 +7282,7 @@ checksum = "b75a19a7a740b25bc7944bdee6172368f988763b744e3d4dfe753f6b4ece40cc"
 dependencies = [
  "libc",
  "mio 1.1.1",
- "signal-hook",
+ "signal-hook 0.3.18",
 ]
 
 [[package]]
@@ -11272,7 +11282,6 @@ dependencies = [
  "actix-web",
  "ansi_term",
  "anyhow",
- "atty",
  "chrono",
  "clap",
  "clap_complete",
@@ -11289,6 +11298,7 @@ dependencies = [
  "juniper_actix 0.6.0",
  "juniper_graphql_ws",
  "lazy_static",
+ "libc",
  "log 0.4.29",
  "mime_guess",
  "mustache",
@@ -11297,6 +11307,7 @@ dependencies = [
  "rust-embed",
  "serde",
  "serde_json",
+ "signal-hook 0.4.3",
  "solana-clock 3.0.0",
  "solana-commitment-config",
  "solana-epoch-info",
