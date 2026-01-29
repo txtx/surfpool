@@ -201,6 +201,57 @@ mod shutdown_tests {
         assert_signal_exits_log_mode(libc::SIGHUP, "SIGHUP");
     }
 
+    #[test]
+    fn sigterm_with_db_causes_clean_exit() {
+        let temp_dir = std::env::temp_dir();
+        let db_path = temp_dir.join(format!("surfpool_test_{}.sqlite", std::process::id()));
+
+        let mut child = Command::new(surfpool_bin())
+            .args([
+                "start",
+                "--no-tui",
+                "--yes",
+                "--db",
+                db_path.to_str().unwrap(),
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to spawn surfpool");
+
+        let pid = child.id() as i32;
+        thread::sleep(Duration::from_secs(4));
+
+        // Check if process died during startup (e.g., due to tokio runtime panic)
+        let startup_check = unsafe { libc::kill(pid, 0) };
+        if startup_check != 0 {
+            // Process died - capture output for debugging
+            let output = child.wait_with_output().expect("failed to get output");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let _ = std::fs::remove_file(&db_path);
+            panic!(
+                "surfpool process died during startup.\nstderr: {}",
+                stderr
+            );
+        }
+
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+
+        if !wait_for_exit(pid, Duration::from_secs(10)) {
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&db_path);
+            panic!("surfpool with --db did not exit within 10s of SIGTERM");
+        }
+
+        // Cleanup db file
+        let _ = std::fs::remove_file(&db_path);
+    }
+
     // -----------------------------------------------------------------------
     // TUI-mode tests (PTY)
     // -----------------------------------------------------------------------

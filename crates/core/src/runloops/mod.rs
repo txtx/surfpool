@@ -1507,12 +1507,18 @@ async fn start_http_rpc_server_runloop(
         io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());
     }
 
-    // Build the server on the main thread to get the close handle
-    let server = ServerBuilder::new(io)
-        .cors(DomainsValidation::Disabled)
-        .threads(6)
-        .start_http(&server_bind)
-        .map_err(|e| format!("Failed to start RPC server: {:?}", e))?;
+    // Build the server on a blocking thread to avoid tokio runtime conflict.
+    // jsonrpc_http_server::start_http() creates an internal tokio runtime which
+    // panics if called from within an existing async context (nestable_block_on).
+    let server = tokio::task::spawn_blocking(move || {
+        ServerBuilder::new(io)
+            .cors(DomainsValidation::Disabled)
+            .threads(6)
+            .start_http(&server_bind)
+    })
+    .await
+    .map_err(|e| format!("Failed to spawn server builder: {:?}", e))?
+    .map_err(|e| format!("Failed to start RPC server: {:?}", e))?;
 
     let close_handle = server.close_handle();
 
