@@ -1530,10 +1530,17 @@ impl SurfnetSvmLocker {
                 svm_writer.transactions.store(
                     signature.to_string(),
                     SurfnetTransactionStatus::processed(
-                        transaction_with_status_meta,
+                        transaction_with_status_meta.clone(),
                         HashSet::new(),
                     ),
                 )?;
+
+                let _ = svm_writer
+                    .geyser_events_tx
+                    .send(GeyserEvent::NotifyTransaction(
+                        transaction_with_status_meta,
+                        Some(transaction.clone()),
+                    ));
 
                 svm_writer.transactions_queued_for_confirmation.push_back((
                     transaction.clone(),
