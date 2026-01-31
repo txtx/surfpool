@@ -505,3 +505,97 @@ where
         Ok(storage)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(diesel::QueryableByName, Debug)]
+    struct PragmaInt {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        value: i64,
+    }
+
+    /// SqliteStorage instances pointing to the same file share one connection pool.
+    #[test]
+    fn test_shared_pool_across_multiple_storages() {
+        let temp_file = tempfile::NamedTempFile::new().unwrap();
+        let db_path = temp_file.path().to_str().unwrap();
+
+        let storage1: SqliteStorage<String, String> =
+            SqliteStorage::connect(db_path, "table1", "surfnet1").unwrap();
+        let storage2: SqliteStorage<String, String> =
+            SqliteStorage::connect(db_path, "table2", "surfnet1").unwrap();
+        let storage3: SqliteStorage<String, String> =
+            SqliteStorage::connect(db_path, "table3", "surfnet1").unwrap();
+
+        let _conn1 = storage1.pool.get().unwrap();
+
+        let state1 = storage1.pool.state();
+        let state2 = storage2.pool.state();
+        let state3 = storage3.pool.state();
+
+        assert_eq!(
+            state1.connections, state2.connections,
+            "pools should be shared"
+        );
+        assert_eq!(
+            state2.connections, state3.connections,
+            "pools should be shared"
+        );
+        assert_eq!(
+            state1.idle_connections, state2.idle_connections,
+            "pools should be shared"
+        );
+    }
+
+    /// Pragmas are applied to all pooled connections, not just the first.
+    #[test]
+    fn test_pragmas_applied_to_pooled_connections() {
+        let temp_file = tempfile::NamedTempFile::new().unwrap();
+        let db_path = temp_file.path().to_str().unwrap();
+
+        let storage: SqliteStorage<String, String> =
+            SqliteStorage::connect(db_path, "pragma_test", "surfnet1").unwrap();
+
+        let _conn1 = storage.pool.get().unwrap();
+        let mut conn2 = storage.pool.get().unwrap();
+
+        let cache_result: Vec<PragmaInt> =
+            diesel::sql_query("SELECT cache_size as value FROM pragma_cache_size")
+                .load(&mut *conn2)
+                .unwrap();
+        assert_eq!(cache_result[0].value, -64000, "cache_size should be -64000");
+
+        let timeout_result: Vec<PragmaInt> =
+            diesel::sql_query("SELECT timeout as value FROM pragma_busy_timeout")
+                .load(&mut *conn2)
+                .unwrap();
+        assert_eq!(timeout_result[0].value, 5000, "busy_timeout should be 5000");
+    }
+
+    /// File-specific pragmas (synchronous, temp_store) are applied to all connections.
+    #[test]
+    fn test_pragmas_applied_to_file_database() {
+        let temp_file = tempfile::NamedTempFile::new().unwrap();
+        let db_path = temp_file.path().to_str().unwrap();
+
+        let storage: SqliteStorage<String, String> =
+            SqliteStorage::connect(db_path, "pragma_test", "surfnet1").unwrap();
+
+        let _conn1 = storage.pool.get().unwrap();
+        let mut conn2 = storage.pool.get().unwrap();
+
+        let result: Vec<PragmaInt> =
+            diesel::sql_query("SELECT synchronous as value FROM pragma_synchronous")
+                .load(&mut *conn2)
+                .unwrap();
+        assert_eq!(result[0].value, 1, "synchronous should be NORMAL (1)");
+
+        let temp_result: Vec<PragmaInt> =
+            diesel::sql_query("SELECT temp_store as value FROM pragma_temp_store")
+                .load(&mut *conn2)
+                .unwrap();
+        assert_eq!(temp_result[0].value, 2, "temp_store should be MEMORY (2)");
+    }
+}
