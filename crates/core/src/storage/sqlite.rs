@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::{Mutex, OnceLock},
 };
 
@@ -15,12 +15,78 @@ use surfpool_db::diesel::{
 
 use crate::storage::{Storage, StorageConstructor, StorageError, StorageResult};
 
+/// Applies pragmas when each pool connection is created.
+#[derive(Debug)]
+struct SqlitePragmaCustomizer {
+    is_file_based: bool,
+}
+
+impl diesel::r2d2::CustomizeConnection<diesel::SqliteConnection, diesel::r2d2::Error>
+    for SqlitePragmaCustomizer
+{
+    fn on_acquire(&self, conn: &mut diesel::SqliteConnection) -> Result<(), diesel::r2d2::Error> {
+        let pragmas = if self.is_file_based {
+            "PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY; PRAGMA mmap_size=268435456; PRAGMA cache_size=-64000; PRAGMA busy_timeout=5000;"
+        } else {
+            "PRAGMA synchronous=OFF; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-64000; PRAGMA busy_timeout=5000;"
+        };
+        conn.batch_execute(pragmas)
+            .map_err(diesel::r2d2::Error::QueryError)
+    }
+}
+
 /// Track which database files have already been checkpointed during shutdown.
 /// This prevents multiple SqliteStorage instances sharing the same file from
 /// conflicting when each tries to checkpoint and delete WAL files.
 fn checkpointed_databases() -> &'static Mutex<HashSet<String>> {
     static CHECKPOINTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     CHECKPOINTED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Shared pools keyed by connection string (file-based DBs only).
+static SHARED_POOLS: OnceLock<
+    Mutex<HashMap<String, Pool<ConnectionManager<diesel::SqliteConnection>>>>,
+> = OnceLock::new();
+
+fn get_or_create_shared_pool(
+    connection_string: &str,
+    is_file_based: bool,
+) -> StorageResult<Pool<ConnectionManager<diesel::SqliteConnection>>> {
+    // In-memory DBs get isolated pools
+    if !is_file_based {
+        let manager = ConnectionManager::<diesel::SqliteConnection>::new(connection_string);
+        return Pool::builder()
+            .max_size(10)
+            .connection_customizer(Box::new(SqlitePragmaCustomizer { is_file_based }))
+            .build(manager)
+            .map_err(|e| StorageError::PooledConnectionError(NAME.into(), e));
+    }
+
+    let pools = SHARED_POOLS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = pools.lock().map_err(|_| StorageError::LockError)?;
+
+    if let Some(pool) = guard.get(connection_string) {
+        debug!("Reusing shared SQLite pool for {}", connection_string);
+        return Ok(pool.clone());
+    }
+
+    debug!("Creating shared SQLite pool for {}", connection_string);
+    let manager = ConnectionManager::<diesel::SqliteConnection>::new(connection_string);
+    let pool = Pool::builder()
+        .max_size(10)
+        .connection_customizer(Box::new(SqlitePragmaCustomizer { is_file_based }))
+        .build(manager)
+        .map_err(|e| StorageError::PooledConnectionError(NAME.into(), e))?;
+
+    // journal_mode=WAL persists to file; wal_autocheckpoint is per-connection
+    {
+        let mut conn = pool.get().map_err(|_| StorageError::LockError)?;
+        conn.batch_execute("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=1000;")
+            .map_err(|e| StorageError::create_table("pragma_init", NAME, e))?;
+    }
+
+    guard.insert(connection_string.to_string(), pool.clone());
+    Ok(pool)
 }
 
 #[derive(QueryableByName, Debug)]
@@ -431,25 +497,21 @@ where
         );
 
         let connection_string = if database_url == ":memory:" {
-            database_url.to_string()
+            // cache=shared so all pool connections see the same in-memory DB
+            "file::memory:?cache=shared".to_string()
         } else if database_url.starts_with("file:") {
-            // Already a URI, just add mode if needed
             if database_url.contains('?') {
                 format!("{}&mode=rwc", database_url)
             } else {
                 format!("{}?mode=rwc", database_url)
             }
         } else {
-            // Convert plain path to file: URI format for proper parameter handling
             format!("file:{}?mode=rwc", database_url)
         };
 
-        let manager = ConnectionManager::<diesel::SqliteConnection>::new(connection_string.clone());
-        trace!("Creating connection pool");
-        let pool =
-            Pool::new(manager).map_err(|e| StorageError::PooledConnectionError(NAME.into(), e))?;
-
         let is_file_based = database_url != ":memory:";
+        let pool = get_or_create_shared_pool(&connection_string, is_file_based)?;
+
         let storage = SqliteStorage {
             pool,
             _phantom: std::marker::PhantomData,
@@ -458,44 +520,6 @@ where
             is_file_based,
             connection_string,
         };
-
-        // Set SQLite pragmas for performance and reliability
-        {
-            let mut conn = storage.pool.get().map_err(|_| StorageError::LockError)?;
-
-            // Different pragma sets for file-based vs in-memory databases
-            let pragmas = if database_url == ":memory:" {
-                // In-memory database pragmas (WAL not supported)
-                "
-                PRAGMA synchronous=OFF;
-                PRAGMA temp_store=MEMORY;
-                PRAGMA cache_size=-64000;
-                PRAGMA busy_timeout=5000;
-                "
-            } else {
-                // File-based database pragmas
-                "
-                PRAGMA journal_mode=WAL;
-                PRAGMA synchronous=NORMAL;
-                PRAGMA temp_store=MEMORY;
-                PRAGMA mmap_size=268435456;
-                PRAGMA cache_size=-64000;
-                PRAGMA busy_timeout=5000;
-                PRAGMA wal_autocheckpoint=1000;
-                "
-                // Pragma explanations:
-                // - journal_mode=WAL: Write-Ahead Logging for better concurrency and crash recovery
-                // - synchronous=NORMAL: Safe with WAL mode, good performance/durability balance
-                // - temp_store=MEMORY: Store temp tables in memory for speed
-                // - mmap_size=268435456: 256MB memory-mapped I/O for faster reads
-                // - cache_size=-64000: 64MB page cache (negative = KB)
-                // - busy_timeout=5000: Wait 5s for locks instead of failing immediately
-                // - wal_autocheckpoint=1000: Checkpoint WAL after 1000 pages (~4MB with default page size)
-            };
-
-            conn.batch_execute(pragmas)
-                .map_err(|e| StorageError::create_table(table_name, NAME, e))?;
-        }
 
         storage.ensure_table_exists()?;
         debug!(
