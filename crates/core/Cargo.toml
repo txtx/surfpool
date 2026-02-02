@@ -114,3 +114,4 @@ postgres = ["surfpool-db/postgres"]
 ignore_tests_ci = []
 geyser_plugin = []  # Disabled: solana-geyser-plugin-manager conflicts with litesvm 0.9.1
 subgraph = ["surfpool-subgraph"]
+register-tracing = ["litesvm/register-tracing"]
