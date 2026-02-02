@@ -1,6 +1,9 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Mutex, OnceLock},
+    sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use log::debug;
@@ -47,6 +50,9 @@ fn checkpointed_databases() -> &'static Mutex<HashSet<String>> {
 static SHARED_POOLS: OnceLock<
     Mutex<HashMap<String, Pool<ConnectionManager<diesel::SqliteConnection>>>>,
 > = OnceLock::new();
+
+/// Counter for unique in-memory database names.
+static MEMORY_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn get_or_create_shared_pool(
     connection_string: &str,
@@ -497,8 +503,9 @@ where
         );
 
         let connection_string = if database_url == ":memory:" {
-            // cache=shared so all pool connections see the same in-memory DB
-            "file::memory:?cache=shared".to_string()
+            // Unique name per storage instance; cache=shared so pool connections share it
+            let id = MEMORY_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
+            format!("file:memdb{}?mode=memory&cache=shared", id)
         } else if database_url.starts_with("file:") {
             if database_url.contains('?') {
                 format!("{}&mode=rwc", database_url)
