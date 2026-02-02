@@ -622,4 +622,20 @@ mod tests {
                 .unwrap();
         assert_eq!(temp_result[0].value, 2, "temp_store should be MEMORY (2)");
     }
+
+    /// In-memory databases are isolated between SqliteStorage instances.
+    #[test]
+    fn test_in_memory_databases_are_isolated() {
+        let mut storage1: SqliteStorage<String, String> =
+            SqliteStorage::connect(":memory:", "test_table", "surfnet1").unwrap();
+        let storage2: SqliteStorage<String, String> =
+            SqliteStorage::connect(":memory:", "test_table", "surfnet1").unwrap();
+
+        storage1
+            .store("key1".to_string(), "value1".to_string())
+            .unwrap();
+
+        let result = storage2.get(&"key1".to_string()).unwrap();
+        assert!(result.is_none(), "in-memory databases should be isolated");
+    }
 }
