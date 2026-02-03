@@ -2925,7 +2925,7 @@ impl SurfnetSvmLocker {
             .into_iter()
             .map(|(pubkey, account)| RpcKeyedAccount {
                 pubkey: pubkey.to_string(),
-                account: account,
+                account,
             })
             .collect::<Vec<RpcKeyedAccount>>();
 
