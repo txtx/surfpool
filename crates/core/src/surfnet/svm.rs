@@ -3130,13 +3130,11 @@ impl SurfnetSvm {
         let owner_program_id = account.owner();
         let data = account.data();
 
-        // Attempt IDL-based parsing when JsonParsed is requested and we have raw bytes
-        if encoding == UiAccountEncoding::JsonParsed && data.len() >= 8 {
+        if encoding == UiAccountEncoding::JsonParsed {
             if let Ok(Some(registered_idls)) =
                 self.registered_idls.get(&owner_program_id.to_string())
             {
                 let filter_slot = self.latest_epoch_info.absolute_slot;
-
                 // IDLs are stored sorted by slot descending (most recent first)
                 let ordered_available_idls = registered_idls
                     .iter()
@@ -3150,8 +3148,11 @@ impl SurfnetSvm {
                     })
                     .collect::<Vec<_>>();
 
-                // Try each available IDL (newest first) to parse the account data
+                // if we have none in this loop, it means the only IDLs registered for this pubkey are for a
+                // future slot, for some reason. if we have some, we'll try each one in this loop, starting
+                // with the most recent one, to see if the account data can be parsed to the IDL type
                 for idl in &ordered_available_idls {
+                    // If we have a valid IDL, use it to parse the account data
                     let discriminator = &data[..8];
                     if let Some(matching_account) = idl
                         .accounts

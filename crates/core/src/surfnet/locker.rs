@@ -2883,10 +2883,10 @@ impl SurfnetSvmLocker {
         Ok(self.with_contextualized_svm_reader(|_| res.clone()))
     }
 
-    pub fn encode_ui_account<T: ReadableAccount + Sync>(
+    pub fn encode_ui_account(
         &self,
         pubkey: &Pubkey,
-        account: &T,
+        account: &Account,
         encoding: UiAccountEncoding,
         additional_data: Option<AccountAdditionalDataV3>,
         data_slice: Option<UiDataSliceConfig>,
