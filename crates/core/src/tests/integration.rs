@@ -7074,3 +7074,127 @@ async fn test_instruction_profiling_does_not_mutate_state(test_type: TestType) {
         "Transaction count should increment after processing (even for failed tx)"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_send_transaction_max_size() {
+    let payer = Keypair::new();
+    let pk = Pubkey::new_unique();
+    let payer_pubkey = payer.pubkey();
+
+    println!("Payer pubkey: {}", payer_pubkey);
+
+    let bind_host = "127.0.0.1";
+    let bind_port = get_free_port().unwrap();
+    let airdrop_token_amount = LAMPORTS_PER_SOL;
+    let config = SurfpoolConfig {
+        simnets: vec![SimnetConfig {
+            slot_time: 1,
+            airdrop_addresses: vec![payer_pubkey], // just one
+            airdrop_token_amount,
+            ..SimnetConfig::default()
+        }],
+        rpc: RpcConfig {
+            bind_host: bind_host.to_string(),
+            bind_port,
+            ..Default::default()
+        },
+        ..SurfpoolConfig::default()
+    };
+
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::default();
+    let (simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+    let svm_locker = Arc::new(RwLock::new(surfnet_svm));
+
+    let moved_svm_locker = svm_locker.clone();
+    let _handle = hiro_system_kit::thread_named("test").spawn(move || {
+        let future = start_local_surfnet_runloop(
+            SurfnetSvmLocker(moved_svm_locker),
+            config,
+            subgraph_commands_tx,
+            simnet_commands_tx,
+            simnet_commands_rx,
+            geyser_events_rx,
+        );
+        if let Err(e) = hiro_system_kit::nestable_block_on(future) {
+            panic!("{e:?}");
+        }
+    });
+    let _ = SurfnetSvmLocker(svm_locker);
+
+    wait_for_ready_and_connected(&simnet_events_rx);
+
+    let rpc_url = format!("http://{bind_host}:{bind_port}");
+    let full_client = RpcClient::new(rpc_url.clone());
+    // let full_client =
+    //     http::connect::<FullClient>(format!("http://{bind_host}:{bind_port}").as_str())
+    //         .await
+    //         .expect("Failed to connect to Surfpool");
+
+    let recent_blockhash = full_client
+        .get_latest_blockhash()
+        .await
+        .expect("Failed to get blockhash");
+
+    let max_tx_size = 1232;
+    let transfer_ix_bytes = 24;
+    let max_instructions = max_tx_size / transfer_ix_bytes;
+    let total_ixs = max_instructions + 10;
+
+    let ixs = (0..total_ixs)
+        .map(|i| system_instruction::transfer(&payer_pubkey, &pk, 1))
+        .collect::<Vec<_>>();
+    let tx = VersionedTransaction::try_new(
+        VersionedMessage::Legacy(Message::new_with_blockhash(
+            &ixs,
+            Some(&payer_pubkey),
+            &recent_blockhash,
+        )),
+        &[payer],
+    )
+    .expect("Failed to create transaction");
+
+    let Ok(encoded) = bincode::serialize(&tx) else {
+        panic!("Failed to serialize transaction");
+    };
+    let data = bs58::encode(encoded).into_string();
+
+    let payer_account_before = full_client
+        .get_account(&payer_pubkey)
+        .await
+        .expect("Failed to get payer account before transaction");
+
+    // Wait for all transactions to be received
+    let _ = match full_client.send_transaction(&tx).await {
+        Ok(res) => println!("Send transaction result: {}", res),
+        Err(err) => println!("Send transaction error result: {}", err),
+    };
+
+    let mut processed = 0;
+    let expected = 1;
+    loop {
+        match simnet_events_rx.recv() {
+            Ok(SimnetEvent::TransactionProcessed(..)) => processed += 1,
+            Ok(SimnetEvent::AccountUpdate(_, _)) => {}
+            Ok(SimnetEvent::ClockUpdate(_)) => {
+                // do nothing
+            }
+            Ok(SimnetEvent::SystemClockUpdated(_)) => {
+                // do nothing - clock ticks from time travel or normal progression
+            }
+            other => println!("Unexpected event: {:?}", other),
+        }
+
+        if processed == expected {
+            break;
+        }
+    }
+
+    let payer_account_after = full_client
+        .get_account(&payer_pubkey)
+        .await
+        .expect("Failed to get payer account after transaction");
+
+    println!("Payer lamports before: {}", payer_account_before.lamports);
+    println!("Payer lamports after: {}", payer_account_after.lamports);
+}
