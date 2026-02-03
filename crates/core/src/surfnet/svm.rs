@@ -315,14 +315,22 @@ pub const FEATURE: Feature = Feature {
 
 impl SurfnetSvm {
     pub fn default() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
-        Self::new(None, "0").unwrap()
+        Self::new(None, "0", false).unwrap()
     }
 
     pub fn new_with_db(
         database_url: Option<&str>,
         surfnet_id: &str,
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
-        Self::new(database_url, surfnet_id)
+        Self::new(database_url, surfnet_id, false)
+    }
+
+    pub fn new_full(
+        database_url: Option<&str>,
+        surfnet_id: &str,
+        zk_edge: bool,
+    ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
+        Self::new(database_url, surfnet_id, zk_edge)
     }
 
     /// Explicitly shutdown the SVM, performing cleanup like WAL checkpoint for SQLite.
@@ -430,6 +438,7 @@ impl SurfnetSvm {
     pub fn new(
         database_url: Option<&str>,
         surfnet_id: &str,
+        zk_edge: bool,
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
@@ -440,8 +449,11 @@ impl SurfnetSvm {
         // todo: consider making this configurable via config
         feature_set.deactivate(&enable_extend_program_checked::id());
 
-        let inner =
-            SurfnetLiteSvm::new().initialize(feature_set.clone(), database_url, surfnet_id)?;
+        let inner = SurfnetLiteSvm::new(zk_edge).initialize(
+            feature_set.clone(),
+            database_url,
+            surfnet_id,
+        )?;
 
         let native_mint_account = inner
             .get_account(&spl_token_interface::native_mint::ID)?

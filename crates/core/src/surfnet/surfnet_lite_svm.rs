@@ -23,16 +23,23 @@ use crate::{
 };
 
 #[derive(Clone)]
+pub struct CustomPrograms {
+    zk_edge: bool,
+}
+
+#[derive(Clone)]
 pub struct SurfnetLiteSvm {
     pub svm: LiteSVM,
     pub db: Option<Box<dyn Storage<String, AccountSharedData>>>,
+    pub custom_programs: CustomPrograms,
 }
 
 impl SurfnetLiteSvm {
-    pub fn new() -> Self {
+    pub fn new(zk_edge: bool) -> Self {
         Self {
             svm: LiteSVM::new(),
             db: None,
+            custom_programs: CustomPrograms { zk_edge },
         }
     }
 
@@ -46,6 +53,7 @@ impl SurfnetLiteSvm {
                 .db
                 .as_ref()
                 .map(|db| OverlayStorage::wrap(db.clone_box())),
+            custom_programs: self.custom_programs.clone(),
         }
     }
 
@@ -61,6 +69,7 @@ impl SurfnetLiteSvm {
             .with_feature_set(feature_set);
 
         create_native_mint(&mut self);
+        self.write_custom_programs();
 
         if let Some(db_url) = database_url {
             let db: Box<dyn Storage<String, AccountSharedData>> =
@@ -85,6 +94,7 @@ impl SurfnetLiteSvm {
             .with_feature_set(feature_set);
 
         create_native_mint(self);
+        self.write_custom_programs();
 
         if let Some(db) = &mut self.db {
             db.clear()?;
@@ -117,6 +127,7 @@ impl SurfnetLiteSvm {
             .with_feature_set(feature_set);
 
         create_native_mint(self);
+        self.write_custom_programs();
 
         // Restore all preserved sysvars
         self.svm.set_sysvar(&recent_blockhashes);
@@ -131,6 +142,7 @@ impl SurfnetLiteSvm {
             .with_feature_set(feature_set);
 
         create_native_mint(self);
+        self.write_custom_programs();
         self
     }
 
@@ -301,6 +313,18 @@ impl SurfnetLiteSvm {
             .into_iter()
             .sorted_by(|a, b| a.0.cmp(&b.0))
             .collect())
+    }
+
+    fn write_custom_programs(&mut self) {
+        if self.custom_programs.zk_edge {
+            // Write the token 2022 custom program to the SVM for zk_edge feature
+            self.svm
+                .add_program(
+                    Pubkey::from_str_const("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"),
+                    include_bytes!("elfs/spl_token_2022-10.0.0.so"),
+                )
+                .unwrap();
+        }
     }
 }
 

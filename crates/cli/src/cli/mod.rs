@@ -252,6 +252,9 @@ pub struct StartSimnet {
     /// When multiple files are provided, later files override earlier ones for duplicate keys.
     #[arg(long = "snapshot")]
     pub snapshot: Vec<String>,
+    /// Enable zkEdge mode
+    #[arg(long = "zk-edge", action=ArgAction::SetTrue, default_value = "false", hide = true)]
+    pub zk_edge: bool,
 }
 
 fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
