@@ -2922,10 +2922,10 @@ impl SurfnetSvmLocker {
         });
 
         let mut combined_accounts = remote_accounts
-            .iter()
+            .into_iter()
             .map(|(pubkey, account)| RpcKeyedAccount {
                 pubkey: pubkey.to_string(),
-                account: account.clone(),
+                account: account,
             })
             .collect::<Vec<RpcKeyedAccount>>();
 
