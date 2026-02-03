@@ -27,9 +27,9 @@ resolver = "2"
 [workspace.dependencies]
 actix-cors = "0.7.0"
 actix-web = { version = "4", default-features = false }
-agave-feature-set = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
-agave-geyser-plugin-interface = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
-agave-reserved-account-keys = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
+agave-feature-set = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
+agave-geyser-plugin-interface = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
+agave-reserved-account-keys = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
 anchor-lang-idl = "0.1.2"
 ansi_term = "0.12.1"
 anyhow = { version = "1.0.95", default-features = false }
@@ -83,8 +83,8 @@ juniper_codegen = { version = "0.16.0", default-features = false }
 juniper_graphql_ws = { version = "0.4.0", default-features = false }
 lazy_static = "1.5.0"
 libloading = "0.7.4"
-litesvm = { git = "https://github.com/txtx/litesvm", branch = "v0.9.1-increase-tx-size-merge", features = ["nodejs-internal"] }
-litesvm-token = { git = "https://github.com/txtx/litesvm", branch = "v0.9.1-increase-tx-size-merge" }
+litesvm = { git = "https://github.com/txtx/litesvm", branch = "v0.9.1-increase-tx-size", features = ["nodejs-internal"] }
+litesvm-token = { git = "https://github.com/txtx/litesvm", branch = "v0.9.1-increase-tx-size" }
 log = "0.4.27"
 mime_guess = { version = "2.0.4", default-features = false }
 mustache = "0.9.0"
@@ -105,10 +105,10 @@ serde_json = { version = "1.0.135", default-features = false }
 serde_with = { version = "3.14.0", default-features = false }
 strum = { version = "0.26", default-features = false, features = ["derive"] }
 solana-account = { version = "3.2", default-features = false }
-solana-account-decoder = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
-solana-account-decoder-client-types = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
+solana-account-decoder = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
+solana-account-decoder-client-types = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
 solana-address-lookup-table-interface = { version = "3.0", default-features = false }
-solana-client = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
+solana-client = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
 solana-clock = { version = "3.0", default-features = false }
 solana-commitment-config = { version = "3.1", default-features = false }
 solana-compute-budget-interface = { version = "3.0", default-features = false }
@@ -116,7 +116,7 @@ solana-epoch-info = { version = "3.1", default-features = false }
 solana-epoch-schedule = { version = "3.0", default-features = false }
 solana-feature-gate-interface = { version = "3.0", default-features = false }
 solana-genesis-config = { version = "3.0", default-features = false }
-# solana-geyser-plugin-manager = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }  # Disabled: version conflicts with litesvm 0.9.1 (requires solana-instruction =3.0.0 vs ~3.1)
+# solana-geyser-plugin-manager = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }  # Disabled: version conflicts with litesvm 0.9.1 (requires solana-instruction =3.0.0 vs ~3.1)
 solana-hash = { version = "3.1", default-features = false }
 solana-inflation = { version = "3.0", default-features = false }
 solana-instruction = { version = "3.1", default-features = false }
@@ -124,13 +124,13 @@ solana-keypair = { version = "3.1", default-features = false }
 solana-loader-v3-interface = { version = "6.1", default-features = false }
 solana-message = { version = "3.0", default-features = false }
 solana-nonce = { version = "3.0", default-features = false }
-solana-perf = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
+solana-perf = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
 solana-program-option = { version = "3.0", default-features = false }
 solana-program-pack = { version = "3.0", default-features = false }
 solana-pubkey = { version = "3.0", default-features = false }
-solana-rpc-client = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
-solana-rpc-client-api = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
-solana-runtime = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
+solana-rpc-client = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
+solana-rpc-client-api = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
+solana-runtime = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
 solana-sdk-ids = { version = "3.1", default-features = false }
 solana-signature = { version = "3.1", default-features = false, features = [
     "rand",
@@ -141,10 +141,10 @@ solana-system-interface = { version = "2.0", default-features = false }
 solana-sysvar = { version = "3.1", default-features = false }
 solana-sysvar-id = { version = "3.1", default-features = false }
 solana-transaction = { version = "3.0", default-features = false }
-solana-transaction-context = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
+solana-transaction-context = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
 solana-transaction-error = { version = "3.0", default-features = false }
-solana-transaction-status = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
-solana-version = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size-merge", default-features = false }
+solana-transaction-status = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
+solana-version = { git = "https://github.com/txtx/solana", branch = "v3.1.6-increase-tx-size", default-features = false }
 spl-associated-token-account-interface = { version = "2.0.0", default-features = false }
 spl-token-2022-interface = { version = "2.0.0", default-features = false }
 spl-token-interface = { version = "2.0.0", default-features = false }

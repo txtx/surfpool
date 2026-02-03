@@ -296,20 +296,20 @@ dependencies = [
 [[package]]
 name = "agave-feature-set"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "ahash",
  "solana-epoch-schedule 3.0.0",
  "solana-hash 3.1.0",
  "solana-pubkey 3.0.0",
  "solana-sha256-hasher 3.1.0",
- "solana-svm-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
 ]
 
 [[package]]
 name = "agave-fs"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "agave-io-uring",
  "io-uring",
@@ -322,7 +322,7 @@ dependencies = [
 [[package]]
 name = "agave-geyser-plugin-interface"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "log 0.4.29",
  "solana-clock 3.0.0",
@@ -336,7 +336,7 @@ dependencies = [
 [[package]]
 name = "agave-io-uring"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "io-uring",
  "libc",
@@ -348,7 +348,7 @@ dependencies = [
 [[package]]
 name = "agave-logger"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "env_logger",
  "libc",
@@ -359,9 +359,9 @@ dependencies = [
 [[package]]
 name = "agave-precompiles"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "bincode",
  "digest 0.10.7",
  "ed25519-dalek 1.0.1",
@@ -380,9 +380,9 @@ dependencies = [
 [[package]]
 name = "agave-reserved-account-keys"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-pubkey 3.0.0",
  "solana-sdk-ids 3.1.0",
 ]
@@ -390,7 +390,7 @@ dependencies = [
 [[package]]
 name = "agave-snapshots"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "agave-fs",
  "bincode",
@@ -406,8 +406,8 @@ dependencies = [
  "solana-genesis-config",
  "solana-hash 3.1.0",
  "solana-lattice-hash",
- "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "strum 0.24.1",
  "symlink",
  "tar",
@@ -419,7 +419,7 @@ dependencies = [
 [[package]]
 name = "agave-syscalls"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "bincode",
  "libsecp256k1 0.6.0",
@@ -431,7 +431,7 @@ dependencies = [
  "solana-bn254",
  "solana-clock 3.0.0",
  "solana-cpi 3.1.0",
- "solana-curve25519 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-curve25519 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-hash 3.1.0",
  "solana-instruction 3.1.0",
  "solana-keccak-hasher 3.1.0",
@@ -447,37 +447,37 @@ dependencies = [
  "solana-stable-layout 3.0.0",
  "solana-stake-interface 2.0.2",
  "solana-svm-callback",
- "solana-svm-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-svm-log-collector",
  "solana-svm-measure",
  "solana-svm-timings",
- "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-sysvar 3.1.1",
  "solana-sysvar-id 3.1.0",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "thiserror 2.0.17",
 ]
 
 [[package]]
 name = "agave-transaction-view"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "solana-hash 3.1.0",
  "solana-message 3.0.1",
- "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-pubkey 3.0.0",
  "solana-sdk-ids 3.1.0",
  "solana-short-vec 3.1.0",
  "solana-signature",
  "solana-svm-transaction",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
 ]
 
 [[package]]
 name = "agave-votor-messages"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "agave-logger",
  "serde",
@@ -4873,9 +4873,9 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 [[package]]
 name = "litesvm"
 version = "0.9.1"
-source = "git+https://github.com/txtx/litesvm?branch=v0.9.1-increase-tx-size-merge#cb887dc3db8515f56b152eafdb3a4408e42e2d38"
+source = "git+https://github.com/txtx/litesvm?branch=v0.9.1-increase-tx-size#e38c8ef5492408599a57f59d7497ce4792af0bcb"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "agave-reserved-account-keys",
  "agave-syscalls",
  "ansi_term",
@@ -4930,7 +4930,7 @@ dependencies = [
  "solana-sysvar 3.1.1",
  "solana-sysvar-id 3.1.0",
  "solana-transaction",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction-error 3.0.0",
  "thiserror 2.0.17",
 ]
@@ -4938,7 +4938,7 @@ dependencies = [
 [[package]]
 name = "litesvm-token"
 version = "0.9.1"
-source = "git+https://github.com/txtx/litesvm?branch=v0.9.1-increase-tx-size-merge#cb887dc3db8515f56b152eafdb3a4408e42e2d38"
+source = "git+https://github.com/txtx/litesvm?branch=v0.9.1-increase-tx-size#e38c8ef5492408599a57f59d7497ce4792af0bcb"
 dependencies = [
  "litesvm",
  "smallvec",
@@ -7540,7 +7540,7 @@ dependencies = [
 [[package]]
 name = "solana-account-decoder"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "Inflector",
  "base64 0.22.1",
@@ -7550,7 +7550,7 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-account 3.3.0",
- "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-address-lookup-table-interface 3.0.1",
  "solana-clock 3.0.0",
  "solana-config-interface",
@@ -7596,7 +7596,7 @@ dependencies = [
 [[package]]
 name = "solana-account-decoder-client-types"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "base64 0.22.1",
  "bs58",
@@ -7634,7 +7634,7 @@ dependencies = [
 [[package]]
 name = "solana-accounts-db"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "agave-fs",
  "ahash",
@@ -7667,12 +7667,12 @@ dependencies = [
  "solana-genesis-config",
  "solana-hash 3.1.0",
  "solana-lattice-hash",
- "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-message 3.0.1",
- "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-nohash-hasher",
  "solana-pubkey 3.0.0",
- "solana-rayon-threadlimit 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-rayon-threadlimit 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-reward-info",
  "solana-sha256-hasher 3.1.0",
  "solana-slot-hashes 3.0.0",
@@ -7681,7 +7681,7 @@ dependencies = [
  "solana-sysvar 3.1.1",
  "solana-time-utils",
  "solana-transaction",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction-error 3.0.0",
  "spl-generic-token",
  "static_assertions",
@@ -7901,7 +7901,7 @@ dependencies = [
 [[package]]
 name = "solana-bpf-loader-program"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "agave-syscalls",
  "bincode",
@@ -7912,24 +7912,24 @@ dependencies = [
  "solana-instruction 3.1.0",
  "solana-loader-v3-interface 6.1.0",
  "solana-loader-v4-interface 3.1.0",
- "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-program-entrypoint 3.1.1",
  "solana-program-runtime",
  "solana-pubkey 3.0.0",
  "solana-sbpf",
  "solana-sdk-ids 3.1.0",
- "solana-svm-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-svm-log-collector",
  "solana-svm-measure",
- "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-system-interface 2.0.0",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
 ]
 
 [[package]]
 name = "solana-bucket-map"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "bv",
  "bytemuck",
@@ -7939,7 +7939,7 @@ dependencies = [
  "num_enum",
  "rand 0.8.5",
  "solana-clock 3.0.0",
- "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-pubkey 3.0.0",
  "tempfile",
 ]
@@ -7947,9 +7947,9 @@ dependencies = [
 [[package]]
 name = "solana-builtins"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-bpf-loader-program",
  "solana-compute-budget-program",
  "solana-hash 3.1.0",
@@ -7966,9 +7966,9 @@ dependencies = [
 [[package]]
 name = "solana-builtins-default-costs"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "ahash",
  "log 0.4.29",
  "solana-bpf-loader-program",
@@ -8031,7 +8031,7 @@ dependencies = [
 [[package]]
 name = "solana-client"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "async-trait",
  "bincode",
@@ -8046,30 +8046,30 @@ dependencies = [
  "solana-account 3.3.0",
  "solana-client-traits",
  "solana-commitment-config",
- "solana-connection-cache 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-connection-cache 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-epoch-info",
  "solana-hash 3.1.0",
  "solana-instruction 3.1.0",
  "solana-keypair",
- "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-message 3.0.1",
- "solana-net-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-net-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-pubkey 3.0.0",
- "solana-pubsub-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-quic-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-pubsub-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-quic-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-quic-definitions",
- "solana-rpc-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-rpc-client-api 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-rpc-client-nonce-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-rpc-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-rpc-client-api 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-rpc-client-nonce-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-signature",
  "solana-signer",
- "solana-streamer 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-streamer 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-time-utils",
- "solana-tpu-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-tpu-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-udp-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-udp-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util 0.7.18",
@@ -8146,7 +8146,7 @@ dependencies = [
 [[package]]
 name = "solana-compute-budget"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "solana-fee-structure",
  "solana-program-runtime",
@@ -8155,16 +8155,16 @@ dependencies = [
 [[package]]
 name = "solana-compute-budget-instruction"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "log 0.4.29",
  "solana-borsh 3.0.0",
  "solana-builtins-default-costs",
  "solana-compute-budget",
  "solana-compute-budget-interface",
  "solana-instruction 3.1.0",
- "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-pubkey 3.0.0",
  "solana-sdk-ids 3.1.0",
  "solana-svm-transaction",
@@ -8186,7 +8186,7 @@ dependencies = [
 [[package]]
 name = "solana-compute-budget-program"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "solana-program-runtime",
 ]
@@ -8234,7 +8234,7 @@ dependencies = [
 [[package]]
 name = "solana-connection-cache"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "async-trait",
  "bincode",
@@ -8245,8 +8245,8 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "solana-keypair",
- "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-time-utils",
  "solana-transaction-error 3.0.0",
  "thiserror 2.0.17",
@@ -8256,9 +8256,9 @@ dependencies = [
 [[package]]
 name = "solana-cost-model"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "ahash",
  "log 0.4.29",
  "solana-bincode 3.1.0",
@@ -8269,9 +8269,9 @@ dependencies = [
  "solana-compute-budget-instruction",
  "solana-compute-budget-interface",
  "solana-fee-structure",
- "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-packet",
- "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-pubkey 3.0.0",
  "solana-runtime-transaction",
  "solana-sdk-ids 3.1.0",
@@ -8326,7 +8326,7 @@ dependencies = [
 [[package]]
 name = "solana-curve25519"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "bytemuck",
  "bytemuck_derive",
@@ -8529,9 +8529,9 @@ dependencies = [
 [[package]]
 name = "solana-fee"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-fee-structure",
  "solana-svm-transaction",
 ]
@@ -8832,7 +8832,7 @@ dependencies = [
 [[package]]
 name = "solana-lattice-hash"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -8931,7 +8931,7 @@ dependencies = [
 [[package]]
 name = "solana-loader-v4-program"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "log 0.4.29",
  "solana-account 3.3.0",
@@ -8941,15 +8941,15 @@ dependencies = [
  "solana-loader-v3-interface 6.1.0",
  "solana-loader-v4-interface 3.1.0",
  "solana-packet",
- "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-program-runtime",
  "solana-pubkey 3.0.0",
  "solana-sbpf",
  "solana-sdk-ids 3.1.0",
  "solana-svm-log-collector",
  "solana-svm-measure",
- "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
 ]
 
 [[package]]
@@ -8961,7 +8961,7 @@ checksum = "ef687aac555fa8ab56f1fff63be6902c484784344ce195653bd840a3d19462be"
 [[package]]
 name = "solana-measure"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 
 [[package]]
 name = "solana-message"
@@ -9025,7 +9025,7 @@ dependencies = [
 [[package]]
 name = "solana-metrics"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "crossbeam-channel",
  "gethostname",
@@ -9093,7 +9093,7 @@ dependencies = [
 [[package]]
 name = "solana-net-utils"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "anyhow",
  "bincode",
@@ -9107,7 +9107,7 @@ dependencies = [
  "serde",
  "socket2 0.6.1",
  "solana-serde",
- "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "tokio",
  "url 2.5.8",
 ]
@@ -9208,7 +9208,7 @@ dependencies = [
 [[package]]
 name = "solana-perf"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "ahash",
  "bincode",
@@ -9226,15 +9226,15 @@ dependencies = [
  "serde",
  "solana-hash 3.1.0",
  "solana-message 3.0.1",
- "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-packet",
  "solana-pubkey 3.0.0",
- "solana-rayon-threadlimit 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-rayon-threadlimit 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-sdk-ids 3.1.0",
  "solana-short-vec 3.1.0",
  "solana-signature",
  "solana-time-utils",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
 ]
 
 [[package]]
@@ -9250,7 +9250,7 @@ dependencies = [
 [[package]]
 name = "solana-poseidon"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "ark-bn254 0.4.0",
  "ark-bn254 0.5.0",
@@ -9449,7 +9449,7 @@ dependencies = [
 [[package]]
 name = "solana-program-runtime"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "base64 0.22.1",
  "bincode",
@@ -9477,16 +9477,16 @@ dependencies = [
  "solana-stable-layout 3.0.0",
  "solana-stake-interface 2.0.2",
  "solana-svm-callback",
- "solana-svm-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-svm-log-collector",
  "solana-svm-measure",
  "solana-svm-timings",
  "solana-svm-transaction",
- "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-system-interface 2.0.0",
  "solana-sysvar 3.1.1",
  "solana-sysvar-id 3.1.0",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "thiserror 2.0.17",
 ]
 
@@ -9564,7 +9564,7 @@ dependencies = [
 [[package]]
 name = "solana-pubsub-client"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "crossbeam-channel",
  "futures-util",
@@ -9573,10 +9573,10 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-clock 3.0.0",
  "solana-pubkey 3.0.0",
- "solana-rpc-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-rpc-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-signature",
  "thiserror 2.0.17",
  "tokio",
@@ -9619,7 +9619,7 @@ dependencies = [
 [[package]]
 name = "solana-quic-client"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "async-lock",
  "async-trait",
@@ -9629,17 +9629,17 @@ dependencies = [
  "quinn",
  "quinn-proto",
  "rustls 0.23.36",
- "solana-connection-cache 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-connection-cache 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-keypair",
- "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-net-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-net-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-pubkey 3.0.0",
  "solana-quic-definitions",
- "solana-rpc-client-api 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-rpc-client-api 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-signer",
- "solana-streamer 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-tls-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-streamer 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-tls-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction-error 3.0.0",
  "thiserror 2.0.17",
  "tokio",
@@ -9667,7 +9667,7 @@ dependencies = [
 [[package]]
 name = "solana-rayon-threadlimit"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "log 0.4.29",
  "num_cpus",
@@ -9763,7 +9763,7 @@ dependencies = [
 [[package]]
 name = "solana-rpc-client"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -9778,8 +9778,8 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-account 3.3.0",
- "solana-account-decoder 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-account-decoder 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-clock 3.0.0",
  "solana-commitment-config",
  "solana-epoch-info",
@@ -9789,12 +9789,12 @@ dependencies = [
  "solana-instruction 3.1.0",
  "solana-message 3.0.1",
  "solana-pubkey 3.0.0",
- "solana-rpc-client-api 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-rpc-client-api 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-signature",
  "solana-transaction",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-version 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-version 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-vote-interface 4.0.4",
  "tokio",
 ]
@@ -9823,7 +9823,7 @@ dependencies = [
 [[package]]
 name = "solana-rpc-client-api"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "anyhow",
  "jsonrpc-core",
@@ -9831,12 +9831,12 @@ dependencies = [
  "reqwest-middleware",
  "serde",
  "serde_json",
- "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-clock 3.0.0",
- "solana-rpc-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-rpc-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-signer",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "thiserror 2.0.17",
 ]
 
@@ -9860,7 +9860,7 @@ dependencies = [
 [[package]]
 name = "solana-rpc-client-nonce-utils"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "solana-account 3.3.0",
  "solana-commitment-config",
@@ -9868,7 +9868,7 @@ dependencies = [
  "solana-message 3.0.1",
  "solana-nonce 3.0.0",
  "solana-pubkey 3.0.0",
- "solana-rpc-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-rpc-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-sdk-ids 3.1.0",
  "thiserror 2.0.17",
 ]
@@ -9903,7 +9903,7 @@ dependencies = [
 [[package]]
 name = "solana-rpc-client-types"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "base64 0.22.1",
  "bs58",
@@ -9911,7 +9911,7 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-account 3.3.0",
- "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-address 1.1.0",
  "solana-clock 3.0.0",
  "solana-commitment-config",
@@ -9920,8 +9920,8 @@ dependencies = [
  "solana-reward-info",
  "solana-transaction",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-version 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-version 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "spl-generic-token",
  "thiserror 2.0.17",
 ]
@@ -9929,9 +9929,9 @@ dependencies = [
 [[package]]
 name = "solana-runtime"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "agave-fs",
  "agave-precompiles",
  "agave-reserved-account-keys",
@@ -10008,20 +10008,20 @@ dependencies = [
  "solana-lattice-hash",
  "solana-loader-v3-interface 6.1.0",
  "solana-loader-v4-interface 3.1.0",
- "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-message 3.0.1",
- "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-native-token 3.0.0",
  "solana-nohash-hasher",
  "solana-nonce 3.0.0",
  "solana-nonce-account",
  "solana-packet",
- "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-poh-config",
  "solana-precompile-error",
  "solana-program-runtime",
  "solana-pubkey 3.0.0",
- "solana-rayon-threadlimit 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-rayon-threadlimit 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-rent 3.1.0",
  "solana-reward-info",
  "solana-runtime-transaction",
@@ -10045,11 +10045,11 @@ dependencies = [
  "solana-sysvar-id 3.1.0",
  "solana-time-utils",
  "solana-transaction",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-unified-scheduler-logic",
- "solana-version 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-version 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-vote",
  "solana-vote-interface 4.0.4",
  "solana-vote-program",
@@ -10065,7 +10065,7 @@ dependencies = [
 [[package]]
 name = "solana-runtime-transaction"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "agave-transaction-view",
  "log 0.4.29",
@@ -10078,7 +10078,7 @@ dependencies = [
  "solana-signature",
  "solana-svm-transaction",
  "solana-transaction",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction-error 3.0.0",
  "thiserror 2.0.17",
 ]
@@ -10511,7 +10511,7 @@ dependencies = [
 [[package]]
 name = "solana-streamer"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "arc-swap",
  "bytes 1.11.0",
@@ -10536,19 +10536,19 @@ dependencies = [
  "smallvec",
  "socket2 0.6.1",
  "solana-keypair",
- "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-net-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-metrics 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-net-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-packet",
- "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-pubkey 3.0.0",
  "solana-quic-definitions",
  "solana-signature",
  "solana-signer",
  "solana-time-utils",
- "solana-tls-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-tls-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction-error 3.0.0",
- "solana-transaction-metrics-tracker 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-metrics-tracker 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util 0.7.18",
@@ -10558,7 +10558,7 @@ dependencies = [
 [[package]]
 name = "solana-svm"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "ahash",
  "log 0.4.29",
@@ -10583,15 +10583,15 @@ dependencies = [
  "solana-rent 3.1.0",
  "solana-sdk-ids 3.1.0",
  "solana-svm-callback",
- "solana-svm-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-svm-log-collector",
  "solana-svm-measure",
  "solana-svm-timings",
  "solana-svm-transaction",
- "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-system-interface 2.0.0",
  "solana-sysvar-id 3.1.0",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction-error 3.0.0",
  "spl-generic-token",
  "thiserror 2.0.17",
@@ -10600,7 +10600,7 @@ dependencies = [
 [[package]]
 name = "solana-svm-callback"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "solana-account 3.3.0",
  "solana-clock 3.0.0",
@@ -10617,12 +10617,12 @@ checksum = "bb4a59053cd2bbee5e85476739707f5030a089457c4140340960260e7aedc2a0"
 [[package]]
 name = "solana-svm-feature-set"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 
 [[package]]
 name = "solana-svm-log-collector"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "log 0.4.29",
 ]
@@ -10630,12 +10630,12 @@ dependencies = [
 [[package]]
 name = "solana-svm-measure"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 
 [[package]]
 name = "solana-svm-timings"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "eager",
  "enum-iterator",
@@ -10645,7 +10645,7 @@ dependencies = [
 [[package]]
 name = "solana-svm-transaction"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "solana-hash 3.1.0",
  "solana-message 3.0.1",
@@ -10667,7 +10667,7 @@ dependencies = [
 [[package]]
 name = "solana-svm-type-overrides"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "rand 0.8.5",
 ]
@@ -10721,7 +10721,7 @@ dependencies = [
 [[package]]
 name = "solana-system-program"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "bincode",
  "log 0.4.29",
@@ -10733,15 +10733,15 @@ dependencies = [
  "solana-nonce 3.0.0",
  "solana-nonce-account",
  "solana-packet",
- "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-program-runtime",
  "solana-pubkey 3.0.0",
  "solana-sdk-ids 3.1.0",
  "solana-svm-log-collector",
- "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-svm-type-overrides 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-system-interface 2.0.0",
  "solana-sysvar 3.1.1",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
 ]
 
 [[package]]
@@ -10870,7 +10870,7 @@ dependencies = [
 [[package]]
 name = "solana-tls-utils"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "rustls 0.23.36",
  "solana-keypair",
@@ -10916,7 +10916,7 @@ dependencies = [
 [[package]]
 name = "solana-tpu-client"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "async-trait",
  "bincode",
@@ -10928,16 +10928,16 @@ dependencies = [
  "solana-client-traits",
  "solana-clock 3.0.0",
  "solana-commitment-config",
- "solana-connection-cache 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-connection-cache 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-epoch-schedule 3.0.0",
- "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-measure 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-message 3.0.1",
- "solana-net-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-net-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-pubkey 3.0.0",
- "solana-pubsub-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-pubsub-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-quic-definitions",
- "solana-rpc-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-rpc-client-api 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-rpc-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-rpc-client-api 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-signature",
  "solana-signer",
  "solana-transaction",
@@ -10988,7 +10988,7 @@ dependencies = [
 [[package]]
 name = "solana-transaction-context"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "bincode",
  "serde",
@@ -11042,14 +11042,14 @@ dependencies = [
 [[package]]
 name = "solana-transaction-metrics-tracker"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "base64 0.22.1",
  "bincode",
  "log 0.4.29",
  "rand 0.8.5",
  "solana-packet",
- "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-short-vec 3.1.0",
  "solana-signature",
 ]
@@ -11057,7 +11057,7 @@ dependencies = [
 [[package]]
 name = "solana-transaction-status"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "Inflector",
  "agave-reserved-account-keys",
@@ -11068,7 +11068,7 @@ dependencies = [
  "log 0.4.29",
  "serde",
  "serde_json",
- "solana-account-decoder 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-account-decoder 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-address-lookup-table-interface 3.0.1",
  "solana-clock 3.0.0",
  "solana-hash 3.1.0",
@@ -11085,7 +11085,7 @@ dependencies = [
  "solana-system-interface 2.0.0",
  "solana-transaction",
  "solana-transaction-error 3.0.0",
- "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-status-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-vote-interface 4.0.4",
  "spl-associated-token-account-interface",
  "spl-memo-interface",
@@ -11123,14 +11123,14 @@ dependencies = [
 [[package]]
 name = "solana-transaction-status-client-types"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "base64 0.22.1",
  "bincode",
  "bs58",
  "serde",
  "serde_json",
- "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-commitment-config",
  "solana-instruction 3.1.0",
  "solana-message 3.0.1",
@@ -11138,7 +11138,7 @@ dependencies = [
  "solana-reward-info",
  "solana-signature",
  "solana-transaction",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction-error 3.0.0",
  "thiserror 2.0.17",
 ]
@@ -11162,13 +11162,13 @@ dependencies = [
 [[package]]
 name = "solana-udp-client"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "async-trait",
- "solana-connection-cache 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-connection-cache 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-keypair",
- "solana-net-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-streamer 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-net-utils 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-streamer 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction-error 3.0.0",
  "thiserror 2.0.17",
  "tokio",
@@ -11177,7 +11177,7 @@ dependencies = [
 [[package]]
 name = "solana-unified-scheduler-logic"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "assert_matches",
  "solana-pubkey 3.0.0",
@@ -11204,9 +11204,9 @@ dependencies = [
 [[package]]
 name = "solana-version"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "rand 0.8.5",
  "semver",
  "serde",
@@ -11217,7 +11217,7 @@ dependencies = [
 [[package]]
 name = "solana-vote"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "itertools 0.12.1",
  "log 0.4.29",
@@ -11293,9 +11293,9 @@ dependencies = [
 [[package]]
 name = "solana-vote-program"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "bincode",
  "log 0.4.29",
  "num-derive",
@@ -11316,7 +11316,7 @@ dependencies = [
  "solana-signer",
  "solana-slot-hashes 3.0.0",
  "solana-transaction",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-vote-interface 4.0.4",
  "thiserror 2.0.17",
 ]
@@ -11324,9 +11324,9 @@ dependencies = [
 [[package]]
 name = "solana-zk-elgamal-proof-program"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "bytemuck",
  "num-derive",
  "num-traits",
@@ -11377,9 +11377,9 @@ dependencies = [
 [[package]]
 name = "solana-zk-token-proof-program"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "bytemuck",
  "num-derive",
  "num-traits",
@@ -11393,7 +11393,7 @@ dependencies = [
 [[package]]
 name = "solana-zk-token-sdk"
 version = "3.1.6"
-source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge#c414a7be2c390f50cd29425fdcd132a4e64a8eea"
+source = "git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size#c4b4c9a4655323abed142815f2bc03eaa305767e"
 dependencies = [
  "aes-gcm-siv",
  "base64 0.22.1",
@@ -11409,7 +11409,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha3",
- "solana-curve25519 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-curve25519 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-derivation-path",
  "solana-instruction 3.1.0",
  "solana-pubkey 3.0.0",
@@ -11853,7 +11853,7 @@ dependencies = [
 name = "surfpool-core"
 version = "1.0.0"
 dependencies = [
- "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "agave-feature-set 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "agave-geyser-plugin-interface",
  "agave-reserved-account-keys",
  "anchor-lang-idl",
@@ -11890,9 +11890,9 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "solana-account 3.3.0",
- "solana-account-decoder 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-account-decoder 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-address-lookup-table-interface 3.0.1",
- "solana-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-clock 3.0.0",
  "solana-commitment-config",
  "solana-compute-budget-interface",
@@ -11907,12 +11907,12 @@ dependencies = [
  "solana-loader-v3-interface 6.1.0",
  "solana-message 3.0.1",
  "solana-nonce 3.0.0",
- "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-perf 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-program-option 3.0.0",
  "solana-program-pack 3.0.0",
  "solana-pubkey 3.0.0",
- "solana-rpc-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
- "solana-rpc-client-api 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-rpc-client 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
+ "solana-rpc-client-api 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-runtime",
  "solana-sdk-ids 3.1.0",
  "solana-signature",
@@ -11922,10 +11922,10 @@ dependencies = [
  "solana-sysvar 3.1.1",
  "solana-sysvar-id 3.1.0",
  "solana-transaction",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction-error 3.0.0",
  "solana-transaction-status",
- "solana-version 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-version 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "spl-associated-token-account-interface",
  "spl-token-2022-interface",
  "spl-token-interface",
@@ -12051,14 +12051,14 @@ dependencies = [
  "serde_json",
  "serde_with",
  "solana-account 3.3.0",
- "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-account-decoder-client-types 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-clock 3.0.0",
  "solana-epoch-info",
  "solana-message 3.0.1",
  "solana-pubkey 3.0.0",
  "solana-signature",
  "solana-transaction",
- "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size-merge)",
+ "solana-transaction-context 3.1.6 (git+https://github.com/txtx/solana?branch=v3.1.6-increase-tx-size)",
  "solana-transaction-error 3.0.0",
  "strum 0.26.3",
  "test-case",
