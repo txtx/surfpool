@@ -3128,12 +3128,13 @@ impl SurfnetSvm {
         data_slice_config: Option<UiDataSliceConfig>,
     ) -> UiAccount {
         let owner_program_id = account.owner();
+        let data = account.data();
 
-        let filter_slot = self.latest_epoch_info.absolute_slot; // todo: consider if we should pass in a slot
         if encoding == UiAccountEncoding::JsonParsed {
             if let Ok(Some(registered_idls)) =
                 self.registered_idls.get(&owner_program_id.to_string())
             {
+                let filter_slot = self.latest_epoch_info.absolute_slot;
                 // IDLs are stored sorted by slot descending (most recent first)
                 let ordered_available_idls = registered_idls
                     .iter()
@@ -3146,12 +3147,12 @@ impl SurfnetSvm {
                         }
                     })
                     .collect::<Vec<_>>();
+
                 // if we have none in this loop, it means the only IDLs registered for this pubkey are for a
                 // future slot, for some reason. if we have some, we'll try each one in this loop, starting
                 // with the most recent one, to see if the account data can be parsed to the IDL type
                 for idl in &ordered_available_idls {
                     // If we have a valid IDL, use it to parse the account data
-                    let data = account.data();
                     let discriminator = &data[..8];
                     if let Some(matching_account) = idl
                         .accounts
@@ -3192,10 +3193,10 @@ impl SurfnetSvm {
                                             .to_json(Some(&get_txtx_value_json_converters())),
                                         space: data.len() as u64,
                                     }),
-                                    owner: account.owner().to_string(),
+                                    owner: owner_program_id.to_string(),
                                     executable: account.executable(),
                                     rent_epoch: account.rent_epoch(),
-                                    space: Some(account.data().len() as u64),
+                                    space: Some(data.len() as u64),
                                 };
                             }
                         }

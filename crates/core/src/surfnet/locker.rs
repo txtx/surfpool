@@ -2911,9 +2911,6 @@ impl SurfnetSvmLocker {
             inner: local_accounts,
         } = self.get_program_accounts_local(program_id, account_config.clone(), filters.clone())?;
 
-        let encoding = account_config.encoding.unwrap_or(UiAccountEncoding::Base64);
-        let data_slice = account_config.data_slice;
-
         let remote_accounts_result = client
             .get_program_accounts(program_id, account_config, filters)
             .await?;
@@ -2925,10 +2922,10 @@ impl SurfnetSvmLocker {
         });
 
         let mut combined_accounts = remote_accounts
-            .iter()
+            .into_iter()
             .map(|(pubkey, account)| RpcKeyedAccount {
                 pubkey: pubkey.to_string(),
-                account: self.encode_ui_account(pubkey, account, encoding, None, data_slice),
+                account,
             })
             .collect::<Vec<RpcKeyedAccount>>();
 
