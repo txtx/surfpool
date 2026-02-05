@@ -69,7 +69,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     helpers::time_travel::calculate_time_travel_clock,
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
-    surfnet::FINALIZATION_SLOT_THRESHOLD,
+    surfnet::{FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH},
     types::{
         GeyserAccountUpdate, RemoteRpcResult, SurfnetTransactionStatus, TimeTravelConfig,
         TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
@@ -221,7 +221,7 @@ impl SurfnetSvmLocker {
             EpochInfo {
                 epoch: 0,
                 slot_index: 0,
-                slots_in_epoch: 0,
+                slots_in_epoch: SLOTS_PER_EPOCH,
                 absolute_slot: FINALIZATION_SLOT_THRESHOLD,
                 block_height: FINALIZATION_SLOT_THRESHOLD,
                 transaction_count: None,
