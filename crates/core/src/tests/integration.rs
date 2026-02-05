@@ -4342,7 +4342,7 @@ fn test_reset_network(test_type: TestType) {
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
     // Reset with cascade=true (for regular accounts, doesn't cascade but tests the code path)
-    svm_locker.reset_network().unwrap();
+    hiro_system_kit::nestable_block_on(svm_locker.reset_network(&None)).unwrap();
 
     // Owner is deleted, owned account is deleted
     assert!(svm_locker.get_account_local(&owner).inner.is_none());
@@ -4385,7 +4385,7 @@ fn test_reset_network_time_travel_timestamp(test_type: TestType) {
 
     // Reset network
     let reset_response: JsonRpcResult<RpcResponse<()>> =
-        rpc_server.reset_network(Some(runloop_context.clone()));
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
     assert!(reset_response.is_ok(), "Reset network should succeed");
 
     // Second time travel to the same timestamp should now succeed after reset
@@ -4422,7 +4422,7 @@ fn test_reset_network_time_travel_slot(test_type: TestType) {
 
     // Do an initial reset to ensure we start from slot 0
     let initial_reset: JsonRpcResult<RpcResponse<()>> =
-        rpc_server.reset_network(Some(runloop_context.clone()));
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
     assert!(initial_reset.is_ok(), "Initial reset should succeed");
 
     // Target slot to time travel to (must be greater than 0 after reset)
@@ -4438,7 +4438,7 @@ fn test_reset_network_time_travel_slot(test_type: TestType) {
 
     // Reset network
     let reset_response: JsonRpcResult<RpcResponse<()>> =
-        rpc_server.reset_network(Some(runloop_context.clone()));
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
     assert!(reset_response.is_ok(), "Reset network should succeed");
 
     // Second time travel to the same slot should now succeed after reset
@@ -4475,7 +4475,7 @@ fn test_reset_network_time_travel_epoch(test_type: TestType) {
 
     // Do an initial reset to ensure we start from epoch 0
     let initial_reset: JsonRpcResult<RpcResponse<()>> =
-        rpc_server.reset_network(Some(runloop_context.clone()));
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
     assert!(initial_reset.is_ok(), "Initial reset should succeed");
 
     // Target epoch to time travel to (must be greater than 0 after reset)
@@ -4491,7 +4491,7 @@ fn test_reset_network_time_travel_epoch(test_type: TestType) {
 
     // Reset network
     let reset_response: JsonRpcResult<RpcResponse<()>> =
-        rpc_server.reset_network(Some(runloop_context.clone()));
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
     assert!(reset_response.is_ok(), "Reset network should succeed");
 
     // Second time travel to the same epoch should now succeed after reset

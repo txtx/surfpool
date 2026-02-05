@@ -778,7 +778,7 @@ pub trait SurfnetCheatcodes {
     ///
 
     #[rpc(meta, name = "surfnet_resetNetwork")]
-    fn reset_network(&self, meta: Self::Metadata) -> Result<RpcResponse<()>>;
+    fn reset_network(&self, meta: Self::Metadata) -> BoxFuture<Result<RpcResponse<()>>>;
 
     /// A cheat code to export a snapshot of all accounts in the Surfnet SVM.
     ///
@@ -1687,12 +1687,24 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         })
     }
 
-    fn reset_network(&self, meta: Self::Metadata) -> Result<RpcResponse<()>> {
-        let svm_locker = meta.get_svm_locker()?;
-        svm_locker.reset_network()?;
-        Ok(RpcResponse {
-            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
-            value: (),
+    fn reset_network(&self, meta: Self::Metadata) -> BoxFuture<Result<RpcResponse<()>>> {
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        // Extract just the remote client from the tuple (ignore commitment config)
+        let remote_client = remote_ctx.as_ref().map(|(client, _)| client.clone());
+
+        Box::pin(async move {
+            svm_locker.reset_network(&remote_client).await?;
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+                value: (),
+            })
         })
     }
 

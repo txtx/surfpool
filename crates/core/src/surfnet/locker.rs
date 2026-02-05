@@ -69,7 +69,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     helpers::time_travel::calculate_time_travel_clock,
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
-    surfnet::FINALIZATION_SLOT_THRESHOLD,
+    surfnet::{FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH},
     types::{
         GeyserAccountUpdate, RemoteRpcResult, SurfnetTransactionStatus, TimeTravelConfig,
         TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
@@ -1900,11 +1900,30 @@ impl SurfnetSvmLocker {
     ///
     /// This function coordinates the reset of the entire network state.
     /// It also clears the closed_accounts set so all accounts can be fetched from mainnet again.
-    pub fn reset_network(&self) -> SurfpoolResult<()> {
+    pub async fn reset_network(
+        &self,
+        remote_ctx: &Option<SurfnetRemoteClient>,
+    ) -> SurfpoolResult<()> {
         let simnet_events_tx = self.simnet_events_tx();
         let _ = simnet_events_tx.send(SimnetEvent::info("Resetting network..."));
+
+        // Fetch epoch info from remote if available (similar to initialize)
+        let mut epoch_info = if let Some(remote_client) = remote_ctx {
+            remote_client.get_epoch_info().await?
+        } else {
+            EpochInfo {
+                epoch: 0,
+                slot_index: 0,
+                slots_in_epoch: SLOTS_PER_EPOCH,
+                absolute_slot: 0,
+                block_height: 0,
+                transaction_count: None,
+            }
+        };
+        epoch_info.transaction_count = None;
+
         self.with_svm_writer(move |svm_writer| {
-            let _ = svm_writer.reset_network();
+            let _ = svm_writer.reset_network(epoch_info);
             svm_writer.closed_accounts.clear();
         });
         Ok(())
