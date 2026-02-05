@@ -4381,7 +4381,10 @@ fn test_reset_network_time_travel_timestamp(test_type: TestType) {
         Some(runloop_context.clone()),
         Some(TimeTravelConfig::AbsoluteTimestamp(target_timestamp)),
     );
-    assert!(time_travel_response.is_ok(), "First time travel should succeed");
+    assert!(
+        time_travel_response.is_ok(),
+        "First time travel should succeed"
+    );
 
     // Reset network
     let reset_response: JsonRpcResult<RpcResponse<()>> =
@@ -4434,7 +4437,10 @@ fn test_reset_network_time_travel_slot(test_type: TestType) {
         Some(runloop_context.clone()),
         Some(TimeTravelConfig::AbsoluteSlot(target_slot)),
     );
-    assert!(time_travel_response.is_ok(), "First time travel should succeed");
+    assert!(
+        time_travel_response.is_ok(),
+        "First time travel should succeed"
+    );
 
     // Reset network
     let reset_response: JsonRpcResult<RpcResponse<()>> =
@@ -4487,7 +4493,10 @@ fn test_reset_network_time_travel_epoch(test_type: TestType) {
         Some(TimeTravelConfig::AbsoluteEpoch(target_epoch)),
     );
     // Note: time_travel now uses confirmation mechanism, so it waits internally
-    assert!(time_travel_response.is_ok(), "First time travel should succeed");
+    assert!(
+        time_travel_response.is_ok(),
+        "First time travel should succeed"
+    );
 
     // Reset network
     let reset_response: JsonRpcResult<RpcResponse<()>> =
