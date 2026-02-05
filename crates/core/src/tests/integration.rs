@@ -4342,7 +4342,7 @@ fn test_reset_network(test_type: TestType) {
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
     // Reset with cascade=true (for regular accounts, doesn't cascade but tests the code path)
-    svm_locker.reset_network().unwrap();
+    hiro_system_kit::nestable_block_on(svm_locker.reset_network(&None)).unwrap();
 
     // Owner is deleted, owned account is deleted
     assert!(svm_locker.get_account_local(&owner).inner.is_none());
@@ -4350,6 +4350,161 @@ fn test_reset_network(test_type: TestType) {
 
     // Clean up
     svm_locker.reset_account(owned, false).unwrap();
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_network_time_travel_timestamp(test_type: TestType) {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
+    };
+
+    // Calculate a target timestamp in the future
+    let seven_days = 7 * 24 * 60 * 60 * 1000;
+    let target_timestamp = svm_locker.0.blocking_read().updated_at + seven_days;
+
+    // First time travel to target timestamp
+    // Note: time_travel now uses confirmation mechanism, so it waits internally
+    let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteTimestamp(target_timestamp)),
+    );
+    assert!(time_travel_response.is_ok(), "First time travel should succeed");
+
+    // Reset network
+    let reset_response: JsonRpcResult<RpcResponse<()>> =
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
+    assert!(reset_response.is_ok(), "Reset network should succeed");
+
+    // Second time travel to the same timestamp should now succeed after reset
+    // because updated_at was reset to current time
+    let time_travel_response2: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteTimestamp(target_timestamp)),
+    );
+    assert!(
+        time_travel_response2.is_ok(),
+        "Second time travel should succeed after reset. Error: {:?}",
+        time_travel_response2.err()
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_network_time_travel_slot(test_type: TestType) {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
+    };
+
+    // Do an initial reset to ensure we start from slot 0
+    let initial_reset: JsonRpcResult<RpcResponse<()>> =
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
+    assert!(initial_reset.is_ok(), "Initial reset should succeed");
+
+    // Target slot to time travel to (must be greater than 0 after reset)
+    let target_slot = 1000;
+
+    // First time travel to target slot
+    // Note: time_travel now uses confirmation mechanism, so it waits internally
+    let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteSlot(target_slot)),
+    );
+    assert!(time_travel_response.is_ok(), "First time travel should succeed");
+
+    // Reset network
+    let reset_response: JsonRpcResult<RpcResponse<()>> =
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
+    assert!(reset_response.is_ok(), "Reset network should succeed");
+
+    // Second time travel to the same slot should now succeed after reset
+    // because latest_epoch_info.absolute_slot was reset to 0
+    let time_travel_response2: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteSlot(target_slot)),
+    );
+    assert!(
+        time_travel_response2.is_ok(),
+        "Second time travel should succeed after reset. Error: {:?}",
+        time_travel_response2.err()
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_network_time_travel_epoch(test_type: TestType) {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
+    };
+
+    // Do an initial reset to ensure we start from epoch 0
+    let initial_reset: JsonRpcResult<RpcResponse<()>> =
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
+    assert!(initial_reset.is_ok(), "Initial reset should succeed");
+
+    // Target epoch to time travel to (must be greater than 0 after reset)
+    let target_epoch = 5;
+
+    // First time travel to target epoch
+    let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteEpoch(target_epoch)),
+    );
+    // Note: time_travel now uses confirmation mechanism, so it waits internally
+    assert!(time_travel_response.is_ok(), "First time travel should succeed");
+
+    // Reset network
+    let reset_response: JsonRpcResult<RpcResponse<()>> =
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
+    assert!(reset_response.is_ok(), "Reset network should succeed");
+
+    // Second time travel to the same epoch should now succeed after reset
+    // because latest_epoch_info.epoch was reset to 0
+    let time_travel_response2: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteEpoch(target_epoch)),
+    );
+    assert!(
+        time_travel_response2.is_ok(),
+        "Second time travel should succeed after reset. Error: {:?}",
+        time_travel_response2.err()
+    );
 }
 
 fn start_surfnet(

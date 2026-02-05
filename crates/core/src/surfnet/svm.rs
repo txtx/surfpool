@@ -1447,7 +1447,7 @@ impl SurfnetSvm {
         Ok(())
     }
 
-    pub fn reset_network(&mut self) -> SurfpoolResult<()> {
+    pub fn reset_network(&mut self, epoch_info: EpochInfo) -> SurfpoolResult<()> {
         self.inner.reset(self.feature_set.clone())?;
 
         let native_mint_account = self
@@ -1513,6 +1513,14 @@ impl SurfnetSvm {
         self.runbook_executions.clear();
         self.streamed_accounts.clear()?;
         self.scheduled_overrides.clear()?;
+
+        let current_time = chrono::Utc::now().timestamp_millis() as u64;
+        self.updated_at = current_time;
+        self.genesis_updated_at = current_time;
+        self.latest_epoch_info = epoch_info.clone();
+        // Set genesis_slot to the current slot when resetting (similar to initialize)
+        self.genesis_slot = epoch_info.absolute_slot;
+
         Ok(())
     }
 
