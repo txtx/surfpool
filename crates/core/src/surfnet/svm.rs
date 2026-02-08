@@ -98,7 +98,7 @@ use crate::{
     scenarios::TemplateRegistry,
     storage::{OverlayStorage, Storage, new_kv_store, new_kv_store_with_default},
     surfnet::{
-        LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
+        LogsSubscriptionData, ProfilingJob, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm
     },
     types::{
         GeyserAccountUpdate, MintAccount, SerializableAccountAdditionalData,
@@ -251,6 +251,7 @@ pub struct SurfnetSvm {
         Sender<TransactionStatusEvent>,
         Option<TransactionError>,
     )>,
+    pub profiling_job_tx: Option<Sender<ProfilingJob>>,
     pub perf_samples: VecDeque<RpcPerfSample>,
     pub transactions_processed: u64,
     pub latest_epoch_info: EpochInfo,
@@ -357,6 +358,7 @@ impl SurfnetSvm {
             inner: self.inner.clone_for_profiling(),
             remote_rpc_url: self.remote_rpc_url.clone(),
             chain_tip: self.chain_tip.clone(),
+            profiling_job_tx: self.profiling_job_tx.clone(),
 
             // Wrap all storage fields with OverlayStorage
             blocks: OverlayStorage::wrap(self.blocks.clone_box()),
@@ -567,6 +569,7 @@ impl SurfnetSvm {
             chain_tip,
             blocks: blocks_db,
             transactions: transactions_db,
+            profiling_job_tx: None,
             perf_samples: VecDeque::new(),
             transactions_processed,
             simnet_events_tx,

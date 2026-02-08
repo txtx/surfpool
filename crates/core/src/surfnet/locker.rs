@@ -69,7 +69,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     helpers::time_travel::calculate_time_travel_clock,
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
-    surfnet::{FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH},
+    surfnet::{FINALIZATION_SLOT_THRESHOLD, ProfilingJob, SLOTS_PER_EPOCH},
     types::{
         GeyserAccountUpdate, RemoteRpcResult, SurfnetTransactionStatus, TimeTravelConfig,
         TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
@@ -1084,6 +1084,11 @@ impl SurfnetSvmLocker {
         Ok(self.with_contextualized_svm_reader(|_| uuid))
     }
 
+
+    pub fn profiling_job_tx(&self) -> Option<Sender<ProfilingJob>> {
+        self.with_svm_reader(|svm| svm.profiling_job_tx.clone())
+    }
+
     async fn fetch_all_tx_accounts_then_process_tx_returning_profile_res(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
@@ -1230,29 +1235,28 @@ impl SurfnetSvmLocker {
 
         let loaded_addresses = tx_loaded_addresses.as_ref().map(|l| l.loaded_addresses());
 
-        let ix_profiles = if self.is_instruction_profiling_enabled() {
-            match self
-                .generate_instruction_profiles(
-                    &transaction,
-                    &transaction_accounts,
-                    &tx_loaded_addresses,
-                    &accounts_before,
-                    &token_accounts_before,
-                    &token_programs,
-                    pre_execution_capture.clone(),
-                    &status_tx,
-                )
-                .await
-            {
-                Ok(profiles) => profiles,
-                Err(e) => {
-                    let _ = self.simnet_events_tx().try_send(SimnetEvent::error(format!(
-                        "Failed to generate instruction profiles: {}",
-                        e
-                    )));
-                    None
-                }
+        let ix_profile_rx = if self.is_instruction_profiling_enabled() {
+            if let Some(profiling_job_tx) = self.profiling_job_tx() {
+                let profiling_svm = self.with_svm_reader(|r| r.clone_for_profiling());
+                let (result_tx, result_rx) = crossbeam_channel::bounded(1);
+                let job = ProfilingJob {
+                    profiling_svm,
+                    transaction: transaction.clone(),
+                    transaction_accounts: transaction_accounts.to_vec(),
+                    loaded_addresses: tx_loaded_addresses.clone(),
+                    accounts_before: accounts_before.to_vec(),
+                    token_accounts_before: token_accounts_before.to_vec(),
+                    token_programs: token_programs.to_vec(),
+                    pre_execution_capture: pre_execution_capture.clone(),
+                    result_tx,
+                };
+                let _ = profiling_job_tx.send(job);
+                Some(result_rx)
             }
+            else {
+                None
+            }
+        
         } else {
             None
         };
@@ -1272,6 +1276,12 @@ impl SurfnetSvmLocker {
                 do_propagate,
             )
             .await?;
+        
+        let ix_profiles = match ix_profile_rx {
+            Some(rx) => tokio::task::block_in_place(|| rx.recv().ok().flatten()),
+            None => None,
+        };
+
 
         Ok(KeyedProfileResult::new(
             latest_absolute_slot,
@@ -1283,7 +1293,7 @@ impl SurfnetSvmLocker {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn generate_instruction_profiles(
+    pub async fn generate_instruction_profiles(
         &self,
         transaction: &VersionedTransaction,
         transaction_accounts: &[Pubkey],
