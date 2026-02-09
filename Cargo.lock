@@ -7189,9 +7189,9 @@ dependencies = [
 
 [[package]]
 name = "shank_idl"
-version = "0.4.6"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a8cee6731ee59f3e24c44aab6c7d3adb365b1f7314da73ea6654aec354e4341"
+checksum = "1862d324b77d15de6cd8d5de859ee70431737f131d34ae670cb4fb0568301d87"
 dependencies = [
  "anyhow",
  "cargo_toml",
@@ -7204,9 +7204,9 @@ dependencies = [
 
 [[package]]
 name = "shank_macro_impl"
-version = "0.4.6"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c08958b4ba24f8289481c0d8b377c63a8205fc037b59fc80643c491ec1f487"
+checksum = "aab0b29f9717ebb2430ef424627e0fc234c832363955cbac2997c2973743990d"
 dependencies = [
  "anyhow",
  "proc-macro2",

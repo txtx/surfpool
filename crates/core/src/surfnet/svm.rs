@@ -3220,7 +3220,7 @@ impl SurfnetSvm {
         data: &[u8],
     ) -> Option<UiAccount> {
         // Extract Shank types from the IDL
-        let shank_types = extract_shank_types(idl).ok()?;
+        let shank_types = extract_shank_types(idl);
 
         // Helper to create UiAccount from parsed value and type name
         let create_ui_account = |parsed_value: txtx_addon_kit::types::types::Value,
