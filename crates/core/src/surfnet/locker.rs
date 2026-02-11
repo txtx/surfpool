@@ -1603,18 +1603,32 @@ impl SurfnetSvmLocker {
                 .map(|p| svm_writer.inner.get_account_no_db(p))
                 .collect::<Vec<Option<Account>>>();
             let (sanitized_transaction, versioned_transaction) = if do_propagate {
+                let address_loader = match (&transaction.message, &loaded_addresses) {
+                    (VersionedMessage::V0(_), Some(loaded_addresses)) => {
+                        SimpleAddressLoader::Enabled(loaded_addresses.clone())
+                    }
+                    // V0 messages without address table lookups still require an enabled loader.
+                    (VersionedMessage::V0(_), None) => {
+                        SimpleAddressLoader::Enabled(LoadedAddresses::default())
+                    }
+                    (VersionedMessage::Legacy(_), _) => SimpleAddressLoader::Disabled,
+                };
+
                 (
                     SanitizedTransaction::try_create(
                         transaction.clone(),
                         transaction.message.hash(),
                         Some(false),
-                        if let Some(loaded_addresses) = &loaded_addresses {
-                            SimpleAddressLoader::Enabled(loaded_addresses.clone())
-                        } else {
-                            SimpleAddressLoader::Disabled
-                        },
+                        address_loader,
                         &HashSet::new(), // todo: provide reserved account keys
                     )
+                    .map_err(|error| {
+                        debug!(
+                            "Failed to sanitize transaction {} for Geyser account updates: {:?}",
+                            signature, error
+                        );
+                        error
+                    })
                     .ok(),
                     Some(transaction.clone()),
                 )
@@ -4227,6 +4241,98 @@ mod tests {
             &serde_json::json!(999),
         );
         assert!(result.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_v0_transaction_without_alt_emits_geyser_account_updates() {
+        use crossbeam_channel::{RecvTimeoutError, unbounded};
+        use solana_keypair::Keypair;
+        use solana_message::{VersionedMessage, v0};
+        use solana_signer::Signer;
+        use solana_system_interface::instruction as system_instruction;
+        use solana_transaction::versioned::VersionedTransaction;
+        use std::time::Duration;
+
+        let (svm, _events_rx, geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let payer = Keypair::new();
+        let payer_pubkey = payer.pubkey();
+        let recipient = Pubkey::new_unique();
+
+        let _ = locker
+            .airdrop(&payer_pubkey, 1_000_000_000)
+            .expect("airdrop should succeed");
+
+        let recent_blockhash = locker.latest_absolute_blockhash();
+        let message = v0::Message::try_compile(
+            &payer_pubkey,
+            &[system_instruction::transfer(
+                &payer_pubkey,
+                &recipient,
+                1_000_000,
+            )],
+            &[],
+            recent_blockhash,
+        )
+        .expect("v0 message should compile");
+
+        let tx = VersionedTransaction::try_new(
+            VersionedMessage::V0(message),
+            &[payer.insecure_clone()],
+        )
+        .expect("v0 transaction should sign");
+
+        let tx_signature = tx.signatures[0];
+        let (status_tx, _status_rx) = unbounded();
+        locker
+            .process_transaction(&None, tx, status_tx, true, true)
+            .await
+            .expect("transaction processing should succeed");
+
+        let mut account_updates = vec![];
+        let mut got_transaction_notify = false;
+
+        for _ in 0..32 {
+            match geyser_rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(crate::surfnet::GeyserEvent::UpdateAccount(update)) => {
+                    account_updates.push(update);
+                }
+                Ok(crate::surfnet::GeyserEvent::NotifyTransaction(_, _)) => {
+                    got_transaction_notify = true;
+                }
+                Ok(_) => {}
+                Err(RecvTimeoutError::Timeout) | Err(RecvTimeoutError::Disconnected) => break,
+            }
+        }
+
+        assert!(
+            got_transaction_notify,
+            "Expected NotifyTransaction geyser event"
+        );
+        assert!(
+            !account_updates.is_empty(),
+            "Expected account update geyser events for v0 transaction without ALTs"
+        );
+        assert!(
+            account_updates.iter().any(|u| u.pubkey == payer_pubkey),
+            "Expected payer account update"
+        );
+        assert!(
+            account_updates.iter().any(|u| u.pubkey == recipient),
+            "Expected recipient account update"
+        );
+
+        for update in account_updates {
+            let sanitized_transaction = update
+                .sanitized_transaction
+                .expect("Expected sanitized transaction on account update");
+            assert_eq!(
+                *sanitized_transaction.signature(),
+                tx_signature,
+                "Account update should carry transaction signature"
+            );
+        }
     }
 
     // Snapshot loading tests

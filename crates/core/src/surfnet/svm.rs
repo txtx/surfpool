@@ -101,8 +101,8 @@ use crate::{
         LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
     },
     types::{
-        GeyserAccountUpdate, MintAccount, SerializableAccountAdditionalData,
-        SurfnetTransactionStatus, SyntheticBlockhash, TokenAccount, TransactionWithStatusMeta,
+        MintAccount, SerializableAccountAdditionalData, SurfnetTransactionStatus,
+        SyntheticBlockhash, TokenAccount, TransactionWithStatusMeta,
     },
 };
 
@@ -1714,12 +1714,10 @@ impl SurfnetSvm {
     ///
     /// # Returns
     /// `Ok(Vec<Signature>)` with confirmed signatures, or `Err(SurfpoolError)` on error.
-    fn confirm_transactions(&mut self) -> Result<(Vec<Signature>, HashSet<Pubkey>), SurfpoolError> {
+    fn confirm_transactions(&mut self) -> Result<Vec<Signature>, SurfpoolError> {
         let mut confirmed_transactions = vec![];
         let slot = self.latest_epoch_info.slot_index;
         let current_slot = self.latest_epoch_info.absolute_slot;
-
-        let mut all_mutated_account_keys = HashSet::new();
 
         while let Some((tx, status_tx, error)) =
             self.transactions_queued_for_confirmation.pop_front()
@@ -1749,7 +1747,6 @@ impl SurfnetSvm {
                 continue;
             };
             let (tx_with_status_meta, mutated_account_keys) = tx_data.as_ref();
-            all_mutated_account_keys.extend(mutated_account_keys);
 
             for pubkey in mutated_account_keys {
                 self.account_update_slots.insert(*pubkey, current_slot);
@@ -1768,7 +1765,7 @@ impl SurfnetSvm {
             confirmed_transactions.push(signature);
         }
 
-        Ok((confirmed_transactions, all_mutated_account_keys))
+        Ok(confirmed_transactions)
     }
 
     /// Finalizes transactions queued for finalization, sending finalized events as needed.
@@ -1955,20 +1952,7 @@ impl SurfnetSvm {
         }
         self.chain_tip = self.new_blockhash();
         // Confirm processed transactions
-        let (confirmed_signatures, all_mutated_account_keys) = self.confirm_transactions()?;
-        let write_version = self.increment_write_version();
-
-        // Notify Geyser plugin of account updates
-        for pubkey in all_mutated_account_keys {
-            let Some(account) = self.inner.get_account(&pubkey)? else {
-                continue;
-            };
-            self.geyser_events_tx
-                .send(GeyserEvent::UpdateAccount(
-                    GeyserAccountUpdate::block_update(pubkey, account, slot, write_version),
-                ))
-                .ok();
-        }
+        let confirmed_signatures = self.confirm_transactions()?;
 
         let num_transactions = confirmed_signatures.len() as u64;
         self.updated_at += self.slot_time;
@@ -2023,20 +2007,22 @@ impl SurfnetSvm {
         let root = new_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD);
         self.notify_slot_subscribers(new_slot, parent_slot, root);
 
-        // Notify geyser plugins of slot status (Confirmed)
+        let geyser_parent_slot = slot.saturating_sub(1);
+
+        // Emit confirmation for the same slot used by processed account/transaction updates.
         self.geyser_events_tx
             .send(GeyserEvent::UpdateSlotStatus {
-                slot: new_slot,
-                parent: Some(parent_slot),
+                slot,
+                parent: slot.checked_sub(1),
                 status: GeyserSlotStatus::Confirmed,
             })
             .ok();
 
         // Notify geyser plugins of block metadata
         let block_metadata = GeyserBlockMetadata {
-            slot: new_slot,
+            slot,
             blockhash: self.chain_tip.hash.clone(),
-            parent_slot,
+            parent_slot: geyser_parent_slot,
             parent_blockhash: previous_chain_tip.hash.clone(),
             block_time: Some(self.updated_at as i64 / 1_000),
             block_height: Some(self.chain_tip.index),
@@ -2052,7 +2038,7 @@ impl SurfnetSvm {
             .map(|h| h.to_bytes().to_vec())
             .unwrap_or_else(|_| vec![0u8; 32]);
         let entry_info = GeyserEntryInfo {
-            slot: new_slot,
+            slot,
             index: 0, // Single entry per block
             num_hashes: 1,
             hash: entry_hash,
