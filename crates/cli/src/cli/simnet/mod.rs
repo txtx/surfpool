@@ -559,6 +559,9 @@ async fn write_and_execute_iac(
                     cmd.skip_runbook_generation_prompts,
                     generate_subgraphs,
                 )?;
+                let runbooks_ids_to_execute = cmd.runbooks.clone();
+                on_disk_runbook_data =
+                    Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
             }
 
             if do_execute_in_memory_runbooks {
