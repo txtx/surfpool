@@ -35,8 +35,6 @@ use txtx_gql::kit::{
     },
     uuid::Uuid,
 };
-#[cfg(feature = "supervisor_ui")]
-use txtx_supervisor_ui::cloud_relayer::RelayerChannelEvent;
 
 use crate::cli::{DEFAULT_ID_SVC_URL, ExecuteRunbook, setup_logger};
 
@@ -430,10 +428,6 @@ pub async fn configure_supervised_execution(
         }
     });
 
-    #[cfg(feature = "supervisor_ui")]
-    let (relayer_channel_tx, relayer_channel_rx) = channel::unbounded();
-    #[cfg(feature = "supervisor_ui")]
-    let moved_relayer_channel_tx = relayer_channel_tx.clone();
     let moved_kill_loops_tx = kill_loops_tx.clone();
     #[cfg(feature = "supervisor_ui")]
     let web_ui_handle = if cmd.do_start_supervisor_ui() {
@@ -448,8 +442,6 @@ pub async fn configure_supervised_execution(
             block_broadcaster.clone(),
             log_broadcaster.clone(),
             action_item_events_tx,
-            relayer_channel_tx.clone(),
-            relayer_channel_rx,
             kill_loops_tx.clone(),
             &cmd.network_binding_ip_address,
             cmd.network_binding_port,
@@ -540,10 +532,6 @@ pub async fn configure_supervised_execution(
 
                 if do_propagate_event {
                     let _ = block_broadcaster.send(block_event.clone());
-                    #[cfg(feature = "supervisor_ui")]
-                    let _ = moved_relayer_channel_tx.send(
-                        RelayerChannelEvent::ForwardEventToRelayer(block_event.clone()),
-                    );
                 }
             }
 
@@ -556,8 +544,6 @@ pub async fn configure_supervised_execution(
             let future = async {
                 if kill_loops_rx.recv().is_ok() {
                     let _ = block_tx.send(BlockEvent::Exit);
-                    #[cfg(feature = "supervisor_ui")]
-                    let _ = relayer_channel_tx.send(RelayerChannelEvent::Exit);
                     #[cfg(feature = "supervisor_ui")]
                     if let Some(handle) = web_ui_handle {
                         let _ = handle.stop(true).await;
