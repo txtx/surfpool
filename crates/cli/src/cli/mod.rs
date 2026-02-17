@@ -649,14 +649,114 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
     }
 }
 
+/// Returns true if the given binary name is found in PATH (Unix: `which`, Windows: `where`).
+fn shell_binary_in_path(binary: &str) -> bool {
+    #[cfg(unix)]
+    let ok = process::Command::new("which")
+        .arg(binary)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+
+    #[cfg(windows)]
+    let ok = process::Command::new("where")
+        .arg(binary)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+
+    #[cfg(not(any(unix, windows)))]
+    let ok = false;
+
+    ok
+}
+
+/// Returns an error if the requested shell is not compatible with the current system:
+/// - Platform rules (e.g. bash not recommended on macOS).
+/// - The shell binary must exist in PATH so the generated completions are usable.
+fn check_shell_compatibility(shell: Shell) -> Result<(), String> {
+    match shell {
+        Shell::Bash => {
+            #[cfg(target_os = "macos")]
+            return Err(
+                "Bash completions are not supported on macOS (default shell is zsh). \
+                 Use: surfpool completions zsh"
+                    .to_string(),
+            );
+            #[cfg(not(target_os = "macos"))]
+            if !shell_binary_in_path("bash") {
+                return Err(
+                    "Bash was not found on this system. Install bash or use another shell (e.g. surfpool completions zsh)."
+                        .to_string(),
+                );
+            }
+        }
+        Shell::Zsh => {
+            if !shell_binary_in_path("zsh") {
+                return Err(
+                    "Zsh was not found on this system. Install zsh or use another shell (e.g. surfpool completions fish)."
+                        .to_string(),
+                );
+            }
+        }
+        Shell::Fish => {
+            if !shell_binary_in_path("fish") {
+                return Err(
+                    "Fish was not found on this system. Install fish or use another shell (e.g. surfpool completions zsh)."
+                        .to_string(),
+                );
+            }
+        }
+        Shell::Elvish => {
+            if !shell_binary_in_path("elvish") {
+                return Err(
+                    "Elvish was not found on this system. Install elvish or use another shell (e.g. surfpool completions zsh)."
+                        .to_string(),
+                );
+            }
+        }
+        Shell::PowerShell => {
+            #[cfg(windows)]
+            let found = shell_binary_in_path("powershell") || shell_binary_in_path("pwsh");
+            #[cfg(not(windows))]
+            let found = shell_binary_in_path("pwsh") || shell_binary_in_path("powershell");
+            if !found {
+                return Err(
+                    "PowerShell was not found on this system. Install PowerShell (pwsh) or use another shell."
+                        .to_string(),
+                );
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 async fn generate_completion_helpers(cmd: Completions) -> Result<(), String> {
+    if let Err(e) = check_shell_compatibility(cmd.shell) {
+        println!("{e}");
+        return Err(e);
+    }
     let mut app = Opts::command();
+    dbg!("Initialized clap app for completions");
     let file_name = cmd.shell.file_name("surfpool");
+    dbg!(&file_name, "Generated file name for completion output");
     let mut file = File::create(file_name.clone())
         .map_err(|e| format!("unable to create file {}: {}", file_name, e))?;
+    dbg!("Created file for writing completions"); // error here
+
     clap_complete::generate(cmd.shell, &mut app, "surfpool", &mut file);
+    dbg!("Generated completion script for shell");
     println!("{} {}", green!("Created file"), file_name.clone());
+    dbg!("Printed confirmation of completion file creation");
     println!("Check your shell’s docs for how to enable completions for surfpool.");
+    dbg!("Printed instruction to check shell docs");
     Ok(())
 }
 
