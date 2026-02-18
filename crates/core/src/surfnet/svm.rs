@@ -1520,6 +1520,14 @@ impl SurfnetSvm {
         self.latest_epoch_info = epoch_info.clone();
         // Set genesis_slot to the current slot when resetting (similar to initialize)
         self.genesis_slot = epoch_info.absolute_slot;
+        let chain_tip_hash = SyntheticBlockhash::new(epoch_info.block_height).to_string();
+        self.chain_tip = BlockIdentifier::new(epoch_info.block_height, chain_tip_hash.as_str());
+        // Rebuild sysvars so getLatestBlockhash / sendTransaction stay aligned after reset.
+        self.reconstruct_sysvars();
+        // Reset checkpoint state to avoid recovering stale chain tips after a reset.
+        self.slot_checkpoint.clear()?;
+        self.last_checkpoint_slot = self.genesis_slot;
+        self.recent_blockhashes.clear();
 
         Ok(())
     }
