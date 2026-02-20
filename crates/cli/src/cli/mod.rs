@@ -661,8 +661,20 @@ async fn generate_completion_helpers(cmd: Completions) -> Result<(), String> {
 }
 
 async fn handle_list_command(cmd: ListRunbooks, _ctx: &Context) -> Result<(), String> {
-    let manifest_location = FileLocation::from_path_string(&cmd.manifest_path)?;
-    let manifest = WorkspaceManifest::from_location(&manifest_location)?;
+    let manifest_location = match FileLocation::from_path_string(&cmd.manifest_path) {
+        Ok(val) => val,
+        Err(e) => {
+            println!("Error occured: {e:#?}");
+            return Err(e);
+        }
+    };
+    let manifest = match WorkspaceManifest::from_location(&manifest_location) {
+        Ok(val) => val,
+        Err(e) => {
+            println!("Error occured: {e:#?}");
+            return Err(e);
+        }
+    };
     if manifest.runbooks.is_empty() {
         println!(
             "{}: no runbooks referenced in the txtx.yml manifest.\nRun the command `txtx new` to create a new runbook.",
