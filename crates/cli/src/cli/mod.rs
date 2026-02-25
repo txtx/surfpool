@@ -7,7 +7,7 @@ use fern::colors::{Color, ColoredLevelConfig};
 #[cfg(not(target_os = "windows"))]
 use fork::{Fork, daemon};
 use hiro_system_kit::{self, Logger};
-use log::{error, info};
+use log::info;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
@@ -577,7 +577,7 @@ pub fn main() {
     };
 
     if let Err(e) = handle_command(opts, &ctx) {
-        error!("{e}");
+        eprintln!("Error: {e}");
         std::thread::sleep(std::time::Duration::from_millis(500));
         process::exit(1);
     }
@@ -661,20 +661,8 @@ async fn generate_completion_helpers(cmd: Completions) -> Result<(), String> {
 }
 
 async fn handle_list_command(cmd: ListRunbooks, _ctx: &Context) -> Result<(), String> {
-    let manifest_location = match FileLocation::from_path_string(&cmd.manifest_path) {
-        Ok(val) => val,
-        Err(e) => {
-            println!("Error occured: {e:#?}");
-            return Err(e);
-        }
-    };
-    let manifest = match WorkspaceManifest::from_location(&manifest_location) {
-        Ok(val) => val,
-        Err(e) => {
-            println!("Error occured: {e:#?}");
-            return Err(e);
-        }
-    };
+    let manifest_location = FileLocation::from_path_string(&cmd.manifest_path)?;
+    let manifest = WorkspaceManifest::from_location(&manifest_location)?;
     if manifest.runbooks.is_empty() {
         println!(
             "{}: no runbooks referenced in the txtx.yml manifest.\nRun the command `txtx new` to create a new runbook.",
