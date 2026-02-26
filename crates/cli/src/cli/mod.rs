@@ -252,6 +252,9 @@ pub struct StartSimnet {
     /// When multiple files are provided, later files override earlier ones for duplicate keys.
     #[arg(long = "snapshot")]
     pub snapshot: Vec<String>,
+    /// Skip signature verification for all transactions (eg. surfpool start --skip-signature-verification)
+    #[clap(long = "skip-signature-verification", action=ArgAction::SetTrue, default_value = "false")]
+    pub skip_signature_verification: bool,
 }
 
 fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
@@ -409,7 +412,7 @@ impl StartSimnet {
                 Some(self.log_bytes_limit)
             },
             feature_config: self.feature_config(),
-            skip_signature_verification: false,
+            skip_signature_verification: self.skip_signature_verification,
             surfnet_id: self.surfnet_id.clone(),
             snapshot,
         }
