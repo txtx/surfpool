@@ -4356,6 +4356,25 @@ fn test_reset_network(test_type: TestType) {
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_network_keeps_latest_blockhash_valid(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    hiro_system_kit::nestable_block_on(svm_locker.reset_network(&None)).unwrap();
+
+    let latest_blockhash = svm_locker.with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+    let is_recent = svm_locker
+        .with_svm_reader(|svm_reader| svm_reader.check_blockhash_is_recent(&latest_blockhash));
+    assert!(
+        is_recent,
+        "latest_blockhash returned after reset should be present in RecentBlockhashes sysvar",
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_reset_network_time_travel_timestamp(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
