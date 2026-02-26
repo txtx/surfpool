@@ -7,7 +7,7 @@ use fern::colors::{Color, ColoredLevelConfig};
 #[cfg(not(target_os = "windows"))]
 use fork::{Fork, daemon};
 use hiro_system_kit::{self, Logger};
-use log::{error, info};
+use log::info;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
@@ -577,7 +577,7 @@ pub fn main() {
     };
 
     if let Err(e) = handle_command(opts, &ctx) {
-        error!("{e}");
+        eprintln!("Error: {e}");
         std::thread::sleep(std::time::Duration::from_millis(500));
         process::exit(1);
     }
