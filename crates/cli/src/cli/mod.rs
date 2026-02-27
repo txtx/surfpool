@@ -1,4 +1,12 @@
-use std::{collections::BTreeMap, env, fs::File, path::PathBuf, process, str::FromStr};
+use std::{
+    collections::BTreeMap,
+    env,
+    fs::File,
+    panic::{AssertUnwindSafe, catch_unwind, set_hook, take_hook},
+    path::PathBuf,
+    process,
+    str::FromStr,
+};
 
 use chrono::Local;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
@@ -657,9 +665,32 @@ async fn generate_completion_helpers(cmd: Completions) -> Result<(), String> {
     let file_name = cmd.shell.file_name("surfpool");
     let mut file = File::create(file_name.clone())
         .map_err(|e| format!("unable to create file {}: {}", file_name, e))?;
-    clap_complete::generate(cmd.shell, &mut app, "surfpool", &mut file);
+
+    let prev_hook = take_hook();
+
+    set_hook(Box::new(|_| {}));
+
+    if let Err(e) = catch_unwind(AssertUnwindSafe(|| {
+        clap_complete::generate(cmd.shell, &mut app, "surfpool", &mut file);
+    })) {
+        let msg = match () {
+            _ if e.downcast_ref::<&'static str>().is_some() => {
+                format!(
+                    "Completion error: {}",
+                    e.downcast_ref::<&'static str>().unwrap()
+                )
+            }
+            _ => {
+                format!("Completion generation failed: {e:#?}")
+            }
+        };
+        println!("{msg}");
+        process::exit(1);
+    }
+    set_hook(prev_hook); // restore so other panics still get reported
+
     println!("{} {}", green!("Created file"), file_name.clone());
-    println!("Check your shell’s docs for how to enable completions for surfpool.");
+    println!("Check your shell's docs for how to enable completions for surfpool.");
     Ok(())
 }
 
