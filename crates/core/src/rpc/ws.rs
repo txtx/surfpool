@@ -602,6 +602,89 @@ pub trait Rpc {
         subscription: SubscriptionId,
     ) -> Result<bool>;
 
+    /// Subscribe to notifications for all accounts owned by a specific program via WebSocket.
+    ///
+    /// This method allows clients to subscribe to updates for any account whose `owner`
+    /// matches the given program ID. Notifications are sent whenever an account owned by
+    /// the program is created, updated, or deleted.
+    ///
+    /// ## Parameters
+    /// - `meta`: WebSocket metadata containing RPC context and connection information.
+    /// - `subscriber`: The subscription sink for sending program account notifications to the client.
+    /// - `pubkey_str`: The program public key to monitor, as a base-58 encoded string.
+    /// - `config`: Optional configuration specifying commitment level, encoding format, and filters.
+    ///
+    /// ## Returns
+    /// This method does not return a value directly. Instead, it establishes a continuous WebSocket
+    /// subscription that will send `RpcResponse<RpcKeyedAccount>` notifications to the subscriber
+    /// whenever an account owned by the program changes.
+    ///
+    /// ## Filters
+    /// The optional config may include filters to narrow which account updates trigger notifications:
+    /// - `dataSize`: Only notify for accounts with a specific data length (in bytes).
+    /// - `memcmp`: Only notify for accounts whose data matches specific bytes at a given offset.
+    ///
+    /// ## Example WebSocket Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "programSubscribe",
+    ///   "params": [
+    ///     "11111111111111111111111111111111",
+    ///     {
+    ///       "encoding": "base64",
+    ///       "filters": [
+    ///         { "dataSize": 80 }
+    ///       ]
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Response (Subscription Confirmation)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": 24040,
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Notification
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "method": "programNotification",
+    ///   "params": {
+    ///     "result": {
+    ///       "context": { "slot": 5208469 },
+    ///       "value": {
+    ///         "pubkey": "H4vnBqifaSACnKa7acsxstsY1iV1bvJNxsCY7enrd1hq",
+    ///         "account": {
+    ///           "data": ["base64data", "base64"],
+    ///           "executable": false,
+    ///           "lamports": 33594,
+    ///           "owner": "11111111111111111111111111111111",
+    ///           "rentEpoch": 636,
+    ///           "space": 36
+    ///         }
+    ///       }
+    ///     },
+    ///     "subscription": 24040
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// ## Notes
+    /// - The subscription remains active until explicitly unsubscribed or the connection is closed.
+    /// - Notifications include both the account pubkey and the full account data.
+    /// - Invalid public key formats will cause the subscription to be rejected with an error.
+    /// - Each subscription runs in its own async task for optimal performance.
+    ///
+    /// ## See Also
+    /// - `programUnsubscribe`: Remove an active program subscription
+    /// - `getProgramAccounts`: Get current accounts for a program
     #[pubsub(
         subscription = "programNotification",
         subscribe,
@@ -615,6 +698,47 @@ pub trait Rpc {
         config: Option<RpcProgramSubscribeConfig>,
     );
 
+    /// Unsubscribe from program account change notifications.
+    ///
+    /// This method removes an active program subscription, stopping further notifications
+    /// for the specified subscription ID. The monitoring task will automatically terminate
+    /// when the subscription is removed.
+    ///
+    /// ## Parameters
+    /// - `meta`: Optional WebSocket metadata containing connection information.
+    /// - `subscription`: The subscription ID to remove, as returned by `programSubscribe`.
+    ///
+    /// ## Returns
+    /// A `Result<bool>` indicating whether the unsubscription was successful:
+    /// - `Ok(true)` if the subscription was successfully removed
+    /// - `Err(Error)` with `InternalError` if the subscription map lock could not be acquired
+    ///
+    /// ## Example WebSocket Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "programUnsubscribe",
+    ///   "params": [24040]
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": true,
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// ## Notes
+    /// - Successfully unsubscribed connections will no longer receive program account notifications.
+    /// - The monitoring task automatically detects subscription removal and terminates gracefully.
+    /// - This method is thread-safe and can be called concurrently.
+    ///
+    /// ## See Also
+    /// - `programSubscribe`: Create a program account change subscription
     #[pubsub(
         subscription = "programNotification",
         unsubscribe,
@@ -1482,6 +1606,31 @@ impl Rpc for SurfpoolWsRpc {
         Ok(true)
     }
 
+    /// Implementation of program subscription for WebSocket clients.
+    ///
+    /// This method handles the complete lifecycle of program subscriptions:
+    /// 1. Validates the provided program public key string format
+    /// 2. Parses the subscription configuration (commitment, encoding, and filters)
+    /// 3. Generates a unique subscription ID and assigns it to the subscriber
+    /// 4. Spawns an async task to continuously monitor account changes for the program
+    /// 5. Sends notifications whenever an account owned by the program changes and matches filters
+    ///
+    /// # Monitoring Loop
+    /// The spawned task runs a continuous loop that:
+    /// - Checks if the subscription is still active (not unsubscribed)
+    /// - Polls for program account updates from the SVM
+    /// - Applies configured filters (dataSize, memcmp) before notifying
+    /// - Sends `RpcKeyedAccount` notifications (including account pubkey) to the subscriber
+    /// - Automatically terminates when the subscription is removed
+    ///
+    /// # Error Handling
+    /// - Rejects subscription with `InvalidParams` for malformed public keys
+    /// - Handles encoding configuration for account data serialization
+    /// - Manages subscription cleanup through the monitoring loop
+    ///
+    /// # Performance
+    /// Uses efficient polling with minimal CPU overhead and automatic
+    /// cleanup when subscriptions are no longer needed.
     fn program_subscribe(
         &self,
         meta: Self::Metadata,
@@ -1587,6 +1736,23 @@ impl Rpc for SurfpoolWsRpc {
         });
     }
 
+    /// Implementation of program unsubscription for WebSocket clients.
+    ///
+    /// This method removes an active program subscription from the internal
+    /// tracking maps, effectively stopping further notifications for that subscription.
+    /// The monitoring loop in the corresponding subscription task will detect this
+    /// removal and automatically terminate.
+    ///
+    /// # Implementation Details
+    /// - Attempts to remove the subscription from the program subscriptions map
+    /// - Returns success if the subscription existed and was removed
+    /// - Returns an error if the lock could not be acquired
+    /// - The removal triggers automatic cleanup of the monitoring task
+    ///
+    /// # Thread Safety
+    /// Uses write locks to ensure thread-safe removal from the subscription map.
+    /// The monitoring task uses read locks to check subscription status, creating
+    /// a clean synchronization pattern.
     fn program_unsubscribe(
         &self,
         _meta: Option<Self::Metadata>,
