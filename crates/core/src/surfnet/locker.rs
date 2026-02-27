@@ -3596,7 +3596,10 @@ impl SurfnetSvmLocker {
 }
 
 // Helper function to apply filters
-pub(crate) fn apply_rpc_filters(account_data: &[u8], filters: &[RpcFilterType]) -> SurfpoolResult<bool> {
+pub(crate) fn apply_rpc_filters(
+    account_data: &[u8],
+    filters: &[RpcFilterType],
+) -> SurfpoolResult<bool> {
     for filter in filters {
         match filter {
             RpcFilterType::DataSize(size) => {

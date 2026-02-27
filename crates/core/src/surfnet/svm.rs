@@ -90,8 +90,8 @@ use uuid::Uuid;
 use super::{
     AccountSubscriptionData, BlockHeader, BlockIdentifier, FINALIZATION_SLOT_THRESHOLD,
     GetAccountResult, GeyserBlockMetadata, GeyserEntryInfo, GeyserEvent, GeyserSlotStatus,
-    ProgramSubscriptionData, SLOTS_PER_EPOCH, SignatureSubscriptionData,
-    SignatureSubscriptionType, remote::SurfnetRemoteClient,
+    ProgramSubscriptionData, SLOTS_PER_EPOCH, SignatureSubscriptionData, SignatureSubscriptionType,
+    remote::SurfnetRemoteClient,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -2558,11 +2558,7 @@ impl SurfnetSvm {
         }
     }
 
-    pub fn notify_program_subscribers(
-        &mut self,
-        account_pubkey: &Pubkey,
-        account: &Account,
-    ) {
+    pub fn notify_program_subscribers(&mut self, account_pubkey: &Pubkey, account: &Account) {
         let program_id = account.owner;
         let mut remaining = vec![];
         if let Some(subscriptions) = self.program_subscriptions.remove(&program_id) {
@@ -2570,7 +2566,7 @@ impl SurfnetSvm {
                 // Apply filters if present
                 if let Some(ref active_filters) = filters {
                     match super::locker::apply_rpc_filters(&account.data, active_filters) {
-                        Ok(true) => {}         // Account matches all filters
+                        Ok(true) => {} // Account matches all filters
                         Ok(false) => {
                             // Filtered out - keep subscription active but don't notify
                             remaining.push((encoding, filters, tx));

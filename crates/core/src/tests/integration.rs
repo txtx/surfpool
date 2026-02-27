@@ -7271,8 +7271,11 @@ async fn test_ws_program_subscribe_basic(test_type: TestType) {
     let account_pubkey = Pubkey::new_unique();
 
     // Subscribe to program updates
-    let program_rx =
-        svm_locker.subscribe_for_program_updates(&program_id, Some(UiAccountEncoding::Base64), None);
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        None,
+    );
 
     // Set an account owned by the program
     let account = Account {
@@ -7334,7 +7337,8 @@ async fn test_ws_program_subscribe_data_size_filter(test_type: TestType) {
         rent_epoch: 0,
     };
     svm_locker.with_svm_writer(|svm| {
-        svm.set_account(&small_account_pubkey, small_account).unwrap();
+        svm.set_account(&small_account_pubkey, small_account)
+            .unwrap();
     });
 
     // Should NOT receive a notification for the 4-byte account
@@ -7354,12 +7358,16 @@ async fn test_ws_program_subscribe_data_size_filter(test_type: TestType) {
         rent_epoch: 0,
     };
     svm_locker.with_svm_writer(|svm| {
-        svm.set_account(&matching_account_pubkey, matching_account).unwrap();
+        svm.set_account(&matching_account_pubkey, matching_account)
+            .unwrap();
     });
 
     // Should receive a notification for the 8-byte account
     let update = program_rx.recv_timeout(Duration::from_secs(5));
-    assert!(update.is_ok(), "Should receive notification for account matching dataSize filter");
+    assert!(
+        update.is_ok(),
+        "Should receive notification for account matching dataSize filter"
+    );
 
     let keyed_account = update.unwrap();
     assert_eq!(
@@ -7404,7 +7412,8 @@ async fn test_ws_program_subscribe_memcmp_filter(test_type: TestType) {
         rent_epoch: 0,
     };
     svm_locker.with_svm_writer(|svm| {
-        svm.set_account(&non_matching_pubkey, non_matching_account).unwrap();
+        svm.set_account(&non_matching_pubkey, non_matching_account)
+            .unwrap();
     });
 
     // Should NOT receive a notification
@@ -7429,7 +7438,10 @@ async fn test_ws_program_subscribe_memcmp_filter(test_type: TestType) {
 
     // Should receive a notification
     let update = program_rx.recv_timeout(Duration::from_secs(5));
-    assert!(update.is_ok(), "Should receive notification for account matching memcmp filter");
+    assert!(
+        update.is_ok(),
+        "Should receive notification for account matching memcmp filter"
+    );
 
     let keyed_account = update.unwrap();
     assert_eq!(
@@ -7452,8 +7464,11 @@ async fn test_ws_program_unsubscribe(test_type: TestType) {
     let program_id = Pubkey::new_unique();
 
     // Subscribe to program updates
-    let program_rx =
-        svm_locker.subscribe_for_program_updates(&program_id, Some(UiAccountEncoding::Base64), None);
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        None,
+    );
 
     // Verify subscription works by setting an account
     let account_pubkey = Pubkey::new_unique();
