@@ -14,9 +14,10 @@ use jsonrpc_pubsub::{
 use solana_account_decoder::{UiAccount, UiAccountEncoding};
 use solana_client::{
     rpc_config::{RpcSignatureSubscribeConfig, RpcTransactionConfig, RpcTransactionLogsFilter},
+    rpc_filter::RpcFilterType,
     rpc_response::{
-        ProcessedSignatureResult, ReceivedSignatureResult, RpcLogsResponse, RpcResponseContext,
-        RpcSignatureResult,
+        ProcessedSignatureResult, ReceivedSignatureResult, RpcKeyedAccount, RpcLogsResponse,
+        RpcResponseContext, RpcSignatureResult,
     },
 };
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
@@ -58,6 +59,15 @@ pub struct RpcAccountSubscribeConfig {
     #[serde(flatten)]
     pub commitment: Option<CommitmentConfig>,
     pub encoding: Option<UiAccountEncoding>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcProgramSubscribeConfig {
+    #[serde(flatten)]
+    pub commitment: Option<CommitmentConfig>,
+    pub encoding: Option<UiAccountEncoding>,
+    pub filters: Option<Vec<RpcFilterType>>,
 }
 
 #[rpc]
@@ -597,12 +607,18 @@ pub trait Rpc {
         subscribe,
         name = "programSubscribe"
     )]
-    fn program_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<RpcResponse<()>>);
+    fn program_subscribe(
+        &self,
+        meta: Self::Metadata,
+        subscriber: Subscriber<RpcResponse<RpcKeyedAccount>>,
+        pubkey_str: String,
+        config: Option<RpcProgramSubscribeConfig>,
+    );
 
     #[pubsub(
         subscription = "programNotification",
         unsubscribe,
-        name = "ProgramUnsubscribe"
+        name = "programUnsubscribe"
     )]
     fn program_unsubscribe(
         &self,
@@ -824,6 +840,8 @@ pub struct SurfpoolWsRpc {
         Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcSignatureResult>>>>>,
     pub account_subscription_map:
         Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<UiAccount>>>>>,
+    pub program_subscription_map:
+        Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcKeyedAccount>>>>>,
     pub slot_subscription_map: Arc<RwLock<HashMap<SubscriptionId, Sink<SlotInfo>>>>,
     pub logs_subscription_map:
         Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcLogsResponse>>>>>,
@@ -1464,17 +1482,126 @@ impl Rpc for SurfpoolWsRpc {
         Ok(true)
     }
 
-    fn program_subscribe(&self, meta: Self::Metadata, _subscriber: Subscriber<RpcResponse<()>>) {
+    fn program_subscribe(
+        &self,
+        meta: Self::Metadata,
+        subscriber: Subscriber<RpcResponse<RpcKeyedAccount>>,
+        pubkey_str: String,
+        config: Option<RpcProgramSubscribeConfig>,
+    ) {
         let _ = meta
             .as_ref()
-            .map(|m| m.log_warn("Websocket method 'program_subscribe' is uninmplemented"));
+            .map(|m| m.log_debug("Websocket 'program_subscribe' connection established"));
+
+        let program_id = match Pubkey::from_str(&pubkey_str) {
+            Ok(pk) => pk,
+            Err(_) => {
+                let error = Error {
+                    code: ErrorCode::InvalidParams,
+                    message: "Invalid pubkey format.".into(),
+                    data: None,
+                };
+                if subscriber.reject(error.clone()).is_err() {
+                    log::error!("Failed to reject subscriber for invalid pubkey format.");
+                }
+                return;
+            }
+        };
+
+        let config = config.unwrap_or_default();
+
+        let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
+        let sub_id = SubscriptionId::Number(id as u64);
+        let sink = match subscriber.assign_id(sub_id.clone()) {
+            Ok(sink) => sink,
+            Err(e) => {
+                log::error!("Failed to assign subscription ID: {:?}", e);
+                return;
+            }
+        };
+
+        let program_active = Arc::clone(&self.program_subscription_map);
+        let meta = meta.clone();
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => {
+                log::error!("Failed to get SVM locker for program subscription: {e}");
+                if let Err(e) = sink.notify(Err(e.into())) {
+                    log::error!(
+                        "Failed to send error notification to client for SVM locker failure: {e}"
+                    );
+                }
+                return;
+            }
+        };
+        let slot = svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot());
+
+        self.tokio_handle.spawn(async move {
+            if let Ok(mut guard) = program_active.write() {
+                guard.insert(sub_id.clone(), sink);
+            } else {
+                log::error!("Failed to acquire write lock on program_subscription_map");
+                return;
+            }
+
+            let rx = svm_locker.subscribe_for_program_updates(
+                &program_id,
+                config.encoding,
+                config.filters,
+            );
+
+            loop {
+                // if the subscription has been removed, break the loop
+                if let Ok(guard) = program_active.read() {
+                    if guard.get(&sub_id).is_none() {
+                        break;
+                    }
+                } else {
+                    log::error!("Failed to acquire read lock on program_subscription_map");
+                    break;
+                }
+
+                let Ok(keyed_account) = rx.try_recv() else {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    continue;
+                };
+
+                let Ok(guard) = program_active.read() else {
+                    log::error!("Failed to acquire read lock on program_subscription_map");
+                    break;
+                };
+
+                let Some(sink) = guard.get(&sub_id) else {
+                    log::error!("Failed to get sink for subscription ID");
+                    break;
+                };
+
+                if let Err(e) = sink.notify(Ok(RpcResponse {
+                    context: RpcResponseContext::new(slot),
+                    value: keyed_account,
+                })) {
+                    log::error!("Failed to notify client about program account update: {e}");
+                    break;
+                }
+            }
+        });
     }
 
     fn program_unsubscribe(
         &self,
         _meta: Option<Self::Metadata>,
-        _subscription: SubscriptionId,
+        subscription: SubscriptionId,
     ) -> Result<bool> {
+        if let Ok(mut guard) = self.program_subscription_map.write() {
+            guard.remove(&subscription);
+        } else {
+            log::error!("Failed to acquire write lock on program_subscription_map");
+            return Err(Error {
+                code: ErrorCode::InternalError,
+                message: "Internal error.".into(),
+                data: None,
+            });
+        };
         Ok(true)
     }
 

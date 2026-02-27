@@ -38,6 +38,7 @@ use solana_account_decoder::{
 use solana_client::{
     rpc_client::SerializableTransaction,
     rpc_config::{RpcAccountInfoConfig, RpcBlockConfig, RpcTransactionLogsFilter},
+    rpc_filter::RpcFilterType,
     rpc_response::{RpcKeyedAccount, RpcLogsResponse, RpcPerfSample},
 };
 use solana_clock::{Clock, Slot};
@@ -89,8 +90,8 @@ use uuid::Uuid;
 use super::{
     AccountSubscriptionData, BlockHeader, BlockIdentifier, FINALIZATION_SLOT_THRESHOLD,
     GetAccountResult, GeyserBlockMetadata, GeyserEntryInfo, GeyserEvent, GeyserSlotStatus,
-    SLOTS_PER_EPOCH, SignatureSubscriptionData, SignatureSubscriptionType,
-    remote::SurfnetRemoteClient,
+    ProgramSubscriptionData, SLOTS_PER_EPOCH, SignatureSubscriptionData,
+    SignatureSubscriptionType, remote::SurfnetRemoteClient,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
@@ -258,6 +259,7 @@ pub struct SurfnetSvm {
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub account_subscriptions: AccountSubscriptionData,
+    pub program_subscriptions: ProgramSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
     pub profile_tag_map: Box<dyn Storage<String, Vec<UuidOrSignature>>>,
     pub simulated_transaction_profiles: Box<dyn Storage<String, KeyedProfileResult>>,
@@ -394,6 +396,7 @@ impl SurfnetSvm {
 
             signature_subscriptions: self.signature_subscriptions.clone(),
             account_subscriptions: self.account_subscriptions.clone(),
+            program_subscriptions: self.program_subscriptions.clone(),
             // Don't clone subscriptions - profiling clone shouldn't send notifications
             slot_subscriptions: Vec::new(),
             logs_subscriptions: Vec::new(),
@@ -583,6 +586,7 @@ impl SurfnetSvm {
             transactions_queued_for_finalization: VecDeque::new(),
             signature_subscriptions: HashMap::new(),
             account_subscriptions: HashMap::new(),
+            program_subscriptions: HashMap::new(),
             slot_subscriptions: Vec::new(),
             profile_tag_map: profile_tag_map_db,
             simulated_transaction_profiles: simulated_transaction_profiles_db,
@@ -1252,6 +1256,9 @@ impl SurfnetSvm {
 
         // Notify account subscribers
         self.notify_account_subscribers(pubkey, &account);
+
+        // Notify program subscribers
+        self.notify_program_subscribers(pubkey, &account);
 
         let _ = self
             .simnet_events_tx
@@ -2476,6 +2483,20 @@ impl SurfnetSvm {
         rx
     }
 
+    pub fn subscribe_for_program_updates(
+        &mut self,
+        program_id: &Pubkey,
+        encoding: Option<UiAccountEncoding>,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> Receiver<RpcKeyedAccount> {
+        let (tx, rx) = unbounded();
+        self.program_subscriptions
+            .entry(*program_id)
+            .or_default()
+            .push((encoding, filters, tx));
+        rx
+    }
+
     /// Notifies signature subscribers of a status update, sending slot and error info.
     ///
     /// # Arguments
@@ -2533,6 +2554,51 @@ impl SurfnetSvm {
             if !remaining.is_empty() {
                 self.account_subscriptions
                     .insert(*account_updated_pubkey, remaining);
+            }
+        }
+    }
+
+    pub fn notify_program_subscribers(
+        &mut self,
+        account_pubkey: &Pubkey,
+        account: &Account,
+    ) {
+        let program_id = account.owner;
+        let mut remaining = vec![];
+        if let Some(subscriptions) = self.program_subscriptions.remove(&program_id) {
+            for (encoding, filters, tx) in subscriptions {
+                // Apply filters if present
+                if let Some(ref active_filters) = filters {
+                    match super::locker::apply_rpc_filters(&account.data, active_filters) {
+                        Ok(true) => {}         // Account matches all filters
+                        Ok(false) => {
+                            // Filtered out - keep subscription active but don't notify
+                            remaining.push((encoding, filters, tx));
+                            continue;
+                        }
+                        Err(_) => {
+                            // Error applying filter - keep subscription, skip notification
+                            remaining.push((encoding, filters, tx));
+                            continue;
+                        }
+                    }
+                }
+
+                let config = RpcAccountInfoConfig {
+                    encoding,
+                    ..Default::default()
+                };
+                let keyed_account =
+                    self.account_to_rpc_keyed_account(account_pubkey, account, &config, None);
+                if tx.send(keyed_account).is_err() {
+                    // The receiver has been dropped, so we can skip notifying
+                    continue;
+                } else {
+                    remaining.push((encoding, filters, tx));
+                }
+            }
+            if !remaining.is_empty() {
+                self.program_subscriptions.insert(program_id, remaining);
             }
         }
     }

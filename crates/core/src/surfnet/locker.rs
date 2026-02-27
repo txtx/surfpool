@@ -1479,7 +1479,9 @@ impl SurfnetSvmLocker {
                     });
                 }
                 self.with_svm_writer(|svm_writer| {
-                    svm_writer.notify_account_subscribers(pubkey, &after.unwrap_or_default());
+                    let after_account = after.unwrap_or_default();
+                    svm_writer.notify_account_subscribers(pubkey, &after_account);
+                    svm_writer.notify_program_subscribers(pubkey, &after_account);
                 });
             }
         }
@@ -1645,6 +1647,7 @@ impl SurfnetSvmLocker {
                         ));
                     }
                     svm_writer.notify_account_subscribers(pubkey, &after);
+                    svm_writer.notify_program_subscribers(pubkey, &after);
                 }
             }
 
@@ -3170,6 +3173,18 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Subscribes for program account updates and returns a receiver of keyed account updates.
+    pub fn subscribe_for_program_updates(
+        &self,
+        program_id: &Pubkey,
+        encoding: Option<UiAccountEncoding>,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> Receiver<RpcKeyedAccount> {
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.subscribe_for_program_updates(program_id, encoding, filters)
+        })
+    }
+
     /// Subscribes for slot updates and returns a receiver of slot updates.
     pub fn subscribe_for_slot_updates(&self) -> Receiver<SlotInfo> {
         self.with_svm_writer(|svm_writer| svm_writer.subscribe_for_slot_updates())
@@ -3581,7 +3596,7 @@ impl SurfnetSvmLocker {
 }
 
 // Helper function to apply filters
-fn apply_rpc_filters(account_data: &[u8], filters: &[RpcFilterType]) -> SurfpoolResult<bool> {
+pub(crate) fn apply_rpc_filters(account_data: &[u8], filters: &[RpcFilterType]) -> SurfpoolResult<bool> {
     for filter in filters {
         match filter {
             RpcFilterType::DataSize(size) => {
