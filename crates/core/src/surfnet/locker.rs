@@ -4245,13 +4245,14 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_v0_transaction_without_alt_emits_geyser_account_updates() {
+        use std::time::Duration;
+
         use crossbeam_channel::{RecvTimeoutError, unbounded};
         use solana_keypair::Keypair;
         use solana_message::{VersionedMessage, v0};
         use solana_signer::Signer;
         use solana_system_interface::instruction as system_instruction;
         use solana_transaction::versioned::VersionedTransaction;
-        use std::time::Duration;
 
         let (svm, _events_rx, geyser_rx) = SurfnetSvm::default();
         let locker = SurfnetSvmLocker::new(svm);
@@ -4277,11 +4278,9 @@ mod tests {
         )
         .expect("v0 message should compile");
 
-        let tx = VersionedTransaction::try_new(
-            VersionedMessage::V0(message),
-            &[payer.insecure_clone()],
-        )
-        .expect("v0 transaction should sign");
+        let tx =
+            VersionedTransaction::try_new(VersionedMessage::V0(message), &[payer.insecure_clone()])
+                .expect("v0 transaction should sign");
 
         let tx_signature = tx.signatures[0];
         let (status_tx, _status_rx) = unbounded();
