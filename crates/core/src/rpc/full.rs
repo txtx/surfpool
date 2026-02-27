@@ -1667,16 +1667,21 @@ impl Full for SurfpoolFullRpc {
         }
 
         let tx_encoding = config.encoding.unwrap_or(UiTransactionEncoding::Base58);
-        let binary_encoding = tx_encoding
-            .into_binary_encoding()
-            .ok_or_else(|| {
-                Error::invalid_params(format!(
-                    "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
-                ))
-            })
-            .unwrap();
+        let binary_encoding = match tx_encoding.into_binary_encoding() {
+            Some(binary_encoding) => binary_encoding,
+            None => {
+                return Box::pin(async move {
+                    Err(Error::invalid_params(format!(
+                        "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
+                    )))
+                });
+            }
+        };
         let (_, mut unsanitized_tx) =
-            decode_and_deserialize::<VersionedTransaction>(data, binary_encoding).unwrap();
+            match decode_and_deserialize::<VersionedTransaction>(data, binary_encoding) {
+                Ok(res) => res,
+                Err(e) => return Box::pin(async move { Err(e) }),
+            };
 
         let SurfnetRpcContext {
             svm_locker,
@@ -2933,6 +2938,31 @@ mod tests {
                 space: Some(0),
             })]),
             "Wrong account content"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_simulate_transaction_oversized_base64_returns_invalid_params() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let err = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context),
+                "A".repeat(1645),
+                Some(RpcSimulateTransactionConfig {
+                    encoding: Some(UiTransactionEncoding::Base64),
+                    ..RpcSimulateTransactionConfig::default()
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, jsonrpc_core::ErrorCode::InvalidParams);
+        assert!(
+            err.message.contains("base64 encoded"),
+            "expected base64 size validation error, got: {}",
+            err.message
         );
     }
 
