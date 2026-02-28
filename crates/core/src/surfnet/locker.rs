@@ -854,6 +854,16 @@ impl SurfnetSvmLocker {
                 })
                 .unwrap_or_default();
 
+            let unique_slots: HashSet<u64> = sigs.iter().map(|s| s.slot).collect();
+            let mut sig_position: HashMap<String, usize> = HashMap::new();
+            for slot in unique_slots {
+                if let Ok(Some(block_header)) = svm_reader.blocks.get(&slot) {
+                    for (idx, block_sig) in block_header.signatures.iter().enumerate() {
+                        sig_position.insert(block_sig.to_string(), idx);
+                    }
+                }
+            }
+
             sigs.into_iter()
                 .filter(|sig| {
                     if config.before.is_none() && config.until.is_none() {
@@ -871,7 +881,19 @@ impl SurfnetSvmLocker {
                     false
                 })
                 // order from most recent to least recent
-                .sorted_by(|a, b| b.slot.cmp(&a.slot))
+                .sorted_by(|a, b| {
+                    b.slot.cmp(&a.slot).then_with(|| {
+                        let a_pos = sig_position
+                            .get(&a.signature)
+                            .copied()
+                            .unwrap_or(usize::MAX);
+                        let b_pos = sig_position
+                            .get(&b.signature)
+                            .copied()
+                            .unwrap_or(usize::MAX);
+                        b_pos.cmp(&a_pos)
+                    })
+                })
                 .take(limit)
                 .collect()
         })
@@ -3686,11 +3708,12 @@ mod tests {
 
     use solana_account::Account;
     use solana_account_decoder::UiAccountEncoding;
+    use solana_transaction_status::TransactionStatusMeta;
 
     use super::*;
     use crate::{
         scenarios::registry::PYTH_V2_IDL_CONTENT,
-        surfnet::{SurfnetSvm, svm::apply_override_to_decoded_account},
+        surfnet::{BlockHeader, SurfnetSvm, svm::apply_override_to_decoded_account},
     };
 
     #[test]
@@ -4573,5 +4596,176 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
+    }
+
+    /// Helper: create a VersionedTransaction with a given signature whose account keys contain `pubkey`.
+    fn make_test_tx(sig: Signature, pubkey: &Pubkey) -> VersionedTransaction {
+        use solana_system_interface::instruction as system_instruction;
+        VersionedTransaction {
+            signatures: vec![sig],
+            message: VersionedMessage::Legacy(Message::new(
+                &[system_instruction::transfer(pubkey, pubkey, 1)],
+                Some(pubkey),
+            )),
+        }
+    }
+
+    /// Helper: store a transaction into the SVM at the given slot.
+    fn store_test_tx(svm: &mut SurfnetSvm, sig: Signature, pubkey: &Pubkey, slot: u64) {
+        let tx = make_test_tx(sig, pubkey);
+        svm.transactions
+            .store(
+                sig.to_string(),
+                SurfnetTransactionStatus::processed(
+                    TransactionWithStatusMeta {
+                        slot,
+                        transaction: tx,
+                        meta: TransactionStatusMeta {
+                            status: Ok(()),
+                            fee: 5000,
+                            pre_balances: vec![0; 3],
+                            post_balances: vec![0; 3],
+                            inner_instructions: Some(vec![]),
+                            log_messages: Some(vec![]),
+                            pre_token_balances: Some(vec![]),
+                            post_token_balances: Some(vec![]),
+                            rewards: Some(vec![]),
+                            loaded_addresses: LoadedAddresses::default(),
+                            return_data: None,
+                            compute_units_consumed: Some(0),
+                            cost_units: None,
+                        },
+                    },
+                    HashSet::new(),
+                ),
+            )
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_ordering_within_block() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let sig_c = Signature::new_unique();
+        let slot = 5;
+
+        locker.with_svm_writer(|svm| {
+            store_test_tx(svm, sig_a, &pubkey, slot);
+            store_test_tx(svm, sig_b, &pubkey, slot);
+            store_test_tx(svm, sig_c, &pubkey, slot);
+
+            // Block header records execution order: A, B, C
+            svm.blocks
+                .store(
+                    slot,
+                    BlockHeader {
+                        hash: String::new(),
+                        previous_blockhash: String::new(),
+                        parent_slot: 0,
+                        block_time: 0,
+                        block_height: 0,
+                        signatures: vec![sig_a, sig_b, sig_c],
+                    },
+                )
+                .unwrap();
+        });
+
+        let result = locker.get_signatures_for_address_local(&pubkey, None);
+        let sigs: Vec<String> = result.inner.iter().map(|s| s.signature.clone()).collect();
+
+        // Last executed (C) should appear first, then B, then A
+        assert_eq!(sigs.len(), 3);
+        assert_eq!(sigs[0], sig_c.to_string());
+        assert_eq!(sigs[1], sig_b.to_string());
+        assert_eq!(sigs[2], sig_a.to_string());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_ordering_across_slots() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_s5_a = Signature::new_unique();
+        let sig_s5_b = Signature::new_unique();
+        let sig_s10_a = Signature::new_unique();
+        let sig_s10_b = Signature::new_unique();
+
+        locker.with_svm_writer(|svm| {
+            store_test_tx(svm, sig_s5_a, &pubkey, 5);
+            store_test_tx(svm, sig_s5_b, &pubkey, 5);
+            store_test_tx(svm, sig_s10_a, &pubkey, 10);
+            store_test_tx(svm, sig_s10_b, &pubkey, 10);
+
+            svm.blocks
+                .store(
+                    5,
+                    BlockHeader {
+                        hash: String::new(),
+                        previous_blockhash: String::new(),
+                        parent_slot: 0,
+                        block_time: 0,
+                        block_height: 0,
+                        signatures: vec![sig_s5_a, sig_s5_b],
+                    },
+                )
+                .unwrap();
+
+            svm.blocks
+                .store(
+                    10,
+                    BlockHeader {
+                        hash: String::new(),
+                        previous_blockhash: String::new(),
+                        parent_slot: 0,
+                        block_time: 0,
+                        block_height: 0,
+                        signatures: vec![sig_s10_a, sig_s10_b],
+                    },
+                )
+                .unwrap();
+        });
+
+        let result = locker.get_signatures_for_address_local(&pubkey, None);
+        let sigs: Vec<String> = result.inner.iter().map(|s| s.signature.clone()).collect();
+
+        // Slot 10 txs first (descending), then slot 5 txs
+        // Within each slot: last executed first
+        assert_eq!(sigs.len(), 4);
+        assert_eq!(sigs[0], sig_s10_b.to_string());
+        assert_eq!(sigs[1], sig_s10_a.to_string());
+        assert_eq!(sigs[2], sig_s5_b.to_string());
+        assert_eq!(sigs[3], sig_s5_a.to_string());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_ordering_missing_block_header() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let slot = 5;
+
+        locker.with_svm_writer(|svm| {
+            store_test_tx(svm, sig_a, &pubkey, slot);
+            store_test_tx(svm, sig_b, &pubkey, slot);
+            // No block header stored — should not panic
+        });
+
+        let result = locker.get_signatures_for_address_local(&pubkey, None);
+
+        // Both transactions should be returned regardless
+        assert_eq!(result.inner.len(), 2);
+
+        // Verify both signatures are present (order not guaranteed without block header)
+        let sigs: HashSet<String> = result.inner.iter().map(|s| s.signature.clone()).collect();
+        assert!(sigs.contains(&sig_a.to_string()));
+        assert!(sigs.contains(&sig_b.to_string()));
     }
 }
