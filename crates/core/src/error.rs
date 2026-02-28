@@ -103,7 +103,11 @@ impl SurfpoolError {
         error.data = Some(json!("Failed to access internal Surfnet context"));
         Self(error)
     }
-
+    pub fn get_balance() -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!("Context slot too old"));
+        Self(error)
+    }
     pub fn set_account<T>(pubkey: Pubkey, e: T) -> Self
     where
         T: ToString,

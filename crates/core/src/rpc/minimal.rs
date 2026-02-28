@@ -19,6 +19,7 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     SURFPOOL_IDENTITY_PUBKEY,
+    error::SurfpoolError,
     rpc::{State, utils::verify_pubkey},
     surfnet::{FINALIZATION_SLOT_THRESHOLD, GetAccountResult, locker::SvmAccessContext},
 };
@@ -586,17 +587,29 @@ impl Minimal for SurfpoolMinimalRpc {
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        _config: Option<RpcContextConfig>, // TODO: use config
+        config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<RpcResponse<u64>>> {
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
 
+        let (commitment_config, min_ctx_slot): (CommitmentConfig, Option<u64>) = match config {
+            Some(RpcContextConfig {
+                commitment: Some(commitment),
+                min_context_slot,
+            }) => (commitment, min_context_slot),
+            Some(RpcContextConfig {
+                commitment: None,
+                min_context_slot,
+            }) => (CommitmentConfig::confirmed(), min_context_slot),
+            None => (CommitmentConfig::confirmed(), None),
+        };
+
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+        } = match meta.get_rpc_context(commitment_config) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
@@ -607,6 +620,12 @@ impl Minimal for SurfpoolMinimalRpc {
                 inner: account_update,
                 ..
             } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
+
+            if let Some(min_slot) = min_ctx_slot
+                && slot < min_slot
+            {
+                return Err(SurfpoolError::get_balance().into());
+            }
 
             let balance = match &account_update {
                 GetAccountResult::FoundAccount(_, account, _)
