@@ -78,7 +78,13 @@ pub fn try_get_programs_from_project(
             .cloned()
             .unwrap_or_default();
 
-        let mut accounts: Vec<AccountEntry> = vec![];
+        let mut accounts: Vec<AccountEntry> = manifest
+            .test
+            .as_ref()
+            .and_then(|test| test.validator.as_ref())
+            .and_then(|validator| validator.account.as_ref())
+            .cloned()
+            .unwrap_or_default();
 
         let mut accounts_dirs = manifest
             .test
