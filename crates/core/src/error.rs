@@ -8,6 +8,7 @@ use serde_json::json;
 use solana_client::{client_error::ClientError, rpc_request::TokenAccountsFilter};
 use solana_clock::Slot;
 use solana_pubkey::Pubkey;
+use solana_transaction::TransactionError;
 use solana_transaction_status::EncodeError;
 
 use crate::storage::StorageError;
@@ -463,6 +464,14 @@ impl From<LiteSVMError> for SurfpoolError {
     fn from(e: LiteSVMError) -> Self {
         let mut error = Error::internal_error();
         error.data = Some(json!(format!("LiteSVM error: {}", e.to_string())));
+        SurfpoolError(error)
+    }
+}
+
+impl From<TransactionError> for SurfpoolError {
+    fn from(e: TransactionError) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!("Transaction error: {}", e.to_string())));
         SurfpoolError(error)
     }
 }
