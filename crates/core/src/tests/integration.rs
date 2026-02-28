@@ -7257,3 +7257,291 @@ async fn test_instruction_profiling_does_not_mutate_state(test_type: TestType) {
         "Transaction count should increment after processing (even for failed tx)"
     );
 }
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_basic(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+    let account_pubkey = Pubkey::new_unique();
+
+    // Subscribe to program updates
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        None,
+    );
+
+    // Set an account owned by the program
+    let account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey, account).unwrap();
+    });
+
+    // Should receive a notification
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(update.is_ok(), "Should receive program account update");
+
+    let keyed_account = update.unwrap();
+    assert_eq!(
+        keyed_account.pubkey,
+        account_pubkey.to_string(),
+        "Notification should contain the correct account pubkey"
+    );
+    assert_eq!(
+        keyed_account.account.lamports, 1_000_000,
+        "Notification should contain the correct lamports"
+    );
+    println!("✓ programSubscribe basic flow works correctly");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_data_size_filter(test_type: TestType) {
+    use solana_client::rpc_filter::RpcFilterType;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+
+    // Subscribe with a dataSize filter for accounts with exactly 8 bytes of data
+    let filters = vec![RpcFilterType::DataSize(8)];
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        Some(filters),
+    );
+
+    // Set an account with 4 bytes (should NOT trigger notification)
+    let small_account_pubkey = Pubkey::new_unique();
+    let small_account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&small_account_pubkey, small_account)
+            .unwrap();
+    });
+
+    // Should NOT receive a notification for the 4-byte account
+    let no_update = program_rx.recv_timeout(Duration::from_millis(200));
+    assert!(
+        no_update.is_err(),
+        "Should NOT receive notification for account that doesn't match dataSize filter"
+    );
+
+    // Set an account with 8 bytes (SHOULD trigger notification)
+    let matching_account_pubkey = Pubkey::new_unique();
+    let matching_account = Account {
+        lamports: 2_000_000,
+        data: vec![1, 2, 3, 4, 5, 6, 7, 8],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&matching_account_pubkey, matching_account)
+            .unwrap();
+    });
+
+    // Should receive a notification for the 8-byte account
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        update.is_ok(),
+        "Should receive notification for account matching dataSize filter"
+    );
+
+    let keyed_account = update.unwrap();
+    assert_eq!(
+        keyed_account.pubkey,
+        matching_account_pubkey.to_string(),
+        "Notification should contain the correct matching account pubkey"
+    );
+    println!("✓ programSubscribe with dataSize filter works correctly");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_memcmp_filter(test_type: TestType) {
+    use solana_client::rpc_filter::{Memcmp, RpcFilterType};
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+
+    // Subscribe with a memcmp filter: offset 0, bytes [0xAA, 0xBB]
+    let filters = vec![RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
+        0,
+        vec![0xAA, 0xBB],
+    ))];
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        Some(filters),
+    );
+
+    // Set an account that doesn't match the memcmp filter
+    let non_matching_pubkey = Pubkey::new_unique();
+    let non_matching_account = Account {
+        lamports: 1_000_000,
+        data: vec![0x00, 0x00, 0xCC, 0xDD],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&non_matching_pubkey, non_matching_account)
+            .unwrap();
+    });
+
+    // Should NOT receive a notification
+    let no_update = program_rx.recv_timeout(Duration::from_millis(200));
+    assert!(
+        no_update.is_err(),
+        "Should NOT receive notification for account that doesn't match memcmp filter"
+    );
+
+    // Set an account that matches the memcmp filter
+    let matching_pubkey = Pubkey::new_unique();
+    let matching_account = Account {
+        lamports: 2_000_000,
+        data: vec![0xAA, 0xBB, 0xCC, 0xDD],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&matching_pubkey, matching_account).unwrap();
+    });
+
+    // Should receive a notification
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        update.is_ok(),
+        "Should receive notification for account matching memcmp filter"
+    );
+
+    let keyed_account = update.unwrap();
+    assert_eq!(
+        keyed_account.pubkey,
+        matching_pubkey.to_string(),
+        "Notification should contain the correct matching account pubkey"
+    );
+    println!("✓ programSubscribe with memcmp filter works correctly");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_unsubscribe(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+
+    // Subscribe to program updates
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        None,
+    );
+
+    // Verify subscription works by setting an account
+    let account_pubkey = Pubkey::new_unique();
+    let account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey, account).unwrap();
+    });
+
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(update.is_ok(), "Should receive first notification");
+
+    // Drop the receiver to simulate unsubscribe
+    drop(program_rx);
+
+    // Set another account - this should not panic or error
+    let account_pubkey2 = Pubkey::new_unique();
+    let account2 = Account {
+        lamports: 2_000_000,
+        data: vec![5, 6, 7, 8],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey2, account2).unwrap();
+    });
+
+    println!("✓ programUnsubscribe works correctly (no panic after receiver dropped)");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_wrong_owner(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let subscribed_program_id = Pubkey::new_unique();
+    let other_program_id = Pubkey::new_unique();
+
+    // Subscribe to updates for subscribed_program_id
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &subscribed_program_id,
+        Some(UiAccountEncoding::Base64),
+        None,
+    );
+
+    // Set an account owned by a DIFFERENT program
+    let account_pubkey = Pubkey::new_unique();
+    let account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: other_program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey, account).unwrap();
+    });
+
+    // Should NOT receive a notification since the account is owned by a different program
+    let no_update = program_rx.recv_timeout(Duration::from_millis(200));
+    assert!(
+        no_update.is_err(),
+        "Should NOT receive notification for account owned by a different program"
+    );
+    println!("✓ programSubscribe correctly ignores accounts owned by other programs");
+}

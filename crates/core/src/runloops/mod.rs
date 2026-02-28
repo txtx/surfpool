@@ -1119,6 +1119,7 @@ async fn start_ws_rpc_server_runloop(
                     uid,
                     signature_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     account_subscription_map: Arc::new(RwLock::new(HashMap::new())),
+                    program_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     slot_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     logs_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     snapshot_subscription_map: Arc::new(RwLock::new(HashMap::new())),
