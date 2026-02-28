@@ -1095,6 +1095,12 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolResult<KeyedProfileResult> {
         let signature = transaction.signatures[0];
 
+        // Sigverify the transaction upfront before doing any account fetching or other pre-processing.
+        if sigverify {
+            self.with_svm_reader(|svm_reader| svm_reader.sigverify(&transaction))
+                .map_err(|e| Into::<SurfpoolError>::into(e.err))?;
+        }
+
         let latest_absolute_slot = self.with_svm_writer(|svm_writer| {
             let latest_absolute_slot = svm_writer.get_latest_absolute_slot();
             svm_writer.notify_signature_subscribers(

@@ -7257,3 +7257,91 @@ async fn test_instruction_profiling_does_not_mutate_state(test_type: TestType) {
         "Transaction count should increment after processing (even for failed tx)"
     );
 }
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_duplicate_transaction_rejected(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 1_000_000;
+
+    // Airdrop SOL to payer
+    svm_locker
+        .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 10))
+        .unwrap()
+        .unwrap();
+
+    // Build a transfer transaction
+    let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let latest_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let transaction =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
+
+    // First submission should succeed
+    let (status_tx, status_rx) = crossbeam_unbounded();
+    svm_locker
+        .process_transaction(&None, transaction.clone(), status_tx, false, true)
+        .await
+        .unwrap();
+
+    match status_rx.recv() {
+        Ok(TransactionStatusEvent::Success(_)) => {
+            println!("First transaction processed successfully");
+        }
+        other => {
+            panic!("Expected first transaction to succeed, got: {:?}", other);
+        }
+    }
+
+    // Second submission of the same transaction should be rejected
+    let (status_tx2, status_rx2) = crossbeam_unbounded();
+    let result = svm_locker
+        .process_transaction(&None, transaction.clone(), status_tx2, false, true)
+        .await;
+
+    assert!(result.is_err(), "Duplicate transaction should be rejected");
+
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("already been processed"),
+        "Error should mention 'already been processed', got: {err_msg}"
+    );
+
+    // Status channel should receive a VerificationFailure
+    match status_rx2.recv() {
+        Ok(TransactionStatusEvent::VerificationFailure(msg)) => {
+            assert!(
+                msg.contains("already been processed"),
+                "VerificationFailure should mention 'already been processed', got: {msg}"
+            );
+            println!("Duplicate correctly rejected with VerificationFailure");
+        }
+        other => {
+            panic!(
+                "Expected VerificationFailure on status channel, got: {:?}",
+                other
+            );
+        }
+    }
+
+    // Verify the original transaction data is still stored correctly
+    let sig = transaction.signatures[0].to_string();
+    let stored = svm_locker.with_svm_reader(|svm| svm.transactions.get(&sig));
+    assert!(
+        matches!(
+            stored,
+            Ok(Some(crate::types::SurfnetTransactionStatus::Processed(_)))
+        ),
+        "Original transaction should still be stored as Processed"
+    );
+
+    println!("Duplicate transaction rejection test passed!");
+}
