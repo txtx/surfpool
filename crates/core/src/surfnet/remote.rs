@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use serde_json::json;
+use solana_account::Account;
 use solana_account_decoder::UiAccount;
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
@@ -155,21 +156,13 @@ impl SurfnetRemoteClient {
             .map_err(SurfpoolError::get_multiple_accounts)?;
 
         let mut accounts_result = vec![];
+        let mut mint_accounts_src: Vec<(Pubkey, Account, Pubkey)> = vec![];
+        let mut program_accounts_src: Vec<(Pubkey, Account, Pubkey)> = vec![];
         for (pubkey, remote_account) in pubkeys.iter().zip(remote_accounts) {
             if let Some(remote_account) = remote_account {
                 if is_supported_token_program(&remote_account.owner) {
                     if let Ok(token_account) = TokenAccount::unpack(&remote_account.data) {
-                        // TODO: move the query out of the loop to prevent rate-limiting by `api.mainnet-beta.solana.com`
-                        let mint = self
-                            .client
-                            .get_account_with_commitment(&token_account.mint(), commitment_config)
-                            .await
-                            .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
-
-                        accounts_result.push(GetAccountResult::FoundTokenAccount(
-                            (*pubkey, remote_account.clone()),
-                            (token_account.mint(), mint.value),
-                        ));
+                        mint_accounts_src.push((*pubkey, remote_account, token_account.mint()));
                     } else {
                         accounts_result.push(GetAccountResult::FoundAccount(
                             *pubkey,
@@ -181,16 +174,7 @@ impl SurfnetRemoteClient {
                 } else if remote_account.executable {
                     let program_data_address = get_program_data_address(pubkey);
 
-                    let program_data = self
-                        .client
-                        .get_account_with_commitment(&program_data_address, commitment_config)
-                        .await
-                        .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
-
-                    accounts_result.push(GetAccountResult::FoundProgramAccount(
-                        (*pubkey, remote_account),
-                        (program_data_address, program_data.value),
-                    ));
+                    program_accounts_src.push((*pubkey, remote_account, program_data_address));
                 } else {
                     accounts_result.push(GetAccountResult::FoundAccount(
                         *pubkey,
@@ -203,6 +187,37 @@ impl SurfnetRemoteClient {
                 accounts_result.push(GetAccountResult::None(*pubkey));
             }
         }
+
+        if !(mint_accounts_src.is_empty() || program_accounts_src.is_empty()) {
+            let mint_acc_src_len = mint_accounts_src.len();
+            let mut account_buffer = mint_accounts_src.clone();
+            account_buffer.extend_from_slice(&program_accounts_src);
+
+            let account_pubkeys: Vec<Pubkey> = account_buffer.iter().map(|p| p.2).collect();
+
+            let binding_remote_accounts = self
+                .client
+                .get_multiple_accounts_with_commitment(&account_pubkeys, commitment_config)
+                .await
+                .map_err(SurfpoolError::get_multiple_accounts)?
+                .value;
+
+            for (index, remote_account) in binding_remote_accounts.iter().enumerate() {
+                if index < mint_acc_src_len {
+                    // mint accounts to be pushed
+                    accounts_result.push(GetAccountResult::FoundTokenAccount(
+                        (account_buffer[index].0, account_buffer[index].1.clone()),
+                        (account_buffer[index].2, remote_account.clone()),
+                    ));
+                } else {
+                    accounts_result.push(GetAccountResult::FoundProgramAccount(
+                        (account_buffer[index].0, account_buffer[index].1.clone()),
+                        (account_buffer[index].2, remote_account.clone()),
+                    ));
+                }
+            }
+        }
+
         Ok(accounts_result)
     }
 
