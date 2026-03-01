@@ -18,11 +18,12 @@ use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, TransactionStatus};
+use surfpool_types::{ExecutionCapture, ProfileResult};
 use svm::SurfnetSvm;
 
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
-    types::{GeyserAccountUpdate, TransactionWithStatusMeta},
+    types::{GeyserAccountUpdate, TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta},
 };
 
 pub mod locker;
@@ -171,6 +172,18 @@ pub enum SnapshotImportStatus {
     InProgress,
     Completed,
     Failed,
+}
+
+pub struct ProfilingJob {
+    pub profiling_svm: SurfnetSvm,
+    pub transaction: VersionedTransaction,
+    pub transaction_accounts: Vec<Pubkey>,
+    pub loaded_addresses: Option<TransactionLoadedAddresses>,
+    pub accounts_before: Vec<Option<Account>>,
+    pub token_accounts_before: Vec<(usize, TokenAccount)>,
+    pub token_programs: Vec<Pubkey>,
+    pub pre_execution_capture: ExecutionCapture,
+    pub result_tx: Sender<Option<Vec<ProfileResult>>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
