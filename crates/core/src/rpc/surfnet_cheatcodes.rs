@@ -268,6 +268,35 @@ pub trait SurfnetCheatcodes {
         config: Option<RpcProfileResultConfig>,
     ) -> BoxFuture<Result<RpcResponse<UiKeyedProfileResult>>>;
 
+    /// Replays a mainnet transaction locally by signature.
+    ///
+    /// Fetches the transaction from a remote RPC, retrieves the required account states,
+    /// time-travels to the original slot, and executes it locally.
+    ///
+    /// ## Parameters
+    /// - `signature`: The transaction signature to replay.
+    /// - `config`: Optional replay configuration (profile, time_travel).
+    ///
+    /// ## Returns
+    /// A `RpcResponse<ReplayResult>` containing the replay results.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_replayTransaction",
+    ///   "params": ["5N7Lw...", {"profile": true, "timeTravel": true}]
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_replayTransaction")]
+    fn replay_transaction(
+        &self,
+        meta: Self::Metadata,
+        signature: String,
+        config: Option<surfpool_types::ReplayConfig>,
+    ) -> BoxFuture<Result<RpcResponse<surfpool_types::ReplayResult>>>;
+
     /// Retrieves all profiling results for a given tag.
     ///
     /// ## Parameters
@@ -1391,6 +1420,49 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),
                 value: ui_result,
+            })
+        })
+    }
+
+    fn replay_transaction(
+        &self,
+        meta: Self::Metadata,
+        signature_str: String,
+        config: Option<surfpool_types::ReplayConfig>,
+    ) -> BoxFuture<Result<RpcResponse<surfpool_types::ReplayResult>>> {
+        use crate::rpc::utils::verify_signature;
+
+        // Validate signature
+        let signature = match verify_signature(&signature_str) {
+            Ok(sig) => sig,
+            Err(e) => return Box::pin(future::err(e)),
+        };
+
+        Box::pin(async move {
+            let SurfnetRpcContext {
+                svm_locker,
+                remote_ctx,
+            } = meta.get_rpc_context(CommitmentConfig::confirmed())?;
+
+            // Require remote client for replay
+            let remote_client = remote_ctx
+                .as_ref()
+                .map(|(client, _)| client.clone())
+                .ok_or_else(SurfpoolError::replay_requires_remote)?;
+
+            let simnet_command_tx = meta.get_surfnet_command_tx()?;
+
+            let config = config.unwrap_or_default();
+
+            let result = svm_locker
+                .replay_transaction(&remote_client, signature, config, simnet_command_tx)
+                .await?;
+
+            let slot = svm_locker.get_latest_absolute_slot();
+
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(slot),
+                value: result,
             })
         })
     }

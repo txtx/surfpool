@@ -449,6 +449,38 @@ impl SurfpoolError {
         error.message = format!("Expected profile not found for key {key}");
         Self(error)
     }
+
+    pub fn replay_requires_remote() -> Self {
+        let mut error = Error::internal_error();
+        error.message = "Transaction replay requires a remote RPC connection".to_string();
+        error.data = Some(json!(
+            "Start surfpool with --rpc-url or --network to enable replay"
+        ));
+        Self(error)
+    }
+
+    pub fn replay_transaction_decode<S, E>(signature: S, e: E) -> Self
+    where
+        S: Display,
+        E: Display,
+    {
+        let mut error = Error::internal_error();
+        error.message = format!("Failed to decode transaction {signature}");
+        error.data = Some(json!(e.to_string()));
+        Self(error)
+    }
+
+    pub fn replay_unsupported_encoding<S>(signature: S, encoding: &str) -> Self
+    where
+        S: Display,
+    {
+        let mut error = Error::internal_error();
+        error.message = format!("Unsupported transaction encoding for replay: {encoding}");
+        error.data = Some(json!(format!(
+            "Transaction {signature} uses unsupported encoding. Expected base64."
+        )));
+        Self(error)
+    }
 }
 
 impl From<StorageError> for SurfpoolError {

@@ -11260,6 +11260,7 @@ dependencies = [
  "solana-keypair",
  "solana-message 3.0.1",
  "solana-pubkey 3.0.0",
+ "solana-signature",
  "solana-signer",
  "solana-system-interface 2.0.0",
  "solana-transaction",

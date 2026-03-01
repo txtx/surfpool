@@ -1084,6 +1084,202 @@ impl SurfnetSvmLocker {
         Ok(self.with_contextualized_svm_reader(|_| uuid))
     }
 
+    /// Replays a transaction by signature from a remote RPC.
+    ///
+    /// Fetches the transaction, its accounts, time-travels to the original slot,
+    /// and executes it locally with optional profiling.
+    pub async fn replay_transaction(
+        &self,
+        remote_client: &SurfnetRemoteClient,
+        signature: Signature,
+        config: surfpool_types::ReplayConfig,
+        simnet_command_tx: Sender<SimnetCommand>,
+    ) -> SurfpoolResult<surfpool_types::ReplayResult> {
+        use base64::Engine;
+        use solana_transaction_status::{EncodedTransaction, TransactionBinaryEncoding};
+
+        // Step 1: Fetch the transaction from remote RPC
+        // Use u64::MAX as slot hint to avoid underflow in confirmation calculation
+        // when replaying mainnet transactions on a local SVM that starts at slot 0.
+        // The actual slot will be extracted from the transaction metadata.
+        let tx_config = RpcTransactionConfig {
+            encoding: Some(UiTransactionEncoding::Base64),
+            commitment: Some(CommitmentConfig::finalized()),
+            max_supported_transaction_version: Some(0),
+        };
+
+        let tx_result = remote_client
+            .get_transaction(signature, tx_config, u64::MAX)
+            .await;
+
+        let encoded_tx = match tx_result {
+            GetTransactionResult::FoundTransaction(_, tx, _) => tx,
+            GetTransactionResult::None(sig) => {
+                return Err(SurfpoolError::transaction_not_found(sig));
+            }
+        };
+
+        // Step 2: Extract slot and block time
+        let original_slot = encoded_tx.slot;
+        let original_block_time = encoded_tx.block_time;
+
+        // Step 3: Decode the transaction from base64
+        let versioned_tx: VersionedTransaction = match &encoded_tx.transaction.transaction {
+            EncodedTransaction::Binary(data, TransactionBinaryEncoding::Base64) => {
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(data)
+                    .map_err(|e| SurfpoolError::replay_transaction_decode(&signature, e))?;
+                bincode::deserialize(&bytes)
+                    .map_err(|e| SurfpoolError::replay_transaction_decode(&signature, e))?
+            }
+            EncodedTransaction::Binary(_, TransactionBinaryEncoding::Base58) => {
+                return Err(SurfpoolError::replay_unsupported_encoding(
+                    &signature,
+                    "base58",
+                ));
+            }
+            _ => {
+                return Err(SurfpoolError::replay_unsupported_encoding(
+                    &signature,
+                    "json/accounts",
+                ));
+            }
+        };
+
+        // Step 4: Create remote context for account fetching
+        let remote_ctx = Some((remote_client.clone(), CommitmentConfig::finalized()));
+
+        // Step 5: Extract all accounts including ALT lookups
+        let tx_loaded_addresses = self
+            .get_loaded_addresses(&remote_ctx, &versioned_tx.message)
+            .await?;
+
+        let all_accounts = self
+            .get_pubkeys_from_message(
+                &versioned_tx.message,
+                tx_loaded_addresses
+                    .as_ref()
+                    .map(|l| l.all_loaded_addresses()),
+            )
+            .clone();
+
+        // Step 6: Fetch account states (current state - historical not available)
+        let state_warning = Some(
+            "Account states are fetched at current slot, not at original transaction slot. \
+             Results may differ from original execution due to state changes."
+                .to_string(),
+        );
+
+        let account_updates = self
+            .get_multiple_accounts(&remote_ctx, &all_accounts, None)
+            .await?
+            .inner;
+
+        // Also fetch ALT accounts
+        let alt_account_updates = self
+            .get_multiple_accounts(
+                &remote_ctx,
+                &tx_loaded_addresses
+                    .as_ref()
+                    .map(|l| l.alt_addresses())
+                    .unwrap_or_default(),
+                None,
+            )
+            .await?
+            .inner;
+
+        // Step 7: Write accounts to SVM
+        self.with_svm_writer(|svm_writer| {
+            for update in &account_updates {
+                svm_writer.write_account_update(update.clone());
+            }
+            for update in &alt_account_updates {
+                svm_writer.write_account_update(update.clone());
+            }
+        });
+
+        // Step 8: Replace blockhash with local valid blockhash
+        // The original blockhash is from mainnet and won't be recognized locally.
+        // We preserve the transaction's instructions and accounts but use a local blockhash.
+        let local_blockhash = self.with_svm_reader(|svm| svm.latest_blockhash());
+        let versioned_tx = replace_transaction_blockhash(versioned_tx, local_blockhash);
+
+        // Step 9: Time travel to transaction's slot (if enabled)
+        let replay_slot = if config.should_time_travel() {
+            let time_travel_config = TimeTravelConfig::AbsoluteSlot(original_slot);
+            match self.time_travel(None, simnet_command_tx.clone(), time_travel_config) {
+                Ok(epoch_info) => epoch_info.absolute_slot,
+                Err(_) => self.get_latest_absolute_slot(),
+            }
+        } else {
+            self.get_latest_absolute_slot()
+        };
+
+        // Step 9: Execute the transaction
+        let accounts_used: Vec<String> = all_accounts.iter().map(|p| p.to_string()).collect();
+
+        // Both profiling and non-profiling paths use sigverify=false for replay
+        // since we replaced the blockhash which invalidates the original signatures
+        let svm_clone = self.with_svm_reader(|svm_reader| svm_reader.clone_for_profiling());
+        let svm_locker = SurfnetSvmLocker::new(svm_clone);
+
+        let (status_tx, _) = crossbeam_channel::unbounded();
+        let skip_preflight = true;
+        let sigverify = false; // Skip signature verification for replay (blockhash was replaced)
+        let do_propagate = false;
+
+        let mut keyed_profile_result = svm_locker
+            .fetch_all_tx_accounts_then_process_tx_returning_profile_res(
+                &remote_ctx,
+                versioned_tx,
+                status_tx,
+                skip_preflight,
+                sigverify,
+                do_propagate,
+            )
+            .await?;
+
+        // Extract results from profile
+        let success = keyed_profile_result.transaction_profile.error_message.is_none();
+        let error = keyed_profile_result.transaction_profile.error_message.clone();
+        let logs = keyed_profile_result
+            .transaction_profile
+            .log_messages
+            .clone()
+            .unwrap_or_default();
+        let cus = keyed_profile_result.transaction_profile.compute_units_consumed;
+
+        // Store profile result if profiling was requested
+        let profile_result = if config.should_profile() {
+            let uuid = Uuid::new_v4();
+            keyed_profile_result.key = UuidOrSignature::Uuid(uuid);
+            self.with_svm_writer(|svm_writer| {
+                svm_writer.write_simulated_profile_result(uuid, Some("replay".to_string()), keyed_profile_result.clone())
+            })?;
+            let ui_result = self.get_profile_result(
+                UuidOrSignature::Uuid(uuid),
+                &RpcProfileResultConfig::default(),
+            )?;
+            ui_result
+        } else {
+            None
+        };
+
+        Ok(surfpool_types::ReplayResult {
+            signature: signature.to_string(),
+            original_slot,
+            replay_slot,
+            original_block_time,
+            success,
+            logs,
+            compute_units_consumed: cus,
+            error,
+            profile_result,
+            accounts_used,
+            state_warning,
+        })
+    }
+
     async fn fetch_all_tx_accounts_then_process_tx_returning_profile_res(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
@@ -3695,6 +3891,26 @@ pub fn format_ui_amount(amount: u64, decimals: u8) -> f64 {
         amount as f64 / divisor as f64
     } else {
         amount as f64
+    }
+}
+
+/// Replaces the recent blockhash in a VersionedTransaction.
+/// Used for replay to substitute mainnet blockhash with a local valid one.
+fn replace_transaction_blockhash(tx: VersionedTransaction, new_blockhash: Hash) -> VersionedTransaction {
+    let new_message = match tx.message {
+        VersionedMessage::Legacy(mut msg) => {
+            msg.recent_blockhash = new_blockhash;
+            VersionedMessage::Legacy(msg)
+        }
+        VersionedMessage::V0(mut msg) => {
+            msg.recent_blockhash = new_blockhash;
+            VersionedMessage::V0(msg)
+        }
+    };
+
+    VersionedTransaction {
+        signatures: tx.signatures,
+        message: new_message,
     }
 }
 
