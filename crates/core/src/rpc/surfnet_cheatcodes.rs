@@ -130,6 +130,18 @@ impl TokenAccountUpdateExt for TokenAccountUpdate {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleResult {
+    /// The signature of each transaction in the bundle
+    pub signatures: Vec<String>,
+    
+    /// Whether all transactions in the bundle succeeded
+    pub success: bool,
+    
+    /// Error messages for failed transactions (if any)
+    pub errors: Vec<Option<String>>,
+}
+
 #[rpc]
 pub trait SurfnetCheatcodes {
     type Metadata;
@@ -1128,6 +1140,60 @@ pub trait SurfnetCheatcodes {
         scenario: Scenario,
         slot: Option<Slot>,
     ) -> Result<RpcResponse<()>>;
+    
+    /// A cheat code to send a bundle of transactions to the network.
+    ///
+    /// ## Parameters
+    /// - `bundle`: An array of base58-encoded serialized transactions
+    /// - `skip_preflight`: Whether to skip preflight simulation checks. If false, all
+    ///   transactions are simulated first and the bundle only executes if all simulations pass
+    ///
+    /// ## Returns
+    /// A `RpcResponse<BundleResult>` containing the result of the bundle execution.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_sendJitoBundle",
+    ///   "params": [
+    ///     ["<base58_tx_1>", "<base58_tx_2>", "<base58_tx_3>"],
+    ///     false
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 355684457,
+    ///       "apiVersion": "2.2.2"
+    ///     },
+    ///     "value": {
+    ///       "success": true,
+    ///       "bundle": [
+    ///         {
+    ///           "signature": "...",
+    ///           "slot": 355684457,
+    ///           "err": null
+    ///         }
+    ///       ]
+    ///     }
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_sendJitoBundle")]
+    fn send_jito_bundle(
+        &self,
+        meta: Self::Metadata,
+        bundle: Vec<String>,
+        skip_preflight: bool,
+    ) -> BoxFuture<Result<RpcResponse<BundleResult>>>;
 }
 
 #[derive(Clone)]
@@ -1846,6 +1912,180 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: (),
+        })
+    }
+
+    fn send_jito_bundle(
+        &self,
+        meta: Self::Metadata,
+        bundle: Vec<String>,
+        skip_preflight: bool,
+    ) -> BoxFuture<Result<RpcResponse<BundleResult>>> {
+        Box::pin(async move {
+            // Validate that we have between 1 and 5 transactions
+            if bundle.is_empty() || bundle.len() > 5 {
+                return Err(Error::invalid_params(format!(
+                    "Bundle must contain between 1 and 5 transactions, got {}",
+                    bundle.len()
+                )));
+            }
+    
+            let svm_locker = meta.get_svm_locker()?;
+            let Some(ctx) = meta else {
+                return Err(Error::internal_error());
+            };
+    
+            let mut signatures = Vec::new();
+            let mut errors: Vec<Option<String>> = Vec::new();
+            let mut decoded_txs = Vec::new();
+            
+            // First, decode all transactions and collect their signatures
+            for (i, tx_data) in bundle.iter().enumerate() {
+                // Decode and deserialize the transaction
+                let (_, unsanitized_tx) = match crate::rpc::utils::decode_and_deserialize::<VersionedTransaction>(
+                    tx_data.clone(),
+                    solana_transaction_status::TransactionBinaryEncoding::Base58,
+                ) {
+                    Ok(tx) => tx,
+                    Err(e) => {
+                        return Err(Error::invalid_params(format!(
+                            "Failed to decode transaction {}: {}",
+                            i + 1,
+                            e
+                        )));
+                    }
+                };
+    
+                let signature = unsanitized_tx.signatures[0];
+                signatures.push(signature.to_string());
+                decoded_txs.push(unsanitized_tx);
+            }
+    
+            // If not skipping preflight, simulate all transactions first
+            if !skip_preflight {
+                for (i, tx) in decoded_txs.iter().enumerate() {
+                    // Simulate with signature verification
+                    if let Err(failed_metadata) = svm_locker.simulate_transaction(tx.clone(), true) {
+                        let error_msg = format!(
+                            "Transaction {} simulation failed: {}{}",
+                            i + 1,
+                            failed_metadata.err,
+                            if failed_metadata.meta.logs.is_empty() {
+                                String::new()
+                            } else {
+                                format!(
+                                    " - {} log messages:\n{}",
+                                    failed_metadata.meta.logs.len(),
+                                    failed_metadata.meta.logs.join("\n")
+                                )
+                            }
+                        );
+                        
+                        // Fill error array
+                        for j in 0..bundle.len() {
+                            if j == i {
+                                errors.push(Some(error_msg.clone()));
+                            } else if j < i {
+                                errors.push(Some("Transaction not executed - bundle failed simulation".to_string()));
+                            } else {
+                                errors.push(Some("Transaction not processed due to earlier simulation failure".to_string()));
+                            }
+                        }
+                        
+                        return Ok(RpcResponse {
+                            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+                            value: BundleResult {
+                                signatures,
+                                success: false,
+                                errors,
+                            },
+                        });
+                    }
+                }
+            }
+    
+            // All simulations passed (or were skipped), now execute the transactions
+            // NOTE: This does NOT provide true atomicity - if a transaction fails during execution,
+            // previous transactions in the bundle will NOT be reverted
+            let mut all_success = true;
+            for (i, tx) in decoded_txs.into_iter().enumerate() {
+    
+                // Create a channel for status updates
+                let (status_update_tx, status_update_rx) = crossbeam_channel::bounded(1);
+                
+                // Send the transaction for processing
+                if let Err(e) = ctx
+                    .simnet_commands_tx
+                    .send(SimnetCommand::ProcessTransaction(
+                        ctx.id.clone(),
+                        tx.clone(),
+                        status_update_tx,
+                        true, // Skip preflight since we already simulated
+                    ))
+                {
+                    errors.push(Some(format!("Failed to submit transaction {}: {}", i + 1, e)));
+                    all_success = false;
+                    break;
+                }
+    
+                // Wait for the transaction result
+                match status_update_rx.recv() {
+                    Ok(surfpool_types::TransactionStatusEvent::Success(_)) => {
+                        errors.push(None); // No error for this transaction
+                    }
+                    Ok(surfpool_types::TransactionStatusEvent::SimulationFailure((error, metadata))) => {
+                        let error_msg = format!(
+                            "Transaction {} simulation failed: {}{}",
+                            i + 1,
+                            error,
+                            if metadata.logs.is_empty() {
+                                String::new()
+                            } else {
+                                format!(
+                                    " - {} log messages:\n{}",
+                                    metadata.logs.len(),
+                                    metadata.logs.join("\n")
+                                )
+                            }
+                        );
+                        errors.push(Some(error_msg));
+                        all_success = false;
+                        break; // Stop processing bundle on failure
+                    }
+                    Ok(surfpool_types::TransactionStatusEvent::ExecutionFailure((error, _metadata))) => {
+                        errors.push(Some(format!("Transaction {} execution failed: {}", i + 1, error)));
+                        all_success = false;
+                        break; // Stop processing bundle on failure
+                    }
+                    Ok(surfpool_types::TransactionStatusEvent::VerificationFailure(sig)) => {
+                        errors.push(Some(format!("Transaction {} verification failed: {}", i + 1, sig)));
+                        all_success = false;
+                        break; // Stop processing bundle on failure
+                    }
+                    Err(e) => {
+                        errors.push(Some(format!("Transaction {} processing error: {}", i + 1, e)));
+                        all_success = false;
+                        break; // Stop processing bundle on error
+                    }
+                }
+            }
+    
+            // Fill remaining slots with error messages if we stopped early
+            while signatures.len() < bundle.len() {
+                signatures.push(String::new());
+            }
+            while errors.len() < bundle.len() {
+                errors.push(Some("Transaction not processed due to earlier failure".to_string()));
+            }
+    
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+                value: BundleResult {
+                    signatures,
+                    success: all_success,
+                    errors,
+                },
+            })
         })
     }
 }
