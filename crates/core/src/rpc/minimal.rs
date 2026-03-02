@@ -594,17 +594,9 @@ impl Minimal for SurfpoolMinimalRpc {
             Err(e) => return e.into(),
         };
 
-        let (commitment_config, min_ctx_slot): (CommitmentConfig, Option<u64>) = match config {
-            Some(RpcContextConfig {
-                commitment: Some(commitment),
-                min_context_slot,
-            }) => (commitment, min_context_slot),
-            Some(RpcContextConfig {
-                commitment: None,
-                min_context_slot,
-            }) => (CommitmentConfig::confirmed(), min_context_slot),
-            None => (CommitmentConfig::confirmed(), None),
-        };
+        let config = config.unwrap_or_default();
+        let commitment_config = config.commitment.unwrap_or_default();
+        let min_ctx_slot = config.min_context_slot;
 
         let SurfnetRpcContext {
             svm_locker,
@@ -624,7 +616,10 @@ impl Minimal for SurfpoolMinimalRpc {
             if let Some(min_slot) = min_ctx_slot
                 && slot < min_slot
             {
-                return Err(SurfpoolError::get_balance().into());
+                return Err(RpcCustomError::MinContextSlotNotReached {
+                    context_slot: min_slot,
+                }
+                .into());
             }
 
             let balance = match &account_update {
