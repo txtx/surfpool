@@ -11358,6 +11358,7 @@ dependencies = [
  "spl-associated-token-account-interface",
  "spl-token-2022-interface",
  "spl-token-interface",
+ "spl-token-metadata-interface",
  "surfpool-db",
  "surfpool-subgraph",
  "surfpool-types",
