@@ -60,14 +60,16 @@ pub async fn handle_start_local_surfnet_command(
     }
 
     // We start the simnet as soon as possible, as it needs to be ready for deployments
-    let (mut surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (mut surfnet_svm, simnet_events_rx, geyser_events_rx) =
+        SurfnetSvm::new_with_db(cmd.db.as_deref(), &cmd.surfnet_id)
+            .map_err(|e| format!("Failed to initialize Surfnet SVM: {}", e))?;
 
     // Apply feature configuration from CLI flags
     let feature_config = cmd.feature_config();
     surfnet_svm.apply_feature_config(&feature_config);
 
-    // Restore from snapshot if specified
-    if let Some(ref snapshot_path) = cmd.restore_snapshot_path {
+    // Restore from snapshots if specified
+    for snapshot_path in &cmd.snapshot {
         let resolved_path = super::resolve_path(snapshot_path);
         let path_str = resolved_path.to_string_lossy();
         info!("Restoring state from snapshot: {}", path_str);
@@ -97,8 +99,39 @@ pub async fn handle_start_local_surfnet_command(
         Some(keypair)
     };
 
+    // Parse and merge snapshot files (multiple files supported, later files override earlier ones)
+    // The actual loading happens in the runloop after the locker is created
+    let snapshot = {
+        let mut merged_snapshot: std::collections::BTreeMap<
+            String,
+            Option<surfpool_types::AccountSnapshot>,
+        > = std::collections::BTreeMap::new();
+
+        for snapshot_path in &cmd.snapshot {
+            let file_location = FileLocation::from_path(std::path::PathBuf::from(snapshot_path));
+            let content = file_location
+                .read_content_as_utf8()
+                .map_err(|e| format!("Failed to read snapshot file '{}': {}", snapshot_path, e))?;
+            let snapshot_data: std::collections::BTreeMap<
+                String,
+                Option<surfpool_types::AccountSnapshot>,
+            > = serde_json::from_str(&content)
+                .map_err(|e| format!("Failed to parse snapshot JSON '{}': {}", snapshot_path, e))?;
+            let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+                "Loaded {} accounts from snapshot file: {}",
+                snapshot_data.len(),
+                snapshot_path
+            )));
+
+            // Merge into the combined snapshot (later files override earlier ones)
+            merged_snapshot.extend(snapshot_data);
+        }
+
+        merged_snapshot
+    };
+
     // Build config
-    let config = cmd.surfpool_config(airdrop_addresses);
+    let config = cmd.surfpool_config(airdrop_addresses, snapshot);
 
     let studio_binding_address = config.studio.get_studio_base_url();
 
@@ -152,7 +185,7 @@ pub async fn handle_start_local_surfnet_command(
     let config_copy = config.clone();
 
     let simnet_events_tx_for_thread = simnet_events_tx.clone();
-    let _handle = hiro_system_kit::thread_named("simnet")
+    let simnet_handle = hiro_system_kit::thread_named("simnet")
         .spawn(move || {
             let future = start_local_surfnet(
                 surfnet_svm,
@@ -170,16 +203,24 @@ pub async fn handle_start_local_surfnet_command(
         })
         .map_err(|e| format!("{}", e))?;
 
-    loop {
+    // Collect events that occur before Ready so we can re-send them to the TUI
+    let mut early_events = Vec::new();
+    let initial_transactions = loop {
         match simnet_events_rx.recv() {
             Ok(SimnetEvent::Aborted(error)) => {
                 eprintln!("Error: {}", error);
                 return Err(error);
             }
             Ok(SimnetEvent::Shutdown) => return Ok(()),
-            Ok(SimnetEvent::Ready) => break,
-            _other => continue,
+            Ok(SimnetEvent::Ready(initial_transactions)) => break initial_transactions,
+            Ok(other) => early_events.push(other),
+            Err(_) => continue,
         }
+    };
+
+    // Re-send early events (like snapshot loading messages) so the TUI receives them
+    for event in early_events {
+        let _ = simnet_events_tx.send(event);
     }
 
     for event in airdrop_events {
@@ -238,8 +279,12 @@ pub async fn handle_start_local_surfnet_command(
         explorer_handle,
         ctx_cc,
         Some(runloop_terminator),
+        initial_transactions,
     )
     .await;
+
+    // Wait for the simnet thread to finish cleanup (including Drop/checkpoint)
+    let _ = simnet_handle.join();
 
     Ok(())
 }
@@ -256,6 +301,7 @@ async fn start_service(
     explorer_handle: Option<ServerHandle>,
     _ctx: Context,
     runloop_terminator: Option<Arc<AtomicBool>>,
+    initial_transactions: u64,
 ) -> Result<(), String> {
     let displayed_url = if cmd.no_studio {
         DisplayedUrl::Datasource(sanitized_config)
@@ -282,12 +328,14 @@ async fn start_service(
             deploy_progress_rx,
             displayed_url,
             breaker,
+            initial_transactions,
         )
         .map_err(|e| format!("{}", e))?;
     }
     if let Some(explorer_handle) = explorer_handle {
         let _ = explorer_handle.stop(true).await;
     }
+
     Ok(())
 }
 
@@ -301,8 +349,11 @@ fn log_events(
 ) -> Result<(), String> {
     let mut deployment_completed = false;
     let do_stop_loop = runloop_terminator.clone();
+    let terminate_tx = simnet_commands_tx.clone();
     ctrlc::set_handler(move || {
         do_stop_loop.store(true, Ordering::Relaxed);
+        // Send terminate command to allow graceful shutdown (Drop to run)
+        let _ = terminate_tx.send(SimnetCommand::Terminate(None));
     })
     .expect("Error setting Ctrl-C handler");
 
@@ -330,7 +381,12 @@ fn log_events(
             }
         }
 
-        let oper = selector.select();
+        // Use select_timeout to periodically check the termination flag
+        // This ensures Ctrl+C is responsive even when no events are arriving
+        let oper = match selector.select_timeout(Duration::from_millis(100)) {
+            Ok(oper) => oper,
+            Err(_) => continue, // Timeout - check termination flag at top of loop
+        };
         match oper.index() {
             0 => match oper.recv(&simnet_events_rx) {
                 Ok(event) => match event {
@@ -375,7 +431,7 @@ fn log_events(
                         error!("{}", error);
                         return Err(error);
                     }
-                    SimnetEvent::Ready => {}
+                    SimnetEvent::Ready(_) => {}
                     SimnetEvent::Connected(_rpc_url) => {}
                     SimnetEvent::Shutdown => {
                         break;
@@ -456,76 +512,85 @@ async fn write_and_execute_iac(
     simnet_events_tx: &Sender<SimnetEvent>,
     simnet_commands_tx: &Sender<SimnetCommand>,
 ) -> Result<Receiver<BlockEvent>, String> {
-    // Are we in a project directory?
-    let deployment = detect_program_frameworks(&cmd.manifest_path, &cmd.anchor_test_config_paths)
-        .await
-        .map_err(|e| format!("Failed to detect project framework: {}", e))?;
-
     let (progress_tx, progress_rx) = crossbeam::channel::unbounded();
-    if let Some(ProgramFrameworkData {
-        framework,
-        programs,
-        genesis_accounts,
-        accounts,
-        accounts_dir,
-        clones,
-        generate_subgraphs,
-    }) = deployment
+
+    let base_location =
+        FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
+    let mut txtx_manifest_location = base_location.clone();
+    txtx_manifest_location.append_path("txtx.yml")?;
+    let txtx_manifest_exists = txtx_manifest_location.exists();
+
+    let mut on_disk_runbook_data = None;
+    let mut in_memory_runbook_data = None;
+    let runbook_input = cmd.runbook_input.clone();
+
+    // If there were existing on-disk runbooks, we'll execute those instead of in-memory ones
+    // If there were no existing runbooks and the user requested autopilot, we'll generate and execute in-memory runbooks
+    // If there were no existing runbooks and the user did not request autopilot, we'll generate and execute on-disk runbooks
+    let do_execute_in_memory_runbooks = cmd.anchor_compat && !txtx_manifest_exists;
+    if !cmd.anchor_compat && txtx_manifest_exists {
+        let runbooks_ids_to_execute = cmd.runbooks.clone();
+        on_disk_runbook_data = Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
+    };
+
+    // Are we in a project directory?
+    if let Ok(deployment) =
+        detect_program_frameworks(&cmd.manifest_path, &cmd.anchor_test_config_paths).await
     {
-        if let Some(clones) = clones.as_ref() {
-            if !clones.is_empty() {
-                let _ = simnet_commands_tx.try_send(SimnetCommand::FetchRemoteAccounts(
-                    clones
-                        .iter()
-                        .map(|c| {
-                            c.parse()
-                                .map_err(|e| format!("Failed to parse clone address {}: {}", c, e))
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                    cmd.datasource_rpc_url(),
-                ));
+        if let Some(ProgramFrameworkData {
+            framework,
+            programs,
+            genesis_accounts,
+            accounts,
+            accounts_dir,
+            clones,
+            generate_subgraphs,
+        }) = deployment
+        {
+            if let Some(clones) = clones.as_ref() {
+                if !clones.is_empty() {
+                    let _ = simnet_commands_tx.try_send(SimnetCommand::FetchRemoteAccounts(
+                        clones
+                            .iter()
+                            .map(|c| {
+                                c.parse().map_err(|e| {
+                                    format!("Failed to parse clone address {}: {}", c, e)
+                                })
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                        cmd.datasource_rpc_url(),
+                    ));
+                }
+            }
+
+            // Is infrastructure-as-code (IaC) already setup?
+            let do_write_scaffold = !cmd.anchor_compat && !txtx_manifest_exists;
+            if do_write_scaffold {
+                // Scaffold IaC
+                scaffold_iac_layout(
+                    &framework,
+                    &programs,
+                    &base_location,
+                    cmd.skip_runbook_generation_prompts,
+                    generate_subgraphs,
+                )?;
+                let runbooks_ids_to_execute = cmd.runbooks.clone();
+                on_disk_runbook_data =
+                    Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
+            }
+
+            if do_execute_in_memory_runbooks {
+                in_memory_runbook_data = Some(scaffold_in_memory_iac(
+                    &framework,
+                    &programs,
+                    &genesis_accounts,
+                    &accounts,
+                    &accounts_dir,
+                    generate_subgraphs,
+                )?);
             }
         }
 
-        let runbook_input = cmd.runbook_input.clone();
-        // Is infrastructure-as-code (IaC) already setup?
-        let base_location =
-            FileLocation::from_path_string(&cmd.manifest_path)?.get_parent_location()?;
-        let mut txtx_manifest_location = base_location.clone();
-        txtx_manifest_location.append_path("txtx.yml")?;
-        let txtx_manifest_exists = txtx_manifest_location.exists();
-        let do_write_scaffold = !cmd.anchor_compat && !txtx_manifest_exists;
-        if do_write_scaffold {
-            // Scaffold IaC
-            scaffold_iac_layout(
-                &framework,
-                &programs,
-                &base_location,
-                cmd.skip_runbook_generation_prompts,
-                generate_subgraphs,
-            )?;
-        }
-
-        // If there were existing on-disk runbooks, we'll execute those instead of in-memory ones
-        // If there were no existing runbooks and the user requested autopilot, we'll generate and execute in-memory runbooks
-        // If there were no existing runbooks and the user did not request autopilot, we'll generate and execute on-disk runbooks
-        let do_execute_in_memory_runbooks = cmd.anchor_compat && !txtx_manifest_exists;
-
-        let mut on_disk_runbook_data = None;
-        let mut in_memory_runbook_data = None;
-        if do_execute_in_memory_runbooks {
-            in_memory_runbook_data = Some(scaffold_in_memory_iac(
-                &framework,
-                &programs,
-                &genesis_accounts,
-                &accounts,
-                &accounts_dir,
-                generate_subgraphs,
-            )?);
-        } else {
-            let runbooks_ids_to_execute = cmd.runbooks.clone();
-            on_disk_runbook_data = Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
-        };
         let futures = assemble_runbook_execution_futures(
             &progress_tx,
             simnet_events_tx,
@@ -545,7 +610,6 @@ async fn write_and_execute_iac(
         if cmd.watch {
             let _handle = hiro_system_kit::thread_named("Watch Filesystem")
                 .spawn(move || {
-                    let runbook_input = runbook_input.clone();
                     let mut target_path = base_location.clone();
                     let _ = target_path.append_path("target");
                     let _ = target_path.append_path("deploy");

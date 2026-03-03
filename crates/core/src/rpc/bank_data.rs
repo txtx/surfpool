@@ -422,9 +422,14 @@ impl BankData for SurfpoolBankDataRpc {
     }
 
     fn get_inflation_rate(&self, meta: Self::Metadata) -> Result<RpcInflationRate> {
-        meta.with_svm_reader(|svm_reader| {
-            let inflation_activation_slot =
-                svm_reader.blocks.keys().min().copied().unwrap_or_default();
+        meta.with_svm_reader(|svm_reader| -> RpcInflationRate {
+            let inflation_activation_slot = svm_reader
+                .blocks
+                .keys()
+                .unwrap_or_default()
+                .into_iter()
+                .min()
+                .unwrap_or_default();
             let epoch_schedule = svm_reader.inner.get_sysvar::<EpochSchedule>();
             let inflation_start_slot = epoch_schedule.get_first_slot_in_epoch(
                 epoch_schedule

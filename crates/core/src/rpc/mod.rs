@@ -47,6 +47,7 @@ pub struct RunloopContext {
     pub simnet_commands_tx: Sender<SimnetCommand>,
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub remote_rpc_client: Option<SurfnetRemoteClient>,
+    pub rpc_config: RpcConfig,
 }
 
 pub struct SurfnetRpcContext<T> {
@@ -169,6 +170,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             simnet_commands_tx: self.simnet_commands_tx.clone(),
             plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
             remote_rpc_client: self.remote_rpc_client.clone(),
+            rpc_config: self.config.clone(),
         });
         Either::Left(Box::pin(next(request, meta).map(move |res| {
             if let Some(Response::Single(output)) = &res {
@@ -219,6 +221,7 @@ impl Middleware<Option<SurfpoolWebsocketMeta>> for SurfpoolWebsocketMiddleware {
             simnet_commands_tx: self.surfpool_middleware.simnet_commands_tx.clone(),
             plugin_manager_commands_tx: self.surfpool_middleware.plugin_manager_commands_tx.clone(),
             remote_rpc_client: self.surfpool_middleware.remote_rpc_client.clone(),
+            rpc_config: self.surfpool_middleware.config.clone(),
         };
         let session = meta
             .as_ref()

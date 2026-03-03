@@ -2,11 +2,10 @@
 use std::net::TcpListener;
 
 use crossbeam_channel::Sender;
-use litesvm::LiteSVM;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_transaction::versioned::VersionedTransaction;
-use surfpool_types::SimnetCommand;
+use surfpool_types::{RpcConfig, SimnetCommand};
 
 use crate::{
     rpc::RunloopContext,
@@ -41,7 +40,7 @@ where
         let (simnet_commands_tx, _rx) = crossbeam_channel::unbounded();
         let (plugin_manager_commands_tx, _rx) = crossbeam_channel::unbounded();
 
-        let (mut surfnet_svm, _, _) = SurfnetSvm::new();
+        let (mut surfnet_svm, _, _) = SurfnetSvm::default();
         let clock = Clock {
             slot: 123,
             epoch_start_timestamp: 123,
@@ -62,11 +61,12 @@ where
 
         TestSetup {
             context: RunloopContext {
-                simnet_commands_tx,
-                plugin_manager_commands_tx,
+                simnet_commands_tx: simnet_commands_tx.clone(),
+                plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
                 id: None,
                 svm_locker: SurfnetSvmLocker::new(surfnet_svm),
                 remote_rpc_client: None,
+                rpc_config: RpcConfig::default(),
             },
             rpc,
         }
@@ -80,12 +80,6 @@ where
             .0
             .blocking_write()
             .latest_epoch_info = epoch_info;
-        setup
-    }
-
-    pub fn new_with_svm(rpc: T, svm: LiteSVM) -> Self {
-        let setup = TestSetup::new(rpc);
-        setup.context.svm_locker.0.blocking_write().inner = svm;
         setup
     }
 

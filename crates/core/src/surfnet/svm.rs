@@ -1,6 +1,6 @@
 use std::{
     cmp::max,
-    collections::{BTreeMap, BinaryHeap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     str::FromStr,
     time::SystemTime,
 };
@@ -16,7 +16,7 @@ use agave_feature_set::{
     enable_sbpf_v1_deployment_and_execution, enable_sbpf_v2_deployment_and_execution,
     enable_sbpf_v3_deployment_and_execution, fix_alt_bn128_multiplication_input_length,
     formalize_loaded_transaction_data_size, get_sysvar_syscall_enabled,
-    increase_tx_account_lock_limit, last_restart_slot_sysvar,
+    increase_tx_account_lock_limit, last_restart_slot_sysvar, loosen_cpi_size_restriction,
     mask_out_rent_epoch_in_vm_serialization, move_precompile_verification_to_svm,
     move_stake_and_move_lamports_ixs, raise_cpi_nesting_limit_to_8, reenable_sbpf_v0_execution,
     reenable_zk_elgamal_proof_program, remaining_compute_units_syscall_enabled,
@@ -27,13 +27,9 @@ use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use convert_case::Casing;
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use litesvm::{
-    LiteSVM,
-    types::{
-        FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
-    },
+use litesvm::types::{
+    FailedTransactionMetadata, SimulatedTransactionInfo, TransactionMetadata, TransactionResult,
 };
-use litesvm_token::create_native_mint;
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_account_decoder::{
     UiAccount, UiAccountData, UiAccountEncoding, UiDataSliceConfig, encode_ui_account,
@@ -42,6 +38,7 @@ use solana_account_decoder::{
 use solana_client::{
     rpc_client::SerializableTransaction,
     rpc_config::{RpcAccountInfoConfig, RpcBlockConfig, RpcTransactionLogsFilter},
+    rpc_filter::RpcFilterType,
     rpc_response::{RpcKeyedAccount, RpcLogsResponse, RpcPerfSample},
 };
 use solana_clock::{Clock, Slot};
@@ -51,15 +48,15 @@ use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
 use solana_inflation::Inflation;
-use solana_keypair::Keypair;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
-use solana_message::{Message, VersionedMessage, v0::LoadedAddresses};
+use solana_message::{
+    Message, VersionedMessage, inline_nonce::is_advance_nonce_instruction_data, v0::LoadedAddresses,
+};
 use solana_program_option::COption;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::SlotInfo;
 use solana_sdk_ids::{bpf_loader, system_program};
 use solana_signature::Signature;
-use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
@@ -92,19 +89,45 @@ use uuid::Uuid;
 
 use super::{
     AccountSubscriptionData, BlockHeader, BlockIdentifier, FINALIZATION_SLOT_THRESHOLD,
-    GetAccountResult, GeyserEvent, SLOTS_PER_EPOCH, SignatureSubscriptionData,
-    SignatureSubscriptionType, remote::SurfnetRemoteClient,
+    GetAccountResult, GeyserBlockMetadata, GeyserEntryInfo, GeyserEvent, GeyserSlotStatus,
+    ProgramSubscriptionData, SLOTS_PER_EPOCH, SignatureSubscriptionData, SignatureSubscriptionType,
+    remote::SurfnetRemoteClient,
 };
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     rpc::utils::convert_transaction_metadata_from_canonical,
     scenarios::TemplateRegistry,
-    surfnet::{LogsSubscriptionData, locker::is_supported_token_program},
+    storage::{OverlayStorage, Storage, new_kv_store, new_kv_store_with_default},
+    surfnet::{
+        LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
+    },
     types::{
-        GeyserAccountUpdate, MintAccount, SurfnetTransactionStatus, SyntheticBlockhash,
-        TokenAccount, TransactionWithStatusMeta,
+        GeyserAccountUpdate, MintAccount, SerializableAccountAdditionalData,
+        SurfnetTransactionStatus, SyntheticBlockhash, TokenAccount, TransactionWithStatusMeta,
     },
 };
+
+lazy_static::lazy_static! {
+    /// Interval (in slots) at which to perform garbage collection on the lite SVM cache.
+    /// About 1 hour at standard 400ms slot time.
+    /// Configurable via SURFPOOL_GARBAGE_COLLECTION_INTERVAL_SLOTS env var.
+    pub static ref GARBAGE_COLLECTION_INTERVAL_SLOTS: u64 = {
+        std::env::var("SURFPOOL_GARBAGE_COLLECTION_INTERVAL_SLOTS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(9_000)
+    };
+
+    /// Interval (in slots) at which to checkpoint the latest slot to storage.
+    /// About 1 minute at standard 400ms slot time (60000ms / 400ms = 150 slots).
+    /// Configurable via SURFPOOL_CHECKPOINT_INTERVAL_SLOTS env var.
+    pub static ref CHECKPOINT_INTERVAL_SLOTS: u64 = {
+        std::env::var("SURFPOOL_CHECKPOINT_INTERVAL_SLOTS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(150)
+    };
+}
 
 /// Helper function to apply an override to a decoded account value using dot notation
 pub fn apply_override_to_decoded_account(
@@ -213,11 +236,11 @@ pub fn get_txtx_value_json_converters() -> Vec<AddonJsonConverter<'static>> {
 /// It also exposes channels to listen for simulation events (`SimnetEvent`) and Geyser plugin events (`GeyserEvent`).
 #[derive(Clone)]
 pub struct SurfnetSvm {
-    pub inner: LiteSVM,
+    pub inner: SurfnetLiteSvm,
     pub remote_rpc_url: Option<String>,
     pub chain_tip: BlockIdentifier,
-    pub blocks: HashMap<Slot, BlockHeader>,
-    pub transactions: HashMap<Signature, SurfnetTransactionStatus>,
+    pub blocks: Box<dyn Storage<u64, BlockHeader>>,
+    pub transactions: Box<dyn Storage<String, SurfnetTransactionStatus>>,
     pub transactions_queued_for_confirmation: VecDeque<(
         VersionedTransaction,
         Sender<TransactionStatusEvent>,
@@ -236,21 +259,23 @@ pub struct SurfnetSvm {
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub account_subscriptions: AccountSubscriptionData,
+    pub program_subscriptions: ProgramSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
-    pub profile_tag_map: HashMap<String, Vec<UuidOrSignature>>,
-    pub simulated_transaction_profiles: HashMap<Uuid, KeyedProfileResult>,
-    pub executed_transaction_profiles: FifoMap<Signature, KeyedProfileResult>,
+    pub profile_tag_map: Box<dyn Storage<String, Vec<UuidOrSignature>>>,
+    pub simulated_transaction_profiles: Box<dyn Storage<String, KeyedProfileResult>>,
+    pub executed_transaction_profiles: Box<dyn Storage<String, KeyedProfileResult>>,
     pub logs_subscriptions: Vec<LogsSubscriptionData>,
+    pub snapshot_subscriptions: Vec<super::SnapshotSubscriptionData>,
     pub updated_at: u64,
     pub slot_time: u64,
     pub start_time: SystemTime,
-    pub accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
-    pub account_associated_data: HashMap<Pubkey, AccountAdditionalDataV3>,
-    pub token_accounts: HashMap<Pubkey, TokenAccount>,
-    pub token_mints: HashMap<Pubkey, MintAccount>,
-    pub token_accounts_by_owner: HashMap<Pubkey, Vec<Pubkey>>,
-    pub token_accounts_by_delegate: HashMap<Pubkey, Vec<Pubkey>>,
-    pub token_accounts_by_mint: HashMap<Pubkey, Vec<Pubkey>>,
+    pub accounts_by_owner: Box<dyn Storage<String, Vec<String>>>,
+    pub account_associated_data: Box<dyn Storage<String, SerializableAccountAdditionalData>>,
+    pub token_accounts: Box<dyn Storage<String, TokenAccount>>,
+    pub token_mints: Box<dyn Storage<String, MintAccount>>,
+    pub token_accounts_by_owner: Box<dyn Storage<String, Vec<String>>>,
+    pub token_accounts_by_delegate: Box<dyn Storage<String, Vec<String>>>,
+    pub token_accounts_by_mint: Box<dyn Storage<String, Vec<String>>>,
     pub total_supply: u64,
     pub circulating_supply: u64,
     pub non_circulating_supply: u64,
@@ -261,19 +286,29 @@ pub struct SurfnetSvm {
     /// For example, when an account is updated in the same slot multiple times,
     /// the update with higher write_version should supersede the one with lower write_version.
     pub write_version: u64,
-    pub registered_idls: HashMap<Pubkey, BinaryHeap<VersionedIdl>>,
-    // pub registered_idls: HashMap<[u8; 8], BinaryHeap<VersionedIdl>>,
+    pub registered_idls: Box<dyn Storage<String, Vec<VersionedIdl>>>,
     pub feature_set: FeatureSet,
     pub instruction_profiling_enabled: bool,
     pub max_profiles: usize,
     pub runbook_executions: Vec<RunbookExecutionStatusReport>,
     pub account_update_slots: HashMap<Pubkey, Slot>,
-    pub streamed_accounts: HashMap<Pubkey, bool>,
+    pub streamed_accounts: Box<dyn Storage<String, bool>>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
-    pub scheduled_overrides: HashMap<Slot, Vec<OverrideInstance>>,
+    pub scheduled_overrides: Box<dyn Storage<u64, Vec<OverrideInstance>>>,
     /// Tracks accounts that have been explicitly closed by the user.
     /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
     pub closed_accounts: HashSet<Pubkey>,
+    /// The slot at which this surfnet instance started (may be non-zero when connected to remote).
+    /// Used as the lower bound for block reconstruction.
+    pub genesis_slot: Slot,
+    /// The `updated_at` timestamp when this surfnet started at `genesis_slot`.
+    /// Used to reconstruct block_time: genesis_updated_at + ((slot - genesis_slot) * slot_time)
+    pub genesis_updated_at: u64,
+    /// Storage for persisting the latest slot checkpoint.
+    /// Used for recovery on restart with sparse block storage.
+    pub slot_checkpoint: Box<dyn Storage<String, u64>>,
+    /// Tracks the slot at which we last persisted the checkpoint.
+    pub last_checkpoint_slot: u64,
 }
 
 pub const FEATURE: Feature = Feature {
@@ -281,10 +316,124 @@ pub const FEATURE: Feature = Feature {
 };
 
 impl SurfnetSvm {
+    pub fn default() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
+        Self::new(None, "0").unwrap()
+    }
+
+    pub fn new_with_db(
+        database_url: Option<&str>,
+        surfnet_id: &str,
+    ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
+        Self::new(database_url, surfnet_id)
+    }
+
+    /// Explicitly shutdown the SVM, performing cleanup like WAL checkpoint for SQLite.
+    /// This should be called before the application exits to ensure data is persisted.
+    pub fn shutdown(&self) {
+        self.inner.shutdown();
+        self.blocks.shutdown();
+        self.transactions.shutdown();
+        self.token_accounts.shutdown();
+        self.token_mints.shutdown();
+        self.accounts_by_owner.shutdown();
+        self.token_accounts_by_owner.shutdown();
+        self.token_accounts_by_delegate.shutdown();
+        self.token_accounts_by_mint.shutdown();
+        self.streamed_accounts.shutdown();
+        self.scheduled_overrides.shutdown();
+        self.registered_idls.shutdown();
+        self.profile_tag_map.shutdown();
+        self.simulated_transaction_profiles.shutdown();
+        self.executed_transaction_profiles.shutdown();
+        self.account_associated_data.shutdown();
+    }
+
+    /// Creates a clone of the SVM with overlay storage wrappers for all database-backed fields.
+    /// This allows profiling transactions without affecting the underlying database.
+    /// All storage writes are buffered in memory and discarded when the clone is dropped.
+    pub fn clone_for_profiling(&self) -> Self {
+        let (dummy_simnet_tx, _) = crossbeam_channel::bounded(1);
+        let (dummy_geyser_tx, _) = crossbeam_channel::bounded(1);
+
+        Self {
+            inner: self.inner.clone_for_profiling(),
+            remote_rpc_url: self.remote_rpc_url.clone(),
+            chain_tip: self.chain_tip.clone(),
+
+            // Wrap all storage fields with OverlayStorage
+            blocks: OverlayStorage::wrap(self.blocks.clone_box()),
+            transactions: OverlayStorage::wrap(self.transactions.clone_box()),
+            profile_tag_map: OverlayStorage::wrap(self.profile_tag_map.clone_box()),
+            simulated_transaction_profiles: OverlayStorage::wrap(
+                self.simulated_transaction_profiles.clone_box(),
+            ),
+            executed_transaction_profiles: OverlayStorage::wrap(
+                self.executed_transaction_profiles.clone_box(),
+            ),
+            accounts_by_owner: OverlayStorage::wrap(self.accounts_by_owner.clone_box()),
+            account_associated_data: OverlayStorage::wrap(self.account_associated_data.clone_box()),
+            token_accounts: OverlayStorage::wrap(self.token_accounts.clone_box()),
+            token_mints: OverlayStorage::wrap(self.token_mints.clone_box()),
+            token_accounts_by_owner: OverlayStorage::wrap(self.token_accounts_by_owner.clone_box()),
+            token_accounts_by_delegate: OverlayStorage::wrap(
+                self.token_accounts_by_delegate.clone_box(),
+            ),
+            token_accounts_by_mint: OverlayStorage::wrap(self.token_accounts_by_mint.clone_box()),
+            registered_idls: OverlayStorage::wrap(self.registered_idls.clone_box()),
+            streamed_accounts: OverlayStorage::wrap(self.streamed_accounts.clone_box()),
+            scheduled_overrides: OverlayStorage::wrap(self.scheduled_overrides.clone_box()),
+
+            // Clone non-storage fields normally
+            transactions_queued_for_confirmation: self.transactions_queued_for_confirmation.clone(),
+            transactions_queued_for_finalization: self.transactions_queued_for_finalization.clone(),
+            perf_samples: self.perf_samples.clone(),
+            transactions_processed: self.transactions_processed,
+            latest_epoch_info: self.latest_epoch_info.clone(),
+
+            // Use dummy channels to prevent event propagation during profiling
+            simnet_events_tx: dummy_simnet_tx,
+            geyser_events_tx: dummy_geyser_tx,
+
+            signature_subscriptions: self.signature_subscriptions.clone(),
+            account_subscriptions: self.account_subscriptions.clone(),
+            program_subscriptions: self.program_subscriptions.clone(),
+            // Don't clone subscriptions - profiling clone shouldn't send notifications
+            slot_subscriptions: Vec::new(),
+            logs_subscriptions: Vec::new(),
+            snapshot_subscriptions: Vec::new(),
+
+            updated_at: self.updated_at,
+            slot_time: self.slot_time,
+            start_time: self.start_time,
+
+            total_supply: self.total_supply,
+            circulating_supply: self.circulating_supply,
+            non_circulating_supply: self.non_circulating_supply,
+            non_circulating_accounts: self.non_circulating_accounts.clone(),
+            genesis_config: self.genesis_config.clone(),
+            inflation: self.inflation,
+            write_version: self.write_version,
+            feature_set: self.feature_set.clone(),
+            instruction_profiling_enabled: self.instruction_profiling_enabled,
+            max_profiles: self.max_profiles,
+            runbook_executions: self.runbook_executions.clone(),
+            account_update_slots: self.account_update_slots.clone(),
+            recent_blockhashes: self.recent_blockhashes.clone(),
+            closed_accounts: self.closed_accounts.clone(),
+            genesis_slot: self.genesis_slot,
+            genesis_updated_at: self.genesis_updated_at,
+            slot_checkpoint: OverlayStorage::wrap(self.slot_checkpoint.clone_box()),
+            last_checkpoint_slot: self.last_checkpoint_slot,
+        }
+    }
+
     /// Creates a new instance of `SurfnetSvm`.
     ///
     /// Returns a tuple containing the SVM instance, a receiver for simulation events, and a receiver for Geyser plugin events.
-    pub fn new() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
+    pub fn new(
+        database_url: Option<&str>,
+        surfnet_id: &str,
+    ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
 
@@ -294,34 +443,135 @@ impl SurfnetSvm {
         // todo: consider making this configurable via config
         feature_set.deactivate(&enable_extend_program_checked::id());
 
-        let mut inner = LiteSVM::new()
-            .with_feature_set(feature_set.clone())
-            .with_blockhash_check(false)
-            .with_sigverify(false);
+        let inner =
+            SurfnetLiteSvm::new().initialize(feature_set.clone(), database_url, surfnet_id)?;
 
-        // Add the native mint (SOL) to the SVM
-        create_native_mint(&mut inner);
         let native_mint_account = inner
-            .get_account(&spl_token_interface::native_mint::ID)
+            .get_account(&spl_token_interface::native_mint::ID)?
             .unwrap();
+
+        let native_mint_associated_data = {
+            let mint = StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(
+                &native_mint_account.data,
+            )
+            .unwrap();
+            let unix_timestamp = inner.get_sysvar::<Clock>().unix_timestamp;
+            let interest_bearing_config = mint
+                .get_extension::<InterestBearingConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            let scaled_ui_amount_config = mint
+                .get_extension::<ScaledUiAmountConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            AccountAdditionalDataV3 {
+                spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                    decimals: mint.base.decimals,
+                    interest_bearing_config,
+                    scaled_ui_amount_config,
+                }),
+            }
+        };
         let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
 
         // Load native mint into owned account and token mint indexes
-        let accounts_by_owner = HashMap::from([(
-            native_mint_account.owner,
-            vec![spl_token_interface::native_mint::ID],
-        )]);
-        let token_mints =
-            HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
+        let mut accounts_by_owner_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "accounts_by_owner", surfnet_id)?;
+        accounts_by_owner_db.store(
+            native_mint_account.owner.to_string(),
+            vec![spl_token_interface::native_mint::ID.to_string()],
+        )?;
+        let blocks_db = new_kv_store(&database_url, "blocks", surfnet_id)?;
+        let transactions_db = new_kv_store(&database_url, "transactions", surfnet_id)?;
+        let token_accounts_db = new_kv_store(&database_url, "token_accounts", surfnet_id)?;
+        let mut token_mints_db: Box<dyn Storage<String, MintAccount>> =
+            new_kv_store(&database_url, "token_mints", surfnet_id)?;
+        let mut account_associated_data_db: Box<
+            dyn Storage<String, SerializableAccountAdditionalData>,
+        > = new_kv_store(&database_url, "account_associated_data", surfnet_id)?;
+        // Store initial account associated data (native mint)
+        account_associated_data_db.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            native_mint_associated_data.into(),
+        )?;
+        token_mints_db.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            parsed_mint_account,
+        )?;
+        let token_accounts_by_owner_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "token_accounts_by_owner", surfnet_id)?;
+        let token_accounts_by_delegate_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "token_accounts_by_delegate", surfnet_id)?;
+        let token_accounts_by_mint_db: Box<dyn Storage<String, Vec<String>>> =
+            new_kv_store(&database_url, "token_accounts_by_mint", surfnet_id)?;
+        let streamed_accounts_db: Box<dyn Storage<String, bool>> =
+            new_kv_store(&database_url, "streamed_accounts", surfnet_id)?;
+        let scheduled_overrides_db: Box<dyn Storage<u64, Vec<OverrideInstance>>> =
+            new_kv_store(&database_url, "scheduled_overrides", surfnet_id)?;
+        let registered_idls_db: Box<dyn Storage<String, Vec<VersionedIdl>>> =
+            new_kv_store(&database_url, "registered_idls", surfnet_id)?;
+        let profile_tag_map_db: Box<dyn Storage<String, Vec<UuidOrSignature>>> =
+            new_kv_store(&database_url, "profile_tag_map", surfnet_id)?;
+        let simulated_transaction_profiles_db: Box<dyn Storage<String, KeyedProfileResult>> =
+            new_kv_store(&database_url, "simulated_transaction_profiles", surfnet_id)?;
+        let executed_transaction_profiles_db: Box<dyn Storage<String, KeyedProfileResult>> =
+            new_kv_store_with_default(
+                &database_url,
+                "executed_transaction_profiles",
+                surfnet_id,
+                // Use FifoMap for executed_transaction_profiles to maintain FIFO eviction behavior
+                // (when no on-disk DB is provided)
+                || Box::new(FifoMap::<String, KeyedProfileResult>::default()),
+            )?;
+        let slot_checkpoint_db: Box<dyn Storage<String, u64>> =
+            new_kv_store(&database_url, "slot_checkpoint", surfnet_id)?;
+
+        // Recover chain state: prefer slot checkpoint, fall back to max block in DB
+        let checkpoint_slot = slot_checkpoint_db.get(&"latest_slot".to_string())?;
+        let max_block_slot = blocks_db
+            .into_iter()
+            .unwrap()
+            .max_by_key(|(slot, _): &(u64, BlockHeader)| *slot);
+
+        let chain_tip = match (checkpoint_slot, max_block_slot) {
+            // Prefer checkpoint if it's higher than the max stored block
+            (Some(checkpoint), Some((block_slot, block))) => {
+                if checkpoint > block_slot {
+                    // Use checkpoint slot with synthetic blockhash
+                    BlockIdentifier {
+                        index: checkpoint,
+                        hash: SyntheticBlockhash::new(checkpoint).to_string(),
+                    }
+                } else {
+                    // Use the stored block
+                    BlockIdentifier {
+                        index: block.block_height,
+                        hash: block.hash,
+                    }
+                }
+            }
+            (Some(checkpoint), None) => BlockIdentifier {
+                index: checkpoint,
+                hash: SyntheticBlockhash::new(checkpoint).to_string(),
+            },
+            (None, Some((_, block))) => BlockIdentifier {
+                index: block.block_height,
+                hash: block.hash,
+            },
+            (None, None) => BlockIdentifier::zero(),
+        };
+
+        // Initialize transactions_processed from database count for persistent storage
+        let transactions_processed = transactions_db.count()?;
 
         let mut svm = Self {
             inner,
             remote_rpc_url: None,
-            chain_tip: BlockIdentifier::zero(),
-            blocks: HashMap::new(),
-            transactions: HashMap::new(),
+            chain_tip,
+            blocks: blocks_db,
+            transactions: transactions_db,
             perf_samples: VecDeque::new(),
-            transactions_processed: 0,
+            transactions_processed,
             simnet_events_tx,
             geyser_events_tx,
             latest_epoch_info: EpochInfo {
@@ -336,21 +586,23 @@ impl SurfnetSvm {
             transactions_queued_for_finalization: VecDeque::new(),
             signature_subscriptions: HashMap::new(),
             account_subscriptions: HashMap::new(),
+            program_subscriptions: HashMap::new(),
             slot_subscriptions: Vec::new(),
-            profile_tag_map: HashMap::new(),
-            simulated_transaction_profiles: HashMap::new(),
-            executed_transaction_profiles: FifoMap::default(),
+            profile_tag_map: profile_tag_map_db,
+            simulated_transaction_profiles: simulated_transaction_profiles_db,
+            executed_transaction_profiles: executed_transaction_profiles_db,
             logs_subscriptions: Vec::new(),
+            snapshot_subscriptions: Vec::new(),
             updated_at: Utc::now().timestamp_millis() as u64,
             slot_time: DEFAULT_SLOT_TIME_MS,
             start_time: SystemTime::now(),
-            accounts_by_owner,
-            account_associated_data: HashMap::new(),
-            token_accounts: HashMap::new(),
-            token_mints,
-            token_accounts_by_owner: HashMap::new(),
-            token_accounts_by_delegate: HashMap::new(),
-            token_accounts_by_mint: HashMap::new(),
+            accounts_by_owner: accounts_by_owner_db,
+            account_associated_data: account_associated_data_db,
+            token_accounts: token_accounts_db,
+            token_mints: token_mints_db,
+            token_accounts_by_owner: token_accounts_by_owner_db,
+            token_accounts_by_delegate: token_accounts_by_delegate_db,
+            token_accounts_by_mint: token_accounts_by_mint_db,
             total_supply: 0,
             circulating_supply: 0,
             non_circulating_supply: 0,
@@ -358,22 +610,26 @@ impl SurfnetSvm {
             genesis_config: GenesisConfig::default(),
             inflation: Inflation::default(),
             write_version: 0,
-            registered_idls: HashMap::new(),
+            registered_idls: registered_idls_db,
             feature_set,
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             runbook_executions: Vec::new(),
             account_update_slots: HashMap::new(),
-            streamed_accounts: HashMap::new(),
+            streamed_accounts: streamed_accounts_db,
             recent_blockhashes: VecDeque::new(),
-            scheduled_overrides: HashMap::new(),
+            scheduled_overrides: scheduled_overrides_db,
             closed_accounts: HashSet::new(),
+            genesis_slot: 0, // Will be updated when connecting to remote network
+            genesis_updated_at: Utc::now().timestamp_millis() as u64,
+            slot_checkpoint: slot_checkpoint_db,
+            last_checkpoint_slot: 0,
         };
 
         // Generate the initial synthetic blockhash
         svm.chain_tip = svm.new_blockhash();
 
-        (svm, simnet_events_rx, geyser_events_rx)
+        Ok((svm, simnet_events_rx, geyser_events_rx))
     }
 
     /// Applies the SVM feature configuration to the internal feature set.
@@ -398,14 +654,8 @@ impl SurfnetSvm {
             }
         }
 
-        // Rebuild LiteSVM with updated feature set
-        self.inner = LiteSVM::new()
-            .with_feature_set(self.feature_set.clone())
-            .with_blockhash_check(false)
-            .with_sigverify(false);
-
-        // Re-add the native mint
-        create_native_mint(&mut self.inner);
+        // Rebuild inner VM with updated feature set
+        self.inner.apply_feature_config(self.feature_set.clone());
     }
 
     /// Maps an SvmFeature enum variant to its corresponding feature ID (Pubkey).
@@ -481,6 +731,17 @@ impl SurfnetSvm {
                 Some(reenable_zk_elgamal_proof_program::id())
             }
             SvmFeature::RaiseCpiNestingLimitTo8 => Some(raise_cpi_nesting_limit_to_8::id()),
+            // Features not yet available in agave-feature-set 3.0.0 - will be added when upgrading
+            SvmFeature::AccountDataDirectMapping => None, // bpf_account_data_direct_mapping
+            SvmFeature::ProvideInstructionDataOffsetInVmR2 => None, // provide_instruction_data_offset_in_vm_r2
+            SvmFeature::IncreaseCpiAccountInfoLimit => None, // increase_cpi_account_info_limit
+            SvmFeature::VoteStateV4 => None,                 // vote_state_v4
+            SvmFeature::PoseidonEnforcePadding => None,      // poseidon_enforce_padding
+            SvmFeature::FixAltBn128PairingLengthCheck => None, // fix_alt_bn128_pairing_length_check
+            SvmFeature::LiftCpiCallerRestriction => None,    // lift_cpi_caller_restriction
+            SvmFeature::RemoveAccountsExecutableFlagChecks => None, // remove_accounts_executable_flag_checks
+            SvmFeature::LoosenCpiSizeRestriction => Some(loosen_cpi_size_restriction::id()),
+            SvmFeature::DisableRentFeesCollection => None, // disable_rent_fees_collection
         }
     }
 
@@ -507,7 +768,12 @@ impl SurfnetSvm {
     ) {
         self.chain_tip = self.new_blockhash();
         self.latest_epoch_info = epoch_info.clone();
+        // Set genesis_slot to the current slot when initializing (syncing with remote)
+        // This marks the starting point for this surfnet instance
+        self.genesis_slot = epoch_info.absolute_slot;
         self.updated_at = Utc::now().timestamp_millis() as u64;
+        // Update genesis_updated_at to match the new genesis_slot
+        self.genesis_updated_at = self.updated_at;
         self.slot_time = slot_time;
         self.instruction_profiling_enabled = do_profile_instructions;
         self.set_profiling_map_capacity(self.max_profiles);
@@ -515,7 +781,7 @@ impl SurfnetSvm {
 
         let registry = TemplateRegistry::new();
         for (_, template) in registry.templates.into_iter() {
-            self.register_idl(template.idl, None);
+            let _ = self.register_idl(template.idl, None);
         }
 
         if let Some(remote_client) = remote_ctx {
@@ -527,15 +793,8 @@ impl SurfnetSvm {
             .simnet_events_tx
             .send(SimnetEvent::EpochInfoUpdate(epoch_info));
 
-        let clock: Clock = Clock {
-            slot: self.latest_epoch_info.absolute_slot,
-            epoch: self.latest_epoch_info.epoch,
-            unix_timestamp: self.updated_at as i64 / 1_000,
-            epoch_start_timestamp: 0, // todo
-            leader_schedule_epoch: 0, // todo
-        };
-
-        self.inner.set_sysvar(&clock);
+        // Reconstruct all sysvars (RecentBlockhashes, SlotHashes, Clock)
+        self.reconstruct_sysvars();
     }
 
     pub fn set_profile_instructions(&mut self, do_profile_instructions: bool) {
@@ -545,7 +804,11 @@ impl SurfnetSvm {
     pub fn set_profiling_map_capacity(&mut self, capacity: usize) {
         let clamped_capacity = max(1, capacity);
         self.max_profiles = clamped_capacity;
-        self.executed_transaction_profiles = FifoMap::new(clamped_capacity);
+        let is_on_disk_db = self.inner.db.is_some();
+        if !is_on_disk_db {
+            // when using on-disk DB, we're not using the Fifo Map to manage entries
+            self.executed_transaction_profiles = Box::new(FifoMap::new(clamped_capacity));
+        }
     }
 
     /// Airdrops a specified amount of lamports to a single public key.
@@ -557,38 +820,50 @@ impl SurfnetSvm {
     /// # Returns
     /// A `TransactionResult` indicating success or failure.
     #[allow(clippy::result_large_err)]
-    pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
+    pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> SurfpoolResult<TransactionResult> {
+        // Capture pre-airdrop balances for the airdrop account, recipient, and system program.
+        let airdrop_pubkey = self.inner.airdrop_pubkey();
+
+        let airdrop_account_before = self
+            .get_account(&airdrop_pubkey)?
+            .unwrap_or_else(|| Account::default());
+        let recipient_account_before = self
+            .get_account(pubkey)?
+            .unwrap_or_else(|| Account::default());
+        let system_account_before = self
+            .get_account(&system_program::id())?
+            .unwrap_or_else(|| Account::default());
+
         let res = self.inner.airdrop(pubkey, lamports);
         let (status_tx, _rx) = unbounded();
         if let Ok(ref tx_result) = res {
-            let airdrop_keypair = Keypair::new();
             let slot = self.latest_epoch_info.absolute_slot;
-            let account = self.get_account(pubkey).unwrap();
+            // Capture post-airdrop balances
+            let airdrop_account_after = self
+                .get_account(&airdrop_pubkey)?
+                .unwrap_or_else(|| Account::default());
+            let recipient_account_after = self
+                .get_account(pubkey)?
+                .unwrap_or_else(|| Account::default());
+            let system_account_after = self
+                .get_account(&system_program::id())?
+                .unwrap_or_else(|| Account::default());
 
-            let mut tx = VersionedTransaction::try_new(
-                VersionedMessage::Legacy(Message::new(
+            // Construct a synthetic transaction that mirrors the underlying airdrop.
+            let tx = VersionedTransaction {
+                signatures: vec![tx_result.signature],
+                message: VersionedMessage::Legacy(Message::new(
                     &[system_instruction::transfer(
-                        &airdrop_keypair.pubkey(),
+                        &airdrop_pubkey,
                         pubkey,
                         lamports,
                     )],
-                    Some(&airdrop_keypair.pubkey()),
+                    Some(&airdrop_pubkey),
                 )),
-                &[airdrop_keypair],
-            )
-            .unwrap();
+            };
 
-            // we need the airdrop tx to store in our transactions list,
-            // but for it to be properly processed we need its signature to match
-            // the actual underlying transaction
-            tx.signatures[0] = tx_result.signature;
-
-            let system_lamports = self
-                .get_account(&system_program::id())
-                .map(|a| a.lamports())
-                .unwrap_or(1);
-            self.transactions.insert(
-                *tx.get_signature(),
+            self.transactions.store(
+                tx.get_signature().to_string(),
                 SurfnetTransactionStatus::processed(
                     TransactionWithStatusMeta {
                         slot,
@@ -597,14 +872,14 @@ impl SurfnetSvm {
                             status: Ok(()),
                             fee: 5000,
                             pre_balances: vec![
-                                account.lamports,
-                                account.lamports.saturating_sub(lamports),
-                                system_lamports,
+                                airdrop_account_before.lamports,
+                                recipient_account_before.lamports,
+                                system_account_before.lamports,
                             ],
                             post_balances: vec![
-                                account.lamports.saturating_sub(lamports + 5000),
-                                account.lamports,
-                                system_lamports,
+                                airdrop_account_after.lamports,
+                                recipient_account_after.lamports,
+                                system_account_after.lamports,
                             ],
                             inner_instructions: Some(vec![]),
                             log_messages: Some(tx_result.logs.clone()),
@@ -619,7 +894,7 @@ impl SurfnetSvm {
                     },
                     HashSet::from([*pubkey]),
                 ),
-            );
+            )?;
             self.notify_signature_subscribers(
                 SignatureSubscriptionType::processed(),
                 tx.get_signature(),
@@ -634,10 +909,10 @@ impl SurfnetSvm {
             );
             self.transactions_queued_for_confirmation
                 .push_back((tx, status_tx.clone(), None));
-            let account = self.get_account(pubkey).unwrap();
-            let _ = self.set_account(pubkey, account);
+            let account = self.get_account(pubkey)?.unwrap();
+            self.set_account(pubkey, account)?;
         }
-        res
+        Ok(res)
     }
 
     /// Airdrops a specified amount of lamports to a list of public keys.
@@ -647,11 +922,20 @@ impl SurfnetSvm {
     /// * `addresses` - Slice of recipient public keys.
     pub fn airdrop_pubkeys(&mut self, lamports: u64, addresses: &[Pubkey]) {
         for recipient in addresses {
-            let _ = self.airdrop(recipient, lamports);
-            let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
-                "Genesis airdrop successful {}: {}",
-                recipient, lamports
-            )));
+            match self.airdrop(recipient, lamports) {
+                Ok(_) => {
+                    let _ = self.simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Genesis airdrop successful {}: {}",
+                        recipient, lamports
+                    )));
+                }
+                Err(e) => {
+                    let _ = self.simnet_events_tx.send(SimnetEvent::error(format!(
+                        "Genesis airdrop failed {}: {}",
+                        recipient, e
+                    )));
+                }
+            };
         }
     }
 
@@ -670,6 +954,64 @@ impl SurfnetSvm {
         self.latest_epoch_info.clone()
     }
 
+    /// Calculates the block time for a given slot based on genesis timestamp.
+    /// Returns the time in milliseconds since genesis.
+    pub fn calculate_block_time_for_slot(&self, slot: Slot) -> u64 {
+        // Calculate time relative to genesis_slot (when this surfnet started)
+        let slots_since_genesis = slot.saturating_sub(self.genesis_slot);
+        self.genesis_updated_at + (slots_since_genesis * self.slot_time)
+    }
+
+    /// Checks if a slot is within the valid range for sparse block storage.
+    /// A slot is valid if it's between genesis_slot (inclusive) and latest_slot (inclusive).
+    ///
+    /// # Arguments
+    /// * `slot` - The slot number to check.
+    ///
+    /// # Returns
+    /// `true` if the slot is within the valid range, `false` otherwise.
+    pub fn is_slot_in_valid_range(&self, slot: Slot) -> bool {
+        let latest_slot = self.get_latest_absolute_slot();
+        slot >= self.genesis_slot && slot <= latest_slot
+    }
+
+    /// Gets a block from storage, or reconstructs an empty block if the slot is within
+    /// the valid range (sparse block storage).
+    ///
+    /// # Arguments
+    /// * `slot` - The slot number to retrieve.
+    ///
+    /// # Returns
+    /// * `Ok(Some(BlockHeader))` - If the block exists or can be reconstructed
+    /// * `Ok(None)` - If the slot is outside the valid range
+    /// * `Err(_)` - If there was an error accessing storage
+    pub fn get_block_or_reconstruct(&self, slot: Slot) -> SurfpoolResult<Option<BlockHeader>> {
+        match self.blocks.get(&slot)? {
+            Some(block) => Ok(Some(block)),
+            None => {
+                if self.is_slot_in_valid_range(slot) {
+                    Ok(Some(self.reconstruct_empty_block(slot)))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    /// Reconstructs an empty block header for a slot that wasn't stored.
+    /// This is used for sparse block storage where empty blocks are not persisted.
+    pub fn reconstruct_empty_block(&self, slot: Slot) -> BlockHeader {
+        let block_height = slot;
+        BlockHeader {
+            hash: SyntheticBlockhash::new(block_height).to_string(),
+            previous_blockhash: SyntheticBlockhash::new(block_height.saturating_sub(1)).to_string(),
+            parent_slot: slot.saturating_sub(1),
+            block_time: (self.calculate_block_time_for_slot(slot) / 1_000) as i64,
+            block_height,
+            signatures: vec![],
+        }
+    }
+
     pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
         self.feature_set.active().get(pubkey).map(|_| {
             let feature_bytes = bincode::serialize(&FEATURE).unwrap();
@@ -684,6 +1026,61 @@ impl SurfnetSvm {
                 rent_epoch: 0,
             }
         })
+    }
+
+    /// Reconstructs RecentBlockhashes, SlotHashes, and Clock sysvars deterministically
+    /// from the current slot. Called on startup and after garbage collection to ensure
+    /// consistent sysvar state without requiring database persistence.
+    ///
+    /// Note: SyntheticBlockhash uses chain_tip.index (relative index), while SlotHashes
+    /// and Clock use absolute slots (chain_tip.index + genesis_slot).
+    #[allow(deprecated)]
+    pub fn reconstruct_sysvars(&mut self) {
+        use solana_slot_hashes::SlotHashes;
+        use solana_sysvar::recent_blockhashes::{IterItem, RecentBlockhashes};
+
+        let current_index = self.chain_tip.index;
+        let current_absolute_slot = self.get_latest_absolute_slot();
+
+        // Calculate range for blockhashes - use relative indices for SyntheticBlockhash
+        let start_index = current_index.saturating_sub(MAX_RECENT_BLOCKHASHES_STANDARD as u64 - 1);
+
+        // Generate all synthetic blockhashes using relative indices (chain_tip.index style)
+        // This matches how new_blockhash() generates hashes
+        let synthetic_hashes: Vec<_> = (start_index..=current_index)
+            .rev()
+            .map(SyntheticBlockhash::new)
+            .collect();
+
+        // 1. Reconstruct RecentBlockhashes (last 150 blockhashes)
+        let recent_blockhashes_vec: Vec<_> = synthetic_hashes
+            .iter()
+            .enumerate()
+            .map(|(index, hash)| IterItem(index as u64, hash.hash(), 0))
+            .collect();
+        let recent_blockhashes = RecentBlockhashes::from_iter(recent_blockhashes_vec);
+        self.inner.set_sysvar(&recent_blockhashes);
+
+        // 2. Reconstruct SlotHashes - maps absolute slots to blockhashes
+        let start_absolute_slot = start_index + self.genesis_slot;
+        let slot_hashes_vec: Vec<_> = (start_absolute_slot..=current_absolute_slot)
+            .rev()
+            .zip(synthetic_hashes.iter())
+            .map(|(slot, hash)| (slot, *hash.hash()))
+            .collect();
+        let slot_hashes = SlotHashes::new(&slot_hashes_vec);
+        self.inner.set_sysvar(&slot_hashes);
+
+        // 3. Reconstruct Clock using absolute slot
+        let unix_timestamp = self.calculate_block_time_for_slot(current_absolute_slot) / 1_000;
+        let clock = Clock {
+            slot: current_absolute_slot,
+            epoch: self.latest_epoch_info.epoch,
+            unix_timestamp: unix_timestamp as i64,
+            epoch_start_timestamp: 0,
+            leader_schedule_epoch: 0,
+        };
+        self.inner.set_sysvar(&clock);
     }
 
     /// Generates and sets a new blockhash, updating the RecentBlockhashes sysvar.
@@ -761,6 +1158,83 @@ impl SurfnetSvm {
             .any(|entry| entry.blockhash == *recent_blockhash)
     }
 
+    /// Validates the blockhash of a transaction, considering nonce accounts if present.
+    /// If the transaction uses a nonce account, the blockhash is validated against the nonce account's stored blockhash.
+    /// Otherwise, it is validated against the RecentBlockhashes sysvar.
+    ///
+    /// # Arguments
+    /// * `tx` - The transaction to validate.
+    ///
+    /// # Returns
+    /// `true` if the transaction blockhash is valid, `false` otherwise.
+    pub fn validate_transaction_blockhash(&self, tx: &VersionedTransaction) -> bool {
+        let recent_blockhash = tx.message.recent_blockhash();
+
+        let some_nonce_account_index = tx
+            .message
+            .instructions()
+            .get(solana_nonce::NONCED_TX_MARKER_IX_INDEX as usize)
+            .filter(|instruction| {
+                matches!(
+                    tx.message.static_account_keys().get(instruction.program_id_index as usize),
+                    Some(program_id) if system_program::check_id(program_id)
+                ) && is_advance_nonce_instruction_data(&instruction.data)
+            })
+            .map(|instruction| {
+                // nonce account is the first account in the instruction
+                instruction.accounts.get(0)
+            });
+
+        debug!(
+            "Validating tx blockhash: {}; is nonce tx?: {}",
+            recent_blockhash,
+            some_nonce_account_index.is_some()
+        );
+
+        if let Some(nonce_account_index) = some_nonce_account_index {
+            trace!(
+                "Nonce tx detected. Nonce account index: {:?}",
+                nonce_account_index
+            );
+            let Some(nonce_account_index) = nonce_account_index else {
+                return false;
+            };
+
+            let Some(nonce_account_pubkey) = tx
+                .message
+                .static_account_keys()
+                .get(*nonce_account_index as usize)
+            else {
+                return false;
+            };
+
+            trace!("Nonce account pubkey: {:?}", nonce_account_pubkey,);
+
+            // Here we're swallowing errors in the storage - if we fail to fetch the account because of a storage error,
+            // we're just considering the blockhash to be invalid.
+            let Ok(Some(nonce_account)) = self.get_account(nonce_account_pubkey) else {
+                return false;
+            };
+            trace!("Nonce account: {:?}", nonce_account);
+
+            let Some(nonce_data) =
+                bincode::deserialize::<solana_nonce::versions::Versions>(&nonce_account.data).ok()
+            else {
+                return false;
+            };
+            trace!("Nonce account data: {:?}", nonce_data);
+
+            let nonce_state = nonce_data.state();
+            let initialized_state = match nonce_state {
+                solana_nonce::state::State::Uninitialized => return false,
+                solana_nonce::state::State::Initialized(data) => data,
+            };
+            return initialized_state.blockhash() == *recent_blockhash;
+        } else {
+            self.check_blockhash_is_recent(recent_blockhash)
+        }
+    }
+
     /// Sets an account in the local SVM state and notifies listeners.
     ///
     /// # Arguments
@@ -783,6 +1257,9 @@ impl SurfnetSvm {
         // Notify account subscribers
         self.notify_account_subscribers(pubkey, &account);
 
+        // Notify program subscribers
+        self.notify_program_subscribers(pubkey, &account);
+
         let _ = self
             .simnet_events_tx
             .send(SimnetEvent::account_update(*pubkey));
@@ -794,60 +1271,95 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         account: &Account,
     ) -> SurfpoolResult<()> {
-        if account == &Account::default() {
+        let is_deleted_account = account == &Account::default();
+
+        // When this function is called after processing a transaction, the account is already updated
+        // in the inner SVM. However, the database hasn't been updated yet, so we need to manually update the db.
+        if is_deleted_account {
+            // This amounts to deleting the account from the db if the account is deleted in the SVM
+            self.inner.delete_account_in_db(pubkey)?;
+        } else {
+            // Or updating the db account to match the SVM account if not deleted
+            self.inner
+                .set_account_in_db(*pubkey, account.clone().into())?;
+        }
+
+        if is_deleted_account {
             self.closed_accounts.insert(*pubkey);
-            if let Some(old_account) = self.get_account(pubkey) {
-                self.remove_from_indexes(pubkey, &old_account);
+            if let Some(old_account) = self.get_account(pubkey)? {
+                self.remove_from_indexes(pubkey, &old_account)?;
             }
             return Ok(());
         }
 
         // only update our indexes if the account exists in the svm accounts db
-        if let Some(old_account) = self.get_account(pubkey) {
-            self.remove_from_indexes(pubkey, &old_account);
+        if let Some(old_account) = self.get_account(pubkey)? {
+            self.remove_from_indexes(pubkey, &old_account)?;
         }
         // add to owner index (check for duplicates)
-        let owner_accounts = self.accounts_by_owner.entry(account.owner).or_default();
-        if !owner_accounts.contains(pubkey) {
-            owner_accounts.push(*pubkey);
+        let owner_key = account.owner.to_string();
+        let pubkey_str = pubkey.to_string();
+        let mut owner_accounts = self
+            .accounts_by_owner
+            .get(&owner_key)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        if !owner_accounts.contains(&pubkey_str) {
+            owner_accounts.push(pubkey_str.clone());
+            self.accounts_by_owner.store(owner_key, owner_accounts)?;
         }
 
         // if it's a token account, update token-specific indexes
         if is_supported_token_program(&account.owner) {
             if let Ok(token_account) = TokenAccount::unpack(&account.data) {
                 // index by owner -> check for duplicates
-                let token_owner_accounts = self
+                let owner_key = token_account.owner().to_string();
+                let mut token_owner_accounts = self
                     .token_accounts_by_owner
-                    .entry(token_account.owner())
-                    .or_default();
-
-                if !token_owner_accounts.contains(pubkey) {
-                    token_owner_accounts.push(*pubkey);
+                    .get(&owner_key)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                if !token_owner_accounts.contains(&pubkey_str) {
+                    token_owner_accounts.push(pubkey_str.clone());
+                    self.token_accounts_by_owner
+                        .store(owner_key, token_owner_accounts)?;
                 }
 
                 // index by mint -> check for duplicates
-                let mint_accounts = self
+                let mint_key = token_account.mint().to_string();
+                let mut mint_accounts = self
                     .token_accounts_by_mint
-                    .entry(token_account.mint())
-                    .or_default();
-
-                if !mint_accounts.contains(pubkey) {
-                    mint_accounts.push(*pubkey);
+                    .get(&mint_key)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                if !mint_accounts.contains(&pubkey_str) {
+                    mint_accounts.push(pubkey_str.clone());
+                    self.token_accounts_by_mint.store(mint_key, mint_accounts)?;
                 }
 
                 if let COption::Some(delegate) = token_account.delegate() {
-                    let delegate_accounts =
-                        self.token_accounts_by_delegate.entry(delegate).or_default();
-                    if !delegate_accounts.contains(pubkey) {
-                        delegate_accounts.push(*pubkey);
+                    let delegate_key = delegate.to_string();
+                    let mut delegate_accounts = self
+                        .token_accounts_by_delegate
+                        .get(&delegate_key)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+                    if !delegate_accounts.contains(&pubkey_str) {
+                        delegate_accounts.push(pubkey_str);
+                        self.token_accounts_by_delegate
+                            .store(delegate_key, delegate_accounts)?;
                     }
                 }
-
-                self.token_accounts.insert(*pubkey, token_account);
+                self.token_accounts
+                    .store(pubkey.to_string(), token_account)?;
             }
 
             if let Ok(mint_account) = MintAccount::unpack(&account.data) {
-                self.token_mints.insert(*pubkey, mint_account);
+                self.token_mints.store(pubkey.to_string(), mint_account)?;
             }
 
             if let Ok(mint) =
@@ -862,109 +1374,168 @@ impl SurfnetSvm {
                     .get_extension::<ScaledUiAmountConfig>()
                     .map(|x| (*x, unix_timestamp))
                     .ok();
-                self.account_associated_data.insert(
-                    *pubkey,
-                    AccountAdditionalDataV3 {
-                        spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
-                            decimals: mint.base.decimals,
-                            interest_bearing_config,
-                            scaled_ui_amount_config,
-                        }),
-                    },
-                );
+                let additional_data: SerializableAccountAdditionalData = AccountAdditionalDataV3 {
+                    spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                        decimals: mint.base.decimals,
+                        interest_bearing_config,
+                        scaled_ui_amount_config,
+                    }),
+                }
+                .into();
+                self.account_associated_data
+                    .store(pubkey.to_string(), additional_data)?;
             };
         }
         Ok(())
     }
 
-    fn remove_from_indexes(&mut self, pubkey: &Pubkey, old_account: &Account) {
-        if let Some(accounts) = self.accounts_by_owner.get_mut(&old_account.owner) {
-            accounts.retain(|pk| pk != pubkey);
+    fn remove_from_indexes(
+        &mut self,
+        pubkey: &Pubkey,
+        old_account: &Account,
+    ) -> SurfpoolResult<()> {
+        let owner_key = old_account.owner.to_string();
+        let pubkey_str = pubkey.to_string();
+        if let Some(mut accounts) = self.accounts_by_owner.get(&owner_key).ok().flatten() {
+            accounts.retain(|pk| pk != &pubkey_str);
             if accounts.is_empty() {
-                self.accounts_by_owner.remove(&old_account.owner);
+                self.accounts_by_owner.take(&owner_key)?;
+            } else {
+                self.accounts_by_owner.store(owner_key, accounts)?;
             }
         }
 
         // if it was a token account, remove from token indexes
         if is_supported_token_program(&old_account.owner) {
-            if let Some(old_token_account) = self.token_accounts.remove(pubkey) {
-                if let Some(accounts) = self
-                    .token_accounts_by_owner
-                    .get_mut(&old_token_account.owner())
+            if let Some(old_token_account) = self.token_accounts.take(&pubkey.to_string())? {
+                let owner_key = old_token_account.owner().to_string();
+                if let Some(mut accounts) =
+                    self.token_accounts_by_owner.get(&owner_key).ok().flatten()
                 {
-                    accounts.retain(|pk| pk != pubkey);
+                    accounts.retain(|pk| pk != &pubkey_str);
                     if accounts.is_empty() {
-                        self.token_accounts_by_owner
-                            .remove(&old_token_account.owner());
+                        self.token_accounts_by_owner.take(&owner_key)?;
+                    } else {
+                        self.token_accounts_by_owner.store(owner_key, accounts)?;
                     }
                 }
 
-                if let Some(accounts) = self
-                    .token_accounts_by_mint
-                    .get_mut(&old_token_account.mint())
+                let mint_key = old_token_account.mint().to_string();
+                if let Some(mut accounts) =
+                    self.token_accounts_by_mint.get(&mint_key).ok().flatten()
                 {
-                    accounts.retain(|pk| pk != pubkey);
+                    accounts.retain(|pk| pk != &pubkey_str);
                     if accounts.is_empty() {
-                        self.token_accounts_by_mint
-                            .remove(&old_token_account.mint());
+                        self.token_accounts_by_mint.take(&mint_key)?;
+                    } else {
+                        self.token_accounts_by_mint.store(mint_key, accounts)?;
                     }
                 }
 
                 if let COption::Some(delegate) = old_token_account.delegate() {
-                    if let Some(accounts) = self.token_accounts_by_delegate.get_mut(&delegate) {
-                        accounts.retain(|pk| pk != pubkey);
+                    let delegate_key = delegate.to_string();
+                    if let Some(mut accounts) = self
+                        .token_accounts_by_delegate
+                        .get(&delegate_key)
+                        .ok()
+                        .flatten()
+                    {
+                        accounts.retain(|pk| pk != &pubkey_str);
                         if accounts.is_empty() {
-                            self.token_accounts_by_delegate.remove(&delegate);
+                            self.token_accounts_by_delegate.take(&delegate_key)?;
+                        } else {
+                            self.token_accounts_by_delegate
+                                .store(delegate_key, accounts)?;
                         }
                     }
                 }
             }
         }
+        Ok(())
     }
 
-    pub fn reset_network(&mut self) -> SurfpoolResult<()> {
-        // pub inner: LiteSVM,
-        let mut inner = LiteSVM::new()
-            .with_feature_set(self.feature_set.clone())
-            .with_blockhash_check(false)
-            .with_sigverify(false);
+    pub fn reset_network(&mut self, epoch_info: EpochInfo) -> SurfpoolResult<()> {
+        self.inner.reset(self.feature_set.clone())?;
 
-        // Add the native mint (SOL) to the SVM
-        create_native_mint(&mut inner);
-        let native_mint_account = inner
-            .get_account(&spl_token_interface::native_mint::ID)
+        let native_mint_account = self
+            .inner
+            .get_account(&spl_token_interface::native_mint::ID)?
             .unwrap();
+
+        let native_mint_associated_data = {
+            let mint = StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(
+                &native_mint_account.data,
+            )
+            .unwrap();
+            let unix_timestamp = self.inner.get_sysvar::<Clock>().unix_timestamp;
+            let interest_bearing_config = mint
+                .get_extension::<InterestBearingConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            let scaled_ui_amount_config = mint
+                .get_extension::<ScaledUiAmountConfig>()
+                .map(|x| (*x, unix_timestamp))
+                .ok();
+            AccountAdditionalDataV3 {
+                spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                    decimals: mint.base.decimals,
+                    interest_bearing_config,
+                    scaled_ui_amount_config,
+                }),
+            }
+        };
+
         let parsed_mint_account = MintAccount::unpack(&native_mint_account.data).unwrap();
 
-        // Load native mint into owned account and token mint indexes
-        let accounts_by_owner = HashMap::from([(
-            native_mint_account.owner,
-            vec![spl_token_interface::native_mint::ID],
-        )]);
-        let token_mints =
-            HashMap::from([(spl_token_interface::native_mint::ID, parsed_mint_account)]);
-
-        self.inner = inner;
-        self.blocks.clear();
-        self.transactions.clear();
+        self.blocks.clear()?;
+        self.transactions.clear()?;
         self.transactions_queued_for_confirmation.clear();
         self.transactions_queued_for_finalization.clear();
         self.perf_samples.clear();
         self.transactions_processed = 0;
-        self.profile_tag_map.clear();
-        self.simulated_transaction_profiles.clear();
-        self.accounts_by_owner = accounts_by_owner;
-        self.account_associated_data.clear();
-        self.token_accounts.clear();
-        self.token_mints = token_mints;
-        self.token_accounts_by_owner.clear();
-        self.token_accounts_by_delegate.clear();
-        self.token_accounts_by_mint.clear();
+        self.profile_tag_map.clear()?;
+        self.simulated_transaction_profiles.clear()?;
+        self.executed_transaction_profiles.clear()?;
+        self.accounts_by_owner.clear()?;
+        self.accounts_by_owner.store(
+            native_mint_account.owner.to_string(),
+            vec![spl_token_interface::native_mint::ID.to_string()],
+        )?;
+        self.account_associated_data.clear()?;
+        self.account_associated_data.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            native_mint_associated_data.into(),
+        )?;
+        self.token_accounts.clear()?;
+        self.token_mints.clear()?;
+        self.token_mints.store(
+            spl_token_interface::native_mint::ID.to_string(),
+            parsed_mint_account,
+        )?;
+        self.token_accounts_by_owner.clear()?;
+        self.token_accounts_by_delegate.clear()?;
+        self.token_accounts_by_mint.clear()?;
         self.non_circulating_accounts.clear();
-        self.registered_idls.clear();
+        self.registered_idls.clear()?;
         self.runbook_executions.clear();
-        self.streamed_accounts.clear();
-        self.scheduled_overrides.clear();
+        self.streamed_accounts.clear()?;
+        self.scheduled_overrides.clear()?;
+
+        let current_time = chrono::Utc::now().timestamp_millis() as u64;
+        self.updated_at = current_time;
+        self.genesis_updated_at = current_time;
+        self.latest_epoch_info = epoch_info.clone();
+        // Set genesis_slot to the current slot when resetting (similar to initialize)
+        self.genesis_slot = epoch_info.absolute_slot;
+        let chain_tip_hash = SyntheticBlockhash::new(epoch_info.block_height).to_string();
+        self.chain_tip = BlockIdentifier::new(epoch_info.block_height, chain_tip_hash.as_str());
+        // Rebuild sysvars so getLatestBlockhash / sendTransaction stay aligned after reset.
+        self.reconstruct_sysvars();
+        // Reset checkpoint state to avoid recovering stale chain tips after a reset.
+        self.slot_checkpoint.clear()?;
+        self.last_checkpoint_slot = self.genesis_slot;
+        self.recent_blockhashes.clear();
+
         Ok(())
     }
 
@@ -973,7 +1544,7 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         include_owned_accounts: bool,
     ) -> SurfpoolResult<()> {
-        let Some(account) = self.get_account(pubkey) else {
+        let Some(account) = self.get_account(pubkey)? else {
             return Ok(());
         };
 
@@ -988,7 +1559,7 @@ impl SurfnetSvm {
             }
         }
         if include_owned_accounts {
-            let owned_accounts = self.get_account_owned_by(pubkey);
+            let owned_accounts = self.get_account_owned_by(pubkey)?;
             for (owned_pubkey, _) in owned_accounts {
                 // Avoid infinite recursion by not cascading further
                 self.purge_account_from_cache(&account, &owned_pubkey)?;
@@ -1004,12 +1575,9 @@ impl SurfnetSvm {
         account: &Account,
         pubkey: &Pubkey,
     ) -> SurfpoolResult<()> {
-        self.remove_from_indexes(pubkey, account);
+        self.remove_from_indexes(pubkey, account)?;
 
-        // Set the empty account
-        self.inner
-            .set_account(*pubkey, Account::default())
-            .map_err(|e| SurfpoolError::set_account(*pubkey, e))?;
+        self.inner.delete_account(pubkey)?;
 
         Ok(())
     }
@@ -1132,7 +1700,7 @@ impl SurfnetSvm {
         }
         self.transactions_processed += 1;
 
-        if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
+        if !self.validate_transaction_blockhash(&tx) {
             let meta = TransactionMetadata::default();
             let err = solana_transaction_error::TransactionError::BlockhashNotFound;
 
@@ -1177,7 +1745,7 @@ impl SurfnetSvm {
         &self,
         transaction: &VersionedTransaction,
     ) -> ComputeUnitsEstimationResult {
-        if !self.check_blockhash_is_recent(transaction.message.recent_blockhash()) {
+        if !self.validate_transaction_blockhash(transaction) {
             return ComputeUnitsEstimationResult {
                 success: false,
                 compute_units_consumed: 0,
@@ -1224,7 +1792,7 @@ impl SurfnetSvm {
             });
         }
 
-        if !self.check_blockhash_is_recent(tx.message.recent_blockhash()) {
+        if !self.validate_transaction_blockhash(&tx) {
             let meta = TransactionMetadata::default();
             let err = TransactionError::BlockhashNotFound;
 
@@ -1267,7 +1835,7 @@ impl SurfnetSvm {
             );
 
             let Some(SurfnetTransactionStatus::Processed(tx_data)) =
-                self.transactions.get(&signature)
+                self.transactions.get(&signature.to_string()).ok().flatten()
             else {
                 continue;
             };
@@ -1316,7 +1884,7 @@ impl SurfnetSvm {
                     error,
                 );
                 let Some(SurfnetTransactionStatus::Processed(tx_data)) =
-                    self.transactions.get(signature)
+                    self.transactions.get(&signature.to_string()).ok().flatten()
                 else {
                     continue;
                 };
@@ -1385,10 +1953,18 @@ impl SurfnetSvm {
                     if let Some((programdata_address, programdata_account)) =
                         init_programdata_account(&account)
                     {
-                        if self.get_account(&programdata_address).is_none() {
-                            if let Err(e) =
-                                self.set_account(&programdata_address, programdata_account)
-                            {
+                        match self.get_account(&programdata_address) {
+                            Ok(None) => {
+                                if let Err(e) =
+                                    self.set_account(&programdata_address, programdata_account)
+                                {
+                                    let _ = self
+                                        .simnet_events_tx
+                                        .send(SimnetEvent::error(e.to_string()));
+                                }
+                            }
+                            Ok(Some(_)) => {}
+                            Err(e) => {
                                 let _ = self
                                     .simnet_events_tx
                                     .send(SimnetEvent::error(e.to_string()));
@@ -1406,9 +1982,18 @@ impl SurfnetSvm {
                 if let Some((programdata_address, programdata_account)) =
                     init_programdata_account(&account)
                 {
-                    if self.get_account(&programdata_address).is_none() {
-                        if let Err(e) = self.set_account(&programdata_address, programdata_account)
-                        {
+                    match self.get_account(&programdata_address) {
+                        Ok(None) => {
+                            if let Err(e) =
+                                self.set_account(&programdata_address, programdata_account)
+                            {
+                                let _ = self
+                                    .simnet_events_tx
+                                    .send(SimnetEvent::error(e.to_string()));
+                            }
+                        }
+                        Ok(Some(_)) => {}
+                        Err(e) => {
                             let _ = self
                                 .simnet_events_tx
                                 .send(SimnetEvent::error(e.to_string()));
@@ -1452,9 +2037,13 @@ impl SurfnetSvm {
         }
     }
 
-    pub fn confirm_current_block(&mut self) -> Result<(), SurfpoolError> {
+    pub fn confirm_current_block(&mut self) -> SurfpoolResult<()> {
         let slot = self.get_latest_absolute_slot();
         let previous_chain_tip = self.chain_tip.clone();
+        if slot % *GARBAGE_COLLECTION_INTERVAL_SLOTS == 0 {
+            debug!("Clearing liteSVM cache at slot {}", slot);
+            self.inner.garbage_collect(self.feature_set.clone());
+        }
         self.chain_tip = self.new_blockhash();
         // Confirm processed transactions
         let (confirmed_signatures, all_mutated_account_keys) = self.confirm_transactions()?;
@@ -1462,7 +2051,7 @@ impl SurfnetSvm {
 
         // Notify Geyser plugin of account updates
         for pubkey in all_mutated_account_keys {
-            let Some(account) = self.inner.get_account(&pubkey) else {
+            let Some(account) = self.inner.get_account(&pubkey)? else {
                 continue;
             };
             self.geyser_events_tx
@@ -1475,17 +2064,30 @@ impl SurfnetSvm {
         let num_transactions = confirmed_signatures.len() as u64;
         self.updated_at += self.slot_time;
 
-        self.blocks.insert(
-            slot,
-            BlockHeader {
-                hash: self.chain_tip.hash.clone(),
-                previous_blockhash: previous_chain_tip.hash,
-                block_time: self.updated_at as i64 / 1_000,
-                block_height: self.chain_tip.index,
-                parent_slot: slot,
-                signatures: confirmed_signatures,
-            },
-        );
+        // Only store blocks that have transactions (sparse block storage)
+        // Empty blocks can be reconstructed on-the-fly from their slot number
+        if !confirmed_signatures.is_empty() {
+            self.blocks.store(
+                slot,
+                BlockHeader {
+                    hash: self.chain_tip.hash.clone(),
+                    previous_blockhash: previous_chain_tip.hash.clone(),
+                    block_time: self.updated_at as i64 / 1_000,
+                    block_height: self.chain_tip.index,
+                    parent_slot: slot,
+                    signatures: confirmed_signatures,
+                },
+            )?;
+        }
+
+        // Checkpoint the latest slot periodically (~every 150 slots / 1 minute at standard slot time)
+        // This allows recovery after restart without storing every empty block
+        if slot.saturating_sub(self.last_checkpoint_slot) >= *CHECKPOINT_INTERVAL_SLOTS {
+            self.slot_checkpoint
+                .store("latest_slot".to_string(), slot)?;
+            self.last_checkpoint_slot = slot;
+        }
+
         if self.perf_samples.len() > 30 {
             self.perf_samples.pop_back();
         }
@@ -1512,6 +2114,46 @@ impl SurfnetSvm {
         let root = new_slot.saturating_sub(FINALIZATION_SLOT_THRESHOLD);
         self.notify_slot_subscribers(new_slot, parent_slot, root);
 
+        // Notify geyser plugins of slot status (Confirmed)
+        self.geyser_events_tx
+            .send(GeyserEvent::UpdateSlotStatus {
+                slot: new_slot,
+                parent: Some(parent_slot),
+                status: GeyserSlotStatus::Confirmed,
+            })
+            .ok();
+
+        // Notify geyser plugins of block metadata
+        let block_metadata = GeyserBlockMetadata {
+            slot: new_slot,
+            blockhash: self.chain_tip.hash.clone(),
+            parent_slot,
+            parent_blockhash: previous_chain_tip.hash.clone(),
+            block_time: Some(self.updated_at as i64 / 1_000),
+            block_height: Some(self.chain_tip.index),
+            executed_transaction_count: num_transactions,
+            entry_count: 1, // Surfpool produces 1 entry per block
+        };
+        self.geyser_events_tx
+            .send(GeyserEvent::NotifyBlockMetadata(block_metadata))
+            .ok();
+
+        // Notify geyser plugins of entry (Surfpool emits 1 entry per block)
+        let entry_hash = solana_hash::Hash::from_str(&self.chain_tip.hash)
+            .map(|h| h.to_bytes().to_vec())
+            .unwrap_or_else(|_| vec![0u8; 32]);
+        let entry_info = GeyserEntryInfo {
+            slot: new_slot,
+            index: 0, // Single entry per block
+            num_hashes: 1,
+            hash: entry_hash,
+            executed_transaction_count: num_transactions,
+            starting_transaction_index: 0,
+        };
+        self.geyser_events_tx
+            .send(GeyserEvent::NotifyEntry(entry_info))
+            .ok();
+
         let clock: Clock = Clock {
             slot: self.latest_epoch_info.absolute_slot,
             epoch: self.latest_epoch_info.epoch,
@@ -1527,10 +2169,24 @@ impl SurfnetSvm {
 
         self.finalize_transactions()?;
 
+        // Notify geyser plugins of newly rooted (finalized) slot
+        // Only emit if root is a valid slot (greater than genesis)
+        if root >= self.genesis_slot {
+            self.geyser_events_tx
+                .send(GeyserEvent::UpdateSlotStatus {
+                    slot: root,
+                    parent: root.checked_sub(1),
+                    status: GeyserSlotStatus::Rooted,
+                })
+                .ok();
+        }
+
         // Evict the accounts marked as streamed from cache to enforce them to be fetched again
-        let accounts_to_reset = self.streamed_accounts.clone();
-        for (pubkey, include_owned_accounts) in accounts_to_reset.iter() {
-            self.reset_account(pubkey, *include_owned_accounts)?;
+        let accounts_to_reset: Vec<_> = self.streamed_accounts.into_iter()?.collect();
+        for (pubkey_str, include_owned_accounts) in accounts_to_reset {
+            let pubkey = Pubkey::from_str(&pubkey_str)
+                .map_err(|e| SurfpoolError::invalid_pubkey(&pubkey_str, e.to_string()))?;
+            self.reset_account(&pubkey, include_owned_accounts)?;
         }
 
         Ok(())
@@ -1560,7 +2216,7 @@ impl SurfnetSvm {
         target_slot: Slot,
     ) -> SurfpoolResult<()> {
         // Remove and get overrides for this slot
-        let Some(overrides) = self.scheduled_overrides.remove(&target_slot) else {
+        let Some(overrides) = self.scheduled_overrides.take(&target_slot)? else {
             // No overrides for this slot
             return Ok(());
         };
@@ -1683,7 +2339,7 @@ impl SurfnetSvm {
                 );
 
                 // Get the account from the SVM
-                let Some(account) = self.inner.get_account(&account_pubkey) else {
+                let Some(account) = self.inner.get_account(&account_pubkey)? else {
                     warn!(
                         "Account {} not found in SVM for override {}, skipping modifications",
                         account_pubkey, override_instance.id
@@ -1695,16 +2351,26 @@ impl SurfnetSvm {
                 let owner_program_id = account.owner();
 
                 // Look up the IDL for the owner program
-                let Some(idl_versions) = self.registered_idls.get(owner_program_id) else {
-                    warn!(
-                        "No IDL registered for program {} (owner of account {}), skipping override {}",
-                        owner_program_id, account_pubkey, override_instance.id
-                    );
-                    continue;
+                let idl_versions = match self.registered_idls.get(&owner_program_id.to_string()) {
+                    Ok(Some(versions)) => versions,
+                    Ok(None) => {
+                        warn!(
+                            "No IDL registered for program {} (owner of account {}), skipping override {}",
+                            owner_program_id, account_pubkey, override_instance.id
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to get IDL for program {}: {}, skipping override {}",
+                            owner_program_id, e, override_instance.id
+                        );
+                        continue;
+                    }
                 };
 
-                // Get the latest IDL version
-                let Some(versioned_idl) = idl_versions.peek() else {
+                // Get the latest IDL version (first in the sorted Vec)
+                let Some(versioned_idl) = idl_versions.first() else {
                     warn!(
                         "IDL versions empty for program {}, skipping override {}",
                         owner_program_id, override_instance.id
@@ -1935,6 +2601,20 @@ impl SurfnetSvm {
         rx
     }
 
+    pub fn subscribe_for_program_updates(
+        &mut self,
+        program_id: &Pubkey,
+        encoding: Option<UiAccountEncoding>,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> Receiver<RpcKeyedAccount> {
+        let (tx, rx) = unbounded();
+        self.program_subscriptions
+            .entry(*program_id)
+            .or_default()
+            .push((encoding, filters, tx));
+        rx
+    }
+
     /// Notifies signature subscribers of a status update, sending slot and error info.
     ///
     /// # Arguments
@@ -1996,6 +2676,47 @@ impl SurfnetSvm {
         }
     }
 
+    pub fn notify_program_subscribers(&mut self, account_pubkey: &Pubkey, account: &Account) {
+        let program_id = account.owner;
+        let mut remaining = vec![];
+        if let Some(subscriptions) = self.program_subscriptions.remove(&program_id) {
+            for (encoding, filters, tx) in subscriptions {
+                // Apply filters if present
+                if let Some(ref active_filters) = filters {
+                    match super::locker::apply_rpc_filters(&account.data, active_filters) {
+                        Ok(true) => {} // Account matches all filters
+                        Ok(false) => {
+                            // Filtered out - keep subscription active but don't notify
+                            remaining.push((encoding, filters, tx));
+                            continue;
+                        }
+                        Err(_) => {
+                            // Error applying filter - keep subscription, skip notification
+                            remaining.push((encoding, filters, tx));
+                            continue;
+                        }
+                    }
+                }
+
+                let config = RpcAccountInfoConfig {
+                    encoding,
+                    ..Default::default()
+                };
+                let keyed_account =
+                    self.account_to_rpc_keyed_account(account_pubkey, account, &config, None);
+                if tx.send(keyed_account).is_err() {
+                    // The receiver has been dropped, so we can skip notifying
+                    continue;
+                } else {
+                    remaining.push((encoding, filters, tx));
+                }
+            }
+            if !remaining.is_empty() {
+                self.program_subscriptions.insert(program_id, remaining);
+            }
+        }
+    }
+
     /// Retrieves a confirmed block at the given slot, including transactions and metadata.
     ///
     /// # Arguments
@@ -2009,7 +2730,8 @@ impl SurfnetSvm {
         slot: Slot,
         config: &RpcBlockConfig,
     ) -> SurfpoolResult<Option<UiConfirmedBlock>> {
-        let Some(block) = self.blocks.get(&slot) else {
+        // Try to get stored block, or reconstruct empty block if within valid range
+        let Some(block) = self.get_block_or_reconstruct(slot)? else {
             return Ok(None);
         };
 
@@ -2023,7 +2745,7 @@ impl SurfnetSvm {
                 block
                     .signatures
                     .iter()
-                    .filter_map(|sig| self.transactions.get(sig))
+                    .filter_map(|sig| self.transactions.get(&sig.to_string()).ok().flatten())
                     .map(|tx_with_meta| {
                         let (meta, _) = tx_with_meta.expect_processed();
                         meta.encode(
@@ -2043,7 +2765,7 @@ impl SurfnetSvm {
                 block
                     .signatures
                     .iter()
-                    .filter_map(|sig| self.transactions.get(sig))
+                    .filter_map(|sig| self.transactions.get(&sig.to_string()).ok().flatten())
                     .map(|tx_with_meta| {
                         let (meta, _) = tx_with_meta.expect_processed();
                         meta.to_json_accounts(
@@ -2083,6 +2805,7 @@ impl SurfnetSvm {
     pub fn blockhash_for_slot(&self, slot: Slot) -> Option<Hash> {
         self.blocks
             .get(&slot)
+            .unwrap()
             .and_then(|header| header.hash.parse().ok())
     }
 
@@ -2095,18 +2818,26 @@ impl SurfnetSvm {
     /// # Returns
     ///
     /// * A vector of (account_pubkey, account) tuples for all accounts owned by the program.
-    pub fn get_account_owned_by(&self, program_id: &Pubkey) -> Vec<(Pubkey, Account)> {
-        if let Some(account_pubkeys) = self.accounts_by_owner.get(program_id) {
-            account_pubkeys
-                .iter()
-                .filter_map(|pubkey| {
-                    self.get_account(pubkey)
-                        .map(|account| (*pubkey, account.clone()))
-                })
-                .collect()
-        } else {
-            Vec::new()
-        }
+    pub fn get_account_owned_by(
+        &self,
+        program_id: &Pubkey,
+    ) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
+        let account_pubkeys = self
+            .accounts_by_owner
+            .get(&program_id.to_string())
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
+        account_pubkeys
+            .iter()
+            .filter_map(|pk_str| {
+                let pk = Pubkey::from_str(pk_str).ok()?;
+                self.get_account(&pk)
+                    .map(|res| res.map(|account| (pk, account.clone())))
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, SurfpoolError>>()
     }
 
     fn get_additional_data(
@@ -2117,10 +2848,20 @@ impl SurfnetSvm {
         let token_mint = if let Some(mint) = token_mint {
             Some(mint)
         } else {
-            self.token_accounts.get(pubkey).map(|ta| ta.mint())
+            self.token_accounts
+                .get(&pubkey.to_string())
+                .ok()
+                .flatten()
+                .map(|ta| ta.mint())
         };
 
-        token_mint.and_then(|mint| self.account_associated_data.get(&mint).cloned())
+        token_mint.and_then(|mint| {
+            self.account_associated_data
+                .get(&mint.to_string())
+                .ok()
+                .flatten()
+                .and_then(|data| data.try_into().ok())
+        })
     }
 
     pub fn account_to_rpc_keyed_account<T: ReadableAccount>(
@@ -2154,10 +2895,22 @@ impl SurfnetSvm {
     ///
     /// * A vector of (account_pubkey, token_account) tuples for all token accounts delegated to the specified delegate.
     pub fn get_token_accounts_by_delegate(&self, delegate: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
-        if let Some(account_pubkeys) = self.token_accounts_by_delegate.get(delegate) {
+        if let Some(account_pubkeys) = self
+            .token_accounts_by_delegate
+            .get(&delegate.to_string())
+            .ok()
+            .flatten()
+        {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .filter_map(|pk_str| {
+                    let pk = Pubkey::from_str(pk_str).ok()?;
+                    self.token_accounts
+                        .get(pk_str)
+                        .ok()
+                        .flatten()
+                        .map(|ta| (pk, ta))
+                })
                 .collect()
         } else {
             Vec::new()
@@ -2177,26 +2930,48 @@ impl SurfnetSvm {
         &self,
         owner: &Pubkey,
     ) -> Vec<(Pubkey, TokenAccount)> {
-        if let Some(account_pubkeys) = self.token_accounts_by_owner.get(owner) {
+        if let Some(account_pubkeys) = self
+            .token_accounts_by_owner
+            .get(&owner.to_string())
+            .ok()
+            .flatten()
+        {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .filter_map(|pk_str| {
+                    let pk = Pubkey::from_str(pk_str).ok()?;
+                    self.token_accounts
+                        .get(pk_str)
+                        .ok()
+                        .flatten()
+                        .map(|ta| (pk, ta))
+                })
                 .collect()
         } else {
             Vec::new()
         }
     }
 
-    pub fn get_token_accounts_by_owner(&self, owner: &Pubkey) -> Vec<(Pubkey, Account)> {
-        self.token_accounts_by_owner
-            .get(owner)
-            .map(|account_pubkeys| {
-                account_pubkeys
-                    .iter()
-                    .filter_map(|pk| self.get_account(pk).map(|account| (*pk, account.clone())))
-                    .collect()
+    pub fn get_token_accounts_by_owner(
+        &self,
+        owner: &Pubkey,
+    ) -> SurfpoolResult<Vec<(Pubkey, Account)>> {
+        let account_pubkeys = self
+            .token_accounts_by_owner
+            .get(&owner.to_string())
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
+        account_pubkeys
+            .iter()
+            .filter_map(|pk_str| {
+                let pk = Pubkey::from_str(pk_str).ok()?;
+                self.get_account(&pk)
+                    .map(|res| res.map(|account| (pk, account.clone())))
+                    .transpose()
             })
-            .unwrap_or_default()
+            .collect::<Result<Vec<_>, SurfpoolError>>()
     }
 
     /// Gets all token accounts for a specific mint (token type).
@@ -2209,10 +2984,22 @@ impl SurfnetSvm {
     ///
     /// * A vector of (account_pubkey, token_account) tuples for all token accounts of the specified mint.
     pub fn get_token_accounts_by_mint(&self, mint: &Pubkey) -> Vec<(Pubkey, TokenAccount)> {
-        if let Some(account_pubkeys) = self.token_accounts_by_mint.get(mint) {
+        if let Some(account_pubkeys) = self
+            .token_accounts_by_mint
+            .get(&mint.to_string())
+            .ok()
+            .flatten()
+        {
             account_pubkeys
                 .iter()
-                .filter_map(|pk| self.token_accounts.get(pk).map(|ta| (*pk, *ta)))
+                .filter_map(|pk_str| {
+                    let pk = Pubkey::from_str(pk_str).ok()?;
+                    self.token_accounts
+                        .get(pk_str)
+                        .ok()
+                        .flatten()
+                        .map(|ta| (pk, ta))
+                })
                 .collect()
         } else {
             Vec::new()
@@ -2235,28 +3022,39 @@ impl SurfnetSvm {
         uuid: Uuid,
         tag: Option<String>,
         profile_result: KeyedProfileResult,
-    ) {
+    ) -> SurfpoolResult<()> {
         self.simulated_transaction_profiles
-            .insert(uuid, profile_result);
+            .store(uuid.to_string(), profile_result)?;
 
         let tag = tag.unwrap_or_else(|| uuid.to_string());
-        self.profile_tag_map
-            .entry(tag)
-            .or_default()
-            .push(UuidOrSignature::Uuid(uuid));
+        let mut tags = self
+            .profile_tag_map
+            .get(&tag)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        tags.push(UuidOrSignature::Uuid(uuid));
+        self.profile_tag_map.store(tag, tags)?;
+        Ok(())
     }
 
     pub fn write_executed_profile_result(
         &mut self,
         signature: Signature,
         profile_result: KeyedProfileResult,
-    ) {
+    ) -> SurfpoolResult<()> {
         self.executed_transaction_profiles
-            .insert(signature, profile_result);
-        self.profile_tag_map
-            .entry(signature.to_string())
-            .or_default()
-            .push(UuidOrSignature::Signature(signature));
+            .store(signature.to_string(), profile_result)?;
+        let tag = signature.to_string();
+        let mut tags = self
+            .profile_tag_map
+            .get(&tag)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        tags.push(UuidOrSignature::Signature(signature));
+        self.profile_tag_map.store(tag, tags)?;
+        Ok(())
     }
 
     pub fn subscribe_for_logs_updates(
@@ -2289,7 +3087,7 @@ impl SurfnetSvm {
                     // Get the tx accounts including loaded addresses
                     let transaction_accounts =
                         if let Some(SurfnetTransactionStatus::Processed(tx_data)) =
-                            self.transactions.get(signature)
+                            self.transactions.get(&signature.to_string()).ok().flatten()
                         {
                             let (tx_meta, _) = tx_data.as_ref();
                             let mut accounts = match &tx_meta.transaction.message {
@@ -2329,13 +3127,50 @@ impl SurfnetSvm {
         }
     }
 
-    pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) {
+    /// Registers a snapshot subscription and returns a sender and receiver for notifications.
+    /// The actual import logic should be handled by the caller (SurfnetSvmLocker).
+    pub fn register_snapshot_subscription(
+        &mut self,
+    ) -> (
+        Sender<super::SnapshotImportNotification>,
+        Receiver<super::SnapshotImportNotification>,
+    ) {
+        let (tx, rx) = unbounded();
+        self.snapshot_subscriptions.push(tx.clone());
+        (tx, rx)
+    }
+
+    pub async fn fetch_snapshot_from_url(
+        snapshot_url: &str,
+    ) -> Result<
+        std::collections::BTreeMap<String, Option<surfpool_types::AccountSnapshot>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        let response = reqwest::get(snapshot_url).await?;
+        let text = response.text().await?;
+
+        // Parse the JSON snapshot data
+        let snapshot: std::collections::BTreeMap<String, Option<surfpool_types::AccountSnapshot>> =
+            serde_json::from_str(&text)?;
+
+        Ok(snapshot)
+    }
+
+    pub fn register_idl(&mut self, idl: Idl, slot: Option<Slot>) -> SurfpoolResult<()> {
         let slot = slot.unwrap_or(self.latest_epoch_info.absolute_slot);
         let program_id = Pubkey::from_str_const(&idl.address);
-        self.registered_idls
-            .entry(program_id)
-            .or_default()
-            .push(VersionedIdl(slot, idl));
+        let program_id_str = program_id.to_string();
+        let mut idl_versions = self
+            .registered_idls
+            .get(&program_id_str)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        idl_versions.push(VersionedIdl(slot, idl));
+        // Sort by slot descending so the latest IDL is first
+        idl_versions.sort_by(|a, b| b.0.cmp(&a.0));
+        self.registered_idls.store(program_id_str, idl_versions)?;
+        Ok(())
     }
 
     fn encode_ui_account_profile_state(
@@ -2489,10 +3324,14 @@ impl SurfnetSvm {
         data_slice_config: Option<UiDataSliceConfig>,
     ) -> UiAccount {
         let owner_program_id = account.owner();
+        let data = account.data();
 
-        let filter_slot = self.latest_epoch_info.absolute_slot; // todo: consider if we should pass in a slot
         if encoding == UiAccountEncoding::JsonParsed {
-            if let Some(registered_idls) = self.registered_idls.get(owner_program_id) {
+            if let Ok(Some(registered_idls)) =
+                self.registered_idls.get(&owner_program_id.to_string())
+            {
+                let filter_slot = self.latest_epoch_info.absolute_slot;
+                // IDLs are stored sorted by slot descending (most recent first)
                 let ordered_available_idls = registered_idls
                     .iter()
                     // only get IDLs that are active (their slot is before the latest slot)
@@ -2504,12 +3343,12 @@ impl SurfnetSvm {
                         }
                     })
                     .collect::<Vec<_>>();
+
                 // if we have none in this loop, it means the only IDLs registered for this pubkey are for a
                 // future slot, for some reason. if we have some, we'll try each one in this loop, starting
                 // with the most recent one, to see if the account data can be parsed to the IDL type
                 for idl in &ordered_available_idls {
                     // If we have a valid IDL, use it to parse the account data
-                    let data = account.data();
                     let discriminator = &data[..8];
                     if let Some(matching_account) = idl
                         .accounts
@@ -2550,10 +3389,10 @@ impl SurfnetSvm {
                                             .to_json(Some(&get_txtx_value_json_converters())),
                                         space: data.len() as u64,
                                     }),
-                                    owner: account.owner().to_string(),
+                                    owner: owner_program_id.to_string(),
                                     executable: account.executable(),
                                     rent_epoch: account.rent_epoch(),
-                                    space: Some(account.data().len() as u64),
+                                    space: Some(data.len() as u64),
                                 };
                             }
                         }
@@ -2572,12 +3411,19 @@ impl SurfnetSvm {
         )
     }
 
-    pub fn get_account(&self, pubkey: &Pubkey) -> Option<Account> {
+    pub fn get_account(&self, pubkey: &Pubkey) -> SurfpoolResult<Option<Account>> {
         self.inner.get_account(pubkey)
     }
 
-    pub fn iter_accounts(&self) -> std::collections::hash_map::Iter<'_, Pubkey, AccountSharedData> {
-        self.inner.accounts_db().inner.iter()
+    pub fn get_all_accounts(&self) -> SurfpoolResult<Vec<(Pubkey, AccountSharedData)>> {
+        self.inner.get_all_accounts()
+    }
+
+    pub fn get_transaction(
+        &self,
+        signature: &Signature,
+    ) -> SurfpoolResult<Option<SurfnetTransactionStatus>> {
+        Ok(self.transactions.get(&signature.to_string())?)
     }
 
     pub fn start_runbook_execution(&mut self, runbook_id: String) {
@@ -2605,7 +3451,7 @@ impl SurfnetSvm {
     pub fn export_snapshot(
         &self,
         config: ExportSnapshotConfig,
-    ) -> BTreeMap<String, AccountSnapshot> {
+    ) -> SurfpoolResult<BTreeMap<String, AccountSnapshot>> {
         let mut fixtures = BTreeMap::new();
         let encoding = if config.include_parsed_accounts.unwrap_or_default() {
             UiAccountEncoding::JsonParsed
@@ -2635,18 +3481,29 @@ impl SurfnetSvm {
             }
 
             // For token accounts, we need to provide the mint additional data
-            let additional_data = if account.owner == spl_token_interface::id()
+            let additional_data: Option<AccountAdditionalDataV3> = if account.owner
+                == spl_token_interface::id()
                 || account.owner == spl_token_2022_interface::id()
             {
                 if let Ok(token_account) = TokenAccount::unpack(&account.data) {
                     self.account_associated_data
-                        .get(&token_account.mint())
-                        .cloned()
+                        .get(&token_account.mint().to_string())
+                        .ok()
+                        .flatten()
+                        .and_then(|data| data.try_into().ok())
                 } else {
-                    self.account_associated_data.get(pubkey).cloned()
+                    self.account_associated_data
+                        .get(&pubkey.to_string())
+                        .ok()
+                        .flatten()
+                        .and_then(|data| data.try_into().ok())
                 }
             } else {
-                self.account_associated_data.get(pubkey).cloned()
+                self.account_associated_data
+                    .get(&pubkey.to_string())
+                    .ok()
+                    .flatten()
+                    .and_then(|data| data.try_into().ok())
             };
 
             let ui_account =
@@ -2675,7 +3532,7 @@ impl SurfnetSvm {
         match &config.scope {
             ExportSnapshotScope::Network => {
                 // Export all network accounts (current behavior)
-                for (pubkey, account_shared_data) in self.iter_accounts() {
+                for (pubkey, account_shared_data) in self.get_all_accounts()? {
                     let account = Account::from(account_shared_data.clone());
                     process_account(&pubkey, &account);
                 }
@@ -2683,7 +3540,10 @@ impl SurfnetSvm {
             ExportSnapshotScope::PreTransaction(signature_str) => {
                 // Export accounts from a specific transaction's pre-execution state
                 if let Ok(signature) = Signature::from_str(signature_str) {
-                    if let Some(profile) = self.executed_transaction_profiles.get(&signature) {
+                    if let Ok(Some(profile)) = self
+                        .executed_transaction_profiles
+                        .get(&signature.to_string())
+                    {
                         // Collect accounts from pre-execution capture only
                         // This gives us the account state BEFORE the transaction executed
                         for (pubkey, account_opt) in
@@ -2703,7 +3563,7 @@ impl SurfnetSvm {
             }
         }
 
-        fixtures
+        Ok(fixtures)
     }
 
     /// Registers a scenario for execution by scheduling its overrides
@@ -2736,10 +3596,15 @@ impl SurfnetSvm {
                 absolute_slot, base_slot, scenario_relative_slot
             );
 
+            let mut slot_overrides = self
+                .scheduled_overrides
+                .get(&absolute_slot)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            slot_overrides.push(override_instance);
             self.scheduled_overrides
-                .entry(absolute_slot)
-                .or_insert_with(Vec::new)
-                .push(override_instance);
+                .store(absolute_slot, slot_overrides)?;
         }
 
         Ok(())
@@ -2755,12 +3620,17 @@ mod tests {
     use solana_loader_v3_interface::get_program_data_address;
     use solana_program_pack::Pack;
     use spl_token_interface::state::{Account as TokenAccount, AccountState};
+    use test_case::test_case;
 
     use super::*;
+    use crate::storage::tests::TestType;
 
-    #[test]
-    fn test_synthetic_blockhash_generation() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_synthetic_blockhash_generation(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Test with different chain tip indices
         let test_cases = vec![0, 1, 42, 255, 1000, 0x12345678];
@@ -2819,9 +3689,12 @@ mod tests {
         println!("Generated hash: {}", hash_str);
     }
 
-    #[test]
-    fn test_blockhash_consistency_across_calls() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_blockhash_consistency_across_calls(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Set a specific chain tip
         svm.chain_tip = BlockIdentifier::new(123, "initial_hash");
@@ -2851,9 +3724,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_token_account_indexing() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_token_account_indexing(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let owner = Pubkey::new_unique();
         let delegate = Pubkey::new_unique();
@@ -2885,7 +3761,7 @@ mod tests {
         svm.set_account(&token_account_pubkey, account).unwrap();
 
         // test all indexes were created correctly
-        assert_eq!(svm.token_accounts.len(), 1);
+        assert_eq!(svm.token_accounts.keys().unwrap().len(), 1);
 
         // test owner index
         let owner_accounts = svm.get_parsed_token_accounts_by_owner(&owner);
@@ -2903,9 +3779,12 @@ mod tests {
         assert_eq!(mint_accounts[0].0, token_account_pubkey);
     }
 
-    #[test]
-    fn test_account_update_removes_old_indexes() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_account_update_removes_old_indexes(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let owner = Pubkey::new_unique();
         let old_delegate = Pubkey::new_unique();
@@ -2973,9 +3852,12 @@ mod tests {
         assert_eq!(svm.get_parsed_token_accounts_by_owner(&owner).len(), 1);
     }
 
-    #[test]
-    fn test_non_token_accounts_not_indexed() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_non_token_accounts_not_indexed(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let system_account_pubkey = Pubkey::new_unique();
         let account = Account {
@@ -2989,10 +3871,10 @@ mod tests {
         svm.set_account(&system_account_pubkey, account).unwrap();
 
         // should be in general registry but not token indexes
-        assert_eq!(svm.token_accounts.len(), 0);
-        assert_eq!(svm.token_accounts_by_owner.len(), 0);
-        assert_eq!(svm.token_accounts_by_delegate.len(), 0);
-        assert_eq!(svm.token_accounts_by_mint.len(), 0);
+        assert_eq!(svm.token_accounts.keys().unwrap().len(), 0);
+        assert_eq!(svm.token_accounts_by_owner.keys().unwrap().len(), 0);
+        assert_eq!(svm.token_accounts_by_delegate.keys().unwrap().len(), 0);
+        assert_eq!(svm.token_accounts_by_mint.keys().unwrap().len(), 0);
     }
 
     fn expect_account_update_event(
@@ -3005,7 +3887,10 @@ mod tests {
             Ok(event) => match event {
                 SimnetEvent::AccountUpdate(_, account_pubkey) => {
                     assert_eq!(pubkey, &account_pubkey);
-                    assert_eq!(svm.get_account(&pubkey).as_ref(), Some(expected_account));
+                    assert_eq!(
+                        svm.get_account(&pubkey).unwrap().as_ref(),
+                        Some(expected_account)
+                    );
                     true
                 }
                 event => {
@@ -3074,9 +3959,12 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_inserting_account_updates() {
-        let (mut svm, events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_inserting_account_updates(test_type: TestType) {
+        let (mut svm, events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let pubkey = Pubkey::new_unique();
         let account = Account {
@@ -3089,27 +3977,27 @@ mod tests {
 
         // GetAccountResult::None should be a noop when writing account updates
         {
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let empty_update = GetAccountResult::None(pubkey);
             svm.write_account_update(empty_update);
-            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
+            assert_eq!(svm.get_all_accounts().unwrap(), index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to false should be a noop
         {
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), false);
             svm.write_account_update(found_update);
-            assert_eq!(svm.inner.accounts_db().clone().inner, index_before);
+            assert_eq!(svm.get_all_accounts().unwrap(), index_before);
         }
 
         // GetAccountResult::FoundAccount with `DoUpdateSvm` flag to true should update the account
         {
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(pubkey, account.clone(), true);
             svm.write_account_update(found_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(&events_rx, &svm, &pubkey, &account) {
@@ -3143,7 +4031,7 @@ mod tests {
                 rent_epoch: 0,
             };
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
@@ -3167,7 +4055,7 @@ mod tests {
                 );
             }
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 2
             );
         }
@@ -3177,14 +4065,14 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let found_program_account_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, Some(program_data_account.clone())),
             );
             svm.write_account_update(found_program_account_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 2
             );
             if !expect_account_update_event(
@@ -3211,7 +4099,7 @@ mod tests {
             let (program_address, program_account, program_data_address, program_data_account) =
                 create_program_accounts();
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let found_update = GetAccountResult::FoundAccount(
                 program_data_address,
                 program_data_account.clone(),
@@ -3219,7 +4107,7 @@ mod tests {
             );
             svm.write_account_update(found_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(
@@ -3233,14 +4121,14 @@ mod tests {
                 );
             }
 
-            let index_before = svm.inner.accounts_db().clone().inner;
+            let index_before = svm.get_all_accounts().unwrap();
             let program_account_found_update = GetAccountResult::FoundProgramAccount(
                 (program_address, program_account.clone()),
                 (program_data_address, None),
             );
             svm.write_account_update(program_account_found_update);
             assert_eq!(
-                svm.inner.accounts_db().clone().inner.len(),
+                svm.get_all_accounts().unwrap().len(),
                 index_before.len() + 1
             );
             if !expect_account_update_event(&events_rx, &svm, &program_address, &program_account) {
@@ -3251,15 +4139,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_encode_ui_account() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_encode_ui_account(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let idl_v1: Idl =
             serde_json::from_slice(&include_bytes!("../tests/assets/idl_v1.json").to_vec())
                 .unwrap();
 
-        svm.register_idl(idl_v1.clone(), Some(0));
+        svm.register_idl(idl_v1.clone(), Some(0)).unwrap();
 
         let account_pubkey = Pubkey::new_unique();
 
@@ -3354,7 +4245,7 @@ mod tests {
             serde_json::from_slice(&include_bytes!("../tests/assets/idl_v2.json").to_vec())
                 .unwrap();
 
-        svm.register_idl(idl_v2.clone(), Some(100));
+        svm.register_idl(idl_v2.clone(), Some(100)).unwrap();
 
         // even though we have a new IDL that is more recent, we should be able to match with the old IDL
         {
@@ -3479,35 +4370,54 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_profiling_map_capacity_default() {
-        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
-        assert_eq!(
-            svm.executed_transaction_profiles.capacity(),
-            DEFAULT_PROFILING_MAP_CAPACITY
-        );
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_profiling_map_capacity_default(test_type: TestType) {
+        let (svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+        assert_eq!(svm.max_profiles, DEFAULT_PROFILING_MAP_CAPACITY);
     }
 
-    #[test]
-    fn test_profiling_map_capacity_set() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_profiling_map_capacity_set(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
         svm.set_profiling_map_capacity(10);
-        assert_eq!(svm.executed_transaction_profiles.capacity(), 10);
+        assert_eq!(svm.max_profiles, 10);
     }
 
     // Feature configuration tests
 
     #[test]
     fn test_feature_to_id_all_features_have_mapping() {
-        // Ensure every SvmFeature variant has a valid mapping to a feature ID
+        // Track features with and without mappings
+        // Some features return None because they're not yet available in agave-feature-set 3.0.0
+        let mut mapped_count = 0;
+        let mut unmapped_features = Vec::new();
+
         for feature in SvmFeature::all() {
             let id = SurfnetSvm::feature_to_id(&feature);
-            assert!(
-                id.is_some(),
-                "Feature {:?} should have a valid ID mapping",
-                feature
-            );
+            if id.is_some() {
+                mapped_count += 1;
+            } else {
+                unmapped_features.push(feature);
+            }
         }
+
+        // Currently 9 features return None (not available in agave-feature-set 3.0.0):
+        // AccountDataDirectMapping, ProvideInstructionDataOffsetInVmR2, IncreaseCpiAccountInfoLimit,
+        // VoteStateV4, PoseidonEnforcePadding, FixAltBn128PairingLengthCheck, LiftCpiCallerRestriction,
+        // RemoveAccountsExecutableFlagChecks, DisableRentFeesCollection
+        assert_eq!(
+            unmapped_features.len(),
+            9,
+            "Expected 9 unmapped features (pending agave-feature-set upgrade), found: {:?}",
+            unmapped_features
+        );
+        assert_eq!(mapped_count, 37, "Expected 37 mapped features");
     }
 
     #[test]
@@ -3525,18 +4435,24 @@ mod tests {
         assert_ne!(loader_v4_id, disable_fees_id);
     }
 
-    #[test]
-    fn test_apply_feature_config_empty() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_empty(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
         let config = SvmFeatureConfig::new();
 
         // Should not panic with empty config
         svm.apply_feature_config(&config);
     }
 
-    #[test]
-    fn test_apply_feature_config_enable_feature() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_enable_feature(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Disable a feature first
         let feature_id = enable_loader_v4::id();
@@ -3550,9 +4466,12 @@ mod tests {
         assert!(svm.feature_set.is_active(&feature_id));
     }
 
-    #[test]
-    fn test_apply_feature_config_disable_feature() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_disable_feature(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Feature should be active by default (all_enabled)
         let feature_id = disable_fees_sysvar::id();
@@ -3565,9 +4484,12 @@ mod tests {
         assert!(!svm.feature_set.is_active(&feature_id));
     }
 
-    #[test]
-    fn test_apply_feature_config_mainnet_defaults() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_mainnet_defaults(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
         let config = SvmFeatureConfig::default_mainnet_features();
 
         svm.apply_feature_config(&config);
@@ -3609,9 +4531,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_apply_feature_config_mainnet_with_override() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_mainnet_with_override(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Start with mainnet defaults, but enable loader v4
         let config =
@@ -3630,9 +4555,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_apply_feature_config_multiple_changes() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_multiple_changes(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let config = SvmFeatureConfig::new()
             .enable(SvmFeature::EnableLoaderV4)
@@ -3651,14 +4579,18 @@ mod tests {
         assert!(!svm.feature_set.is_active(&blake3_syscall_enabled::id()));
     }
 
-    #[test]
-    fn test_apply_feature_config_preserves_native_mint() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_preserves_native_mint(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Native mint should exist before
         assert!(
             svm.inner
                 .get_account(&spl_token_interface::native_mint::ID)
+                .unwrap()
                 .is_some()
         );
 
@@ -3669,13 +4601,17 @@ mod tests {
         assert!(
             svm.inner
                 .get_account(&spl_token_interface::native_mint::ID)
+                .unwrap()
                 .is_some()
         );
     }
 
-    #[test]
-    fn test_apply_feature_config_idempotent() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_apply_feature_config_idempotent(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let config = SvmFeatureConfig::new()
             .enable(SvmFeature::EnableLoaderV4)
@@ -3692,9 +4628,12 @@ mod tests {
 
     // Garbage collection tests
 
-    #[test]
-    fn test_garbage_collected_account_tracking() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_garbage_collected_account_tracking(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let owner = Pubkey::new_unique();
         let account_pubkey = Pubkey::new_unique();
@@ -3709,9 +4648,9 @@ mod tests {
 
         svm.set_account(&account_pubkey, account.clone()).unwrap();
 
-        assert!(svm.get_account(&account_pubkey).is_some());
+        assert!(svm.get_account(&account_pubkey).unwrap().is_some());
         assert!(!svm.closed_accounts.contains(&account_pubkey));
-        assert_eq!(svm.get_account_owned_by(&owner).len(), 1);
+        assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 1);
 
         let empty_account = Account::default();
         svm.update_account_registries(&account_pubkey, &empty_account)
@@ -3719,15 +4658,18 @@ mod tests {
 
         assert!(svm.closed_accounts.contains(&account_pubkey));
 
-        assert_eq!(svm.get_account_owned_by(&owner).len(), 0);
+        assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 0);
 
-        let owned_accounts = svm.get_account_owned_by(&owner);
+        let owned_accounts = svm.get_account_owned_by(&owner).unwrap();
         assert!(!owned_accounts.iter().any(|(pk, _)| *pk == account_pubkey));
     }
 
-    #[test]
-    fn test_garbage_collected_token_account_cleanup() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_garbage_collected_token_account_cleanup(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let token_owner = Pubkey::new_unique();
         let delegate = Pubkey::new_unique();
@@ -3757,7 +4699,10 @@ mod tests {
 
         svm.set_account(&token_account_pubkey, account).unwrap();
 
-        assert_eq!(svm.get_token_accounts_by_owner(&token_owner).len(), 1);
+        assert_eq!(
+            svm.get_token_accounts_by_owner(&token_owner).unwrap().len(),
+            1
+        );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 1);
         assert!(!svm.closed_accounts.contains(&token_account_pubkey));
 
@@ -3767,9 +4712,378 @@ mod tests {
 
         assert!(svm.closed_accounts.contains(&token_account_pubkey));
 
-        assert_eq!(svm.get_token_accounts_by_owner(&token_owner).len(), 0);
+        assert_eq!(
+            svm.get_token_accounts_by_owner(&token_owner).unwrap().len(),
+            0
+        );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 0);
-        assert!(svm.token_accounts.get(&token_account_pubkey).is_none());
+        assert!(
+            svm.token_accounts
+                .get(&token_account_pubkey.to_string())
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_is_slot_in_valid_range(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 100, latest absolute slot = 110
+        svm.genesis_slot = 100;
+        svm.latest_epoch_info.absolute_slot = 110;
+
+        // Test slots within valid range
+        assert!(
+            svm.is_slot_in_valid_range(100),
+            "genesis_slot should be valid"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(105),
+            "middle slot should be valid"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(110),
+            "latest slot should be valid"
+        );
+
+        // Test slots outside valid range
+        assert!(
+            !svm.is_slot_in_valid_range(99),
+            "slot before genesis should be invalid"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(111),
+            "slot after latest should be invalid"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(0),
+            "slot 0 should be invalid when genesis > 0"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(1000),
+            "far future slot should be invalid"
+        );
+    }
+
+    #[test]
+    fn test_is_slot_in_valid_range_genesis_zero() {
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+
+        // Set up: genesis_slot = 0, latest absolute slot = 50
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 50;
+
+        // Test boundary conditions with genesis at 0
+        assert!(
+            svm.is_slot_in_valid_range(0),
+            "slot 0 should be valid when genesis = 0"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(25),
+            "middle slot should be valid"
+        );
+        assert!(
+            svm.is_slot_in_valid_range(50),
+            "latest slot should be valid"
+        );
+        assert!(
+            !svm.is_slot_in_valid_range(51),
+            "slot after latest should be invalid"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_get_block_or_reconstruct_stored_block(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 0, latest absolute slot = 100
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 100;
+
+        // Store a block with transactions
+        let stored_block = BlockHeader {
+            hash: "stored_block_hash".to_string(),
+            previous_blockhash: "prev_hash".to_string(),
+            parent_slot: 49,
+            block_time: 1234567890,
+            block_height: 50,
+            signatures: vec![Signature::new_unique()],
+        };
+        svm.blocks.store(50, stored_block.clone()).unwrap();
+
+        // Retrieve the stored block
+        let result = svm.get_block_or_reconstruct(50).unwrap();
+        assert!(result.is_some(), "should return stored block");
+        let block = result.unwrap();
+        assert_eq!(block.hash, "stored_block_hash");
+        assert_eq!(block.signatures.len(), 1);
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_get_block_or_reconstruct_empty_block(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 0, latest absolute slot = 100
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 100;
+        svm.genesis_updated_at = 1000000; // 1 second in ms
+        svm.slot_time = 400; // 400ms per slot
+
+        // Request a slot that wasn't stored (no block stored at slot 50)
+        let result = svm.get_block_or_reconstruct(50).unwrap();
+        assert!(
+            result.is_some(),
+            "should reconstruct empty block for valid slot"
+        );
+
+        let block = result.unwrap();
+        // Verify it's a reconstructed empty block
+        assert!(
+            block.signatures.is_empty(),
+            "reconstructed block should have no signatures"
+        );
+        assert_eq!(block.block_height, 50);
+        assert_eq!(block.parent_slot, 49);
+
+        // Verify the block time is calculated correctly
+        // genesis_updated_at (1000000ms) + (50 slots * 400ms) = 1020000ms = 1020 seconds
+        assert_eq!(block.block_time, 1020);
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_get_block_or_reconstruct_out_of_range(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: genesis_slot = 100, latest absolute slot = 110
+        svm.genesis_slot = 100;
+        svm.latest_epoch_info.absolute_slot = 110;
+
+        // Request slot before genesis
+        let result = svm.get_block_or_reconstruct(50).unwrap();
+        assert!(
+            result.is_none(),
+            "should return None for slot before genesis"
+        );
+
+        // Request slot after latest
+        let result = svm.get_block_or_reconstruct(200).unwrap();
+        assert!(result.is_none(), "should return None for slot after latest");
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_recent_blockhashes(test_type: TestType) {
+        use solana_sysvar::recent_blockhashes::RecentBlockhashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 10, genesis_slot = 0
+        svm.chain_tip = BlockIdentifier::new(10, "test_hash");
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 10;
+
+        svm.reconstruct_sysvars();
+
+        // Verify RecentBlockhashes sysvar
+        let recent_blockhashes = svm.inner.get_sysvar::<RecentBlockhashes>();
+
+        // Should have 11 entries (indices 0 through 10)
+        assert_eq!(recent_blockhashes.len(), 11);
+
+        // First entry should be the hash for chain_tip.index (10)
+        let expected_hash = SyntheticBlockhash::new(10);
+        assert_eq!(
+            recent_blockhashes.first().unwrap().blockhash,
+            *expected_hash.hash(),
+            "First blockhash should match SyntheticBlockhash for chain_tip.index"
+        );
+
+        // Last entry should be the hash for index 0
+        let expected_last_hash = SyntheticBlockhash::new(0);
+        assert_eq!(
+            recent_blockhashes.last().unwrap().blockhash,
+            *expected_last_hash.hash(),
+            "Last blockhash should match SyntheticBlockhash for index 0"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_slot_hashes(test_type: TestType) {
+        use solana_slot_hashes::SlotHashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 5, genesis_slot = 100 (absolute slot = 105)
+        svm.chain_tip = BlockIdentifier::new(5, "test_hash");
+        svm.genesis_slot = 100;
+        svm.latest_epoch_info.absolute_slot = 105;
+
+        svm.reconstruct_sysvars();
+
+        // Verify SlotHashes sysvar
+        let slot_hashes = svm.inner.get_sysvar::<SlotHashes>();
+
+        // Should have 6 entries (indices 0 through 5, mapped to slots 100 through 105)
+        assert_eq!(slot_hashes.len(), 6);
+
+        // Check that slot 105 maps to hash for index 5
+        let expected_hash_105 = SyntheticBlockhash::new(5);
+        let hash_for_105 = slot_hashes.get(&105);
+        assert!(hash_for_105.is_some(), "SlotHashes should contain slot 105");
+        assert_eq!(
+            hash_for_105.unwrap(),
+            expected_hash_105.hash(),
+            "Hash for slot 105 should match SyntheticBlockhash for index 5"
+        );
+
+        // Check that slot 100 maps to hash for index 0
+        let expected_hash_100 = SyntheticBlockhash::new(0);
+        let hash_for_100 = slot_hashes.get(&100);
+        assert!(hash_for_100.is_some(), "SlotHashes should contain slot 100");
+        assert_eq!(
+            hash_for_100.unwrap(),
+            expected_hash_100.hash(),
+            "Hash for slot 100 should match SyntheticBlockhash for index 0"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    fn test_reconstruct_sysvars_clock(test_type: TestType) {
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 50, genesis_slot = 1000 (absolute slot = 1050)
+        svm.chain_tip = BlockIdentifier::new(50, "test_hash");
+        svm.genesis_slot = 1000;
+        svm.latest_epoch_info.absolute_slot = 1050;
+        svm.latest_epoch_info.epoch = 5;
+        svm.genesis_updated_at = 2_000_000; // 2 seconds in ms
+        svm.slot_time = 400; // 400ms per slot
+
+        svm.reconstruct_sysvars();
+
+        // Verify Clock sysvar
+        let clock = svm.inner.get_sysvar::<Clock>();
+
+        assert_eq!(clock.slot, 1050, "Clock slot should be absolute slot");
+        assert_eq!(clock.epoch, 5, "Clock epoch should match latest_epoch_info");
+
+        // Expected timestamp: genesis_updated_at + (50 slots * 400ms) = 2_000_000 + 20_000 = 2_020_000ms = 2020 seconds
+        assert_eq!(
+            clock.unix_timestamp, 2020,
+            "Clock unix_timestamp should be calculated correctly"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_max_blockhashes(test_type: TestType) {
+        use solana_sysvar::recent_blockhashes::RecentBlockhashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up: chain_tip.index = 200 (more than MAX_RECENT_BLOCKHASHES_STANDARD = 150)
+        svm.chain_tip = BlockIdentifier::new(200, "test_hash");
+        svm.genesis_slot = 0;
+        svm.latest_epoch_info.absolute_slot = 200;
+
+        svm.reconstruct_sysvars();
+
+        // Verify RecentBlockhashes sysvar is capped at MAX_RECENT_BLOCKHASHES_STANDARD
+        let recent_blockhashes = svm.inner.get_sysvar::<RecentBlockhashes>();
+
+        assert_eq!(
+            recent_blockhashes.len(),
+            MAX_RECENT_BLOCKHASHES_STANDARD,
+            "RecentBlockhashes should be capped at MAX_RECENT_BLOCKHASHES_STANDARD"
+        );
+
+        // First entry should still be for chain_tip.index (200)
+        let expected_hash = SyntheticBlockhash::new(200);
+        assert_eq!(
+            recent_blockhashes.first().unwrap().blockhash,
+            *expected_hash.hash(),
+            "First blockhash should match SyntheticBlockhash for chain_tip.index"
+        );
+
+        // Last entry should be for index 51 (200 - 149)
+        let expected_last_hash = SyntheticBlockhash::new(51);
+        assert_eq!(
+            recent_blockhashes.last().unwrap().blockhash,
+            *expected_last_hash.hash(),
+            "Last blockhash should match SyntheticBlockhash for start_index"
+        );
+    }
+
+    #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+    #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+    #[test_case(TestType::no_db(); "with no db")]
+    #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+    #[allow(deprecated)]
+    fn test_reconstruct_sysvars_deterministic(test_type: TestType) {
+        use solana_slot_hashes::SlotHashes;
+        use solana_sysvar::recent_blockhashes::RecentBlockhashes;
+
+        let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
+
+        // Set up initial state
+        svm.chain_tip = BlockIdentifier::new(25, "test_hash");
+        svm.genesis_slot = 50;
+        svm.latest_epoch_info.absolute_slot = 75;
+        svm.latest_epoch_info.epoch = 2;
+        svm.genesis_updated_at = 1_000_000;
+        svm.slot_time = 400;
+
+        // First reconstruction
+        svm.reconstruct_sysvars();
+        let blockhashes_1 = svm.inner.get_sysvar::<RecentBlockhashes>();
+        let slot_hashes_1 = svm.inner.get_sysvar::<SlotHashes>();
+        let clock_1 = svm.inner.get_sysvar::<Clock>();
+
+        // Second reconstruction with same state
+        svm.reconstruct_sysvars();
+        let blockhashes_2 = svm.inner.get_sysvar::<RecentBlockhashes>();
+        let slot_hashes_2 = svm.inner.get_sysvar::<SlotHashes>();
+        let clock_2 = svm.inner.get_sysvar::<Clock>();
+
+        // Verify determinism - results should be identical
+        assert_eq!(blockhashes_1.len(), blockhashes_2.len());
+        for (b1, b2) in blockhashes_1.iter().zip(blockhashes_2.iter()) {
+            assert_eq!(
+                b1.blockhash, b2.blockhash,
+                "RecentBlockhashes should be deterministic"
+            );
+        }
+
+        assert_eq!(slot_hashes_1.len(), slot_hashes_2.len());
+        assert_eq!(clock_1.slot, clock_2.slot);
+        assert_eq!(clock_1.epoch, clock_2.epoch);
+        assert_eq!(clock_1.unix_timestamp, clock_2.unix_timestamp);
     }
 
     // ==========================================

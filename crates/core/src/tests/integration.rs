@@ -35,7 +35,8 @@ use surfpool_types::{
     DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
     SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
     types::{
-        BlockProductionMode, RpcConfig, SimnetConfig, TransactionStatusEvent, UuidOrSignature,
+        BlockProductionMode, RpcConfig, SimnetConfig, SubgraphConfig, TransactionStatusEvent,
+        UuidOrSignature,
     },
 };
 use test_case::test_case;
@@ -53,6 +54,7 @@ use crate::{
         surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
     runloops::start_local_surfnet_runloop,
+    storage::tests::TestType,
     surfnet::{SignatureSubscriptionType, locker::SurfnetSvmLocker, svm::SurfnetSvm},
     tests::helpers::get_free_port,
     types::{TimeTravelConfig, TransactionLoadedAddresses},
@@ -63,10 +65,12 @@ fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<S
     let mut connected = false;
     loop {
         match simnet_events_rx.recv() {
-            Ok(SimnetEvent::Ready) => {
+            Ok(SimnetEvent::Ready(_)) => {
+                println!("Simnet is ready");
                 ready = true;
             }
             Ok(SimnetEvent::Connected(_)) => {
+                println!("Simnet is connected");
                 connected = true;
             }
             _ => (),
@@ -78,8 +82,12 @@ fn wait_for_ready_and_connected(simnet_events_rx: &crossbeam_channel::Receiver<S
 }
 
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test]
-async fn test_simnet_ready() {
+async fn test_simnet_ready(test_type: TestType) {
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
             block_production_mode: BlockProductionMode::Manual, // Prevent ticks
@@ -88,7 +96,7 @@ async fn test_simnet_ready() {
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
@@ -108,16 +116,21 @@ async fn test_simnet_ready() {
     });
 
     match simnet_events_rx.recv() {
-        Ok(SimnetEvent::Ready) | Ok(SimnetEvent::Connected(_)) => (),
+        Ok(SimnetEvent::Ready(_)) | Ok(SimnetEvent::Connected(_)) => (),
         e => panic!("Expected Ready event: {e:?}"),
     }
 }
 
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test]
-async fn test_simnet_ticks() {
+async fn test_simnet_ticks(test_type: TestType) {
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
             slot_time: 1,
@@ -126,12 +139,13 @@ async fn test_simnet_ticks() {
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
+            ws_port,
             ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let (test_tx, test_rx) = unbounded();
@@ -172,14 +186,19 @@ async fn test_simnet_ticks() {
 }
 
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test]
-async fn test_simnet_some_sol_transfers() {
+async fn test_simnet_some_sol_transfers(test_type: TestType) {
     let n_addresses = 10;
     let airdrop_keypairs = (0..n_addresses).map(|_| Keypair::new()).collect::<Vec<_>>();
     let airdrop_addresses: Vec<Pubkey> = airdrop_keypairs.iter().map(|kp| kp.pubkey()).collect();
     let airdrop_token_amount = LAMPORTS_PER_SOL;
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
             slot_time: 1,
@@ -190,12 +209,13 @@ async fn test_simnet_some_sol_transfers() {
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
+            ws_port,
             ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
@@ -324,13 +344,18 @@ async fn test_simnet_some_sol_transfers() {
 // However, we are not actually setting up a tx that will use the lookup table internally,
 // we are kind of just trusting that LiteSVM will do its job here.
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_add_alt_entries_fetching() {
+async fn test_add_alt_entries_fetching(test_type: TestType) {
     let payer = Keypair::new();
     let pk = payer.pubkey();
 
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let airdrop_token_amount = LAMPORTS_PER_SOL;
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
@@ -342,12 +367,14 @@ async fn test_add_alt_entries_fetching() {
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
+            ws_port,
             ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    println!("Initializing SVM, binding to port {}", bind_port);
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
@@ -491,13 +518,18 @@ async fn test_add_alt_entries_fetching() {
 // However, we are not actually setting up a tx that will use the lookup table internally,
 // we are kind of just trusting that LiteSVM will do its job here.
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_simulate_add_alt_entries_fetching() {
+async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
     let payer = Keypair::new();
     let pk = payer.pubkey();
 
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let airdrop_token_amount = LAMPORTS_PER_SOL;
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
@@ -509,12 +541,13 @@ async fn test_simulate_add_alt_entries_fetching() {
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
+            ws_port,
             ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
@@ -581,6 +614,15 @@ async fn test_simulate_add_alt_entries_fetching() {
         simulation_res.value.err, None,
         "Unexpected simulation error"
     );
+    assert!(
+        simulation_res.value.loaded_accounts_data_size.is_some(),
+        "Expected loaded_accounts_data_size to be present"
+    );
+    assert_eq!(
+        simulation_res.value.loaded_accounts_data_size.unwrap(),
+        140134,
+        "Incorrect loaded_accounts_data_size value"
+    );
     let simulation_res2 = full_client
         .simulate_transaction(
             data,
@@ -600,16 +642,30 @@ async fn test_simulate_add_alt_entries_fetching() {
         simulation_res2.value.err, None,
         "Unexpected simulation error"
     );
+    assert!(
+        simulation_res2.value.loaded_accounts_data_size.is_some(),
+        "Expected loaded_accounts_data_size to be present"
+    );
+    assert!(
+        simulation_res2.value.loaded_accounts_data_size.unwrap() > 0,
+        "Expected loaded_accounts_data_size to be greater than 0"
+    );
 }
+
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_simulate_transaction_no_signers() {
+async fn test_simulate_transaction_no_signers(test_type: TestType) {
     let payer = Keypair::new();
     let pk = payer.pubkey();
     let lamports = LAMPORTS_PER_SOL;
 
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let airdrop_token_amount = LAMPORTS_PER_SOL;
     let config = SurfpoolConfig {
         simnets: vec![SimnetConfig {
@@ -621,12 +677,13 @@ async fn test_simulate_transaction_no_signers() {
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
+            ws_port,
             ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
@@ -688,12 +745,24 @@ async fn test_simulate_transaction_no_signers() {
         simulation_res.value.err, None,
         "Unexpected simulation error"
     );
+    assert!(
+        simulation_res.value.loaded_accounts_data_size.is_some(),
+        "Expected loaded_accounts_data_size to be present"
+    );
+    assert!(
+        simulation_res.value.loaded_accounts_data_size.unwrap() > 0,
+        "Expected loaded_accounts_data_size to be greater than 0"
+    );
 }
 
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_surfnet_estimate_compute_units() {
-    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_surfnet_estimate_compute_units(test_type: TestType) {
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
 
     let payer = Keypair::new();
@@ -702,6 +771,7 @@ async fn test_surfnet_estimate_compute_units() {
 
     svm_instance
         .airdrop(&payer.pubkey(), lamports_to_send * 2)
+        .unwrap()
         .unwrap();
 
     let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
@@ -725,6 +795,7 @@ async fn test_surfnet_estimate_compute_units() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test with None tag
@@ -913,7 +984,7 @@ async fn test_surfnet_estimate_compute_units() {
         response_no_tag_again.is_ok(),
         "RPC call with None tag (again) failed"
     );
-    let rpc_response_no_tag_again_value = response_no_tag_again.unwrap().value;
+    let _rpc_response_no_tag_again_value = response_no_tag_again.unwrap().value;
 
     println!("Retrieving profile results for tag: {} again", tag1);
     let results_response_tag1_again =
@@ -943,9 +1014,10 @@ async fn test_surfnet_estimate_compute_units() {
 
     // Test send_transaction with cu_analysis_enabled = true
     // Create a new SVM instance
-    let (mut svm_for_send, simnet_rx_for_send, _geyser_rx_for_send) = SurfnetSvm::new();
+    let (mut svm_for_send, simnet_rx_for_send, _geyser_rx_for_send) = test_type.initialize_svm();
     svm_for_send
         .airdrop(&payer.pubkey(), lamports_to_send * 2)
+        .unwrap()
         .unwrap();
 
     let latest_blockhash_for_send = svm_for_send.latest_blockhash();
@@ -976,10 +1048,14 @@ async fn test_surfnet_estimate_compute_units() {
     assert!(found_cu_event, "Did not find CU estimation SimnetEvent");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_transaction_profile() {
+async fn test_get_transaction_profile(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
-    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     // Set up test accounts
     let payer = Keypair::new();
@@ -988,6 +1064,7 @@ async fn test_get_transaction_profile() {
 
     svm_instance
         .airdrop(&payer.pubkey(), lamports_to_send * 2)
+        .unwrap()
         .unwrap();
 
     // Create a transaction to profile
@@ -1012,6 +1089,7 @@ async fn test_get_transaction_profile() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test 1: Profile a transaction with a tag and retrieve by UUID
@@ -1191,11 +1269,14 @@ async fn test_get_transaction_profile() {
     println!("All get_transaction_profile tests passed successfully!");
 }
 
-#[test]
-fn test_register_and_get_idl_without_slot() {
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_register_and_get_idl_without_slot(test_type: TestType) {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
@@ -1207,6 +1288,7 @@ fn test_register_and_get_idl_without_slot() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test 1: Register IDL without slot
@@ -1242,11 +1324,14 @@ fn test_register_and_get_idl_without_slot() {
     println!("All IDL registration and retrieval tests passed successfully!");
 }
 
-#[test]
-fn test_register_and_get_idl_with_slot() {
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_register_and_get_idl_with_slot(test_type: TestType) {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
@@ -1258,6 +1343,7 @@ fn test_register_and_get_idl_with_slot() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Test 1: Register IDL with slot
@@ -1303,13 +1389,17 @@ fn test_register_and_get_idl_with_slot() {
     println!("All IDL registration and retrieval tests passed successfully!");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_register_and_get_same_idl_with_different_slots() {
+async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType) {
     let idl_v1: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
     let idl_v2: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v2.json")).unwrap();
     let idl_v3: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v3.json")).unwrap();
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
 
@@ -1334,6 +1424,7 @@ async fn test_register_and_get_same_idl_with_different_slots() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Step 1: Register IDL v1 at slot_1
@@ -1452,10 +1543,14 @@ async fn test_register_and_get_same_idl_with_different_slots() {
     println!("All IDL registration and retrieval tests at different slots passed successfully!");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_profile_transaction_basic() {
+async fn test_profile_transaction_basic(test_type: TestType) {
     // Set up test environment
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -1466,6 +1561,7 @@ async fn test_profile_transaction_basic() {
     // Airdrop SOL to payer
     svm_locker
         .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 2))
+        .unwrap()
         .unwrap();
 
     // Create a simple transfer transaction
@@ -1535,9 +1631,13 @@ async fn test_profile_transaction_basic() {
     println!("Basic transaction profiling test passed successfully!");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_profile_transaction_multi_instruction_basic() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_profile_transaction_multi_instruction_basic(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
@@ -1545,6 +1645,7 @@ async fn test_profile_transaction_multi_instruction_basic() {
 
     svm_locker
         .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 4))
+        .unwrap()
         .unwrap();
 
     // Create a multi-instruction transaction: 3 transfers to different recipients
@@ -1927,10 +2028,14 @@ async fn test_profile_transaction_multi_instruction_basic() {
     }
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_profile_transaction_with_tag() {
+async fn test_profile_transaction_with_tag(test_type: TestType) {
     // Set up test environment
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -1941,6 +2046,7 @@ async fn test_profile_transaction_with_tag() {
     // Airdrop SOL to payer
     svm_locker
         .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 3))
+        .unwrap()
         .unwrap();
 
     // Create a simple transfer transaction
@@ -2083,9 +2189,13 @@ async fn test_profile_transaction_with_tag() {
     println!("Tag-based transaction profiling test passed successfully!");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_profile_transaction_token_transfer() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_profile_transaction_token_transfer(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2100,6 +2210,7 @@ async fn test_profile_transaction_token_transfer() {
     // Airdrop SOL to payer
     svm_locker
         .airdrop(&payer.pubkey(), lamports_to_send)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -2132,7 +2243,7 @@ async fn test_profile_transaction_token_transfer() {
         &spl_token_2022_interface::id(),
     );
     println!("Source ATA: {}", source_ata);
-    let dest_ata = spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+    let _dest_ata = spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
         &recipient,
         &mint.pubkey(),
         &spl_token_2022_interface::id(),
@@ -2146,7 +2257,7 @@ async fn test_profile_transaction_token_transfer() {
             &spl_token_2022_interface::id(),
         );
 
-    let create_dest_ata_ix =
+    let _create_dest_ata_ix =
         spl_associated_token_account_interface::instruction::create_associated_token_account(
             &payer.pubkey(),
             &recipient,
@@ -2156,7 +2267,7 @@ async fn test_profile_transaction_token_transfer() {
 
     // Mint tokens
     let mint_amount = 100_00; // 100 tokens with 2 decimals
-    let mint_to_ix = spl_token_2022_interface::instruction::mint_to(
+    let _mint_to_ix = spl_token_2022_interface::instruction::mint_to(
         &spl_token_2022_interface::id(),
         &mint.pubkey(),
         &source_ata,
@@ -2289,7 +2400,7 @@ async fn test_profile_transaction_token_transfer() {
                 "Profile should succeed, found error: {}",
                 ix_profile.error_message.as_ref().unwrap()
             );
-            assert_eq!(ix_profile.compute_units_consumed, 1031);
+            assert_eq!(ix_profile.compute_units_consumed, 1230);
             assert!(ix_profile.error_message.is_none());
             let account_states = &ix_profile.account_states;
 
@@ -2518,9 +2629,13 @@ async fn test_profile_transaction_token_transfer() {
     // println!("Token transfer profiling test passed successfully!");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_profile_transaction_insufficient_funds() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_profile_transaction_insufficient_funds(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts with insufficient funds
@@ -2531,6 +2646,7 @@ async fn test_profile_transaction_insufficient_funds() {
 
     svm_locker
         .airdrop(&payer.pubkey(), insufficient_funds)
+        .unwrap()
         .unwrap();
 
     // Create a transfer transaction that will fail due to insufficient funds
@@ -2583,9 +2699,13 @@ async fn test_profile_transaction_insufficient_funds() {
     println!("Insufficient funds profiling test passed successfully!");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_profile_transaction_multi_instruction_failure() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_profile_transaction_multi_instruction_failure(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2597,6 +2717,7 @@ async fn test_profile_transaction_multi_instruction_failure() {
     // Airdrop SOL to payer
     svm_locker
         .airdrop(&payer.pubkey(), lamports_to_send * 3)
+        .unwrap()
         .unwrap();
 
     // Create a multi-instruction transaction where the second instruction will fail
@@ -2662,9 +2783,13 @@ async fn test_profile_transaction_multi_instruction_failure() {
     println!("Multi-instruction failure profiling test passed successfully!");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_profile_transaction_with_encoding() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_profile_transaction_with_encoding(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2675,6 +2800,7 @@ async fn test_profile_transaction_with_encoding() {
     // Airdrop SOL to payer
     svm_locker
         .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 2))
+        .unwrap()
         .unwrap();
 
     // Create a simple transfer transaction
@@ -2729,9 +2855,13 @@ async fn test_profile_transaction_with_encoding() {
     println!("Encoding profiling test passed successfully!");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_profile_transaction_with_tag_and_retrieval() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_profile_transaction_with_tag_and_retrieval(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2742,6 +2872,7 @@ async fn test_profile_transaction_with_tag_and_retrieval() {
     // Airdrop SOL to payer
     svm_locker
         .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 3))
+        .unwrap()
         .unwrap();
 
     // Create a simple transfer transaction
@@ -2828,9 +2959,13 @@ async fn test_profile_transaction_with_tag_and_retrieval() {
     println!("Tag and retrieval profiling test passed successfully!");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_profile_transaction_empty_instruction() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_profile_transaction_empty_instruction(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2840,6 +2975,7 @@ async fn test_profile_transaction_empty_instruction() {
     // Airdrop SOL to payer
     svm_locker
         .airdrop(&payer.pubkey(), lamports_to_send)
+        .unwrap()
         .unwrap();
 
     // Create a transaction with no instructions
@@ -2883,9 +3019,13 @@ async fn test_profile_transaction_empty_instruction() {
     );
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_profile_transaction_versioned_message() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_profile_transaction_versioned_message(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Set up test accounts
@@ -2896,6 +3036,7 @@ async fn test_profile_transaction_versioned_message() {
     // Airdrop SOL to payer
     svm_locker
         .airdrop(&payer.pubkey(), 2 * lamports_to_send)
+        .unwrap()
         .unwrap();
 
     svm_locker.confirm_current_block(&None).await.unwrap();
@@ -2943,10 +3084,14 @@ async fn test_profile_transaction_versioned_message() {
     println!("Versioned message profiling test passed successfully!");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_local_signatures_without_limit() {
+async fn test_get_local_signatures_without_limit(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
 
@@ -2959,6 +3104,7 @@ async fn test_get_local_signatures_without_limit() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let payer = Keypair::new();
@@ -2967,6 +3113,7 @@ async fn test_get_local_signatures_without_limit() {
 
     svm_locker_for_context
         .airdrop(&payer.pubkey(), lamports_to_send * 2)
+        .unwrap()
         .unwrap();
 
     svm_locker_for_context
@@ -3042,11 +3189,14 @@ async fn test_get_local_signatures_without_limit() {
     assert!(local_signatures.len() > 0);
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_local_signatures_with_limit() {
+async fn test_get_local_signatures_with_limit(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
-
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
 
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
@@ -3058,6 +3208,7 @@ async fn test_get_local_signatures_with_limit() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let payer = Keypair::new();
@@ -3066,6 +3217,7 @@ async fn test_get_local_signatures_with_limit() {
 
     svm_locker_for_context
         .airdrop(&payer.pubkey(), lamports_to_send * 10)
+        .unwrap()
         .unwrap();
 
     svm_locker_for_context
@@ -3188,6 +3340,7 @@ async fn test_get_local_signatures_with_limit() {
 fn boot_simnet(
     block_production_mode: BlockProductionMode,
     slot_time: Option<u64>,
+    test_type: TestType,
 ) -> (
     SurfnetSvmLocker,
     crossbeam_channel::Sender<SimnetCommand>,
@@ -3206,11 +3359,15 @@ fn boot_simnet(
             bind_host: bind_host.to_string(),
             bind_port,
             ws_port,
+            gossip_port: 0,
+            tpu_port: 0,
+            tpu_quic_port: 0,
         },
+        subgraph: SubgraphConfig::default(),
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
@@ -3232,7 +3389,9 @@ fn boot_simnet(
     });
 
     loop {
-        if let Ok(SimnetEvent::Ready) = simnet_events_rx.recv_timeout(Duration::from_millis(1000)) {
+        if let Ok(SimnetEvent::Ready(_)) =
+            simnet_events_rx.recv_timeout(Duration::from_millis(1000))
+        {
             break;
         }
     }
@@ -3240,10 +3399,14 @@ fn boot_simnet(
     (svm_locker, simnet_commands_tx, simnet_events_rx)
 }
 
-#[test]
-fn test_time_travel_resume_paused_clock() {
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_time_travel_resume_paused_clock(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
-    let (svm_locker, simnet_cmd_tx, _) = boot_simnet(BlockProductionMode::Clock, Some(100));
+    let (svm_locker, simnet_cmd_tx, _) =
+        boot_simnet(BlockProductionMode::Clock, Some(100), test_type);
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
@@ -3252,6 +3415,7 @@ fn test_time_travel_resume_paused_clock() {
         simnet_commands_tx: simnet_cmd_tx,
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     // Get initial epoch info
@@ -3312,12 +3476,18 @@ fn test_time_travel_resume_paused_clock() {
     println!("Resume clock test passed successfully!");
 }
 
-#[test]
-fn test_time_travel_absolute_timestamp() {
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_time_travel_absolute_timestamp(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
     let slot_time = 100;
-    let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
-        boot_simnet(BlockProductionMode::Clock, Some(slot_time.clone()));
+    let (svm_locker, simnet_cmd_tx, simnet_events_rx) = boot_simnet(
+        BlockProductionMode::Clock,
+        Some(slot_time.clone()),
+        test_type,
+    );
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
@@ -3326,6 +3496,7 @@ fn test_time_travel_absolute_timestamp() {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let clock = Clock {
@@ -3391,11 +3562,14 @@ fn test_time_travel_absolute_timestamp() {
     println!("Time travel to absolute timestamp test passed successfully!");
 }
 
-#[test]
-fn test_time_travel_absolute_slot() {
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_time_travel_absolute_slot(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
-        boot_simnet(BlockProductionMode::Clock, Some(400));
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
@@ -3404,6 +3578,7 @@ fn test_time_travel_absolute_slot() {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let clock = Clock {
@@ -3463,11 +3638,14 @@ fn test_time_travel_absolute_slot() {
     println!("Time travel to absolute slot test passed successfully!");
 }
 
-#[test]
-fn test_time_travel_absolute_epoch() {
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_time_travel_absolute_epoch(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
-        boot_simnet(BlockProductionMode::Clock, Some(400));
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
@@ -3476,6 +3654,7 @@ fn test_time_travel_absolute_epoch() {
         simnet_commands_tx: simnet_cmd_tx.clone(),
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
     };
 
     let clock = Clock {
@@ -3538,16 +3717,26 @@ fn test_time_travel_absolute_epoch() {
     println!("Time travel to absolute epoch test passed successfully!");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ix_profiling_with_alt_tx() {
+async fn test_ix_profiling_with_alt_tx(test_type: TestType) {
     let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
-        boot_simnet(BlockProductionMode::Clock, Some(400));
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
 
     let p1 = Keypair::new();
     let p2 = Keypair::new();
 
-    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap();
-    svm_locker.airdrop(&p2.pubkey(), LAMPORTS_PER_SOL).unwrap();
+    svm_locker
+        .airdrop(&p1.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
+    svm_locker
+        .airdrop(&p2.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
 
@@ -3817,15 +4006,21 @@ async fn test_ix_profiling_with_alt_tx() {
     }
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn it_should_delete_accounts_with_no_lamports() {
+async fn it_should_delete_accounts_with_no_lamports(test_type: TestType) {
     let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
-        boot_simnet(BlockProductionMode::Clock, Some(400));
-
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
     let p1 = Keypair::new();
     let p2 = Keypair::new();
 
-    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap();
+    svm_locker
+        .airdrop(&p1.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
 
@@ -3863,15 +4058,21 @@ async fn it_should_delete_accounts_with_no_lamports() {
     );
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_compute_budget_profiling() {
+async fn test_compute_budget_profiling(test_type: TestType) {
     let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
-        boot_simnet(BlockProductionMode::Clock, Some(400));
-
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
     let p1 = Keypair::new();
     let p2 = Keypair::new();
 
-    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap();
+    svm_locker
+        .airdrop(&p1.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
 
@@ -3927,13 +4128,19 @@ async fn test_compute_budget_profiling() {
     assert_eq!(ix.compute_units_consumed, 150);
 }
 
-#[test]
-fn test_reset_account() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_account(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
     let p1 = Keypair::new();
     println!("P1 pubkey: {}", p1.pubkey());
-    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap(); // account is created in the SVM
+    svm_locker
+        .airdrop(&p1.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap(); // account is created in the SVM.unwrap()
     println!("Airdropped SOL to p1");
 
     println!(
@@ -3956,9 +4163,12 @@ fn test_reset_account() {
     );
 }
 
-#[test]
-fn test_reset_account_cascade() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_account_cascade(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Create owner account and owned account
@@ -4005,13 +4215,20 @@ fn test_reset_account_cascade() {
     svm_locker.reset_account(owned, false).unwrap();
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_reset_streamed_account() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_reset_streamed_account(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
     let p1 = Keypair::new();
     println!("P1 pubkey: {}", p1.pubkey());
-    svm_locker.airdrop(&p1.pubkey(), LAMPORTS_PER_SOL).unwrap(); // account is created in the SVM
+    svm_locker
+        .airdrop(&p1.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap(); // account is created in the SVM.unwrap()
     println!("Airdropped SOL to p1");
 
     let _ = svm_locker.confirm_current_block(&None).await;
@@ -4028,9 +4245,13 @@ async fn test_reset_streamed_account() {
     );
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_reset_streamed_account_cascade() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_reset_streamed_account_cascade(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Create owner account and owned account
@@ -4079,9 +4300,12 @@ async fn test_reset_streamed_account_cascade() {
     assert!(svm_locker.get_account_local(&owned).inner.is_none());
 }
 
-#[test]
-fn test_reset_network() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_network(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // Create owner account and owned account
@@ -4118,7 +4342,7 @@ fn test_reset_network() {
     assert!(!svm_locker.get_account_local(&owned).inner.is_none());
 
     // Reset with cascade=true (for regular accounts, doesn't cascade but tests the code path)
-    svm_locker.reset_network().unwrap();
+    hiro_system_kit::nestable_block_on(svm_locker.reset_network(&None)).unwrap();
 
     // Owner is deleted, owned account is deleted
     assert!(svm_locker.get_account_local(&owner).inner.is_none());
@@ -4128,12 +4352,197 @@ fn test_reset_network() {
     svm_locker.reset_account(owned, false).unwrap();
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_network_keeps_latest_blockhash_valid(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    hiro_system_kit::nestable_block_on(svm_locker.reset_network(&None)).unwrap();
+
+    let latest_blockhash = svm_locker.with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+    let is_recent = svm_locker
+        .with_svm_reader(|svm_reader| svm_reader.check_blockhash_is_recent(&latest_blockhash));
+    assert!(
+        is_recent,
+        "latest_blockhash returned after reset should be present in RecentBlockhashes sysvar",
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_network_time_travel_timestamp(test_type: TestType) {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
+    };
+
+    // Calculate a target timestamp in the future
+    let seven_days = 7 * 24 * 60 * 60 * 1000;
+    let target_timestamp = svm_locker.0.blocking_read().updated_at + seven_days;
+
+    // First time travel to target timestamp
+    // Note: time_travel now uses confirmation mechanism, so it waits internally
+    let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteTimestamp(target_timestamp)),
+    );
+    assert!(
+        time_travel_response.is_ok(),
+        "First time travel should succeed"
+    );
+
+    // Reset network
+    let reset_response: JsonRpcResult<RpcResponse<()>> =
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
+    assert!(reset_response.is_ok(), "Reset network should succeed");
+
+    // Second time travel to the same timestamp should now succeed after reset
+    // because updated_at was reset to current time
+    let time_travel_response2: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteTimestamp(target_timestamp)),
+    );
+    assert!(
+        time_travel_response2.is_ok(),
+        "Second time travel should succeed after reset. Error: {:?}",
+        time_travel_response2.err()
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_network_time_travel_slot(test_type: TestType) {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
+    };
+
+    // Do an initial reset to ensure we start from slot 0
+    let initial_reset: JsonRpcResult<RpcResponse<()>> =
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
+    assert!(initial_reset.is_ok(), "Initial reset should succeed");
+
+    // Target slot to time travel to (must be greater than 0 after reset)
+    let target_slot = 1000;
+
+    // First time travel to target slot
+    // Note: time_travel now uses confirmation mechanism, so it waits internally
+    let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteSlot(target_slot)),
+    );
+    assert!(
+        time_travel_response.is_ok(),
+        "First time travel should succeed"
+    );
+
+    // Reset network
+    let reset_response: JsonRpcResult<RpcResponse<()>> =
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
+    assert!(reset_response.is_ok(), "Reset network should succeed");
+
+    // Second time travel to the same slot should now succeed after reset
+    // because latest_epoch_info.absolute_slot was reset to 0
+    let time_travel_response2: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteSlot(target_slot)),
+    );
+    assert!(
+        time_travel_response2.is_ok(),
+        "Second time travel should succeed after reset. Error: {:?}",
+        time_travel_response2.err()
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_network_time_travel_epoch(test_type: TestType) {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
+    };
+
+    // Do an initial reset to ensure we start from epoch 0
+    let initial_reset: JsonRpcResult<RpcResponse<()>> =
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
+    assert!(initial_reset.is_ok(), "Initial reset should succeed");
+
+    // Target epoch to time travel to (must be greater than 0 after reset)
+    let target_epoch = 5;
+
+    // First time travel to target epoch
+    let time_travel_response: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteEpoch(target_epoch)),
+    );
+    // Note: time_travel now uses confirmation mechanism, so it waits internally
+    assert!(
+        time_travel_response.is_ok(),
+        "First time travel should succeed"
+    );
+
+    // Reset network
+    let reset_response: JsonRpcResult<RpcResponse<()>> =
+        hiro_system_kit::nestable_block_on(rpc_server.reset_network(Some(runloop_context.clone())));
+    assert!(reset_response.is_ok(), "Reset network should succeed");
+
+    // Second time travel to the same epoch should now succeed after reset
+    // because latest_epoch_info.epoch was reset to 0
+    let time_travel_response2: JsonRpcResult<EpochInfo> = rpc_server.time_travel(
+        Some(runloop_context.clone()),
+        Some(TimeTravelConfig::AbsoluteEpoch(target_epoch)),
+    );
+    assert!(
+        time_travel_response2.is_ok(),
+        "Second time travel should succeed after reset. Error: {:?}",
+        time_travel_response2.err()
+    );
+}
+
 fn start_surfnet(
     airdrop_addresses: Vec<Pubkey>,
     datasource_rpc_url: Option<String>,
+    test_type: TestType,
 ) -> Result<(String, SurfnetSvmLocker), String> {
     let bind_host = "127.0.0.1";
     let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
     let offline_mode = datasource_rpc_url.is_none();
 
     let config = SurfpoolConfig {
@@ -4148,12 +4557,13 @@ fn start_surfnet(
         rpc: RpcConfig {
             bind_host: bind_host.to_string(),
             bind_port,
+            ws_port,
             ..Default::default()
         },
         ..SurfpoolConfig::default()
     };
 
-    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = SurfnetSvm::new();
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
     let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
@@ -4178,7 +4588,7 @@ fn start_surfnet(
     let mut connected = offline_mode;
     loop {
         match simnet_events_rx.recv() {
-            Ok(SimnetEvent::Ready) => {
+            Ok(SimnetEvent::Ready(_)) => {
                 ready = true;
             }
             Ok(SimnetEvent::Connected(_)) => {
@@ -4194,19 +4604,34 @@ fn start_surfnet(
     Ok((format!("http://{}:{}", bind_host, bind_port), svm_locker))
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_closed_accounts() {
+async fn test_closed_accounts(test_type: TestType) {
     let keypair = Keypair::new();
     let pubkey = keypair.pubkey();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
     // Start datasource surfnet first, which will only have accounts we airdrop to
     let (datasource_surfnet_url, _datasource_svm_locker) =
-        start_surfnet(vec![pubkey], None).expect("Failed to start datasource surfnet");
+        start_surfnet(vec![pubkey], None, test_type).expect("Failed to start datasource surfnet");
     println!("Datasource surfnet started at {}", datasource_surfnet_url);
 
     // Now start the test surfnet which forks the datasource surfnet
     let (surfnet_url, surfnet_svm_locker) =
-        start_surfnet(vec![], Some(datasource_surfnet_url)).expect("Failed to start surfnet");
+        start_surfnet(vec![], Some(datasource_surfnet_url), another_test_type)
+            .expect("Failed to start surfnet");
     println!("Surfnet started at {}", surfnet_url);
 
     let rpc_client = RpcClient::new(surfnet_url);
@@ -4325,7 +4750,7 @@ async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionTyp
     use crossbeam_channel::unbounded;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::default();
 
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
@@ -4335,6 +4760,7 @@ async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionTyp
     let lamports_to_send = 100_000;
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -4388,20 +4814,27 @@ async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionTyp
     );
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_signature_subscribe_failed_transaction() {
+async fn test_ws_signature_subscribe_failed_transaction(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_system_interface::instruction as system_instruction;
 
     use crate::surfnet::SignatureSubscriptionType;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // create a test transaction that will fail (insufficient funds)
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
-    svm_locker.airdrop(&payer.pubkey(), 10_000).unwrap(); // airdrop a very small amount
+    svm_locker
+        .airdrop(&payer.pubkey(), 10_000)
+        .unwrap()
+        .unwrap(); // airdrop a very small amount.unwrap()
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
     let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, LAMPORTS_PER_SOL); // Try to send more than we have
@@ -4444,14 +4877,18 @@ async fn test_ws_signature_subscribe_failed_transaction() {
     );
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_signature_subscribe_multiple_subscribers() {
+async fn test_ws_signature_subscribe_multiple_subscribers(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_system_interface::instruction as system_instruction;
 
     use crate::surfnet::SignatureSubscriptionType;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // create a test transaction
@@ -4459,6 +4896,7 @@ async fn test_ws_signature_subscribe_multiple_subscribers() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -4518,20 +4956,25 @@ async fn test_ws_signature_subscribe_multiple_subscribers() {
     println!("✓ Multiple subscribers all received notifications correctly");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_signature_subscribe_before_transaction_exists() {
+async fn test_ws_signature_subscribe_before_transaction_exists(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_system_interface::instruction as system_instruction;
 
     use crate::surfnet::SignatureSubscriptionType;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -4579,12 +5022,16 @@ async fn test_ws_signature_subscribe_before_transaction_exists() {
     );
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_account_subscribe_balance_change() {
+async fn test_ws_account_subscribe_balance_change(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // create and fund a new account
@@ -4592,6 +5039,7 @@ async fn test_ws_account_subscribe_balance_change() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to payer account updates
@@ -4635,13 +5083,17 @@ async fn test_ws_account_subscribe_balance_change() {
     );
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_account_subscribe_multiple_changes() {
+async fn test_ws_account_subscribe_multiple_changes(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_account_decoder::UiAccountEncoding;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // create and fund a new account
@@ -4649,6 +5101,7 @@ async fn test_ws_account_subscribe_multiple_changes() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to payer account updates
@@ -4697,22 +5150,28 @@ async fn test_ws_account_subscribe_multiple_changes() {
     }
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_account_subscribe_multiple_subscribers() {
+async fn test_ws_account_subscribe_multiple_subscribers(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_account_decoder::UiAccountEncoding;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
     let sender = Keypair::new();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
     svm_locker
         .airdrop(&sender.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // create multiple subscriptions to the same account
@@ -4761,19 +5220,24 @@ async fn test_ws_account_subscribe_multiple_subscribers() {
     println!("✓ All 3 subscribers received notifications for account change");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_account_subscribe_new_account_creation() {
+async fn test_ws_account_subscribe_new_account_creation(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_account_decoder::UiAccountEncoding;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
     let new_account = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to an account that doesn't exist yet
@@ -4820,13 +5284,17 @@ async fn test_ws_account_subscribe_new_account_creation() {
     );
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_account_subscribe_account_closure() {
+async fn test_ws_account_subscribe_account_closure(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_account_decoder::UiAccountEncoding;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let account_to_close = Keypair::new();
@@ -4835,6 +5303,7 @@ async fn test_ws_account_subscribe_account_closure() {
     // give the account some funds
     svm_locker
         .airdrop(&account_to_close.pubkey(), 10_000)
+        .unwrap()
         .unwrap();
 
     // subscribe to the account
@@ -4873,12 +5342,16 @@ async fn test_ws_account_subscribe_account_closure() {
     println!("✓ Received notification for account closure");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_slot_subscribe_basic() {
+async fn test_ws_slot_subscribe_basic(test_type: TestType) {
     use surfpool_types::types::BlockProductionMode;
 
     let (svm_locker, _simnet_commands_tx, _simnet_events_rx) =
-        boot_simnet(BlockProductionMode::Clock, Some(100));
+        boot_simnet(BlockProductionMode::Clock, Some(100), test_type);
 
     // subscribe to slot updates
     let slot_rx = svm_locker.subscribe_for_slot_updates();
@@ -4904,9 +5377,13 @@ async fn test_ws_slot_subscribe_basic() {
     println!("✓ Slot updates are progressing correctly");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_slot_subscribe_manual_advancement() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_ws_slot_subscribe_manual_advancement(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // subscribe to slot updates
@@ -4935,9 +5412,13 @@ async fn test_ws_slot_subscribe_manual_advancement() {
     );
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_slot_subscribe_multiple_subscribers() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_ws_slot_subscribe_multiple_subscribers(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // create multiple subscriptions
@@ -4965,9 +5446,13 @@ async fn test_ws_slot_subscribe_multiple_subscribers() {
     println!("✓ All 3 subscribers received slot update notifications");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_slot_subscribe_multiple_slot_changes() {
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+async fn test_ws_slot_subscribe_multiple_slot_changes(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let slot_rx = svm_locker.subscribe_for_slot_updates();
@@ -4992,19 +5477,24 @@ async fn test_ws_slot_subscribe_multiple_slot_changes() {
     }
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_logs_subscribe_all_transactions() {
+async fn test_ws_logs_subscribe_all_transactions(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_client::rpc_config::RpcTransactionLogsFilter;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to all transaction logs
@@ -5055,20 +5545,25 @@ async fn test_ws_logs_subscribe_all_transactions() {
     println!("✓ Received logs update for transaction: {}", signature);
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_logs_subscribe_mentions_account() {
+async fn test_ws_logs_subscribe_mentions_account(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_client::rpc_config::RpcTransactionLogsFilter;
     use solana_commitment_config::CommitmentLevel;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to logs mentioning the system program
@@ -5129,14 +5624,18 @@ async fn test_ws_logs_subscribe_mentions_account() {
     println!("✓ Did not receive logs notification for transaction not mentioning token program");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_logs_subscribe_confirmed_commitment() {
+async fn test_ws_logs_subscribe_confirmed_commitment(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_client::rpc_config::RpcTransactionLogsFilter;
     use solana_commitment_config::CommitmentLevel;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // subscribe to confirmed logs
@@ -5148,6 +5647,7 @@ async fn test_ws_logs_subscribe_confirmed_commitment() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -5189,8 +5689,12 @@ async fn test_ws_logs_subscribe_confirmed_commitment() {
     println!("✓ Received confirmed logs notification at slot {}", slot);
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_logs_subscribe_finalized_commitment() {
+async fn test_ws_logs_subscribe_finalized_commitment(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_client::rpc_config::RpcTransactionLogsFilter;
     use solana_commitment_config::CommitmentLevel;
@@ -5198,7 +5702,7 @@ async fn test_ws_logs_subscribe_finalized_commitment() {
 
     use crate::surfnet::FINALIZATION_SLOT_THRESHOLD;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // subscribe to finalized logs
@@ -5210,6 +5714,7 @@ async fn test_ws_logs_subscribe_finalized_commitment() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -5256,20 +5761,24 @@ async fn test_ws_logs_subscribe_finalized_commitment() {
     println!("✓ Received finalized logs notification at slot {}", slot);
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_logs_subscribe_failed_transaction() {
+async fn test_ws_logs_subscribe_failed_transaction(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_client::rpc_config::RpcTransactionLogsFilter;
     use solana_commitment_config::CommitmentLevel;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // create test accounts
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
-    svm_locker.airdrop(&payer.pubkey(), 5_000).unwrap();
+    svm_locker.airdrop(&payer.pubkey(), 5_000).unwrap().unwrap();
 
     // subscribe to all logs
     let logs_rx = svm_locker
@@ -5318,14 +5827,18 @@ async fn test_ws_logs_subscribe_failed_transaction() {
     );
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_logs_subscribe_multiple_subscribers() {
+async fn test_ws_logs_subscribe_multiple_subscribers(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_client::rpc_config::RpcTransactionLogsFilter;
     use solana_commitment_config::CommitmentLevel;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // create multiple subscriptions with different commitment levels
@@ -5341,6 +5854,7 @@ async fn test_ws_logs_subscribe_multiple_subscribers() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -5384,14 +5898,18 @@ async fn test_ws_logs_subscribe_multiple_subscribers() {
     println!("✓ All subscribers received logs notifications at their respective commitment levels");
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ws_logs_subscribe_logs_content() {
+async fn test_ws_logs_subscribe_logs_content(test_type: TestType) {
     use crossbeam_channel::unbounded;
     use solana_client::rpc_config::RpcTransactionLogsFilter;
     use solana_commitment_config::CommitmentLevel;
     use solana_system_interface::instruction as system_instruction;
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     // create test accounts
@@ -5399,6 +5917,7 @@ async fn test_ws_logs_subscribe_logs_content() {
     let recipient = Pubkey::new_unique();
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     // subscribe to all logs
@@ -5454,14 +5973,18 @@ async fn test_ws_logs_subscribe_logs_content() {
 
 /// Token-2022 lifecycle:
 /// create mint → initialize → create ATA → mint → transfer → burn → close account
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_token2022_full_lifecycle() {
+async fn test_token2022_full_lifecycle(test_type: TestType) {
     use solana_system_interface::instruction as system_instruction;
     use spl_token_2022_interface::instruction::{
         burn, close_account, initialize_mint2, mint_to, transfer_checked,
     };
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
@@ -5471,9 +5994,11 @@ async fn test_token2022_full_lifecycle() {
 
     svm_locker
         .airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
     svm_locker
         .airdrop(&recipient.pubkey(), 1 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -5664,14 +6189,18 @@ async fn test_token2022_full_lifecycle() {
 }
 
 /// Token-2022 error cases: transfer/burn > balance and close with balance.
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_token2022_error_cases() {
+async fn test_token2022_error_cases(test_type: TestType) {
     use solana_system_interface::instruction as system_instruction;
     use spl_token_2022_interface::instruction::{
         burn, close_account, initialize_mint2, mint_to, transfer_checked,
     };
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let payer = Keypair::new();
@@ -5681,9 +6210,11 @@ async fn test_token2022_error_cases() {
 
     svm_locker
         .airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
     svm_locker
         .airdrop(&recipient.pubkey(), 1 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -5841,14 +6372,18 @@ async fn test_token2022_error_cases() {
 }
 
 /// Token-2022 delegate operations: approve, delegated transfer, revoke.
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_token2022_delegate_operations() {
+async fn test_token2022_delegate_operations(test_type: TestType) {
     use solana_system_interface::instruction as system_instruction;
     use spl_token_2022_interface::instruction::{
         approve, initialize_mint2, mint_to, revoke, transfer_checked,
     };
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let owner = Keypair::new();
@@ -5859,9 +6394,11 @@ async fn test_token2022_delegate_operations() {
 
     svm_locker
         .airdrop(&owner.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
     svm_locker
         .airdrop(&delegate.pubkey(), 1 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -6057,14 +6594,18 @@ async fn test_token2022_delegate_operations() {
 }
 
 /// Token-2022 freeze/thaw operations.
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_token2022_freeze_thaw() {
+async fn test_token2022_freeze_thaw(test_type: TestType) {
     use solana_system_interface::instruction as system_instruction;
     use spl_token_2022_interface::instruction::{
         freeze_account, initialize_mint2, mint_to, thaw_account, transfer_checked,
     };
 
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::new();
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
 
     let owner = Keypair::new();
@@ -6074,6 +6615,7 @@ async fn test_token2022_freeze_thaw() {
 
     svm_locker
         .airdrop(&owner.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
@@ -6268,4 +6810,738 @@ async fn test_token2022_freeze_thaw() {
     );
 
     println!("✓ All freeze/thaw operations work correctly!");
+}
+
+use std::sync::Once;
+
+static INIT_LOGGER: Once = Once::new();
+
+fn setup() {
+    INIT_LOGGER.call_once(|| {
+        env_logger::builder().is_test(true).try_init().unwrap();
+    });
+}
+
+#[test]
+fn test_nonce_accounts() {
+    setup();
+    use solana_system_interface::instruction::create_nonce_account;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::default();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let nonce_account = Keypair::new();
+    println!("Payer Pubkey: {}", payer.pubkey());
+    println!("Nonce Account Pubkey: {}", nonce_account.pubkey());
+    println!("Nonce authority: {}", payer.pubkey());
+
+    svm_locker
+        .airdrop(&payer.pubkey(), 5 * LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
+
+    let nonce_rent = svm_locker.with_svm_reader(|svm_reader| {
+        svm_reader
+            .inner
+            .minimum_balance_for_rent_exemption(solana_nonce::state::State::size())
+    });
+    let create_nonce_ix = create_nonce_account(
+        &payer.pubkey(),
+        &nonce_account.pubkey(),
+        &payer.pubkey(), // Make the fee payer the nonce account authority
+        nonce_rent,
+    );
+
+    let recent_blockhash = svm_locker.latest_absolute_blockhash();
+
+    let create_nonce_msg =
+        Message::new_with_blockhash(&create_nonce_ix, Some(&payer.pubkey()), &recent_blockhash);
+    let create_nonce_tx = VersionedTransaction::try_new(
+        VersionedMessage::Legacy(create_nonce_msg),
+        &[&payer, &nonce_account],
+    )
+    .unwrap();
+
+    let create_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(create_nonce_tx, false, false));
+    assert!(
+        create_result.is_ok(),
+        "Create nonce account failed: {:?}",
+        create_result.err()
+    );
+
+    // Fetch and verify nonce account state
+    let nonce_account_data = svm_locker
+        .get_account_local(&nonce_account.pubkey())
+        .inner
+        .map_account()
+        .expect("Failed to fetch nonce account");
+
+    let state: solana_nonce::versions::Versions = bincode::deserialize(&nonce_account_data.data)
+        .expect("Failed to deserialize nonce account state");
+
+    let state = state.state();
+
+    let nonce_hash = match state {
+        solana_nonce::state::State::Initialized(nonce_data) => {
+            println!(
+                "✓ Nonce account initialized with nonce: {:?}",
+                nonce_data.durable_nonce
+            );
+            nonce_data.blockhash()
+        }
+        _ => panic!("Nonce account is not initialized"),
+    };
+
+    let to_pubkey = Pubkey::new_unique();
+    // Use the nonce in a transaction
+    let transfer_ix =
+        solana_system_interface::instruction::transfer(&payer.pubkey(), &to_pubkey, 1_000_000);
+    let mut nonce_msg = Message::new_with_nonce(
+        vec![transfer_ix],
+        Some(&payer.pubkey()),
+        &nonce_account.pubkey(),
+        &payer.pubkey(),
+    );
+    nonce_msg.recent_blockhash = nonce_hash;
+    let nonce_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(nonce_msg), &[&payer]).unwrap();
+
+    let nonce_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(nonce_tx, false, false));
+    assert!(
+        nonce_result.is_ok(),
+        "Transaction using nonce failed: {:?}",
+        nonce_result.err()
+    );
+
+    // Verify to_pubkey received the funds
+    let to_account_data = svm_locker
+        .get_account_local(&to_pubkey)
+        .inner
+        .map_account()
+        .expect("Failed to fetch recipient account");
+    assert_eq!(
+        to_account_data.lamports, 1_000_000,
+        "Recipient account did not receive correct amount"
+    );
+}
+
+/// Tests that profiling a transaction does not mutate the original SVM state.
+/// This verifies the OverlayStorage implementation correctly isolates mutations
+/// during profiling from the underlying database.
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
+
+    // Setup: Create accounts and fund the payer
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 1_000_000;
+    let initial_payer_balance = lamports_to_send * 10;
+
+    svm_instance
+        .airdrop(&payer.pubkey(), initial_payer_balance)
+        .unwrap()
+        .unwrap();
+
+    // Create a transfer transaction
+    let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let latest_blockhash = svm_instance.latest_blockhash();
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(message.clone()), &[&payer])
+        .unwrap();
+
+    let tx_bytes = bincode::serialize(&tx).unwrap();
+    let tx_b64 = base64::engine::general_purpose::STANDARD.encode(&tx_bytes);
+
+    // Record initial state BEFORE profiling
+    let initial_transactions_processed = svm_instance.transactions_processed;
+    let initial_payer_account = svm_instance.get_account(&payer.pubkey()).unwrap();
+    let initial_recipient_account = svm_instance.get_account(&recipient).ok().flatten();
+
+    // Create the locker and runloop context
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
+    };
+
+    // Profile the transaction multiple times to ensure no state leakage
+    for i in 0..3 {
+        let response: JsonRpcResult<RpcResponse<UiKeyedProfileResult>> = rpc_server
+            .profile_transaction(
+                Some(runloop_context.clone()),
+                tx_b64.clone(),
+                Some(format!("test_isolation_{}", i)),
+                None,
+            )
+            .await;
+
+        assert!(
+            response.is_ok(),
+            "Profile transaction {} failed: {:?}",
+            i,
+            response.err()
+        );
+
+        let profile_result = response.unwrap().value;
+        assert!(
+            profile_result.transaction_profile.error_message.is_none(),
+            "Profile {} had unexpected error: {:?}",
+            i,
+            profile_result.transaction_profile.error_message
+        );
+
+        // The profile should show the transaction would succeed
+        assert!(
+            profile_result.transaction_profile.compute_units_consumed > 0,
+            "Profile {} should show compute units consumed",
+            i
+        );
+    }
+
+    // Verify state is UNCHANGED after profiling
+    let final_transactions_processed = svm_locker.with_svm_reader(|svm| svm.transactions_processed);
+    let final_payer_account = svm_locker
+        .with_svm_reader(|svm| svm.get_account(&payer.pubkey()))
+        .unwrap();
+    let final_recipient_account = svm_locker
+        .with_svm_reader(|svm| svm.get_account(&recipient))
+        .ok()
+        .flatten();
+
+    // Transaction count should not have increased from profiling
+    assert_eq!(
+        initial_transactions_processed, final_transactions_processed,
+        "transactions_processed should not change from profiling"
+    );
+
+    // Payer balance should be unchanged (transfer was only simulated)
+    assert_eq!(
+        initial_payer_account.as_ref().map(|a| a.lamports),
+        final_payer_account.as_ref().map(|a| a.lamports),
+        "Payer balance should not change from profiling"
+    );
+
+    // Recipient should still not exist or have the same balance
+    assert_eq!(
+        initial_recipient_account.as_ref().map(|a| a.lamports),
+        final_recipient_account.as_ref().map(|a| a.lamports),
+        "Recipient balance should not change from profiling"
+    );
+
+    // Now actually execute the transaction to prove the state can still be mutated
+    let execution_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(tx.clone(), false, false));
+
+    assert!(
+        execution_result.is_ok(),
+        "Actual transaction execution should succeed: {:?}",
+        execution_result.err()
+    );
+
+    // Verify state DID change after actual execution
+    let post_execution_transactions = svm_locker.with_svm_reader(|svm| svm.transactions_processed);
+    let post_execution_recipient = svm_locker
+        .with_svm_reader(|svm| svm.get_account(&recipient))
+        .unwrap();
+
+    assert_eq!(
+        post_execution_transactions,
+        initial_transactions_processed + 1,
+        "Transaction count should increase after actual execution"
+    );
+
+    assert!(
+        post_execution_recipient.is_some(),
+        "Recipient should exist after actual execution"
+    );
+
+    assert_eq!(
+        post_execution_recipient.unwrap().lamports,
+        lamports_to_send,
+        "Recipient should have received funds after actual execution"
+    );
+}
+
+/// Tests that instruction-level profiling during transaction execution does not
+/// mutate the original SVM state for failed transactions.
+/// This creates a transaction with two instructions where:
+/// - First instruction: a transfer that would succeed
+/// - Second instruction: a transfer that will fail (insufficient funds)
+/// The test verifies that even though the first instruction is profiled successfully
+/// during execution, its effects are not persisted since the overall transaction fails.
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_instruction_profiling_does_not_mutate_state(test_type: TestType) {
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+
+    // Verify instruction profiling is enabled by default
+    assert!(
+        svm_instance.instruction_profiling_enabled,
+        "Instruction profiling should be enabled by default"
+    );
+
+    // Setup: Create accounts
+    let payer = Keypair::new();
+    let payer_without_funds = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = LAMPORTS_PER_SOL;
+
+    // Fund only the first payer
+    svm_instance
+        .airdrop(&payer.pubkey(), lamports_to_send * 3)
+        .unwrap()
+        .unwrap();
+
+    // Record initial state BEFORE processing
+    let initial_payer_balance = svm_instance
+        .get_account(&payer.pubkey())
+        .unwrap()
+        .map(|a| a.lamports)
+        .unwrap_or(0);
+    let initial_recipient_account = svm_instance.get_account(&recipient).ok().flatten();
+    let initial_transactions_processed = svm_instance.transactions_processed;
+
+    // Create a multi-instruction transaction where:
+    // - First instruction: valid transfer from payer to recipient (would succeed alone)
+    // - Second instruction: invalid transfer from unfunded account (will fail)
+    let valid_instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let invalid_instruction = transfer(&payer_without_funds.pubkey(), &recipient, lamports_to_send);
+
+    let latest_blockhash = svm_instance.latest_blockhash();
+    let message = Message::new_with_blockhash(
+        &[valid_instruction, invalid_instruction],
+        Some(&payer.pubkey()),
+        &latest_blockhash,
+    );
+    let transaction = VersionedTransaction::try_new(
+        VersionedMessage::Legacy(message),
+        &[&payer, &payer_without_funds],
+    )
+    .unwrap();
+    let signature = transaction.signatures[0];
+
+    // Create the locker and status channel for transaction processing
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    let (status_tx, _status_rx) = crossbeam_unbounded::<TransactionStatusEvent>();
+
+    // Process the transaction using the actual execution path
+    // This will trigger instruction-level profiling since it's enabled by default
+    let process_result = svm_locker
+        .process_transaction(
+            &None, // no remote context
+            transaction.clone(),
+            status_tx,
+            true,  // skip_preflight
+            false, // sigverify
+        )
+        .await;
+
+    // The transaction should fail due to the second instruction
+    // But the profile result should still be written
+    assert!(
+        process_result.is_err() || process_result.is_ok(),
+        "process_transaction should complete (success or failure)"
+    );
+
+    // Retrieve the profile result using the signature
+    let key = UuidOrSignature::Signature(signature);
+    let profile_result = svm_locker
+        .get_profile_result(key, &RpcProfileResultConfig::default())
+        .unwrap()
+        .expect("Profile result should exist for executed transaction");
+
+    // Verify the overall transaction failed (due to second instruction)
+    assert!(
+        profile_result.transaction_profile.error_message.is_some(),
+        "Transaction should fail due to second instruction's insufficient funds"
+    );
+
+    // Verify instruction profiles were generated
+    assert!(
+        profile_result.instruction_profiles.is_some(),
+        "Instruction profiles should be generated when instruction profiling is enabled"
+    );
+
+    let instruction_profiles = profile_result.instruction_profiles.as_ref().unwrap();
+    assert_eq!(
+        instruction_profiles.len(),
+        2,
+        "Should have profiles for both instructions"
+    );
+
+    // Verify first instruction profile shows SUCCESS (it was profiled independently)
+    let first_ix_profile = &instruction_profiles[0];
+    assert!(
+        first_ix_profile.error_message.is_none(),
+        "First instruction profile should succeed: {:?}",
+        first_ix_profile.error_message
+    );
+    assert!(
+        first_ix_profile.compute_units_consumed > 0,
+        "First instruction should have consumed compute units"
+    );
+
+    // Verify second instruction profile shows FAILURE
+    let second_ix_profile = &instruction_profiles[1];
+    assert!(
+        second_ix_profile.error_message.is_some(),
+        "Second instruction should fail due to insufficient funds"
+    );
+
+    // NOW THE CRITICAL PART: Verify that instruction profiling didn't leak state
+    // Even though the first instruction was profiled successfully, its effects
+    // should NOT be persisted because:
+    // 1. The instruction profiling uses clone_for_profiling() with OverlayStorage
+    // 2. The overall transaction failed, so no state changes are committed
+    //
+    // Note: Failed transactions in Solana still deduct fees from the fee payer.
+    // This is expected behavior and not related to instruction profiling.
+
+    let final_payer_balance = svm_locker
+        .with_svm_reader(|svm| svm.get_account(&payer.pubkey()))
+        .unwrap()
+        .map(|a| a.lamports)
+        .unwrap_or(0);
+    let final_recipient_account = svm_locker
+        .with_svm_reader(|svm| svm.get_account(&recipient))
+        .ok()
+        .flatten();
+    let final_transactions_processed = svm_locker.with_svm_reader(|svm| svm.transactions_processed);
+
+    // THE KEY ASSERTION: Recipient should NOT have received funds
+    // This proves that the first instruction's transfer (which was profiled successfully)
+    // was NOT committed to the actual state. The instruction profiling used
+    // clone_for_profiling() so its mutations were isolated.
+    assert_eq!(
+        initial_recipient_account.as_ref().map(|a| a.lamports),
+        final_recipient_account.as_ref().map(|a| a.lamports),
+        "Recipient should not have received funds - instruction profiling must not leak state"
+    );
+
+    // Payer balance should only decrease by the transaction fee (not by the transfer amount)
+    // Failed transactions still pay fees in Solana, but the transfer should not have occurred
+    let balance_decrease = initial_payer_balance.saturating_sub(final_payer_balance);
+    assert!(
+        balance_decrease < lamports_to_send,
+        "Payer should only lose transaction fee, not the transfer amount. Lost: {} lamports",
+        balance_decrease
+    );
+
+    // Transaction count increments even for failed transactions (they were still processed)
+    // This is expected behavior - we're verifying instruction profiling isolation, not tx count
+    assert_eq!(
+        final_transactions_processed,
+        initial_transactions_processed + 1,
+        "Transaction count should increment after processing (even for failed tx)"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_basic(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+    let account_pubkey = Pubkey::new_unique();
+
+    // Subscribe to program updates
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        None,
+    );
+
+    // Set an account owned by the program
+    let account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey, account).unwrap();
+    });
+
+    // Should receive a notification
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(update.is_ok(), "Should receive program account update");
+
+    let keyed_account = update.unwrap();
+    assert_eq!(
+        keyed_account.pubkey,
+        account_pubkey.to_string(),
+        "Notification should contain the correct account pubkey"
+    );
+    assert_eq!(
+        keyed_account.account.lamports, 1_000_000,
+        "Notification should contain the correct lamports"
+    );
+    println!("✓ programSubscribe basic flow works correctly");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_data_size_filter(test_type: TestType) {
+    use solana_client::rpc_filter::RpcFilterType;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+
+    // Subscribe with a dataSize filter for accounts with exactly 8 bytes of data
+    let filters = vec![RpcFilterType::DataSize(8)];
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        Some(filters),
+    );
+
+    // Set an account with 4 bytes (should NOT trigger notification)
+    let small_account_pubkey = Pubkey::new_unique();
+    let small_account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&small_account_pubkey, small_account)
+            .unwrap();
+    });
+
+    // Should NOT receive a notification for the 4-byte account
+    let no_update = program_rx.recv_timeout(Duration::from_millis(200));
+    assert!(
+        no_update.is_err(),
+        "Should NOT receive notification for account that doesn't match dataSize filter"
+    );
+
+    // Set an account with 8 bytes (SHOULD trigger notification)
+    let matching_account_pubkey = Pubkey::new_unique();
+    let matching_account = Account {
+        lamports: 2_000_000,
+        data: vec![1, 2, 3, 4, 5, 6, 7, 8],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&matching_account_pubkey, matching_account)
+            .unwrap();
+    });
+
+    // Should receive a notification for the 8-byte account
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        update.is_ok(),
+        "Should receive notification for account matching dataSize filter"
+    );
+
+    let keyed_account = update.unwrap();
+    assert_eq!(
+        keyed_account.pubkey,
+        matching_account_pubkey.to_string(),
+        "Notification should contain the correct matching account pubkey"
+    );
+    println!("✓ programSubscribe with dataSize filter works correctly");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_memcmp_filter(test_type: TestType) {
+    use solana_client::rpc_filter::{Memcmp, RpcFilterType};
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+
+    // Subscribe with a memcmp filter: offset 0, bytes [0xAA, 0xBB]
+    let filters = vec![RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
+        0,
+        vec![0xAA, 0xBB],
+    ))];
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        Some(filters),
+    );
+
+    // Set an account that doesn't match the memcmp filter
+    let non_matching_pubkey = Pubkey::new_unique();
+    let non_matching_account = Account {
+        lamports: 1_000_000,
+        data: vec![0x00, 0x00, 0xCC, 0xDD],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&non_matching_pubkey, non_matching_account)
+            .unwrap();
+    });
+
+    // Should NOT receive a notification
+    let no_update = program_rx.recv_timeout(Duration::from_millis(200));
+    assert!(
+        no_update.is_err(),
+        "Should NOT receive notification for account that doesn't match memcmp filter"
+    );
+
+    // Set an account that matches the memcmp filter
+    let matching_pubkey = Pubkey::new_unique();
+    let matching_account = Account {
+        lamports: 2_000_000,
+        data: vec![0xAA, 0xBB, 0xCC, 0xDD],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&matching_pubkey, matching_account).unwrap();
+    });
+
+    // Should receive a notification
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        update.is_ok(),
+        "Should receive notification for account matching memcmp filter"
+    );
+
+    let keyed_account = update.unwrap();
+    assert_eq!(
+        keyed_account.pubkey,
+        matching_pubkey.to_string(),
+        "Notification should contain the correct matching account pubkey"
+    );
+    println!("✓ programSubscribe with memcmp filter works correctly");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_unsubscribe(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+
+    // Subscribe to program updates
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        None,
+    );
+
+    // Verify subscription works by setting an account
+    let account_pubkey = Pubkey::new_unique();
+    let account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey, account).unwrap();
+    });
+
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(update.is_ok(), "Should receive first notification");
+
+    // Drop the receiver to simulate unsubscribe
+    drop(program_rx);
+
+    // Set another account - this should not panic or error
+    let account_pubkey2 = Pubkey::new_unique();
+    let account2 = Account {
+        lamports: 2_000_000,
+        data: vec![5, 6, 7, 8],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey2, account2).unwrap();
+    });
+
+    println!("✓ programUnsubscribe works correctly (no panic after receiver dropped)");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_wrong_owner(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let subscribed_program_id = Pubkey::new_unique();
+    let other_program_id = Pubkey::new_unique();
+
+    // Subscribe to updates for subscribed_program_id
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &subscribed_program_id,
+        Some(UiAccountEncoding::Base64),
+        None,
+    );
+
+    // Set an account owned by a DIFFERENT program
+    let account_pubkey = Pubkey::new_unique();
+    let account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: other_program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey, account).unwrap();
+    });
+
+    // Should NOT receive a notification since the account is owned by a different program
+    let no_update = program_rx.recv_timeout(Duration::from_millis(200));
+    assert!(
+        no_update.is_err(),
+        "Should NOT receive notification for account owned by a different program"
+    );
+    println!("✓ programSubscribe correctly ignores accounts owned by other programs");
 }

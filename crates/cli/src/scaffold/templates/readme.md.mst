@@ -20,18 +20,10 @@ Surfpool provides three major upgrades to the Solana development experience:
 
 ### Installation
 
-Install pre-built binaries:
+Surfpool installer:
 
 ```console
-# macOS (Homebrew)
-brew install txtx/taps/surfpool
-
-# Updating surfpool for Homebrew users
-brew tap txtx/taps
-brew reinstall surfpool
-
-# Linux (Snap Store)
-snap install surfpool
+curl -sL https://run.surfpool.run/ | bash
 ```
 
 Install from source:

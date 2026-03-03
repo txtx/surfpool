@@ -10,7 +10,8 @@ use std::{
 };
 
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
-    GeyserPlugin, ReplicaTransactionInfoV3, ReplicaTransactionInfoVersions,
+    GeyserPlugin, ReplicaBlockInfoV4, ReplicaBlockInfoVersions, ReplicaEntryInfoV2,
+    ReplicaEntryInfoVersions, ReplicaTransactionInfoV3, ReplicaTransactionInfoVersions, SlotStatus,
 };
 use chrono::{Local, Utc};
 use crossbeam::select;
@@ -19,6 +20,7 @@ use ipc_channel::{
     ipc::{IpcOneShotServer, IpcReceiver},
     router::RouterProxy,
 };
+use itertools::Itertools;
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
 use jsonrpc_pubsub::{PubSubHandler, Session};
@@ -32,11 +34,13 @@ use solana_geyser_plugin_manager::geyser_plugin_manager::{
 };
 use solana_message::SimpleAddressLoader;
 use solana_transaction::sanitized::{MessageHash, SanitizedTransaction};
+use solana_transaction_status::RewardsAndNumPartitions;
 #[cfg(feature = "subgraph")]
 use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
-    BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_RPC_URL, DataIndexingCommand,
-    SimnetCommand, SimnetEvent, SubgraphCommand, SubgraphPluginConfig, SurfpoolConfig,
+    BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_MAINNET_RPC_URL, DataIndexingCommand,
+    SimnetCommand, SimnetConfig, SimnetEvent, SubgraphCommand, SubgraphPluginConfig,
+    SurfpoolConfig,
 };
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use txtx_addon_kit::helpers::fs::FileLocation;
@@ -94,7 +98,7 @@ pub async fn start_local_surfnet_runloop(
             simnet
                 .remote_rpc_url
                 .as_ref()
-                .unwrap_or(&DEFAULT_RPC_URL.to_string()),
+                .unwrap_or(&DEFAULT_MAINNET_RPC_URL.to_string()),
         ),
     };
 
@@ -108,6 +112,36 @@ pub async fn start_local_surfnet_runloop(
         .await?;
 
     svm_locker.airdrop_pubkeys(simnet.airdrop_token_amount, &simnet.airdrop_addresses);
+
+    // Load snapshot accounts if provided
+    if !simnet.snapshot.is_empty() {
+        match svm_locker
+            .load_snapshot(
+                &simnet.snapshot,
+                remote_rpc_client.as_ref(),
+                CommitmentConfig::confirmed(),
+            )
+            .await
+        {
+            Ok(loaded_count) => {
+                let _ = svm_locker.with_svm_reader(|svm| {
+                    svm.simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Preloaded {} accounts from snapshot(s) into SVM",
+                        loaded_count
+                    )))
+                });
+            }
+            Err(e) => {
+                let _ = svm_locker.with_svm_reader(|svm| {
+                    svm.simnet_events_tx.send(SimnetEvent::warn(format!(
+                        "Error loading snapshot accounts: {}",
+                        e
+                    )))
+                });
+            }
+        }
+    }
+
     let simnet_events_tx_cc = svm_locker.simnet_events_tx();
 
     let (plugin_manager_commands_rx, _rpc_handle, _ws_handle) = start_rpc_servers_runloop(
@@ -137,7 +171,66 @@ pub async fn start_local_surfnet_runloop(
     let (clock_event_rx, clock_command_tx) =
         start_clock_runloop(simnet_config.slot_time, Some(simnet_events_tx_cc.clone()));
 
-    let _ = simnet_events_tx_cc.send(SimnetEvent::Ready);
+    // Emit TransactionProcessed events for each stored transaction before Ready
+    let initial_transaction_count = svm_locker.with_svm_reader(|svm| {
+        let iter_result = svm.transactions.into_iter();
+        let mut count: u64 = 0;
+
+        if let Ok(iter) = iter_result {
+            let mut events = vec![];
+            for (_, status) in iter {
+                if let Some((tx_meta, _updated_accounts)) = status.as_processed() {
+                    let signature = tx_meta.transaction.signatures[0];
+                    let err = tx_meta.meta.status.clone().err();
+
+                    // Build TransactionMetadata from stored data
+                    let meta = surfpool_types::TransactionMetadata {
+                        signature,
+                        logs: tx_meta.meta.log_messages.clone().unwrap_or_default(),
+                        inner_instructions: tx_meta
+                            .meta
+                            .inner_instructions
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|inner_ixs| {
+                                inner_ixs
+                                    .instructions
+                                    .into_iter()
+                                    .map(|ix| solana_message::inner_instruction::InnerInstruction {
+                                        instruction: ix.instruction,
+                                        stack_height: ix.stack_height.unwrap_or(1) as u8,
+                                    })
+                                    .collect()
+                            })
+                            .collect(),
+                        compute_units_consumed: tx_meta.meta.compute_units_consumed.unwrap_or(0),
+                        return_data: tx_meta.meta.return_data.clone().unwrap_or_default(),
+                        fee: tx_meta.meta.fee,
+                    };
+
+                    events.push((
+                        tx_meta.slot,
+                        SimnetEvent::TransactionProcessed(Local::now(), meta, err.clone()),
+                    ));
+
+                    count += 1;
+                }
+            }
+            for (_, event) in events
+                .into_iter()
+                .sorted_by(|(a_slot, _), (b_slot, _)| a_slot.cmp(b_slot))
+            {
+                let _ = svm.simnet_events_tx.send(event);
+            }
+        }
+
+        count
+    });
+    let _ = simnet_events_tx_cc.send(SimnetEvent::Ready(initial_transaction_count));
+
+    // Notify geyser plugins that startup is complete
+    let _ = svm_locker.with_svm_reader(|svm| svm.geyser_events_tx.send(GeyserEvent::EndOfStartup));
 
     start_block_production_runloop(
         clock_event_rx,
@@ -148,6 +241,7 @@ pub async fn start_local_surfnet_runloop(
         block_production_mode,
         &remote_rpc_client,
         simnet_config.expiry.map(|e| e * 1000),
+        &simnet_config,
     )
     .await
 }
@@ -162,6 +256,7 @@ pub async fn start_block_production_runloop(
     mut block_production_mode: BlockProductionMode,
     remote_rpc_client: &Option<SurfnetRemoteClient>,
     expiry_duration_ms: Option<u64>,
+    simnet_config: &SimnetConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let remote_client_with_commitment = remote_rpc_client.as_ref().map(|c| {
         (
@@ -171,7 +266,7 @@ pub async fn start_block_production_runloop(
     });
     let mut next_scheduled_expiry_check: Option<u64> =
         expiry_duration_ms.map(|expiry_val| Utc::now().timestamp_millis() as u64 + expiry_val);
-    let sigverify = true; // always verify signatures during block production
+    let global_skip_sig_verify = simnet_config.skip_signature_verification;
     loop {
         let mut do_produce_block = false;
 
@@ -306,7 +401,9 @@ pub async fn start_block_production_runloop(
                         block_production_mode = update;
                         continue
                     }
-                    SimnetCommand::ProcessTransaction(_key, transaction, status_tx, skip_preflight) => {
+                    SimnetCommand::ProcessTransaction(_key, transaction, status_tx, skip_preflight, skip_sig_verify_override) => {
+                       let skip_sig_verify = skip_sig_verify_override.unwrap_or(global_skip_sig_verify);
+                       let sigverify = !skip_sig_verify;
                        if let Err(e) = svm_locker.process_transaction(&remote_client_with_commitment, transaction, status_tx, skip_preflight, sigverify).await {
                             let _ = svm_locker.simnet_events_tx().send(SimnetEvent::error(format!("Failed to process transaction: {}", e)));
                        }
@@ -315,7 +412,8 @@ pub async fn start_block_production_runloop(
                        }
                     }
                     SimnetCommand::Terminate(_) => {
-                        let _ = svm_locker.simnet_events_tx().send(SimnetEvent::Aborted("Terminated due to inactivity.".to_string()));
+                        // Explicitly shutdown storage to trigger WAL checkpoint before exiting
+                        svm_locker.shutdown();
                         break;
                     }
                     SimnetCommand::StartRunbookExecution(runbook_id) => {
@@ -442,6 +540,20 @@ fn start_geyser_runloop(
         // Map between each plugin's UUID to its entry (index, plugin_name)
         let mut plugin_map: HashMap<crate::Uuid, (usize, String)> = HashMap::new();
 
+        // helper to log errors that can't be propagated
+        let log_error = |msg:String|{
+            let _ = simnet_events_tx.send(SimnetEvent::error(msg));
+        };
+
+        let log_warn = |msg:String|{
+            let _ = simnet_events_tx.send(SimnetEvent::warn(msg));
+        };
+
+        let log_info = |msg:String|{
+            let _ = simnet_events_tx.send(SimnetEvent::info(msg));
+        };
+
+
         #[cfg(feature = "geyser_plugin")]
         for plugin_config_path in plugin_config_paths.into_iter() {
             let plugin_manifest_location = FileLocation::from_path(plugin_config_path);
@@ -471,7 +583,7 @@ fn start_geyser_runloop(
                 let lib = match Library::new(&plugin_dylib_location.to_string()) {
                     Ok(lib) => lib,
                     Err(e) => {
-                        let _ = simnet_events_tx.send(SimnetEvent::ErrorLog(Local::now(), format!("Unable to load plugin {}: {}", plugin_dylib_location.to_string(), e.to_string())));
+                        log_error(format!("Unable to load plugin {}: {}", plugin_dylib_location.to_string(), e.to_string()));
                         continue;
                     }
                 };
@@ -504,11 +616,14 @@ fn start_geyser_runloop(
                                       plugin_map: &mut HashMap<uuid::Uuid, (usize, String)>,
                                       indexing_enabled: &mut bool|
          -> Result<(), String> {
-            let _ = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(
+            if let Err(e) = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(
                 uuid,
                 config.data.clone(),
                 notifier,
-            ));
+            )){
+                return Err(format!("Failed to send CreateCollection command: {:?}", e));
+            };
+
             let mut plugin = SurfpoolSubgraphPlugin::default();
 
             let (server, ipc_token) =
@@ -527,11 +642,18 @@ fn start_geyser_runloop(
                 .on_load(&config_file, false)
                 .map_err(|e| format!("Failed to load Geyser plugin: {:?}", e))?;
 
-            if let Ok((_, rx)) = server.accept() {
-                let subgraph_rx = ipc_router
-                    .route_ipc_receiver_to_new_crossbeam_receiver::<DataIndexingCommand>(rx);
-                let _ = subgraph_commands_tx.send(SubgraphCommand::ObserveCollection(subgraph_rx));
-            };
+                match server.accept() {
+                    Ok((_, rx)) => {
+                        let subgraph_rx = ipc_router
+                            .route_ipc_receiver_to_new_crossbeam_receiver::<DataIndexingCommand>(rx);
+                        if let Err(e) = subgraph_commands_tx.send(SubgraphCommand::ObserveCollection(subgraph_rx)) {
+                            return Err(format!("Failed to send ObserveCollection command: {:?}", e));
+                        }
+                    }
+                    Err(e) => {
+                        return Err(format!("Failed to accept IPC connection for subgraph {}: {:?}", uuid, e));
+                    }
+                };
 
             *indexing_enabled = true;
 
@@ -560,7 +682,9 @@ fn start_geyser_runloop(
             }
 
             // Destroy database/schema for this collection
-            let _ = subgraph_commands_tx.send(SubgraphCommand::DestroyCollection(uuid));
+            if let Err(e) = subgraph_commands_tx.send(SubgraphCommand::DestroyCollection(uuid)){
+                return Err(format!("Failed to send DestroyCollection command for {}: {:?}", uuid, e));
+            }
 
             // Unload the plugin
             surfpool_plugin_manager[plugin_index].on_unload();
@@ -579,6 +703,8 @@ fn start_geyser_runloop(
             // Disable indexing if no plugins remain
             if surfpool_plugin_manager.is_empty() {
                 *indexing_enabled = false;
+                //  Add Logging When Indexing Disabled
+                log_info("All plugins unloaded,indexing disabled".to_string())
             }
 
             Ok(())
@@ -610,8 +736,16 @@ fn start_geyser_runloop(
                                 }
                                 #[cfg(feature = "subgraph")]
                                 PluginManagerCommand::UnloadPlugin(uuid, notifier) => {
-                                    let result = unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled);
-                                    let _ = notifier.send(result);
+                                    match  unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
+                                        Ok(_)=>{
+                                            log_info(format!("Successfully unloaded plugin with UUID {}", uuid));
+                                            let _ = notifier.send(Ok(()));
+                                        }
+                                        Err(e)=>{
+                                            log_error(format!("Failed to unload plugin {}: {}", uuid, e));
+                                            let _ = notifier.send(Err(e));
+                                        }
+                                    }
                                 }
                                 #[cfg(not(feature = "subgraph"))]
                                 PluginManagerCommand::ReloadPlugin(_, _, _) => {
@@ -620,16 +754,28 @@ fn start_geyser_runloop(
                                 #[cfg(feature = "subgraph")]
                                 PluginManagerCommand::ReloadPlugin(uuid, config, notifier) => {
                                     // Unload the old plugin
-                                    if let Err(e) = unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
-                                        let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to unload plugin during reload: {}", e)));
-                                        continue;
-                                    }
+                                    match  unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
+                                        Ok(_)=>{
+                                            log_info(format!("Unloaded plugin with UUID {} for reload", uuid));
 
-                                    let _ = simnet_events_tx.try_send(SimnetEvent::info(format!("Unloaded plugin with UUID - {}", uuid)));
-
-                                    // Load the new plugin with the same UUID
-                                    if let Err(e) = load_subgraph_plugin(uuid, config, notifier, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
-                                        let _ = simnet_events_tx.try_send(SimnetEvent::error(format!("Failed to reload plugin: {}", e)));
+                                            // Load the new plugin with the same UUID
+                                            match load_subgraph_plugin(uuid, config, notifier.clone(), &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
+                                                Ok(_)=>{
+                                                    log_info(format!("Successfully reloaded plugin with UUID {}", uuid));
+                                                    let _ = notifier.send(format!("Plugin {} reloaded successfully", uuid));
+                                                }
+                                                Err(e)=>{
+                                                    let error_msg = format!("Failed to reload plugin {}: {}", uuid, e);
+                                                    log_error(error_msg.clone());
+                                                    let _ = notifier.send(error_msg);
+                                                }
+                                            }
+                                        }
+                                        Err(e)=>{
+                                            let error_msg = format!("Failed to unload plugin {} during reload: {}", uuid, e);
+                                            log_error(error_msg.clone());
+                                            let _ = notifier.send(error_msg);
+                                        }
                                     }
                                 }
                                 PluginManagerCommand::ListPlugins(notifier) => {
@@ -661,7 +807,7 @@ fn start_geyser_runloop(
                         let transaction = match versioned_transaction {
                             Some(tx) => tx,
                             None => {
-                                let _ = simnet_events_tx.send(SimnetEvent::warn("Unable to index sanitized transaction".to_string()));
+                                log_warn("Unable to index sanitized transaction".to_string());
                                 continue;
                             }
                         };
@@ -677,14 +823,14 @@ fn start_geyser_runloop(
 
                         for plugin in surfpool_plugin_manager.iter() {
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_3(&transaction_replica), transaction_with_status_meta.slot) {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
+                                log_error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e))
                             };
                         }
 
                         #[cfg(feature = "geyser_plugin")]
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_3(&transaction_replica), transaction_with_status_meta.slot) {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e)));
+                                log_error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e))
                             };
                         }
                     }
@@ -710,14 +856,136 @@ fn start_geyser_runloop(
 
                         for plugin in surfpool_plugin_manager.iter() {
                             if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update account in Geyser plugin: {:?}", e)));
+                                log_error(format!("Failed to update account in Geyser plugin: {:?}", e));
                             }
                         }
 
                         #[cfg(feature = "geyser_plugin")]
                         for plugin in plugin_manager.plugins.iter() {
                             if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
-                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update account in Geyser plugin: {:?}", e)));
+                                log_error(format!("Failed to update account in Geyser plugin: {:?}", e))
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::StartupAccountUpdate(account_update)) => {
+                        let GeyserAccountUpdate {
+                            pubkey,
+                            account,
+                            slot,
+                            sanitized_transaction,
+                            write_version,
+                        } = account_update;
+
+                        let account_replica = ReplicaAccountInfoV3 {
+                            pubkey: pubkey.as_ref(),
+                            lamports: account.lamports,
+                            owner: account.owner.as_ref(),
+                            executable: account.executable,
+                            rent_epoch: account.rent_epoch,
+                            data: account.data.as_ref(),
+                            write_version,
+                            txn: sanitized_transaction.as_ref(),
+                        };
+
+                        // Send startup account updates with is_startup=true
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, true) {
+                                log_error(format!("Failed to send startup account update to Geyser plugin: {:?}", e));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, true) {
+                                log_error(format!("Failed to send startup account update to Geyser plugin: {:?}", e))
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::EndOfStartup) => {
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.notify_end_of_startup() {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify end of startup to Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.notify_end_of_startup() {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify end of startup to Geyser plugin: {:?}", e)));
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::UpdateSlotStatus { slot, parent, status }) => {
+                        let slot_status = match status {
+                            crate::surfnet::GeyserSlotStatus::Processed => SlotStatus::Processed,
+                            crate::surfnet::GeyserSlotStatus::Confirmed => SlotStatus::Confirmed,
+                            crate::surfnet::GeyserSlotStatus::Rooted => SlotStatus::Rooted,
+                        };
+
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.update_slot_status(slot, parent, &slot_status) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update slot status in Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.update_slot_status(slot, parent, &slot_status) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update slot status in Geyser plugin: {:?}", e)));
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::NotifyBlockMetadata(block_metadata)) => {
+                        let rewards = RewardsAndNumPartitions {
+                            rewards: vec![],
+                            num_partitions: None,
+                        };
+
+                        let block_info = ReplicaBlockInfoV4 {
+                            slot: block_metadata.slot,
+                            blockhash: &block_metadata.blockhash,
+                            rewards: &rewards,
+                            block_time: block_metadata.block_time,
+                            block_height: block_metadata.block_height,
+                            parent_slot: block_metadata.parent_slot,
+                            parent_blockhash: &block_metadata.parent_blockhash,
+                            executed_transaction_count: block_metadata.executed_transaction_count,
+                            entry_count: block_metadata.entry_count,
+                        };
+
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.notify_block_metadata(ReplicaBlockInfoVersions::V0_0_4(&block_info)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify block metadata to Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.notify_block_metadata(ReplicaBlockInfoVersions::V0_0_4(&block_info)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify block metadata to Geyser plugin: {:?}", e)));
+                            }
+                        }
+                    }
+                    Ok(GeyserEvent::NotifyEntry(entry_info)) => {
+                        let entry_replica = ReplicaEntryInfoV2 {
+                            slot: entry_info.slot,
+                            index: entry_info.index,
+                            num_hashes: entry_info.num_hashes,
+                            hash: &entry_info.hash,
+                            executed_transaction_count: entry_info.executed_transaction_count,
+                            starting_transaction_index: entry_info.starting_transaction_index,
+                        };
+
+                        for plugin in surfpool_plugin_manager.iter() {
+                            if let Err(e) = plugin.notify_entry(ReplicaEntryInfoVersions::V0_0_2(&entry_replica)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify entry to Geyser plugin: {:?}", e)));
+                            }
+                        }
+
+                        #[cfg(feature = "geyser_plugin")]
+                        for plugin in plugin_manager.plugins.iter() {
+                            if let Err(e) = plugin.notify_entry(ReplicaEntryInfoVersions::V0_0_2(&entry_replica)) {
+                                let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify entry to Geyser plugin: {:?}", e)));
                             }
                         }
                     }
@@ -851,8 +1119,10 @@ async fn start_ws_rpc_server_runloop(
                     uid,
                     signature_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     account_subscription_map: Arc::new(RwLock::new(HashMap::new())),
+                    program_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     slot_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     logs_subscription_map: Arc::new(RwLock::new(HashMap::new())),
+                    snapshot_subscription_map: Arc::new(RwLock::new(HashMap::new())),
                     tokio_handle: tokio_handle.clone(),
                 }
                 .to_delegate(),
@@ -869,6 +1139,7 @@ async fn start_ws_rpc_server_runloop(
                                 .plugin_manager_commands_tx
                                 .clone(),
                             remote_rpc_client: middleware.remote_rpc_client.clone(),
+                            rpc_config: middleware.config.clone(),
                         };
                         Some(SurfpoolWebsocketMeta::new(
                             runloop_context,
