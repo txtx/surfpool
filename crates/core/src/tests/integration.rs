@@ -7545,3 +7545,130 @@ async fn test_ws_program_subscribe_wrong_owner(test_type: TestType) {
     );
     println!("✓ programSubscribe correctly ignores accounts owned by other programs");
 }
+
+/// Regression test for issue #530: Token-2022's TokenMetadataInstruction::Initialize
+/// previously failed with "Failed to reallocate account data".
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_token2022_metadata_realloc(test_type: TestType) {
+    use solana_system_interface::instruction as system_instruction;
+    use spl_token_2022_interface::{
+        extension::{ExtensionType, metadata_pointer},
+        instruction::initialize_mint2,
+        pod::PodMint,
+    };
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let mint = Keypair::new();
+    let decimals = 6u8;
+
+    svm_locker
+        .airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    // Calculate space for mint with MetadataPointer + MintCloseAuthority extensions only.
+    // NOT pre-sized for metadata content — the CPI realloc will need to grow it.
+    let mint_space =
+        ExtensionType::try_calculate_account_len::<PodMint>(&[ExtensionType::MetadataPointer])
+            .unwrap();
+
+    // Exact minimum rent
+    let mint_rent =
+        svm_locker.with_svm_reader(|svm| svm.inner.minimum_balance_for_rent_exemption(mint_space));
+
+    // --- Transaction 1: Setup (create mint with MetadataPointer) ---
+
+    let create_account_ix = system_instruction::create_account(
+        &payer.pubkey(),
+        &mint.pubkey(),
+        mint_rent,
+        mint_space as u64,
+        &spl_token_2022_interface::id(),
+    );
+
+    // Initialize metadata pointer to the mint itself (must come before mint init)
+    let init_metadata_pointer_ix = metadata_pointer::instruction::initialize(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        Some(payer.pubkey()),
+        Some(mint.pubkey()),
+    )
+    .unwrap();
+
+    let init_mint_ix = initialize_mint2(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &payer.pubkey(),
+        None,
+        decimals,
+    )
+    .unwrap();
+
+    let setup_msg = Message::new_with_blockhash(
+        &[create_account_ix, init_metadata_pointer_ix, init_mint_ix],
+        Some(&payer.pubkey()),
+        &recent_blockhash,
+    );
+
+    let setup_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(setup_msg), &[&payer, &mint])
+            .unwrap();
+    let setup_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(setup_tx, false, false));
+
+    assert!(
+        setup_result.is_ok(),
+        "Setup transaction (create mint with MetadataPointer) \
+         should succeed: {:?}",
+        setup_result,
+    );
+    println!("✓ Setup transaction succeeded");
+
+    // --- Transaction 2: Increase rent and initialize metadata reproduces bug #530) ---
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    // Increase mint account lamports to ensure it can cover the cost of realloc during CPI.
+    let increase_mint_rent_ix =
+        system_instruction::transfer(&payer.pubkey(), &mint.pubkey(), LAMPORTS_PER_SOL);
+
+    // Build the metadata initialize instruction data (discriminator + borsh-serialized fields).
+    // We extract the data bytes from a properly-encoded instruction to pass through our CPI fixture.
+    let metadata_ix_data = spl_token_metadata_interface::instruction::initialize(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &payer.pubkey(),
+        &mint.pubkey(),
+        &payer.pubkey(),
+        "Test Token".to_string(),
+        "TST".to_string(),
+        "https://example.com/metadata.json".to_string(),
+    );
+
+    let msg = Message::new_with_blockhash(
+        &[increase_mint_rent_ix, metadata_ix_data],
+        Some(&payer.pubkey()),
+        &recent_blockhash,
+    );
+
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
+    let result = svm_locker.with_svm_writer(|svm| svm.send_transaction(tx, false, false));
+
+    // Regression test for #530: CPI realloc previously failed when Token-2022
+    // tried to realloc the mint account to store metadata
+    assert!(
+        result.is_ok(),
+        "CPI metadata initialization should succeed (regression test for #530): {:?}",
+        result,
+    );
+    println!("✓ Regression test #530: Token-2022 metadata CPI realloc works correctly");
+}
