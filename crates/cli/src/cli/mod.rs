@@ -1,4 +1,12 @@
-use std::{collections::BTreeMap, env, fs::File, path::PathBuf, process, str::FromStr};
+use std::{
+    collections::BTreeMap,
+    env,
+    fs::File,
+    panic::{AssertUnwindSafe, catch_unwind, set_hook, take_hook},
+    path::PathBuf,
+    process,
+    str::FromStr,
+};
 
 use chrono::Local;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
@@ -7,7 +15,7 @@ use fern::colors::{Color, ColoredLevelConfig};
 #[cfg(not(target_os = "windows"))]
 use fork::{Fork, daemon};
 use hiro_system_kit::{self, Logger};
-use log::{error, info};
+use log::info;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
@@ -17,16 +25,13 @@ use surfpool_types::{
     DEFAULT_DEVNET_RPC_URL, DEFAULT_GOSSIP_PORT, DEFAULT_MAINNET_RPC_URL, DEFAULT_NETWORK_HOST,
     DEFAULT_RPC_PORT, DEFAULT_SLOT_TIME_MS, DEFAULT_TESTNET_RPC_URL, DEFAULT_TPU_PORT,
     DEFAULT_TPU_QUIC_PORT, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, SimnetEvent, StudioConfig,
-    SubgraphConfig, SurfpoolConfig, SvmFeature, SvmFeatureConfig,
+    SubgraphConfig, SurfpoolConfig, SvmFeature, SvmFeatureConfig, TelemetryConfig,
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
 use txtx_gql::kit::{helpers::fs::FileLocation, types::frontend::LogLevel};
 
-use crate::{
-    cli::simnet::handle_state_diff_command, cloud::CloudStartCommand,
-    runbook::handle_execute_runbook_command,
-};
+use crate::{cloud::CloudStartCommand, runbook::handle_execute_runbook_command};
 
 mod simnet;
 
@@ -130,35 +135,6 @@ enum Command {
     /// Start MCP server
     #[clap(name = "mcp", bin_name = "mcp")]
     Mcp,
-    #[clap(name = "state", bin_name = "state")]
-    State(StateCmd),
-}
-
-#[derive(Parser, Debug, PartialEq, Clone)]
-struct StateCmd {
-    #[command(subcommand)]
-    action: StateAction,
-}
-
-#[derive(Subcommand, Debug, PartialEq, Clone)]
-enum StateAction {
-    Diff(DiffArgs),
-}
-
-#[derive(Parser, Debug, PartialEq, Clone)]
-struct DiffArgs {
-    // Snapshot to compare with mainnet accounts
-    #[clap(value_name = "SNAPSHOT_FILE")]
-    snapshot: String,
-    // Optional : Custom mainnet RPC url
-    #[clap(
-        value_name = "MAINNET_URL",
-        default_value = "https://api.mainnet-beta.solana.com"
-    )]
-    mainnet_url: String,
-    /// only show difference
-    #[clap(short, long)]
-    brief: bool,
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -284,6 +260,19 @@ pub struct StartSimnet {
     /// When multiple files are provided, later files override earlier ones for duplicate keys.
     #[arg(long = "snapshot")]
     pub snapshot: Vec<String>,
+    /// Enable Prometheus metrics endpoint
+    #[arg(long = "metrics-enabled", env = "SURFPOOL_METRICS_ENABLED")]
+    pub metrics_enabled: bool,
+    /// Prometheus metrics endpoint address
+    #[arg(
+        long = "metrics-addr",
+        default_value = "0.0.0.0:9000",
+        env = "SURFPOOL_METRICS_ADDR"
+    )]
+    pub metrics_addr: String,
+    /// Skip signature verification for all transactions (eg. surfpool start --skip-signature-verification)
+    #[clap(long = "skip-signature-verification", action=ArgAction::SetTrue, default_value = "false")]
+    pub skip_signature_verification: bool,
 }
 
 fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
@@ -441,7 +430,7 @@ impl StartSimnet {
                 Some(self.log_bytes_limit)
             },
             feature_config: self.feature_config(),
-            skip_signature_verification: false,
+            skip_signature_verification: self.skip_signature_verification,
             surfnet_id: self.surfnet_id.clone(),
             snapshot,
         }
@@ -480,6 +469,13 @@ impl StartSimnet {
             subgraph: self.subgraph_config(),
             studio: self.studio_config(),
             plugin_config_path,
+            telemetry: self.telemetry_config(),
+        }
+    }
+    pub fn telemetry_config(&self) -> TelemetryConfig {
+        TelemetryConfig {
+            enabled: self.metrics_enabled,
+            prometheus_addr: self.metrics_addr.clone(),
         }
     }
 }
@@ -609,7 +605,7 @@ pub fn main() {
     };
 
     if let Err(e) = handle_command(opts, &ctx) {
-        error!("{e}");
+        eprintln!("Error: {e}");
         std::thread::sleep(std::time::Duration::from_millis(500));
         process::exit(1);
     }
@@ -678,9 +674,6 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
         Command::List(cmd) => hiro_system_kit::nestable_block_on(handle_list_command(cmd, ctx)),
         Command::Cloud(cmd) => hiro_system_kit::nestable_block_on(handle_cloud_commands(cmd)),
         Command::Mcp => hiro_system_kit::nestable_block_on(handle_mcp_command(ctx)),
-        Command::State(state_cmd) => {
-            hiro_system_kit::nestable_block_on(handle_state_diff_command(&state_cmd))
-        }
     }
 }
 
@@ -689,9 +682,32 @@ async fn generate_completion_helpers(cmd: Completions) -> Result<(), String> {
     let file_name = cmd.shell.file_name("surfpool");
     let mut file = File::create(file_name.clone())
         .map_err(|e| format!("unable to create file {}: {}", file_name, e))?;
-    clap_complete::generate(cmd.shell, &mut app, "surfpool", &mut file);
+
+    let prev_hook = take_hook();
+
+    set_hook(Box::new(|_| {}));
+
+    if let Err(e) = catch_unwind(AssertUnwindSafe(|| {
+        clap_complete::generate(cmd.shell, &mut app, "surfpool", &mut file);
+    })) {
+        let msg = match () {
+            _ if e.downcast_ref::<&'static str>().is_some() => {
+                format!(
+                    "Completion error: {}",
+                    e.downcast_ref::<&'static str>().unwrap()
+                )
+            }
+            _ => {
+                format!("Completion generation failed: {e:#?}")
+            }
+        };
+        println!("{msg}");
+        process::exit(1);
+    }
+    set_hook(prev_hook); // restore so other panics still get reported
+
     println!("{} {}", green!("Created file"), file_name.clone());
-    println!("Check your shell’s docs for how to enable completions for surfpool.");
+    println!("Check your shell's docs for how to enable completions for surfpool.");
     Ok(())
 }
 

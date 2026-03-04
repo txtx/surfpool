@@ -1,8 +1,5 @@
 use std::{
-    collections::BTreeMap,
-    fs,
-    path::{self, Path},
-    str::FromStr,
+    path::Path,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -20,15 +17,10 @@ use notify::{
     event::{CreateKind, DataChange, ModifyKind},
 };
 use serde::{Deserialize, Serialize};
-use solana_commitment_config::CommitmentConfig;
 use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use surfpool_core::{
-    start_local_surfnet,
-    surfnet::{GetAccountResult, remote::SurfnetRemoteClient, svm::SurfnetSvm},
-};
-use surfpool_types::{AccountSnapshot, SanitizedConfig, SimnetCommand, SimnetEvent, SubgraphEvent};
+use surfpool_core::{start_local_surfnet, surfnet::svm::SurfnetSvm};
+use surfpool_types::{SanitizedConfig, SimnetCommand, SimnetEvent, SubgraphEvent};
 use txtx_core::{
     kit::{
         channel::Receiver, futures::future::join_all, helpers::fs::FileLocation,
@@ -41,7 +33,6 @@ use txtx_gql::kit::{indexmap::IndexMap, types::frontend::LogLevel, uuid::Uuid};
 
 use super::{Context, ExecuteRunbook, StartSimnet};
 use crate::{
-    cli::{StateAction, StateCmd},
     http::start_subgraph_and_explorer_server,
     runbook::{execute_in_memory_runbook, execute_on_disk_runbook, handle_log_event},
     scaffold::{
@@ -73,6 +64,20 @@ pub async fn handle_start_local_surfnet_command(
         SurfnetSvm::new_with_db(cmd.db.as_deref(), &cmd.surfnet_id)
             .map_err(|e| format!("Failed to initialize Surfnet SVM: {}", e))?;
 
+    let telemetry_config = cmd.telemetry_config();
+    if let Err(e) = surfpool_core::telemetry::init_from_config(
+        telemetry_config.enabled,
+        &telemetry_config.prometheus_addr,
+    ) {
+        let _ = surfnet_svm
+            .simnet_events_tx
+            .send(SimnetEvent::warn(format!("Metrics init failed: {}", e)));
+    } else if telemetry_config.enabled {
+        let _ = surfnet_svm.simnet_events_tx.send(SimnetEvent::info(format!(
+            "Metrics available at http://{}/metrics",
+            telemetry_config.prometheus_addr
+        )));
+    }
     // Apply feature configuration from CLI flags
     let feature_config = cmd.feature_config();
     surfnet_svm.apply_feature_config(&feature_config);
@@ -282,175 +287,6 @@ pub async fn handle_start_local_surfnet_command(
 
     Ok(())
 }
-pub async fn handle_state_diff_command(state_cmd: &StateCmd) -> Result<(), String> {
-    match &state_cmd.action {
-        StateAction::Diff(args) => {
-            // Get the snapshot file path provided by the user
-            let snapshot = &args.snapshot;
-
-            // Load and parse the snapshot file
-            let loaded_snapshot = load_snapshots(&snapshot)?;
-
-            // Get the mainnet RPC URL
-            let mainnet = &args.mainnet_url;
-
-            // Create a client to connect to mainnet
-            let mainnet_client = SurfnetRemoteClient::new(mainnet);
-
-            // Verify connection to mainnet by fetching epoch info
-            match mainnet_client.get_epoch_info().await {
-                Ok(epoch_info) => {
-                    println!("\nMainnet Connected");
-                    println!("  Epoch: {}", epoch_info.epoch);
-                    println!("  Slot: {}\n", epoch_info.absolute_slot);
-                }
-                Err(e) => {
-                    eprintln!("\nError: Failed to connect to mainnet");
-                    eprintln!("Reason: {}\n", e.to_string());
-                    return Ok(());
-                }
-            }
-
-            println!("Comparing {} accounts...\n", loaded_snapshot.len());
-            println!("{}", "=".repeat(80));
-
-            let mut differences = 0;
-
-            // Iterate through each account in the snapshot
-            for (publickey, snapshot_account) in loaded_snapshot {
-                // Fetch the corresponding account from mainnet
-                let mainnet_account = mainnet_client
-                    .get_account(&publickey, CommitmentConfig::confirmed())
-                    .await;
-
-                match mainnet_account {
-                    Ok(mainnet_account_result) => {
-                        // Compare the snapshot account with mainnet account
-                        let checks =
-                            compare_single_accounts(&snapshot_account, &mainnet_account_result);
-
-                        match checks {
-                            Ok(true) => {
-                                // Accounts match, continue to next
-                                continue;
-                            }
-                            Ok(false) => {
-                                println!("\n{}", "=".repeat(80));
-                                println!("Account: {}", publickey);
-                                println!("Status: DIFFERS\n");
-                                differences += 1;
-                            }
-                            Err(e) => {
-                                println!("\n{}", "=".repeat(80));
-                                println!("Account: {}", publickey);
-                                println!("Error: {}\n", e);
-                                differences += 1;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        println!("\n{}", "=".repeat(80));
-                        println!("Account: {}", publickey);
-                        println!("Error: Failed to fetch account from mainnet");
-                        println!("Reason: {}\n", e);
-                        differences += 1;
-                    }
-                }
-            }
-
-            println!("{}", "=".repeat(80));
-            println!("\nSummary:");
-            println!("  Differences Found: {}\n", differences);
-        }
-    }
-
-    Ok(())
-}
-
-/// Loads account snapshots from a JSON file and converts them into a BTreeMap
-fn load_snapshots(file_path: &str) -> Result<BTreeMap<Pubkey, AccountSnapshot>, String> {
-    // Check if the file exists before processing
-    if !Path::new(file_path).exists() {
-        return Err("File path does not exist".to_string());
-    }
-
-    // Convert the file path to an absolute path
-    let absolute =
-        path::absolute(file_path).map_err(|e| format!("Failed to resolve path: {}", e))?;
-
-    // Read the entire file contents as a string
-    let contents =
-        fs::read_to_string(&absolute).map_err(|e| format!("Failed to read file: {}", e))?;
-
-    // Verify the file is not empty
-    if contents.trim().is_empty() {
-        return Err("File is empty".to_string());
-    }
-
-    // Parse the JSON content into a BTreeMap with String keys
-    let json_data: BTreeMap<String, AccountSnapshot> =
-        serde_json::from_str(&contents).map_err(|e| format!("Failed to parse JSON: {}", e))?;
-
-    // Convert String keys to Pubkey and collect into final result
-    let result = json_data
-        .into_iter()
-        .map(|(key_str, value)| {
-            Pubkey::from_str(&key_str)
-                .map(|pubkey| (pubkey, value))
-                .map_err(|e| format!("Invalid pubkey '{}': {}", key_str, e))
-        })
-        .collect();
-
-    result
-}
-
-/// Compares a snapshot account with its corresponding mainnet account
-fn compare_single_accounts(
-    snapshot: &AccountSnapshot,
-    mainnet: &GetAccountResult,
-) -> Result<bool, String> {
-    // Extract the actual account data from the GetAccountResult enum
-    let mainnet_account = match mainnet {
-        GetAccountResult::FoundAccount(_, account, _) => account,
-        GetAccountResult::FoundTokenAccount((_, account), _) => account,
-        GetAccountResult::FoundProgramAccount((_, account), _) => account,
-        GetAccountResult::None(_) => return Ok(false),
-    };
-
-    // Convert the snapshot owner string to a Pubkey
-    let converted_owner_key = match Pubkey::from_str(&snapshot.owner) {
-        Ok(key) => key,
-        Err(e) => {
-            println!("  Error: Invalid owner public key in snapshot");
-            println!("  Reason: {}\n", e);
-            return Err(e.to_string());
-        }
-    };
-
-    // Compare all account fields using the compare_field macro
-    let checks = [
-        compare_field!("Lamports", snapshot.lamports, mainnet_account.lamports),
-        compare_field!("Owner", converted_owner_key, mainnet_account.owner),
-        compare_field!(
-            "Executable",
-            snapshot.executable,
-            mainnet_account.executable
-        ),
-        compare_field!(
-            "Rent Epoch",
-            snapshot.rent_epoch,
-            mainnet_account.rent_epoch
-        ),
-        compare_field!(
-            "Data length",
-            snapshot.data.len(),
-            mainnet_account.data.len()
-        ),
-    ];
-
-    // Return true only if all checks passed
-    Ok(checks.iter().all(|&matched| matched))
-}
 
 #[allow(clippy::too_many_arguments)]
 async fn start_service(
@@ -621,6 +457,23 @@ fn log_events(
                         let _ = simnet_commands_tx
                             .send(SimnetCommand::CompleteRunbookExecution(runbook_id, errors));
                     }
+                    SimnetEvent::MetricsData(metrics_data) => {
+                        #[cfg(feature = "prometheus")]
+                        {
+                            surfpool_core::telemetry::metrics().record_svm_state(
+                                metrics_data.slot,
+                                metrics_data.epoch,
+                                metrics_data.slot_index,
+                                metrics_data.transactions_count,
+                                metrics_data.transactions_processed,
+                                metrics_data.start_time,
+                                metrics_data.signature_subs,
+                                metrics_data.account_subs,
+                                metrics_data.slot_subs,
+                                metrics_data.logs_subs,
+                            );
+                        }
+                    }
                 },
                 Err(_e) => {
                     break;
@@ -737,6 +590,9 @@ async fn write_and_execute_iac(
                     cmd.skip_runbook_generation_prompts,
                     generate_subgraphs,
                 )?;
+                let runbooks_ids_to_execute = cmd.runbooks.clone();
+                on_disk_runbook_data =
+                    Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
             }
 
             if do_execute_in_memory_runbooks {

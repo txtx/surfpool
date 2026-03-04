@@ -8,8 +8,7 @@ use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
 use super::RunloopContext;
-use crate::{PluginInfo, PluginManagerCommand, rpc::State};
-
+use crate::{PluginInfo, PluginManagerCommand, rpc::State, telemetry};
 #[rpc]
 pub trait AdminRpc {
     type Metadata;
@@ -387,7 +386,6 @@ impl AdminRpc for SurfpoolAdminRpc {
         Ok(datetime_utc.to_rfc3339())
     }
     fn surfpool_status(&self, meta: Self::Metadata) -> Result<SurfpoolStatus> {
-        // Ensure we have RunloopContext metadata
         let Some(ctx) = meta else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
@@ -395,27 +393,33 @@ impl AdminRpc for SurfpoolAdminRpc {
             .into());
         };
 
-        // Read a snapshot of SVM state under a reader lock
-        // Read a consistent snapshot of SVM state
         let status = ctx.svm_locker.with_svm_reader(|svm| {
-            // Epoch / slot info
+            // Record OpenTelemetry metrics (no-op if feature disabled)
+            #[cfg(feature = "prometheus")]
+            telemetry::metrics().record_svm_state(
+                svm.latest_epoch_info.absolute_slot,
+                svm.latest_epoch_info.epoch,
+                svm.latest_epoch_info.slot_index,
+                svm.transactions.count().unwrap_or(0) as usize,
+                svm.transactions_processed,
+                svm.start_time,
+                svm.signature_subscriptions.len(),
+                svm.account_subscriptions.len(),
+                svm.slot_subscriptions.len(),
+                svm.logs_subscriptions.len(),
+            );
+
+            // Original logic unchanged
             let slot = svm.latest_epoch_info.absolute_slot;
             let epoch = svm.latest_epoch_info.epoch;
             let slot_index = svm.latest_epoch_info.slot_index;
-
-            // transactions_count via Storage::count(); fall back to 0 on error
             let transactions_count = svm.transactions.count().unwrap_or(0);
-
-            // monotonic processed counter
             let transactions_processed = svm.transactions_processed;
-
-            // subscription counts (in-memory collections)
             let signature_subscriptions = svm.signature_subscriptions.len();
             let account_subscriptions = svm.account_subscriptions.len();
             let slot_subscriptions = svm.slot_subscriptions.len();
             let logs_subscriptions = svm.logs_subscriptions.len();
 
-            // uptime in ms
             let uptime_ms = match std::time::SystemTime::now().duration_since(svm.start_time) {
                 Ok(d) => d.as_millis() as u64,
                 Err(_) => 0,

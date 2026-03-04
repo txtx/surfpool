@@ -53,9 +53,9 @@ use solana_transaction_status::{
 };
 use surfpool_types::{
     AccountSnapshot, ComputeUnitsEstimationResult, ExecutionCapture, ExportSnapshotConfig, Idl,
-    KeyedProfileResult, ProfileResult, RpcProfileResultConfig, RunbookExecutionStatusReport,
-    SimnetCommand, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
-    UiKeyedProfileResult, UuidOrSignature, VersionedIdl,
+    KeyedProfileResult, MetricsData, ProfileResult, RpcProfileResultConfig,
+    RunbookExecutionStatusReport, SimnetCommand, SimnetEvent, TransactionConfirmationStatus,
+    TransactionStatusEvent, UiKeyedProfileResult, UuidOrSignature, VersionedIdl,
 };
 use tokio::sync::RwLock;
 use txtx_addon_kit::indexmap::IndexSet;
@@ -1043,6 +1043,21 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm_writer| {
             svm_writer.write_executed_profile_result(signature, profile_result)
         })?;
+        let metric_data = self.with_svm_reader(|svm| MetricsData {
+            slot: svm.latest_epoch_info.absolute_slot,
+            epoch: svm.latest_epoch_info.epoch,
+            slot_index: svm.latest_epoch_info.slot_index,
+            transactions_count: svm.transactions.count().unwrap_or(0) as usize,
+            transactions_processed: svm.transactions_processed,
+            start_time: svm.start_time,
+            signature_subs: svm.signature_subscriptions.len(),
+            account_subs: svm.account_subscriptions.len(),
+            slot_subs: svm.slot_subscriptions.len(),
+            logs_subs: svm.logs_subscriptions.len(),
+        });
+        let _ = self
+            .simnet_events_tx()
+            .send(SimnetEvent::MetricsData(metric_data));
         Ok(())
     }
 

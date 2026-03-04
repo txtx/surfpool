@@ -4,6 +4,7 @@ use std::{
     fmt,
     path::PathBuf,
     str::FromStr,
+    time::SystemTime,
 };
 
 use blake3::Hash;
@@ -35,6 +36,20 @@ pub const DEFAULT_NETWORK_HOST: &str = "127.0.0.1";
 pub const DEFAULT_SLOT_TIME_MS: u64 = 400;
 pub type Idl = anchor_lang_idl::types::Idl;
 pub const DEFAULT_PROFILING_MAP_CAPACITY: usize = 200;
+
+#[derive(Clone, Debug)]
+pub struct MetricsData {
+    pub slot: u64,
+    pub epoch: u64,
+    pub slot_index: u64,
+    pub transactions_count: usize,
+    pub transactions_processed: u64,
+    pub start_time: SystemTime,
+    pub signature_subs: usize,
+    pub account_subs: usize,
+    pub slot_subs: usize,
+    pub logs_subs: usize,
+}
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionMetadata {
@@ -417,6 +432,7 @@ pub enum SubgraphCommand {
 #[derive(Debug)]
 pub enum SimnetEvent {
     /// Surfnet is ready, with the initial count of processed transactions from storage
+    MetricsData(MetricsData),
     Ready(u64),
     Connected(String),
     Aborted(String),
@@ -593,16 +609,18 @@ pub struct SanitizedConfig {
     pub workspace: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SurfpoolConfig {
     pub simnets: Vec<SimnetConfig>,
     pub rpc: RpcConfig,
     pub subgraph: SubgraphConfig,
     pub studio: StudioConfig,
     pub plugin_config_path: Vec<PathBuf>,
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SimnetConfig {
     pub offline_mode: bool,
     pub remote_rpc_url: Option<String>,
@@ -662,14 +680,14 @@ impl SimnetConfig {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SubgraphConfig {}
 
 pub const DEFAULT_GOSSIP_PORT: u16 = 8001;
 pub const DEFAULT_TPU_PORT: u16 = 8003;
 pub const DEFAULT_TPU_QUIC_PORT: u16 = 8004;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RpcConfig {
     pub bind_host: String,
     pub bind_port: u16,
@@ -701,7 +719,7 @@ impl Default for RpcConfig {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StudioConfig {
     pub bind_host: String,
     pub bind_port: u16,
@@ -1255,6 +1273,17 @@ impl RunbookExecutionStatusReport {
         self.completed_at = Some(Local::now().timestamp() as u32);
         self.errors = error;
     }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    pub enabled: bool,
+    #[serde(default = "default_prometheus_addr")]
+    pub prometheus_addr: String, // Just String, not Option
+}
+
+fn default_prometheus_addr() -> String {
+    "0.0.0.0:9000".to_string()
 }
 
 #[cfg(test)]

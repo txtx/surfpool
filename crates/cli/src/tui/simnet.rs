@@ -596,6 +596,21 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 );
                                 app.status_bar_message = None;
                             }
+                            SimnetEvent::MetricsData(metrics_data) => {
+                                #[cfg(feature = "prometheus")]
+                                {
+                                    // In TUI mode, we don't need to record metrics to Prometheus
+                                    // because the metrics server is running in its own thread
+                                    // But we might want to display something in debug mode
+                                    if app.include_debug_logs {
+                                        new_events.push((
+                                            EventType::Debug,
+                                            Local::now(),
+                                            format!("Metrics updated: slot={}", metrics_data.slot),
+                                        ));
+                                    }
+                                }
+                            }
                         },
                         Err(_) => break,
                     },

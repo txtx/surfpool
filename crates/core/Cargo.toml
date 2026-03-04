@@ -101,6 +101,12 @@ txtx-addon-kit = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }
 txtx-addon-network-svm = { workspace = true }
 
+# Prometheus metrics (single feature)
+opentelemetry = { workspace = true, optional = true, features = ["metrics"] }
+opentelemetry_sdk = { workspace = true, optional = true, features = ["rt-tokio", "metrics"] }
+opentelemetry-prometheus = { workspace = true, optional = true }
+prometheus = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-case = { workspace = true }
@@ -114,3 +120,6 @@ postgres = ["surfpool-db/postgres"]
 ignore_tests_ci = []
 geyser_plugin = []  # Disabled: solana-geyser-plugin-manager conflicts with litesvm 0.9.1
 subgraph = ["surfpool-subgraph"]
+# Telemetry features
+prometheus = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:axum"]
+
