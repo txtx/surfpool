@@ -1235,6 +1235,35 @@ impl SurfnetSvm {
         }
     }
 
+    /// Verifies the signature of a transaction and validates that it hasn't already been processed.
+    /// ### Note
+    /// LiteSVM also can do this for our transactions, but we disable it.
+    /// If sigverify is enabled at the LiteSVM level, the transaction simulations are always verified as well.
+    /// So, if the user is trying to skip signature verification for a simulation, we'd need to unset and set this value,
+    /// requiring a mutable reference to the SVM, which we don't have/want in the simulation path.
+    /// Additionally, having this function internally lets us do this check before we start fetching accounts from mainnet.
+    pub fn sigverify(&self, tx: &VersionedTransaction) -> Result<(), FailedTransactionMetadata> {
+        let signature = tx.signatures[0];
+
+        if tx.verify_with_results().iter().any(|valid| !*valid) {
+            return Err(FailedTransactionMetadata {
+                err: TransactionError::SignatureFailure,
+                meta: TransactionMetadata::default(),
+            });
+        }
+
+        if matches!(
+            self.transactions.get(&signature.to_string()),
+            Ok(Some(SurfnetTransactionStatus::Processed(_)))
+        ) {
+            return Err(FailedTransactionMetadata {
+                err: TransactionError::AlreadyProcessed,
+                meta: TransactionMetadata::default(),
+            });
+        }
+        Ok(())
+    }
+
     /// Sets an account in the local SVM state and notifies listeners.
     ///
     /// # Arguments
@@ -1602,11 +1631,8 @@ impl SurfnetSvm {
         cu_analysis_enabled: bool,
         sigverify: bool,
     ) -> TransactionResult {
-        if sigverify && tx.verify_with_results().iter().any(|valid| !*valid) {
-            return Err(FailedTransactionMetadata {
-                err: TransactionError::SignatureFailure,
-                meta: TransactionMetadata::default(),
-            });
+        if sigverify {
+            self.sigverify(&tx)?;
         }
 
         if cu_analysis_enabled {
@@ -1709,11 +1735,8 @@ impl SurfnetSvm {
         tx: VersionedTransaction,
         sigverify: bool,
     ) -> Result<SimulatedTransactionInfo, FailedTransactionMetadata> {
-        if sigverify && tx.verify_with_results().iter().any(|valid| !*valid) {
-            return Err(FailedTransactionMetadata {
-                err: TransactionError::SignatureFailure,
-                meta: TransactionMetadata::default(),
-            });
+        if sigverify {
+            self.sigverify(&tx)?;
         }
 
         if !self.validate_transaction_blockhash(&tx) {
