@@ -1,5 +1,3 @@
-use std::{future::Future, sync::Arc};
-
 use blake3::Hash;
 use crossbeam_channel::Sender;
 use jsonrpc_core::{
@@ -9,7 +7,13 @@ use jsonrpc_core::{
 };
 use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
-use surfpool_types::{SimnetCommand, SimnetEvent, types::RpcConfig};
+use std::{
+    future::Future,
+    sync::{Arc, Mutex},
+};
+use surfpool_types::{
+    CheatcodeConfig, RpcCheatcodes, SimnetCommand, SimnetEvent, types::RpcConfig,
+};
 
 use crate::{
     PluginManagerCommand,
@@ -48,6 +52,7 @@ pub struct RunloopContext {
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub remote_rpc_client: Option<SurfnetRemoteClient>,
     pub rpc_config: RpcConfig,
+    pub cheatcode_config: Arc<Mutex<CheatcodeConfig>>,
 }
 
 pub struct SurfnetRpcContext<T> {
@@ -113,6 +118,7 @@ pub struct SurfpoolMiddleware {
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub config: RpcConfig,
     pub remote_rpc_client: Option<SurfnetRemoteClient>,
+    pub cheatcode_config: Arc<Mutex<CheatcodeConfig>>,
 }
 
 impl SurfpoolMiddleware {
@@ -129,6 +135,7 @@ impl SurfpoolMiddleware {
             plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
             config: config.clone(),
             remote_rpc_client: remote_rpc_client.clone(),
+            cheatcode_config: CheatcodeConfig::new(),
         }
     }
 }
@@ -171,7 +178,30 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
             remote_rpc_client: self.remote_rpc_client.clone(),
             rpc_config: self.config.clone(),
+            cheatcode_config: self.cheatcode_config.clone(),
         });
+
+        if RpcCheatcodes::try_from(method_name.as_str()).is_ok()
+            && let Some(meta_val) = meta.clone()
+            && meta_val
+                .cheatcode_config
+                .lock()
+                .unwrap() // this is okay since only on_request, disable_cheatcode and enable_cheatcode only use it, the rpc method being called after on_request
+                .is_cheatcode_disabled(&method_name)
+        {
+            let error = Response::from(
+                Error {
+                    code: ErrorCode::InvalidRequest,
+                    message: format!("Cheatsheet rpc method: {method_name} is currently disabled"),
+                    data: None,
+                },
+                None,
+            );
+            warn!("Request rejected due to cheatsheet being disabled");
+
+            return Either::Left(Box::pin(async move { Some(error) }));
+        }
+
         Either::Left(Box::pin(next(request, meta).map(move |res| {
             if let Some(Response::Single(output)) = &res {
                 if let jsonrpc_core::Output::Failure(failure) = output {
@@ -222,6 +252,7 @@ impl Middleware<Option<SurfpoolWebsocketMeta>> for SurfpoolWebsocketMiddleware {
             plugin_manager_commands_tx: self.surfpool_middleware.plugin_manager_commands_tx.clone(),
             remote_rpc_client: self.surfpool_middleware.remote_rpc_client.clone(),
             rpc_config: self.surfpool_middleware.config.clone(),
+            cheatcode_config: self.surfpool_middleware.cheatcode_config.clone(),
         };
         let session = meta
             .as_ref()

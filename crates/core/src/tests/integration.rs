@@ -32,8 +32,9 @@ use solana_system_interface::{
 };
 use solana_transaction::{Transaction, versioned::VersionedTransaction};
 use surfpool_types::{
-    DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
-    SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
+    CheatcodeConfig, DEFAULT_SLOT_TIME_MS, Idl, RpcCheatcodes, RpcProfileDepth,
+    RpcProfileResultConfig, SimnetCommand, SimnetEvent, SurfpoolConfig, UiAccountChange,
+    UiAccountProfileState, UiKeyedProfileResult,
     types::{
         BlockProductionMode, RpcConfig, SimnetConfig, SubgraphConfig, TransactionStatusEvent,
         UuidOrSignature,
@@ -796,6 +797,7 @@ async fn test_surfnet_estimate_compute_units(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     // Test with None tag
@@ -1052,6 +1054,140 @@ async fn test_surfnet_estimate_compute_units(test_type: TestType) {
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_enable_and_disable_cheatcodes(test_type: TestType) {
+    let rpc_server = SurfnetCheatcodesRpc;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let disable_cheatcode_method: String = RpcCheatcodes::GetActiveIdl.into();
+    let invalid_cheatcode = "invalidCheatcode".to_string();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+    };
+
+    let disable_cheatcode_result = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        vec![disable_cheatcode_method.to_string()],
+    );
+
+    // test whether enabling and disabling cheatcodes work
+    assert!(
+        disable_cheatcode_result.is_ok(),
+        "Cheatcode disable failed: {:?}",
+        disable_cheatcode_result.err()
+    );
+
+    assert!(
+        runloop_context
+            .cheatcode_config
+            .lock()
+            .unwrap()
+            .is_cheatcode_disabled(&disable_cheatcode_method.to_string()),
+        "Expected {} rpc method to be disabled",
+        disable_cheatcode_method
+    );
+
+    let enable_cheatcode_result = rpc_server.enable_cheatcode(
+        Some(runloop_context.clone()),
+        vec![disable_cheatcode_method.to_string()],
+    );
+
+    assert!(
+        enable_cheatcode_result.is_ok(),
+        "Cheatcode enable failed: {:?}",
+        disable_cheatcode_result.err()
+    );
+
+    assert!(
+        !runloop_context
+            .cheatcode_config
+            .lock()
+            .unwrap()
+            .is_cheatcode_disabled(&disable_cheatcode_method.to_string()),
+        "Expected {} rpc method to be enabled",
+        disable_cheatcode_method
+    );
+
+    // Test handling an exeptional case where param provides an invalid cheatcode
+    let invalid_cheatcode_disable_result =
+        rpc_server.enable_cheatcode(Some(runloop_context.clone()), vec![invalid_cheatcode]);
+
+    assert!(
+        invalid_cheatcode_disable_result.is_err(),
+        "Expected passing an invalid cheatcode to be disabled to result in Error"
+    );
+
+    // cheatcode_config.lockout tests
+    // disabling enableCheatcode and disableCheatcode should result in error when lockout == false
+    let disable_cheatcode_enable_rpc_method_result = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        vec![RpcCheatcodes::EnableCheatcode.into()],
+    );
+    let disable_cheatcode_disable_rpc_method_result = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        vec![RpcCheatcodes::DisableCheatcode.into()],
+    );
+    assert!(
+        disable_cheatcode_enable_rpc_method_result.is_err()
+            && disable_cheatcode_disable_rpc_method_result.is_err(),
+        "Expected disable_cheatcode to fail when trying to disable surfnet_enableCheatcode rpc method when lockout == false"
+    );
+
+    let enable_lockout_result = rpc_server.lockout(Some(runloop_context.clone()));
+
+    assert!(
+        enable_lockout_result.is_ok(),
+        "Expected lockout rpc method to succeed"
+    );
+
+    assert!(
+        runloop_context.cheatcode_config.lock().unwrap().lockout,
+        "Expected lockout to be true"
+    );
+
+    let disable_cheatcode_control_rpc_method_succeed_result = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        vec![RpcCheatcodes::EnableCheatcode.into()],
+    );
+
+    assert!(
+        disable_cheatcode_control_rpc_method_succeed_result.is_ok(),
+        "Expected disable_cheatcode to pass when trying to disable surfnet_enableCheatcode rpc method when lockout == true"
+    );
+
+    // Disable all cheatcode tests
+    // NOTE: Testing whether the cheatcode rpc method are disabled after the call the disable_all_cheatcodes is not possible as
+    // filtering happens in the on_request middleware
+    let disable_all_result = rpc_server.disable_all_cheatcodes(Some(runloop_context.clone()));
+
+    assert!(
+        disable_all_result.is_ok(),
+        "Expected disable all rpc method to work without fail"
+    );
+
+    assert!(
+        runloop_context
+            .cheatcode_config
+            .lock()
+            .unwrap()
+            .filter
+            .eq(&surfpool_types::CheatcodeFilter::All),
+        "Expected cheatcode filter to have the CheatcodeFilter::All variant"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_transaction_profile(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc;
@@ -1090,6 +1226,7 @@ async fn test_get_transaction_profile(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     // Test 1: Profile a transaction with a tag and retrieve by UUID
@@ -1289,6 +1426,7 @@ fn test_register_and_get_idl_without_slot(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     // Test 1: Register IDL without slot
@@ -1344,6 +1482,7 @@ fn test_register_and_get_idl_with_slot(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     // Test 1: Register IDL with slot
@@ -1425,6 +1564,7 @@ async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     // Step 1: Register IDL v1 at slot_1
@@ -3105,6 +3245,7 @@ async fn test_get_local_signatures_without_limit(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     let payer = Keypair::new();
@@ -3209,6 +3350,7 @@ async fn test_get_local_signatures_with_limit(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     let payer = Keypair::new();
@@ -3416,6 +3558,7 @@ fn test_time_travel_resume_paused_clock(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     // Get initial epoch info
@@ -3497,6 +3640,7 @@ fn test_time_travel_absolute_timestamp(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     let clock = Clock {
@@ -3579,6 +3723,7 @@ fn test_time_travel_absolute_slot(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     let clock = Clock {
@@ -3655,6 +3800,7 @@ fn test_time_travel_absolute_epoch(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     let clock = Clock {
@@ -4388,6 +4534,7 @@ fn test_reset_network_time_travel_timestamp(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     // Calculate a target timestamp in the future
@@ -4440,6 +4587,7 @@ fn test_reset_network_time_travel_slot(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     // Do an initial reset to ensure we start from slot 0
@@ -4496,6 +4644,7 @@ fn test_reset_network_time_travel_epoch(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     // Do an initial reset to ensure we start from epoch 0
@@ -6980,6 +7129,7 @@ async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
         plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
     };
 
     // Profile the transaction multiple times to ensure no state leakage
