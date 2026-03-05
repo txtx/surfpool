@@ -378,6 +378,8 @@ jobs:
 
       - name: Download pre-built dists
         uses: actions/download-artifact@v4
+        with:
+          pattern: surfpool-*
 
       - name: Tag and Release
         uses: ncipollo/release-action@v1
