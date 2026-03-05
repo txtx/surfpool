@@ -1,3 +1,8 @@
+use std::{
+    future::Future,
+    sync::{Arc, Mutex},
+};
+
 use blake3::Hash;
 use crossbeam_channel::Sender;
 use jsonrpc_core::{
@@ -7,10 +12,6 @@ use jsonrpc_core::{
 };
 use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
-use std::{
-    future::Future,
-    sync::{Arc, Mutex},
-};
 use surfpool_types::{
     CheatcodeConfig, RpcCheatcodes, SimnetCommand, SimnetEvent, types::RpcConfig,
 };
