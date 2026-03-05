@@ -1070,6 +1070,7 @@ async fn start_http_rpc_server_runloop(
             let server = match ServerBuilder::new(io)
                 .cors(DomainsValidation::Disabled)
                 .threads(6)
+                .max_request_body_size(15 * 1024 * 1024)
                 .start_http(&server_bind)
             {
                 Ok(server) => server,
