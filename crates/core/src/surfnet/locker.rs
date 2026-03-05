@@ -785,14 +785,21 @@ impl SurfnetSvmLocker {
         pubkey: &Pubkey,
         config: Option<RpcSignaturesForAddressConfig>,
     ) -> SvmAccessContext<Vec<RpcConfirmedTransactionStatusWithSignature>> {
-        self.with_contextualized_svm_reader(|svm_reader| {
+        let RpcSignaturesForAddressConfig {
+            before,
+            until,
+            limit,
+            min_context_slot,
+            ..
+        } = config.unwrap_or_default();
+
+        self.with_contextualized_svm_reader(move |svm_reader| {
             let current_slot = svm_reader.get_latest_absolute_slot();
 
-            let config = config.clone().unwrap_or_default();
-            let limit = config.limit.unwrap_or(1000);
+            let limit = limit.unwrap_or(1000);
 
-            let config_before = config.before.clone();
-            let config_until = config.until.clone();
+            let config_before = &before;
+            let config_until = &until;
 
             let mut before_slot = None;
             let mut until_slot = None;
@@ -809,18 +816,20 @@ impl SurfnetSvmLocker {
                                 meta,
                             },
                             _,
-                        ) = status.expect_processed();
+                        ) = status
+                            .as_processed()
+                            .expect("expected processed transaction");
 
-                        if *slot < config.clone().min_context_slot.unwrap_or_default() {
+                        if slot < min_context_slot.unwrap_or_default() {
                             return None;
                         }
 
-                        if Some(sig.clone()) == config_before {
-                            before_slot = Some(*slot);
+                        if Some(sig.clone()) == *config_before {
+                            before_slot = Some(slot);
                         }
 
-                        if Some(sig.clone()) == config_until {
-                            until_slot = Some(*slot);
+                        if Some(sig.clone()) == *config_until {
+                            until_slot = Some(slot);
                         }
 
                         // Check if the pubkey is a signer
@@ -831,19 +840,19 @@ impl SurfnetSvmLocker {
 
                         // Determine confirmation status
                         let confirmation_status = match current_slot {
-                            cs if cs == *slot => SolanaTransactionConfirmationStatus::Processed,
-                            cs if cs < *slot + FINALIZATION_SLOT_THRESHOLD => {
+                            cs if cs == slot => SolanaTransactionConfirmationStatus::Processed,
+                            cs if cs < slot + FINALIZATION_SLOT_THRESHOLD => {
                                 SolanaTransactionConfirmationStatus::Confirmed
                             }
                             _ => SolanaTransactionConfirmationStatus::Finalized,
                         };
 
                         Some(RpcConfirmedTransactionStatusWithSignature {
-                            err: match &meta.status {
+                            err: match meta.status {
                                 Ok(_) => None,
-                                Err(e) => Some(e.clone().into()),
+                                Err(e) => Some(e.into()),
                             },
-                            slot: *slot,
+                            slot,
                             memo: None,
                             block_time: None,
                             confirmation_status: Some(confirmation_status),
@@ -866,15 +875,15 @@ impl SurfnetSvmLocker {
 
             sigs.into_iter()
                 .filter(|sig| {
-                    if config.before.is_none() && config.until.is_none() {
+                    if before.is_none() && until.is_none() {
                         return true;
                     }
 
-                    if config.before.is_some() && before_slot > Some(sig.slot) {
+                    if before.is_some() && before_slot > Some(sig.slot) {
                         return true;
                     }
 
-                    if config.until.is_some() && until_slot < Some(sig.slot) {
+                    if until.is_some() && until_slot < Some(sig.slot) {
                         return true;
                     }
 
@@ -883,14 +892,8 @@ impl SurfnetSvmLocker {
                 // order from most recent to least recent
                 .sorted_by(|a, b| {
                     b.slot.cmp(&a.slot).then_with(|| {
-                        let a_pos = sig_position
-                            .get(&a.signature)
-                            .copied()
-                            .unwrap_or(usize::MAX);
-                        let b_pos = sig_position
-                            .get(&b.signature)
-                            .copied()
-                            .unwrap_or(usize::MAX);
+                        let a_pos = sig_position.get(&a.signature).unwrap_or(&usize::MAX);
+                        let b_pos = sig_position.get(&b.signature).unwrap_or(&usize::MAX);
                         b_pos.cmp(&a_pos)
                     })
                 })
