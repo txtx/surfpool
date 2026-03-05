@@ -40,7 +40,7 @@ use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
     BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_MAINNET_RPC_URL, DataIndexingCommand,
     SimnetCommand, SimnetConfig, SimnetEvent, SubgraphCommand, SubgraphPluginConfig,
-    SurfpoolConfig,
+    SurfpoolConfig, TransactionStatusEvent,
 };
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use txtx_addon_kit::helpers::fs::FileLocation;
@@ -53,7 +53,7 @@ use crate::{
         admin::AdminRpc, bank_data::BankData, full::Full, minimal::Minimal,
         surfnet_cheatcodes::SurfnetCheatcodes, ws::Rpc,
     },
-    surfnet::{GeyserEvent, locker::SurfnetSvmLocker, remote::SurfnetRemoteClient},
+    surfnet::{GeyserEvent, ProfilingJob, locker::SurfnetSvmLocker, remote::SurfnetRemoteClient},
 };
 
 const BLOCKHASH_SLOT_TTL: u64 = 75;
@@ -167,6 +167,9 @@ pub async fn start_local_surfnet_runloop(
                 simnet_events_tx_cc.send(SimnetEvent::error(format!("Geyser plugin failed: {e}")));
         }
     };
+    
+    setup_profiling(&svm_locker);
+
 
     let (clock_event_rx, clock_command_tx) =
         start_clock_runloop(simnet_config.slot_time, Some(simnet_events_tx_cc.clone()));
@@ -1169,4 +1172,58 @@ async fn start_ws_rpc_server_runloop(
         })
         .map_err(|e| format!("Failed to spawn WebSocket RPC Handler thread: {:?}", e))?;
     Ok(_ws_handle)
+}
+
+
+pub fn setup_profiling(svm_locker: &SurfnetSvmLocker) {
+    let simnet_events_tx = svm_locker.simnet_events_tx();
+    let (profiling_job_tx, profiling_job_rx) = crossbeam_channel::bounded(128);
+    start_profiling_runloop(profiling_job_rx, simnet_events_tx);
+    svm_locker.with_svm_writer(|svm| {
+        svm.profiling_job_tx = Some(profiling_job_tx);
+    });
+}
+
+pub fn start_profiling_runloop(
+    profiling_job_rx: Receiver<ProfilingJob>,
+    simnet_events_tx: Sender<SimnetEvent>,
+) { 
+    // no need of this channel in profiling 
+    let (temp_status_tx, _) = crossbeam_channel::unbounded();
+    hiro_system_kit::thread_named("Instruction Profiler").spawn(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .expect("Failed to build profiling runtime");
+        
+        while let Ok(job) = profiling_job_rx.recv() {
+            let result = rt.block_on(async {
+                let profiling_locker = SurfnetSvmLocker::new(job.profiling_svm);
+                profiling_locker
+                    .generate_instruction_profiles(
+                        &job.transaction,
+                        &job.transaction_accounts,
+                        &job.loaded_addresses,
+                        &job.accounts_before,
+                        &job.token_accounts_before,
+                        &job.token_programs,
+                        job.pre_execution_capture,
+                        &temp_status_tx
+                    )
+                    .await
+            });
+
+            let profiles = match result {
+                Ok(profiles) => profiles,
+                Err(e) => {
+                    let _ = simnet_events_tx.try_send(SimnetEvent::error(format!(
+                        "Instruction profiling failed: {}", e
+                    )));
+                    None
+                }
+            };
+            let _ = job.result_tx.send(profiles);
+        }
+    }).expect("Failed to spawn Instruction Profiler thread");
 }
