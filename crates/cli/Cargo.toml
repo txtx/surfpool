@@ -78,6 +78,7 @@ postgres = ["surfpool-gql/postgres", "surfpool-core/postgres"]
 version_check = []
 subgraph = ["surfpool-core/subgraph"]
 register-tracing = ["surfpool-core/register-tracing"]
+prometheus = ["surfpool-core/prometheus"]
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 fork = "0.2.0"

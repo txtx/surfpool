@@ -25,7 +25,7 @@ use surfpool_types::{
     DEFAULT_DEVNET_RPC_URL, DEFAULT_GOSSIP_PORT, DEFAULT_MAINNET_RPC_URL, DEFAULT_NETWORK_HOST,
     DEFAULT_RPC_PORT, DEFAULT_SLOT_TIME_MS, DEFAULT_TESTNET_RPC_URL, DEFAULT_TPU_PORT,
     DEFAULT_TPU_QUIC_PORT, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, SimnetEvent, StudioConfig,
-    SubgraphConfig, SurfpoolConfig, SvmFeature, SvmFeatureConfig,
+    SubgraphConfig, SurfpoolConfig, SvmFeature, SvmFeatureConfig, TelemetryConfig,
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -260,6 +260,16 @@ pub struct StartSimnet {
     /// When multiple files are provided, later files override earlier ones for duplicate keys.
     #[arg(long = "snapshot")]
     pub snapshot: Vec<String>,
+    /// Enable Prometheus metrics endpoint
+    #[arg(long = "metrics-enabled", env = "SURFPOOL_METRICS_ENABLED")]
+    pub metrics_enabled: bool,
+    /// Prometheus metrics endpoint address
+    #[arg(
+        long = "metrics-addr",
+        default_value = "0.0.0.0:9000",
+        env = "SURFPOOL_METRICS_ADDR"
+    )]
+    pub metrics_addr: String,
     /// Skip signature verification for all transactions (eg. surfpool start --skip-signature-verification)
     #[clap(long = "skip-signature-verification", action=ArgAction::SetTrue, default_value = "false")]
     pub skip_signature_verification: bool,
@@ -459,6 +469,13 @@ impl StartSimnet {
             subgraph: self.subgraph_config(),
             studio: self.studio_config(),
             plugin_config_path,
+            telemetry: self.telemetry_config(),
+        }
+    }
+    pub fn telemetry_config(&self) -> TelemetryConfig {
+        TelemetryConfig {
+            enabled: self.metrics_enabled,
+            prometheus_addr: self.metrics_addr.clone(),
         }
     }
 }

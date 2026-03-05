@@ -17,6 +17,7 @@ pub mod runloops;
 pub mod scenarios;
 pub mod storage;
 pub mod surfnet;
+pub mod telemetry;
 pub mod types;
 
 use crossbeam_channel::{Receiver, Sender};

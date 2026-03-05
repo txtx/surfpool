@@ -63,6 +63,20 @@ pub async fn handle_start_local_surfnet_command(
     let (mut surfnet_svm, simnet_events_rx, geyser_events_rx) =
         SurfnetSvm::new_with_db(cmd.db.as_deref(), &cmd.surfnet_id)
             .map_err(|e| format!("Failed to initialize Surfnet SVM: {}", e))?;
+    let telemetry_config = cmd.telemetry_config();
+    if let Err(e) = surfpool_core::telemetry::init_from_config(
+        telemetry_config.enabled,
+        &telemetry_config.prometheus_addr,
+    ) {
+        let _ = surfnet_svm
+            .simnet_events_tx
+            .send(SimnetEvent::warn(format!("Metrics init failed: {}", e)));
+    } else if telemetry_config.enabled {
+        let _ = surfnet_svm.simnet_events_tx.send(SimnetEvent::info(format!(
+            "Metrics available at http://{}/metrics",
+            telemetry_config.prometheus_addr
+        )));
+    }
 
     // Apply feature configuration from CLI flags
     let feature_config = cmd.feature_config();
@@ -442,6 +456,23 @@ fn log_events(
                         info!("Runbook '{}' execution completed", runbook_id);
                         let _ = simnet_commands_tx
                             .send(SimnetCommand::CompleteRunbookExecution(runbook_id, errors));
+                    }
+                    SimnetEvent::MetricsData(metrics_data) => {
+                        #[cfg(feature = "prometheus")]
+                        {
+                            surfpool_core::telemetry::metrics().record_svm_state(
+                                metrics_data.slot,
+                                metrics_data.epoch,
+                                metrics_data.slot_index,
+                                metrics_data.transactions_count,
+                                metrics_data.transactions_processed,
+                                metrics_data.start_time,
+                                metrics_data.signature_subs,
+                                metrics_data.account_subs,
+                                metrics_data.slot_subs,
+                                metrics_data.logs_subs,
+                            );
+                        }
                     }
                 },
                 Err(_e) => {

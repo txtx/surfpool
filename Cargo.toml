@@ -179,6 +179,13 @@ txtx-core = { version = "0.4.15" }
 txtx-gql = { version = "0.3.9" }
 txtx-supervisor-ui = { version = "0.2.10", default-features = false }
 
+opentelemetry = { version = "0.28", default-features = false, features = ["metrics"] }
+opentelemetry_sdk = { version = "0.28", default-features = false, features = ["rt-tokio", "metrics"] }
+opentelemetry-otlp = { version = "0.28", default-features = false, features = ["metrics", "grpc-tonic"] }
+opentelemetry-prometheus = { version = "0.28", default-features = false }
+prometheus = { version = "0.13", default-features = false }
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
+
 # [patch.crates-io]
 ## Local
 # txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
