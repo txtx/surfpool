@@ -1235,6 +1235,13 @@ impl SurfnetSvm {
         }
     }
 
+    /// Verifies the signature of a transaction and validates that it hasn't already been processed.
+    /// ### Note
+    /// LiteSVM also can do this for our transactions, but we disable it.
+    /// If sigverify is enabled at the LiteSVM level, the transaction simulations are always verified as well.
+    /// So, if the user is trying to skip signature verification for a simulation, we'd need to unset and set this value,
+    /// requiring a mutable reference to the SVM, which we don't have/want in the simulation path.
+    /// Additionally, having this function internally lets us do this check before we start fetching accounts from mainnet.
     pub fn sigverify(&self, tx: &VersionedTransaction) -> Result<(), FailedTransactionMetadata> {
         let signature = tx.signatures[0];
 
