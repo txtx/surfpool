@@ -13,17 +13,76 @@ env:
   IMAGE_NAME: surfpool/surfpool
 
 jobs:
-  build-and-push:
+  build-image-amd64:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=buildkit-amd64
+          cache-to: type=gha,scope=buildkit-amd64,mode=max
+
+  build-image-arm64:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=buildkit-arm64
+          cache-to: type=gha,scope=buildkit-arm64,mode=max
+
+  merge-image-manifest:
+    runs-on: ubuntu-latest
+    needs:
+      - build-image-amd64
+      - build-image-arm64
+    permissions:
+      contents: read
+    steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -40,18 +99,20 @@ jobs:
           VERSION="${VERSION#v}"
           MAJOR="${VERSION%%.*}"
           MINOR="${VERSION%.*}"
-          TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
-          TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${MINOR}"
-          TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${MAJOR}"
-          TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}" >> $GITHUB_OUTPUT
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${MINOR}" >> $GITHUB_OUTPUT
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${MAJOR}" >> $GITHUB_OUTPUT
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create multi-arch manifest
+        run: |
+          AMD64_DIGEST="${{ needs.build-image-amd64.outputs.digest }}"
+          ARM64_DIGEST="${{ needs.build-image-arm64.outputs.digest }}"
+          while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+            docker buildx imagetools create --tag "$TAG" \
+              "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${AMD64_DIGEST}" \
+              "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${ARM64_DIGEST}"
+          done <<< "${{ steps.tags.outputs.tags }}"
