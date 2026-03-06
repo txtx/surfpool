@@ -154,7 +154,19 @@ impl SurfnetRemoteClient {
             .get_multiple_accounts(pubkeys)
             .await
             .map_err(SurfpoolError::get_multiple_accounts)?;
-
+        debug!("Fetched {:?} accounts from remote", pubkeys);
+        debug!(
+            "Found accounts for pubkeys: {:#?}",
+            remote_accounts
+                .iter()
+                .zip(pubkeys)
+                .filter_map(|(account, pubkey)| if account.is_some() {
+                    Some(pubkey)
+                } else {
+                    None
+                })
+                .collect::<Vec<&Pubkey>>()
+        );
         let mut accounts_result = vec![];
         let mut mint_accounts_src: Vec<(Pubkey, Account, Pubkey)> = vec![];
         let mut program_accounts_src: Vec<(Pubkey, Account, Pubkey)> = vec![];
@@ -188,6 +200,12 @@ impl SurfnetRemoteClient {
             }
         }
 
+        debug!(
+            "Identified {} mint accounts and {} program accounts to fetch for remote accounts",
+            mint_accounts_src.len(),
+            program_accounts_src.len()
+        );
+
         if !(mint_accounts_src.is_empty() && program_accounts_src.is_empty()) {
             let mint_acc_src_len = mint_accounts_src.len();
             let mut account_buffer = mint_accounts_src.clone();
@@ -201,6 +219,23 @@ impl SurfnetRemoteClient {
                 .await
                 .map_err(SurfpoolError::get_multiple_accounts)?
                 .value;
+
+            debug!(
+                "Fetched {} additional accounts from remote",
+                binding_remote_accounts.len()
+            );
+            debug!(
+                "Found additional accounts for pubkeys: {:#?}",
+                binding_remote_accounts
+                    .iter()
+                    .zip(account_pubkeys)
+                    .filter_map(|(account, pubkey)| if account.is_some() {
+                        Some(pubkey)
+                    } else {
+                        None
+                    })
+                    .collect::<Vec<Pubkey>>()
+            );
 
             for (index, remote_account) in binding_remote_accounts.iter().enumerate() {
                 if index < mint_acc_src_len {
