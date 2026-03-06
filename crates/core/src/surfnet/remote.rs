@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use serde_json::json;
 use solana_account::Account;

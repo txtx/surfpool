@@ -4830,9 +4830,8 @@ async fn test_remote_get_multiple_accounts_ordering(test_type: TestType) {
         .expect("Failed to airdrop to plain account");
 
     // Start surfnet B pointing to A as remote
-    let (surfnet_url, _) =
-        start_surfnet(vec![], Some(datasource_url), another_test_type)
-            .expect("Failed to start surfnet B");
+    let (surfnet_url, _) = start_surfnet(vec![], Some(datasource_url), another_test_type)
+        .expect("Failed to start surfnet B");
 
     let rpc_client = RpcClient::new(surfnet_url);
 
@@ -4848,13 +4847,19 @@ async fn test_remote_get_multiple_accounts_ordering(test_type: TestType) {
     let prog_account = accounts[0]
         .as_ref()
         .expect("Program account should be found at index 0");
-    assert!(prog_account.executable, "accounts[0] should be executable (program)");
+    assert!(
+        prog_account.executable,
+        "accounts[0] should be executable (program)"
+    );
 
     // Index 1 must be the plain account (not executable, has lamports)
     let plain_account = accounts[1]
         .as_ref()
         .expect("Plain account should be found at index 1");
-    assert!(!plain_account.executable, "accounts[1] should not be executable (plain)");
+    assert!(
+        !plain_account.executable,
+        "accounts[1] should not be executable (plain)"
+    );
     assert_eq!(
         plain_account.lamports, LAMPORTS_PER_SOL,
         "accounts[1] should have airdrop lamports"
