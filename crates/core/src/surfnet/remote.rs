@@ -188,7 +188,7 @@ impl SurfnetRemoteClient {
             }
         }
 
-        if !(mint_accounts_src.is_empty() || program_accounts_src.is_empty()) {
+        if !(mint_accounts_src.is_empty() && program_accounts_src.is_empty()) {
             let mint_acc_src_len = mint_accounts_src.len();
             let mut account_buffer = mint_accounts_src.clone();
             account_buffer.extend_from_slice(&program_accounts_src);
