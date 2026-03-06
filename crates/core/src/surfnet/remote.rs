@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use serde_json::json;
 use solana_account::Account;
@@ -154,8 +154,20 @@ impl SurfnetRemoteClient {
             .get_multiple_accounts(pubkeys)
             .await
             .map_err(SurfpoolError::get_multiple_accounts)?;
-
-        let mut accounts_result = vec![];
+        debug!("Fetched {:?} accounts from remote", pubkeys);
+        debug!(
+            "Found accounts for pubkeys: {:#?}",
+            remote_accounts
+                .iter()
+                .zip(pubkeys)
+                .filter_map(|(account, pubkey)| if account.is_some() {
+                    Some(pubkey)
+                } else {
+                    None
+                })
+                .collect::<Vec<&Pubkey>>()
+        );
+        let mut results_map: HashMap<Pubkey, GetAccountResult> = HashMap::new();
         let mut mint_accounts_src: Vec<(Pubkey, Account, Pubkey)> = vec![];
         let mut program_accounts_src: Vec<(Pubkey, Account, Pubkey)> = vec![];
         for (pubkey, remote_account) in pubkeys.iter().zip(remote_accounts) {
@@ -164,31 +176,42 @@ impl SurfnetRemoteClient {
                     if let Ok(token_account) = TokenAccount::unpack(&remote_account.data) {
                         mint_accounts_src.push((*pubkey, remote_account, token_account.mint()));
                     } else {
-                        accounts_result.push(GetAccountResult::FoundAccount(
+                        results_map.insert(
+                            *pubkey,
+                            GetAccountResult::FoundAccount(
+                                *pubkey,
+                                remote_account,
+                                // Mark this account as needing to be updated in the SVM, since we fetched it
+                                true,
+                            ),
+                        );
+                    }
+                } else if remote_account.executable {
+                    let program_data_address = get_program_data_address(pubkey);
+                    program_accounts_src.push((*pubkey, remote_account, program_data_address));
+                } else {
+                    results_map.insert(
+                        *pubkey,
+                        GetAccountResult::FoundAccount(
                             *pubkey,
                             remote_account,
                             // Mark this account as needing to be updated in the SVM, since we fetched it
                             true,
-                        ));
-                    }
-                } else if remote_account.executable {
-                    let program_data_address = get_program_data_address(pubkey);
-
-                    program_accounts_src.push((*pubkey, remote_account, program_data_address));
-                } else {
-                    accounts_result.push(GetAccountResult::FoundAccount(
-                        *pubkey,
-                        remote_account,
-                        // Mark this account as needing to be updated in the SVM, since we fetched it
-                        true,
-                    ));
+                        ),
+                    );
                 }
             } else {
-                accounts_result.push(GetAccountResult::None(*pubkey));
+                results_map.insert(*pubkey, GetAccountResult::None(*pubkey));
             }
         }
 
-        if !(mint_accounts_src.is_empty() || program_accounts_src.is_empty()) {
+        debug!(
+            "Identified {} mint accounts and {} program accounts to fetch for remote accounts",
+            mint_accounts_src.len(),
+            program_accounts_src.len()
+        );
+
+        if !(mint_accounts_src.is_empty() && program_accounts_src.is_empty()) {
             let mint_acc_src_len = mint_accounts_src.len();
             let mut account_buffer = mint_accounts_src.clone();
             account_buffer.extend_from_slice(&program_accounts_src);
@@ -202,23 +225,53 @@ impl SurfnetRemoteClient {
                 .map_err(SurfpoolError::get_multiple_accounts)?
                 .value;
 
+            debug!(
+                "Fetched {} additional accounts from remote",
+                binding_remote_accounts.len()
+            );
+            debug!(
+                "Found additional accounts for pubkeys: {:#?}",
+                binding_remote_accounts
+                    .iter()
+                    .zip(account_pubkeys)
+                    .filter_map(|(account, pubkey)| if account.is_some() {
+                        Some(pubkey)
+                    } else {
+                        None
+                    })
+                    .collect::<Vec<Pubkey>>()
+            );
+
             for (index, remote_account) in binding_remote_accounts.iter().enumerate() {
                 if index < mint_acc_src_len {
-                    // mint accounts to be pushed
-                    accounts_result.push(GetAccountResult::FoundTokenAccount(
-                        (account_buffer[index].0, account_buffer[index].1.clone()),
-                        (account_buffer[index].2, remote_account.clone()),
-                    ));
+                    // mint accounts to be inserted
+                    results_map.insert(
+                        account_buffer[index].0,
+                        GetAccountResult::FoundTokenAccount(
+                            (account_buffer[index].0, account_buffer[index].1.clone()),
+                            (account_buffer[index].2, remote_account.clone()),
+                        ),
+                    );
                 } else {
-                    accounts_result.push(GetAccountResult::FoundProgramAccount(
-                        (account_buffer[index].0, account_buffer[index].1.clone()),
-                        (account_buffer[index].2, remote_account.clone()),
-                    ));
+                    results_map.insert(
+                        account_buffer[index].0,
+                        GetAccountResult::FoundProgramAccount(
+                            (account_buffer[index].0, account_buffer[index].1.clone()),
+                            (account_buffer[index].2, remote_account.clone()),
+                        ),
+                    );
                 }
             }
         }
 
-        Ok(accounts_result)
+        Ok(pubkeys
+            .iter()
+            .map(|pk| {
+                results_map
+                    .remove(pk)
+                    .unwrap_or(GetAccountResult::None(*pk))
+            })
+            .collect())
     }
 
     pub async fn get_transaction(

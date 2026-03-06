@@ -4740,6 +4740,132 @@ async fn test_closed_accounts(test_type: TestType) {
     }
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_get_multiple_accounts_only_program_accounts(test_type: TestType) {
+    let program_pubkey = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    // Start datasource surfnet A (offline, no remote)
+    let (datasource_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+    println!("Datasource surfnet started at {}", datasource_url);
+
+    // Insert a proper upgradeable program into A.
+    // Using write_program ensures the program and program-data accounts are
+    // stored with the correct BPF loader owner and serialized state, which is
+    // required by LiteSVM's account validation.
+    datasource_svm_locker
+        .write_program(program_pubkey, None, 0, &[1, 2, 3], &None)
+        .await
+        .expect("Failed to write program account");
+
+    // Start surfnet B pointing to A as remote
+    let (surfnet_url, _surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_url), another_test_type)
+            .expect("Failed to start surfnet");
+    println!("Surfnet B started at {}", surfnet_url);
+
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Fetch the executable account via get_multiple_accounts.
+    let accounts = rpc_client
+        .get_multiple_accounts(&[program_pubkey])
+        .await
+        .expect("Failed to get multiple accounts");
+
+    let account = accounts[0]
+        .as_ref()
+        .expect("Program account should be found (not None)");
+    assert!(account.executable, "Account should be executable");
+    println!("Program account successfully fetched via get_multiple_accounts");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_get_multiple_accounts_ordering(test_type: TestType) {
+    let program_pubkey = Pubkey::new_unique();
+    let plain_pubkey = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    // Start datasource surfnet A (offline, no remote)
+    let (datasource_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+
+    // Insert a program account on A
+    datasource_svm_locker
+        .write_program(program_pubkey, None, 0, &[1, 2, 3], &None)
+        .await
+        .expect("Failed to write program account");
+
+    // Insert a plain SOL account on A
+    datasource_svm_locker
+        .airdrop(&plain_pubkey, LAMPORTS_PER_SOL)
+        .expect("Failed to airdrop to plain account");
+
+    // Start surfnet B pointing to A as remote
+    let (surfnet_url, _) = start_surfnet(vec![], Some(datasource_url), another_test_type)
+        .expect("Failed to start surfnet B");
+
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Fetch with program FIRST, plain SECOND — this is the ordering that the old code broke
+    let accounts = rpc_client
+        .get_multiple_accounts(&[program_pubkey, plain_pubkey])
+        .await
+        .expect("Failed to get multiple accounts");
+
+    assert_eq!(accounts.len(), 2);
+
+    // Index 0 must be the program account (executable)
+    let prog_account = accounts[0]
+        .as_ref()
+        .expect("Program account should be found at index 0");
+    assert!(
+        prog_account.executable,
+        "accounts[0] should be executable (program)"
+    );
+
+    // Index 1 must be the plain account (not executable, has lamports)
+    let plain_account = accounts[1]
+        .as_ref()
+        .expect("Plain account should be found at index 1");
+    assert!(
+        !plain_account.executable,
+        "accounts[1] should not be executable (plain)"
+    );
+    assert_eq!(
+        plain_account.lamports, LAMPORTS_PER_SOL,
+        "accounts[1] should have airdrop lamports"
+    );
+}
+
 // websocket rpc methods tests
 
 #[test_case(SignatureSubscriptionType::processed() ; "processed commitment")]
