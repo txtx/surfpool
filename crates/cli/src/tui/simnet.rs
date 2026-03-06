@@ -596,8 +596,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                                 );
                                 app.status_bar_message = None;
                             }
+                            #[cfg(feature = "prometheus")]
                             SimnetEvent::MetricsData(metrics_data) => {
-                                #[cfg(feature = "prometheus")]
                                 {
                                     // In TUI mode, we don't need to record metrics to Prometheus
                                     // because the metrics server is running in its own thread

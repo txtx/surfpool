@@ -418,6 +418,7 @@ pub enum SubgraphCommand {
 #[derive(Debug)]
 pub enum SimnetEvent {
     /// Surfnet is ready, with the initial count of processed transactions from storage
+    #[cfg(feature = "prometheus")]
     MetricsData(MetricsData),
     Ready(u64),
     Connected(String),
@@ -602,6 +603,7 @@ pub struct SurfpoolConfig {
     pub subgraph: SubgraphConfig,
     pub studio: StudioConfig,
     pub plugin_config_path: Vec<PathBuf>,
+    #[cfg(feature = "prometheus")]
     #[serde(default)]
     pub telemetry: TelemetryConfig,
 }
@@ -1281,6 +1283,7 @@ pub struct SurfpoolStatus {
     pub ws_subscriptions: WsSubscriptions,
 }
 
+#[cfg(feature = "prometheus")]
 #[derive(Clone, Debug)]
 pub struct MetricsData {
     pub slot: u64,
@@ -1295,13 +1298,15 @@ pub struct MetricsData {
     pub logs_subs: usize,
 }
 
+#[cfg(feature = "prometheus")]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TelemetryConfig {
     pub enabled: bool,
     #[serde(default = "default_prometheus_addr")]
-    pub prometheus_addr: String, // Just String, not Option
+    pub prometheus_addr: String,
 }
 
+#[cfg(feature = "prometheus")]
 fn default_prometheus_addr() -> String {
     "0.0.0.0:9000".to_string()
 }

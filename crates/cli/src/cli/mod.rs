@@ -25,11 +25,14 @@ use surfpool_types::{
     DEFAULT_DEVNET_RPC_URL, DEFAULT_GOSSIP_PORT, DEFAULT_MAINNET_RPC_URL, DEFAULT_NETWORK_HOST,
     DEFAULT_RPC_PORT, DEFAULT_SLOT_TIME_MS, DEFAULT_TESTNET_RPC_URL, DEFAULT_TPU_PORT,
     DEFAULT_TPU_QUIC_PORT, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, SimnetEvent, StudioConfig,
-    SubgraphConfig, SurfpoolConfig, SvmFeature, SvmFeatureConfig, TelemetryConfig,
+    SubgraphConfig, SurfpoolConfig, SvmFeature, SvmFeatureConfig,
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
 use txtx_gql::kit::{helpers::fs::FileLocation, types::frontend::LogLevel};
+
+#[cfg(feature = "prometheus")]
+use surfpool_types::TelemetryConfig;
 
 use crate::{cloud::CloudStartCommand, runbook::handle_execute_runbook_command};
 
@@ -261,8 +264,12 @@ pub struct StartSimnet {
     #[arg(long = "snapshot")]
     pub snapshot: Vec<String>,
     /// Enable Prometheus metrics endpoint
+    #[cfg(feature = "prometheus")]
+    /// Enable Prometheus metrics endpoint
     #[arg(long = "metrics-enabled", env = "SURFPOOL_METRICS_ENABLED")]
     pub metrics_enabled: bool,
+
+    #[cfg(feature = "prometheus")]
     /// Prometheus metrics endpoint address
     #[arg(
         long = "metrics-addr",
@@ -469,9 +476,11 @@ impl StartSimnet {
             subgraph: self.subgraph_config(),
             studio: self.studio_config(),
             plugin_config_path,
+            #[cfg(feature = "prometheus")]
             telemetry: self.telemetry_config(),
         }
     }
+    #[cfg(feature = "prometheus")]
     pub fn telemetry_config(&self) -> TelemetryConfig {
         TelemetryConfig {
             enabled: self.metrics_enabled,

@@ -63,19 +63,27 @@ pub async fn handle_start_local_surfnet_command(
     let (mut surfnet_svm, simnet_events_rx, geyser_events_rx) =
         SurfnetSvm::new_with_db(cmd.db.as_deref(), &cmd.surfnet_id)
             .map_err(|e| format!("Failed to initialize Surfnet SVM: {}", e))?;
-    let telemetry_config = cmd.telemetry_config();
-    if let Err(e) = surfpool_core::telemetry::init_from_config(
-        telemetry_config.enabled,
-        &telemetry_config.prometheus_addr,
-    ) {
-        let _ = surfnet_svm
-            .simnet_events_tx
-            .send(SimnetEvent::warn(format!("Metrics init failed: {}", e)));
-    } else if telemetry_config.enabled {
-        let _ = surfnet_svm.simnet_events_tx.send(SimnetEvent::info(format!(
-            "Metrics available at http://{}/metrics",
-            telemetry_config.prometheus_addr
-        )));
+    #[cfg(feature = "prometheus")]
+    {
+        let telemetry_config = cmd.telemetry_config();
+        if telemetry_config.enabled {
+            match surfpool_core::telemetry::init_from_config(
+                telemetry_config.enabled,
+                &telemetry_config.prometheus_addr,
+            ) {
+                Err(e) => {
+                    let _ = surfnet_svm
+                        .simnet_events_tx
+                        .send(SimnetEvent::warn(format!("Metrics init failed: {}", e)));
+                }
+                Ok(_) => {
+                    let _ = surfnet_svm.simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Metrics available at http://{}/metrics",
+                        telemetry_config.prometheus_addr
+                    )));
+                }
+            }
+        }
     }
 
     // Apply feature configuration from CLI flags
@@ -457,8 +465,8 @@ fn log_events(
                         let _ = simnet_commands_tx
                             .send(SimnetCommand::CompleteRunbookExecution(runbook_id, errors));
                     }
+                    #[cfg(feature = "prometheus")]
                     SimnetEvent::MetricsData(metrics_data) => {
-                        #[cfg(feature = "prometheus")]
                         {
                             surfpool_core::telemetry::metrics().record_svm_state(
                                 metrics_data.slot,
