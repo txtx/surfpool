@@ -51,11 +51,13 @@ use solana_transaction_status::{
     TransactionConfirmationStatus as SolanaTransactionConfirmationStatus, UiConfirmedBlock,
     UiTransactionEncoding,
 };
+#[cfg(feature = "prometheus")]
+use surfpool_types::MetricsData;
 use surfpool_types::{
     AccountSnapshot, ComputeUnitsEstimationResult, ExecutionCapture, ExportSnapshotConfig, Idl,
-    KeyedProfileResult, ProfileResult, RpcProfileResultConfig,
-    RunbookExecutionStatusReport, SimnetCommand, SimnetEvent, TransactionConfirmationStatus,
-    TransactionStatusEvent, UiKeyedProfileResult, UuidOrSignature, VersionedIdl,
+    KeyedProfileResult, ProfileResult, RpcProfileResultConfig, RunbookExecutionStatusReport,
+    SimnetCommand, SimnetEvent, TransactionConfirmationStatus, TransactionStatusEvent,
+    UiKeyedProfileResult, UuidOrSignature, VersionedIdl,
 };
 use tokio::sync::RwLock;
 use txtx_addon_kit::indexmap::IndexSet;
@@ -75,8 +77,6 @@ use crate::{
         TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
     },
 };
-#[cfg(feature = "prometheus")]
-use surfpool_types::MetricsData;
 
 enum ProcessTransactionResult {
     Success(TransactionMetadata),

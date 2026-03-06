@@ -20,6 +20,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
+#[cfg(feature = "prometheus")]
+use surfpool_types::TelemetryConfig;
 use surfpool_types::{
     AccountSnapshot, BlockProductionMode, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
     DEFAULT_DEVNET_RPC_URL, DEFAULT_GOSSIP_PORT, DEFAULT_MAINNET_RPC_URL, DEFAULT_NETWORK_HOST,
@@ -30,9 +32,6 @@ use surfpool_types::{
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
 use txtx_gql::kit::{helpers::fs::FileLocation, types::frontend::LogLevel};
-
-#[cfg(feature = "prometheus")]
-use surfpool_types::TelemetryConfig;
 
 use crate::{cloud::CloudStartCommand, runbook::handle_execute_runbook_command};
 

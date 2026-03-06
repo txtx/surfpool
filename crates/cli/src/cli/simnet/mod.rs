@@ -467,20 +467,18 @@ fn log_events(
                     }
                     #[cfg(feature = "prometheus")]
                     SimnetEvent::MetricsData(metrics_data) => {
-                        {
-                            surfpool_core::telemetry::metrics().record_svm_state(
-                                metrics_data.slot,
-                                metrics_data.epoch,
-                                metrics_data.slot_index,
-                                metrics_data.transactions_count,
-                                metrics_data.transactions_processed,
-                                metrics_data.start_time,
-                                metrics_data.signature_subs,
-                                metrics_data.account_subs,
-                                metrics_data.slot_subs,
-                                metrics_data.logs_subs,
-                            );
-                        }
+                        surfpool_core::telemetry::metrics().record_svm_state(
+                            metrics_data.slot,
+                            metrics_data.epoch,
+                            metrics_data.slot_index,
+                            metrics_data.transactions_count,
+                            metrics_data.transactions_processed,
+                            metrics_data.start_time,
+                            metrics_data.signature_subs,
+                            metrics_data.account_subs,
+                            metrics_data.slot_subs,
+                            metrics_data.logs_subs,
+                        );
                     }
                 },
                 Err(_e) => {

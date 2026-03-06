@@ -40,18 +40,54 @@ mod instrumented {
     impl SurfpoolMetrics {
         fn new(meter: Meter) -> Self {
             Self {
-                slot: meter.u64_gauge("surfpool_slot").with_description("Current slot height").build(),
-                epoch: meter.u64_gauge("surfpool_epoch").with_description("Current epoch").build(),
-                slot_index: meter.u64_gauge("surfpool_slot_index").with_description("Slot index within epoch").build(),
-                transactions_count: meter.u64_gauge("surfpool_transactions_count").with_description("Number of transactions in storage").build(),
-                transactions_processed_total: meter.u64_gauge("surfpool_transactions_processed_total").with_description("Total processed transactions").build(),
-                uptime_seconds: meter.u64_gauge("surfpool_uptime_seconds").with_description("Time since start in seconds").build(),
-                ws_subscriptions_total: meter.u64_gauge("surfpool_ws_subscriptions_total").with_description("Total WebSocket subscriptions").build(),
-                ws_signature_subscriptions: meter.u64_gauge("surfpool_ws_signature_subscriptions").with_description("Signature subscriptions count").build(),
-                ws_account_subscriptions: meter.u64_gauge("surfpool_ws_account_subscriptions").with_description("Account subscriptions count").build(),
-                ws_slot_subscriptions: meter.u64_gauge("surfpool_ws_slot_subscriptions").with_description("Slot subscriptions count").build(),
-                ws_logs_subscriptions: meter.u64_gauge("surfpool_ws_logs_subscriptions").with_description("Logs subscriptions count").build(),
-                transactions_processed: meter.u64_counter("surfpool_transactions_processed").with_description("Transactions processed counter").build(),
+                slot: meter
+                    .u64_gauge("surfpool_slot")
+                    .with_description("Current slot height")
+                    .build(),
+                epoch: meter
+                    .u64_gauge("surfpool_epoch")
+                    .with_description("Current epoch")
+                    .build(),
+                slot_index: meter
+                    .u64_gauge("surfpool_slot_index")
+                    .with_description("Slot index within epoch")
+                    .build(),
+                transactions_count: meter
+                    .u64_gauge("surfpool_transactions_count")
+                    .with_description("Number of transactions in storage")
+                    .build(),
+                transactions_processed_total: meter
+                    .u64_gauge("surfpool_transactions_processed_total")
+                    .with_description("Total processed transactions")
+                    .build(),
+                uptime_seconds: meter
+                    .u64_gauge("surfpool_uptime_seconds")
+                    .with_description("Time since start in seconds")
+                    .build(),
+                ws_subscriptions_total: meter
+                    .u64_gauge("surfpool_ws_subscriptions_total")
+                    .with_description("Total WebSocket subscriptions")
+                    .build(),
+                ws_signature_subscriptions: meter
+                    .u64_gauge("surfpool_ws_signature_subscriptions")
+                    .with_description("Signature subscriptions count")
+                    .build(),
+                ws_account_subscriptions: meter
+                    .u64_gauge("surfpool_ws_account_subscriptions")
+                    .with_description("Account subscriptions count")
+                    .build(),
+                ws_slot_subscriptions: meter
+                    .u64_gauge("surfpool_ws_slot_subscriptions")
+                    .with_description("Slot subscriptions count")
+                    .build(),
+                ws_logs_subscriptions: meter
+                    .u64_gauge("surfpool_ws_logs_subscriptions")
+                    .with_description("Logs subscriptions count")
+                    .build(),
+                transactions_processed: meter
+                    .u64_counter("surfpool_transactions_processed")
+                    .with_description("Transactions processed counter")
+                    .build(),
             }
         }
 
@@ -76,14 +112,18 @@ mod instrumented {
             self.slot.record(slot, &[]);
             self.epoch.record(epoch, &[]);
             self.slot_index.record(slot_index, &[]);
-            self.transactions_count.record(transactions_count as u64, &[]);
-            self.transactions_processed_total.record(transactions_processed, &[]);
+            self.transactions_count
+                .record(transactions_count as u64, &[]);
+            self.transactions_processed_total
+                .record(transactions_processed, &[]);
             self.uptime_seconds.record(uptime_secs, &[]);
 
             let total_subs = (signature_subs + account_subs + slot_subs + logs_subs) as u64;
             self.ws_subscriptions_total.record(total_subs, &[]);
-            self.ws_signature_subscriptions.record(signature_subs as u64, &[]);
-            self.ws_account_subscriptions.record(account_subs as u64, &[]);
+            self.ws_signature_subscriptions
+                .record(signature_subs as u64, &[]);
+            self.ws_account_subscriptions
+                .record(account_subs as u64, &[]);
             self.ws_slot_subscriptions.record(slot_subs as u64, &[]);
             self.ws_logs_subscriptions.record(logs_subs as u64, &[]);
         }
@@ -136,9 +176,15 @@ mod instrumented {
             }
 
             std::thread::spawn(move || {
-                let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+                let rt = match tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                {
                     Ok(rt) => rt,
-                    Err(e) => { eprintln!("Failed to create tokio runtime: {}", e); return; }
+                    Err(e) => {
+                        eprintln!("Failed to create tokio runtime: {}", e);
+                        return;
+                    }
                 };
                 rt.block_on(async {
                     let registry_clone = registry.clone();
@@ -151,16 +197,23 @@ mod instrumented {
                                 let metric_families = reg.gather();
                                 let mut buffer = vec![];
                                 if let Err(e) = encoder.encode(&metric_families, &mut buffer) {
-                                    return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to encode: {}", e));
+                                    return (
+                                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                        format!("Failed to encode: {}", e),
+                                    );
                                 }
-                                let body = String::from_utf8(buffer).unwrap_or_else(|_| "Invalid UTF8".to_string());
+                                let body = String::from_utf8(buffer)
+                                    .unwrap_or_else(|_| "Invalid UTF8".to_string());
                                 (axum::http::StatusCode::OK, body)
                             }
                         }),
                     );
                     let listener = match tokio::net::TcpListener::bind(&bind_addr_owned).await {
                         Ok(l) => l,
-                        Err(e) => { eprintln!("Failed to bind: {}", e); return; }
+                        Err(e) => {
+                            eprintln!("Failed to bind: {}", e);
+                            return;
+                        }
                     };
                     if let Err(e) = axum::serve(listener, app).await {
                         eprintln!("Server error: {}", e);
@@ -173,7 +226,9 @@ mod instrumented {
     }
 
     pub fn metrics() -> &'static SurfpoolMetrics {
-        METRICS.get().expect("telemetry not initialized. Call init_prometheus() first")
+        METRICS
+            .get()
+            .expect("telemetry not initialized. Call init_prometheus() first")
     }
 
     pub fn shutdown() {
@@ -193,6 +248,5 @@ pub fn init_from_config(enabled: bool, bind_addr: &str) -> Result<(), String> {
         return Ok(());
     }
     log::info!("Starting Prometheus metrics on {}", bind_addr);
-    init_prometheus("surfpool", bind_addr)
-        .map_err(|e| format!("Prometheus init failed: {}", e))
+    init_prometheus("surfpool", bind_addr).map_err(|e| format!("Prometheus init failed: {}", e))
 }
