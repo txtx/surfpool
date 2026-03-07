@@ -2292,16 +2292,38 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         encoded: String,
-        _config: Option<RpcContextConfig>, // TODO: use config
+        config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<Option<u64>>> {
         let (_, message) =
             decode_and_deserialize::<VersionedMessage>(encoded, TransactionBinaryEncoding::Base64)?;
 
-        meta.with_svm_reader(|svm_reader| RpcResponse {
-            context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
+        let RpcContextConfig {
+            commitment,
+            min_context_slot,
+        } = config.unwrap_or_default();
+        let min_ctx_slot = min_context_slot.unwrap_or_default();
+
+        let svm_locker = meta.get_svm_locker()?;
+
+        let slot = if let Some(commitment_config) = commitment {
+            svm_locker.get_slot_for_commitment(&commitment_config)
+        } else {
+            svm_locker.get_latest_absolute_slot()
+        };
+
+        if let Some(min_slot) = min_context_slot
+            && slot < min_slot
+        {
+            return Err(RpcCustomError::MinContextSlotNotReached {
+                context_slot: min_ctx_slot,
+            }
+            .into());
+        }
+
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(slot),
             value: Some((message.header().num_required_signatures as u64) * 5000),
         })
-        .map_err(Into::into)
     }
 
     fn get_stake_minimum_delegation(

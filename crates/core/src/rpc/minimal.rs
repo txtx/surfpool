@@ -19,6 +19,7 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use super::{RunloopContext, SurfnetRpcContext};
 use crate::{
     SURFPOOL_IDENTITY_PUBKEY,
+    error::SurfpoolError,
     rpc::{State, utils::verify_pubkey},
     surfnet::{FINALIZATION_SLOT_THRESHOLD, GetAccountResult, locker::SvmAccessContext},
 };
@@ -586,17 +587,21 @@ impl Minimal for SurfpoolMinimalRpc {
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        _config: Option<RpcContextConfig>, // TODO: use config
+        config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<RpcResponse<u64>>> {
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
 
+        let config = config.unwrap_or_default();
+        let commitment_config = config.commitment.unwrap_or_default();
+        let min_ctx_slot = config.min_context_slot;
+
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+        } = match meta.get_rpc_context(commitment_config) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
@@ -607,6 +612,15 @@ impl Minimal for SurfpoolMinimalRpc {
                 inner: account_update,
                 ..
             } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
+
+            if let Some(min_slot) = min_ctx_slot
+                && slot < min_slot
+            {
+                return Err(RpcCustomError::MinContextSlotNotReached {
+                    context_slot: min_slot,
+                }
+                .into());
+            }
 
             let balance = match &account_update {
                 GetAccountResult::FoundAccount(_, account, _)

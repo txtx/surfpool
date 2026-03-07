@@ -1,6 +1,7 @@
 use std::{str::FromStr, sync::Arc, time::Duration};
 
 use base64::Engine;
+use bincode::Options;
 use crossbeam_channel::{unbounded, unbounded as crossbeam_unbounded};
 use jsonrpc_core::{
     Error, Result as JsonRpcResult,
@@ -11,7 +12,8 @@ use solana_account::Account;
 use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount};
 use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
 use solana_client::{
-    nonblocking::rpc_client::RpcClient, rpc_config::RpcSimulateTransactionConfig,
+    nonblocking::rpc_client::RpcClient,
+    rpc_config::{RpcContextConfig, RpcSimulateTransactionConfig},
     rpc_response::RpcLogsResponse,
 };
 use solana_clock::{Clock, Slot};
@@ -49,8 +51,8 @@ use crate::{
     error::SurfpoolError,
     rpc::{
         RunloopContext,
-        full::FullClient,
-        minimal::MinimalClient,
+        full::{Full, FullClient, SurfpoolFullRpc},
+        minimal::{Minimal, MinimalClient, SurfpoolMinimalRpc},
         surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
     runloops::start_local_surfnet_runloop,
@@ -1267,6 +1269,142 @@ async fn test_get_transaction_profile(test_type: TestType) {
         "Non-existent signature should return None"
     );
     println!("All get_transaction_profile tests passed successfully!");
+}
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_fee_for_messaage_config_tests(test_type: TestType) {
+    let rpc_server = SurfpoolFullRpc;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 5 * LAMPORTS_PER_SOL;
+    let commitment_config_to_use = CommitmentConfig::confirmed();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
+    };
+    let rpc_ctx_config_with_wrong_commitment = RpcContextConfig {
+        commitment: Some(commitment_config_to_use),
+        min_context_slot: Some(
+            runloop_context
+                .svm_locker
+                .get_slot_for_commitment(&commitment_config_to_use)
+                + 10,
+        ),
+    };
+    let rpc_ctx_config_with_wrong_min_slot = RpcContextConfig {
+        commitment: None,
+        min_context_slot: Some(runloop_context.svm_locker.get_latest_absolute_slot() + 10),
+    };
+    runloop_context
+        .svm_locker
+        .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send))
+        .unwrap()
+        .unwrap();
+
+    let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let latest_blockhash = runloop_context
+        .svm_locker
+        .with_svm_reader(|svm| svm.latest_blockhash());
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let transaction =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
+
+    let message_bytes = bincode::options()
+        .with_fixint_encoding()
+        .serialize(&transaction.message)
+        .expect("message serialization");
+    let encoded_message = base64::engine::general_purpose::STANDARD.encode(&message_bytes);
+
+    let get_fee_with_wrong_commitment_fail_result = rpc_server.get_fee_for_message(
+        Some(runloop_context.clone()),
+        encoded_message.clone(),
+        Some(rpc_ctx_config_with_wrong_commitment),
+    );
+
+    assert!(
+        get_fee_with_wrong_commitment_fail_result.is_err(),
+        "expected this txn to fail when min_ctx_slot > slot_for_commitment"
+    );
+
+    let get_fee_with_wrong_mint_slot_fail_result = rpc_server.get_fee_for_message(
+        Some(runloop_context.clone()),
+        encoded_message,
+        Some(rpc_ctx_config_with_wrong_min_slot),
+    );
+
+    assert!(
+        get_fee_with_wrong_mint_slot_fail_result.is_err(),
+        "expected this txn to fail when min_ctx_slot > absolute_latest_slot"
+    );
+}
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_balance_config_utilization(test_type: TestType) {
+    let rpc_server = SurfpoolMinimalRpc;
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        plugin_manager_commands_tx: plugin_cmd_tx,
+        remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
+    };
+    let latest_slot = svm_locker_for_context.get_latest_absolute_slot();
+
+    let get_balance_result = rpc_server
+        .get_balance(
+            Some(runloop_context.clone()),
+            Pubkey::new_unique().to_string(),
+            Some(RpcContextConfig {
+                commitment: Some(CommitmentConfig {
+                    commitment: CommitmentLevel::Finalized,
+                }),
+                min_context_slot: None,
+            }),
+        )
+        .await;
+
+    assert!(get_balance_result.is_ok(), "get_balance failed");
+
+    let get_balance_with_min_slot_result = rpc_server
+        .get_balance(
+            Some(runloop_context.clone()),
+            Pubkey::new_unique().to_string(),
+            Some(RpcContextConfig {
+                commitment: Some(CommitmentConfig {
+                    commitment: CommitmentLevel::Finalized,
+                }),
+                min_context_slot: Some(latest_slot + 100), // intentionally higher number
+            }),
+        )
+        .await;
+
+    assert!(
+        get_balance_with_min_slot_result.is_err(),
+        "expected get_balance to fail when min_context_slot bigger"
+    );
 }
 
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
