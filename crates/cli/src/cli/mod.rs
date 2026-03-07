@@ -20,6 +20,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
+#[cfg(feature = "prometheus")]
+use surfpool_types::TelemetryConfig;
 use surfpool_types::{
     AccountSnapshot, BlockProductionMode, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
     DEFAULT_DEVNET_RPC_URL, DEFAULT_GOSSIP_PORT, DEFAULT_MAINNET_RPC_URL, DEFAULT_NETWORK_HOST,
@@ -260,6 +262,20 @@ pub struct StartSimnet {
     /// When multiple files are provided, later files override earlier ones for duplicate keys.
     #[arg(long = "snapshot")]
     pub snapshot: Vec<String>,
+    /// Enable Prometheus metrics endpoint
+    #[cfg(feature = "prometheus")]
+    /// Enable Prometheus metrics endpoint
+    #[arg(long = "metrics-enabled", env = "SURFPOOL_METRICS_ENABLED")]
+    pub metrics_enabled: bool,
+
+    #[cfg(feature = "prometheus")]
+    /// Prometheus metrics endpoint address
+    #[arg(
+        long = "metrics-addr",
+        default_value = "0.0.0.0:9000",
+        env = "SURFPOOL_METRICS_ADDR"
+    )]
+    pub metrics_addr: String,
     /// Skip signature verification for all transactions (eg. surfpool start --skip-signature-verification)
     #[clap(long = "skip-signature-verification", action=ArgAction::SetTrue, default_value = "false")]
     pub skip_signature_verification: bool,
@@ -459,6 +475,15 @@ impl StartSimnet {
             subgraph: self.subgraph_config(),
             studio: self.studio_config(),
             plugin_config_path,
+            #[cfg(feature = "prometheus")]
+            telemetry: self.telemetry_config(),
+        }
+    }
+    #[cfg(feature = "prometheus")]
+    pub fn telemetry_config(&self) -> TelemetryConfig {
+        TelemetryConfig {
+            enabled: self.metrics_enabled,
+            prometheus_addr: self.metrics_addr.clone(),
         }
     }
 }

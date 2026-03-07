@@ -4,6 +4,7 @@ use std::{
     fmt,
     path::PathBuf,
     str::FromStr,
+    time::SystemTime,
 };
 
 use blake3::Hash;
@@ -417,6 +418,8 @@ pub enum SubgraphCommand {
 #[derive(Debug)]
 pub enum SimnetEvent {
     /// Surfnet is ready, with the initial count of processed transactions from storage
+    #[cfg(feature = "prometheus")]
+    MetricsData(MetricsData),
     Ready(u64),
     Connected(String),
     Aborted(String),
@@ -593,16 +596,19 @@ pub struct SanitizedConfig {
     pub workspace: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SurfpoolConfig {
     pub simnets: Vec<SimnetConfig>,
     pub rpc: RpcConfig,
     pub subgraph: SubgraphConfig,
     pub studio: StudioConfig,
     pub plugin_config_path: Vec<PathBuf>,
+    #[cfg(feature = "prometheus")]
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SimnetConfig {
     pub offline_mode: bool,
     pub remote_rpc_url: Option<String>,
@@ -662,14 +668,14 @@ impl SimnetConfig {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SubgraphConfig {}
 
 pub const DEFAULT_GOSSIP_PORT: u16 = 8001;
 pub const DEFAULT_TPU_PORT: u16 = 8003;
 pub const DEFAULT_TPU_QUIC_PORT: u16 = 8004;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RpcConfig {
     pub bind_host: String,
     pub bind_port: u16,
@@ -701,7 +707,7 @@ impl Default for RpcConfig {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StudioConfig {
     pub bind_host: String,
     pub bind_port: u16,
@@ -1255,6 +1261,54 @@ impl RunbookExecutionStatusReport {
         self.completed_at = Some(Local::now().timestamp() as u32);
         self.errors = error;
     }
+}
+/// WebSocket subscription counts
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct WsSubscriptions {
+    pub signatures: usize,
+    pub accounts: usize,
+    pub slots: usize,
+    pub logs: usize,
+}
+
+/// Surfpool node status information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SurfpoolStatus {
+    pub slot: u64,
+    pub epoch: u64,
+    pub slot_index: u64,
+    pub transactions_count: u64,
+    pub transactions_processed: u64,
+    pub uptime_ms: u64,
+    pub ws_subscriptions: WsSubscriptions,
+}
+
+#[cfg(feature = "prometheus")]
+#[derive(Clone, Debug)]
+pub struct MetricsData {
+    pub slot: u64,
+    pub epoch: u64,
+    pub slot_index: u64,
+    pub transactions_count: usize,
+    pub transactions_processed: u64,
+    pub start_time: SystemTime,
+    pub signature_subs: usize,
+    pub account_subs: usize,
+    pub slot_subs: usize,
+    pub logs_subs: usize,
+}
+
+#[cfg(feature = "prometheus")]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    pub enabled: bool,
+    #[serde(default = "default_prometheus_addr")]
+    pub prometheus_addr: String,
+}
+
+#[cfg(feature = "prometheus")]
+fn default_prometheus_addr() -> String {
+    "0.0.0.0:9000".to_string()
 }
 
 #[cfg(test)]
