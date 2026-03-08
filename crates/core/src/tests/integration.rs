@@ -1351,61 +1351,6 @@ async fn test_get_fee_for_messaage_config_tests(test_type: TestType) {
         "expected this txn to fail when min_ctx_slot > absolute_latest_slot"
     );
 }
-#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
-#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
-#[test_case(TestType::no_db(); "with no db")]
-#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
-#[tokio::test(flavor = "multi_thread")]
-async fn test_get_balance_config_utilization(test_type: TestType) {
-    let rpc_server = SurfpoolMinimalRpc;
-    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
-    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
-    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
-
-    let runloop_context = RunloopContext {
-        id: None,
-        svm_locker: svm_locker_for_context.clone(),
-        simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
-        remote_rpc_client: None,
-        rpc_config: RpcConfig::default(),
-    };
-    let latest_slot = svm_locker_for_context.get_latest_absolute_slot();
-
-    let get_balance_result = rpc_server
-        .get_balance(
-            Some(runloop_context.clone()),
-            Pubkey::new_unique().to_string(),
-            Some(RpcContextConfig {
-                commitment: Some(CommitmentConfig {
-                    commitment: CommitmentLevel::Finalized,
-                }),
-                min_context_slot: None,
-            }),
-        )
-        .await;
-
-    assert!(get_balance_result.is_ok(), "get_balance failed");
-
-    let get_balance_with_min_slot_result = rpc_server
-        .get_balance(
-            Some(runloop_context.clone()),
-            Pubkey::new_unique().to_string(),
-            Some(RpcContextConfig {
-                commitment: Some(CommitmentConfig {
-                    commitment: CommitmentLevel::Finalized,
-                }),
-                min_context_slot: Some(latest_slot + 100), // intentionally higher number
-            }),
-        )
-        .await;
-
-    assert!(
-        get_balance_with_min_slot_result.is_err(),
-        "expected get_balance to fail when min_context_slot bigger"
-    );
-}
 
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]

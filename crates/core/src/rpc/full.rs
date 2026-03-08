@@ -2531,6 +2531,7 @@ mod tests {
     use std::thread::JoinHandle;
 
     use base64::{Engine, prelude::BASE64_STANDARD};
+    use bincode::Options;
     use crossbeam_channel::Receiver;
     use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
@@ -2543,7 +2544,10 @@ mod tests {
     };
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
-    use solana_system_interface::{instruction as system_instruction, program as system_program};
+    use solana_system_interface::{
+        instruction::{self as system_instruction, transfer},
+        program as system_program,
+    };
     use solana_transaction::{
         Transaction,
         versioned::{Legacy, TransactionVersion},
@@ -2665,6 +2669,92 @@ mod tests {
         } else {
             assert!(res.is_ok());
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_fee_for_message() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let runloop_context = setup.context;
+        let rpc_server = setup.rpc;
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+        let lamports_to_send = 5 * LAMPORTS_PER_SOL;
+        let commitment_config_to_use = CommitmentConfig::confirmed();
+
+        let rpc_ctx_config_with_wrong_commitment = RpcContextConfig {
+            commitment: Some(commitment_config_to_use),
+            min_context_slot: Some(
+                runloop_context
+                    .svm_locker
+                    .get_slot_for_commitment(&commitment_config_to_use)
+                    + 10,
+            ),
+        };
+        let rpc_ctx_config_with_wrong_min_slot = RpcContextConfig {
+            commitment: None,
+            min_context_slot: Some(runloop_context.svm_locker.get_latest_absolute_slot() + 10),
+        };
+
+        let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+
+        let latest_blockhash = runloop_context
+            .svm_locker
+            .with_svm_reader(|svm| svm.latest_blockhash());
+        let message = solana_message::Message::new_with_blockhash(
+            &[instruction],
+            Some(&payer.pubkey()),
+            &latest_blockhash,
+        );
+        let num_required_signatures = message.header.num_required_signatures as u64;
+        let transaction =
+            VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
+
+        let message_bytes = bincode::options()
+            .with_fixint_encoding()
+            .serialize(&transaction.message)
+            .expect("message serialization");
+        let encoded_message = base64::engine::general_purpose::STANDARD.encode(&message_bytes);
+
+        let get_fee_with_correct_config_pass_result = rpc_server.get_fee_for_message(
+            Some(runloop_context.clone()),
+            encoded_message.clone(),
+            None,
+        );
+
+        assert!(
+            get_fee_with_correct_config_pass_result.is_ok(),
+            "Expected get_fee_for_message to pass with correct configs"
+        );
+        assert!(
+            get_fee_with_correct_config_pass_result
+                .unwrap()
+                .value
+                .unwrap()
+                == (num_required_signatures as u64) * 5_000,
+            "Invalid return value"
+        );
+
+        let get_fee_with_wrong_commitment_fail_result = rpc_server.get_fee_for_message(
+            Some(runloop_context.clone()),
+            encoded_message.clone(),
+            Some(rpc_ctx_config_with_wrong_commitment),
+        );
+
+        assert!(
+            get_fee_with_wrong_commitment_fail_result.is_err(),
+            "expected this txn to fail when min_ctx_slot > slot_for_commitment"
+        );
+
+        let get_fee_with_wrong_mint_slot_fail_result = rpc_server.get_fee_for_message(
+            Some(runloop_context.clone()),
+            encoded_message,
+            Some(rpc_ctx_config_with_wrong_min_slot),
+        );
+
+        assert!(
+            get_fee_with_wrong_mint_slot_fail_result.is_err(),
+            "expected this txn to fail when min_ctx_slot > absolute_latest_slot"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
