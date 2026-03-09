@@ -1013,12 +1013,13 @@ mod tests {
             "Expected the operation to pass"
         );
 
-        assert!(
-            pass_if_correct_config_result.unwrap().value == airdrop_amount,
+        assert_eq!(
+            pass_if_correct_config_result.unwrap().value,
+            airdrop_amount,
             "Invalid returned lamports for the account"
         );
 
-        let latest_slot = setup.context.svm_locker.get_latest_absolute_slot();
+        let wrong_min_slot = setup.context.svm_locker.get_latest_absolute_slot() + 100;
 
         let fail_if_latest_slot_lt_min_ctx_slot_result = setup
             .rpc
@@ -1027,14 +1028,26 @@ mod tests {
                 Pubkey::new_unique().to_string(),
                 Some(RpcContextConfig {
                     commitment: None,
-                    min_context_slot: Some(latest_slot + 100),
+                    min_context_slot: Some(wrong_min_slot),
                 }),
             )
             .await;
 
+        let expected_err: Result<()> = Result::Err(
+            RpcCustomError::MinContextSlotNotReached {
+                context_slot: wrong_min_slot,
+            }
+            .into(),
+        );
+
         assert!(
             fail_if_latest_slot_lt_min_ctx_slot_result.is_err(),
             "Expected get_balance rpc method to fail when latest_absolute_slot < min_context_slot"
+        );
+
+        assert_eq!(
+            fail_if_latest_slot_lt_min_ctx_slot_result.err().unwrap(),
+            expected_err.err().unwrap()
         );
     }
 

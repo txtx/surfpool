@@ -2681,18 +2681,19 @@ mod tests {
         let lamports_to_send = 5 * LAMPORTS_PER_SOL;
         let commitment_config_to_use = CommitmentConfig::confirmed();
 
+        let wrong_comm_min_ctx_slot = runloop_context
+            .svm_locker
+            .get_slot_for_commitment(&commitment_config_to_use)
+            + 10;
+
+        let wrong_min_slot = runloop_context.svm_locker.get_latest_absolute_slot() + 10;
         let rpc_ctx_config_with_wrong_commitment = RpcContextConfig {
             commitment: Some(commitment_config_to_use),
-            min_context_slot: Some(
-                runloop_context
-                    .svm_locker
-                    .get_slot_for_commitment(&commitment_config_to_use)
-                    + 10,
-            ),
+            min_context_slot: Some(wrong_comm_min_ctx_slot),
         };
         let rpc_ctx_config_with_wrong_min_slot = RpcContextConfig {
             commitment: None,
-            min_context_slot: Some(runloop_context.svm_locker.get_latest_absolute_slot() + 10),
+            min_context_slot: Some(wrong_min_slot),
         };
 
         let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
@@ -2725,12 +2726,12 @@ mod tests {
             get_fee_with_correct_config_pass_result.is_ok(),
             "Expected get_fee_for_message to pass with correct configs"
         );
-        assert!(
+        assert_eq!(
             get_fee_with_correct_config_pass_result
                 .unwrap()
                 .value
-                .unwrap()
-                == (num_required_signatures as u64) * 5_000,
+                .unwrap(),
+            (num_required_signatures as u64) * 5_000,
             "Invalid return value"
         );
 
@@ -2740,9 +2741,21 @@ mod tests {
             Some(rpc_ctx_config_with_wrong_commitment),
         );
 
+        let wrong_comm_expected_err: Result<()> = Result::Err(
+            RpcCustomError::MinContextSlotNotReached {
+                context_slot: wrong_comm_min_ctx_slot,
+            }
+            .into(),
+        );
+
         assert!(
             get_fee_with_wrong_commitment_fail_result.is_err(),
             "expected this txn to fail when min_ctx_slot > slot_for_commitment"
+        );
+
+        assert_eq!(
+            get_fee_with_wrong_commitment_fail_result.err().unwrap(),
+            wrong_comm_expected_err.err().unwrap()
         );
 
         let get_fee_with_wrong_mint_slot_fail_result = rpc_server.get_fee_for_message(
@@ -2751,9 +2764,19 @@ mod tests {
             Some(rpc_ctx_config_with_wrong_min_slot),
         );
 
+        let wrong_min_slot_expected_err: Result<()> = Result::Err(
+            RpcCustomError::MinContextSlotNotReached {
+                context_slot: wrong_min_slot,
+            }
+            .into(),
+        );
         assert!(
             get_fee_with_wrong_mint_slot_fail_result.is_err(),
             "expected this txn to fail when min_ctx_slot > absolute_latest_slot"
+        );
+        assert_eq!(
+            get_fee_with_wrong_mint_slot_fail_result.err().unwrap(),
+            wrong_min_slot_expected_err.err().unwrap()
         );
     }
 
