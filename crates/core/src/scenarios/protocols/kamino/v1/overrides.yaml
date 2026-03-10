@@ -39,17 +39,22 @@ templates:
 
   - id: kamino-obligation-health
     name: Override Obligation Health
-    description: Override Kamino Obligation health metrics for testing liquidation scenarios
+    description: Override Kamino Obligation health metrics for testing liquidation scenarios. An obligation becomes unhealthy (liquidatable) when borrowed_value_sf exceeds unhealthy_borrow_value_sf. Use deposits/borrows arrays to set actual positions.
     idl_account_name: Obligation
     properties:
       [
         "last_update_slot",
         "lending_market",
         "owner",
+        "deposits",
+        "borrows",
         "deposited_value_sf",
         "borrowed_value_sf",
         "allowed_borrow_value_sf",
         "unhealthy_borrow_value_sf",
+        "borrowing_disabled",
+        "highest_borrow_factor_pct",
+        "num_of_obsolete_reserves",
       ]
     address:
       type: pubkey

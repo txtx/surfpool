@@ -1,0 +1,42 @@
+protocol: SPL Token
+version: v1
+account_type: TokenAccount
+idl_file_path: idl.json
+
+tags:
+  - token
+  - vault
+  - balance
+
+templates:
+  - id: spl-token-account-balance
+    name: Override Token Account Balance
+    description: |
+      Override the balance of any SPL token account.
+      Use this to simulate price changes in AMM pools by modifying vault balances.
+      For AMM v4 price simulation: price = pc_vault_balance / coin_vault_balance
+    idl_account_name: TokenAccount
+    properties: ["amount"]
+    llm_context: |
+      Use this template to override token vault balances for price simulation.
+
+      For Raydium AMM v4 price changes:
+      1. Find the pool's token_coin and token_pc vault addresses from the AmmInfo
+      2. Override both vault balances to set desired price ratio
+
+      Example: To simulate SOL at $200 in a SOL/USDC pool:
+      - If coin vault (SOL) has 1000 SOL
+      - Set pc vault (USDC) to 200,000 USDC
+      - Price = 200,000 / 1000 = $200 per SOL
+
+      The amount field is in the token's smallest unit (lamports for SOL, micro-units for USDC with 6 decimals).
+    address:
+      type: pubkey
+
+  - id: spl-token-mint-supply
+    name: Override Token Mint Supply
+    description: Override the total supply of an SPL token mint
+    idl_account_name: Mint
+    properties: ["supply"]
+    address:
+      type: pubkey

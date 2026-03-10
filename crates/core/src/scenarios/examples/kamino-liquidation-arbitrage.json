@@ -1,0 +1,59 @@
+{
+  "id": "kamino-liquidation-arb-example",
+  "name": "Kamino Liquidation Arbitrage - POPCAT/SOL",
+  "description": "A scenario replicating the liquidation arbitrage from tx 5xDtqZcY4CzDHjdT61VsGuF1YL7fADUhPz6hCdA2RVMFMhUjuSh5rqkrLKFXfh4gXevMN1L2NjnCaRCAZYxVmqpz. This scenario sets up a Kamino obligation to be liquidatable, and manipulates Whirlpool and Raydium AMM pool states to create a profitable arbitrage opportunity.",
+  "tags": ["liquidation", "arbitrage", "kamino", "whirlpool", "raydium"],
+  "overrides": [
+    {
+      "id": "obligation-unhealthy",
+      "templateId": "kamino-obligation-health",
+      "label": "Make Obligation Unhealthy",
+      "scenarioRelativeSlot": 0,
+      "enabled": true,
+      "fetchBeforeUse": true,
+      "account": {
+        "pubkey": "3iprSGrEQdBxhmqV399tYQQPG8Z1Hh2aYFrBwgqFXjGS"
+      },
+      "values": {
+        "borrowed_value_sf": 1000000000000000000,
+        "unhealthy_borrow_value_sf": 500000000000000000,
+        "deposited_value_sf": 800000000000000000,
+        "allowed_borrow_value_sf": 600000000000000000
+      }
+    },
+    {
+      "id": "whirlpool-popcat-sol-price",
+      "templateId": "whirlpool-popcat-sol",
+      "label": "Set Whirlpool POPCAT/SOL Price",
+      "scenarioRelativeSlot": 0,
+      "enabled": true,
+      "fetchBeforeUse": true,
+      "account": {
+        "pubkey": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+      },
+      "values": {
+        "liquidity": "5000000000000000",
+        "sqrt_price": "1844674407370955161",
+        "tick_current_index": 0
+      }
+    },
+    {
+      "id": "raydium-amm-popcat-sol-state",
+      "templateId": "raydium-amm-popcat-sol",
+      "label": "Set Raydium AMM POPCAT/SOL State",
+      "scenarioRelativeSlot": 0,
+      "enabled": true,
+      "fetchBeforeUse": true,
+      "account": {
+        "pubkey": "FRhB8L7Y9Qq41qZXYLtC2nw8An1RJfLLxRF2x9RwLLMo"
+      },
+      "values": {
+        "status": 1,
+        "state": 1,
+        "lp_amount": 10000000000000,
+        "fees.swap_fee_numerator": 25,
+        "fees.swap_fee_denominator": 10000
+      }
+    }
+  ]
+}
