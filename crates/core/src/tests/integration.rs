@@ -1,6 +1,7 @@
 use std::{str::FromStr, sync::Arc, time::Duration};
 
 use base64::Engine;
+use bincode::Options;
 use crossbeam_channel::{unbounded, unbounded as crossbeam_unbounded};
 use jsonrpc_core::{
     Error, Result as JsonRpcResult,
@@ -11,7 +12,8 @@ use solana_account::Account;
 use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount};
 use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
 use solana_client::{
-    nonblocking::rpc_client::RpcClient, rpc_config::RpcSimulateTransactionConfig,
+    nonblocking::rpc_client::RpcClient,
+    rpc_config::{RpcContextConfig, RpcSimulateTransactionConfig},
     rpc_response::RpcLogsResponse,
 };
 use solana_clock::{Clock, Slot};
@@ -49,8 +51,8 @@ use crate::{
     error::SurfpoolError,
     rpc::{
         RunloopContext,
-        full::FullClient,
-        minimal::MinimalClient,
+        full::{Full, FullClient, SurfpoolFullRpc},
+        minimal::{Minimal, MinimalClient, SurfpoolMinimalRpc},
         surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
     runloops::start_local_surfnet_runloop,

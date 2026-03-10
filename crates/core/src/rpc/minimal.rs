@@ -12,7 +12,7 @@ use solana_client::{
     },
 };
 use solana_clock::Slot;
-use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
+use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
 use solana_rpc_client_api::response::Response as RpcResponse;
 
@@ -88,7 +88,7 @@ pub trait Minimal {
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        _config: Option<RpcContextConfig>,
+        config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<RpcResponse<u64>>>;
 
     /// Returns information about the current epoch.
@@ -586,17 +586,21 @@ impl Minimal for SurfpoolMinimalRpc {
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        _config: Option<RpcContextConfig>, // TODO: use config
+        config: Option<RpcContextConfig>,
     ) -> BoxFuture<Result<RpcResponse<u64>>> {
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
 
+        let config = config.unwrap_or_default();
+        let commitment_config = config.commitment.unwrap_or_default();
+        let min_ctx_slot = config.min_context_slot;
+
         let SurfnetRpcContext {
             svm_locker,
             remote_ctx,
-        } = match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+        } = match meta.get_rpc_context(commitment_config) {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
@@ -607,6 +611,15 @@ impl Minimal for SurfpoolMinimalRpc {
                 inner: account_update,
                 ..
             } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
+
+            if let Some(min_slot) = min_ctx_slot
+                && slot < min_slot
+            {
+                return Err(RpcCustomError::MinContextSlotNotReached {
+                    context_slot: min_slot,
+                }
+                .into());
+            }
 
             let balance = match &account_update {
                 GetAccountResult::FoundAccount(_, account, _)
@@ -970,6 +983,72 @@ mod tests {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup.rpc.get_health(Some(setup.context));
         assert_eq!(result.unwrap(), "ok");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_balance() {
+        let setup = TestSetup::new(SurfpoolMinimalRpc);
+
+        let airdrop_amount = 5 * 1_000_000_000u64;
+        let to_airdrop_pubkey = Pubkey::new_unique();
+
+        setup
+            .context
+            .svm_locker
+            .airdrop(&to_airdrop_pubkey, airdrop_amount)
+            .unwrap()
+            .unwrap();
+
+        let pass_if_correct_config_result = setup
+            .rpc
+            .get_balance(
+                Some(setup.context.clone()),
+                to_airdrop_pubkey.to_string(),
+                None,
+            )
+            .await;
+
+        assert!(
+            pass_if_correct_config_result.is_ok(),
+            "Expected the operation to pass"
+        );
+
+        assert_eq!(
+            pass_if_correct_config_result.unwrap().value,
+            airdrop_amount,
+            "Invalid returned lamports for the account"
+        );
+
+        let wrong_min_slot = setup.context.svm_locker.get_latest_absolute_slot() + 100;
+
+        let fail_if_latest_slot_lt_min_ctx_slot_result = setup
+            .rpc
+            .get_balance(
+                Some(setup.context.clone()),
+                Pubkey::new_unique().to_string(),
+                Some(RpcContextConfig {
+                    commitment: None,
+                    min_context_slot: Some(wrong_min_slot),
+                }),
+            )
+            .await;
+
+        let expected_err: Result<()> = Result::Err(
+            RpcCustomError::MinContextSlotNotReached {
+                context_slot: wrong_min_slot,
+            }
+            .into(),
+        );
+
+        assert!(
+            fail_if_latest_slot_lt_min_ctx_slot_result.is_err(),
+            "Expected get_balance rpc method to fail when latest_absolute_slot < min_context_slot"
+        );
+
+        assert_eq!(
+            fail_if_latest_slot_lt_min_ctx_slot_result.err().unwrap(),
+            expected_err.err().unwrap()
+        );
     }
 
     #[test]
