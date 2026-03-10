@@ -1143,6 +1143,28 @@ impl AccountSnapshot {
             parsed_data,
         }
     }
+
+    /// Convert the snapshot back to a Solana Account
+    pub fn to_account(&self) -> Result<solana_account::Account, String> {
+        use base64::Engine;
+        use solana_pubkey::Pubkey;
+        use std::str::FromStr;
+
+        let owner =
+            Pubkey::from_str(&self.owner).map_err(|e| format!("Invalid owner pubkey: {}", e))?;
+
+        let data = base64::engine::general_purpose::STANDARD
+            .decode(&self.data)
+            .map_err(|e| format!("Failed to decode base64 data: {}", e))?;
+
+        Ok(solana_account::Account {
+            lamports: self.lamports,
+            data,
+            owner,
+            executable: self.executable,
+            rent_epoch: self.rent_epoch,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
