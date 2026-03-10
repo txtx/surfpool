@@ -23,8 +23,8 @@ use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
-    AddressLookupTableAccount, Message, VersionedMessage, legacy,
-    v0::{self},
+    AddressLookupTableAccount, Message, MessageHeader, VersionedMessage, legacy,
+    v0::{self, MessageAddressTableLookup},
 };
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -7882,4 +7882,107 @@ async fn test_duplicate_transaction_rejected(test_type: TestType) {
     );
 
     println!("Duplicate transaction rejection test passed!");
+}
+
+// ============================================================================
+// AccountLoadedTwice: V0 transactions with duplicate accounts in static keys + ALT
+// ============================================================================
+// When a V0 transaction has an account in both its static keys and an Address
+// Lookup Table, Agave rejects pre-execution with AccountLoadedTwice (0 CU).
+// Surfpool must match this behavior.
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_account_loaded_twice_rejected(test_type: TestType) {
+    let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+
+    let payer = Keypair::new();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    // Create an ALT that contains system_program (11111...111)
+    let alt_key = Pubkey::new_unique();
+    let system_program_id = system_program::id();
+
+    let alt_account_data = AddressLookupTable {
+        meta: LookupTableMeta {
+            authority: Some(payer.pubkey()),
+            ..Default::default()
+        },
+        addresses: vec![system_program_id].into(),
+    };
+
+    svm_locker.with_svm_writer(|svm| {
+        let alt_data = alt_account_data.serialize_for_tests().unwrap();
+        let alt_account = Account {
+            lamports: 1_000_000,
+            data: alt_data,
+            owner: solana_address_lookup_table_interface::program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        svm.set_account(&alt_key, alt_account).unwrap();
+    });
+
+    // Build a V0 message that has system_program in BOTH static keys AND the ALT.
+    // try_compile would deduplicate, so we build the message manually.
+    let recipient = Pubkey::new_unique();
+    let v0_message = v0::Message {
+        header: MessageHeader {
+            num_required_signatures: 1,
+            num_readonly_signed_accounts: 0,
+            // system_program is readonly unsigned
+            num_readonly_unsigned_accounts: 1,
+        },
+        // Static keys: [payer (signer+writable), recipient (writable), system_program (readonly)]
+        account_keys: vec![payer.pubkey(), recipient, system_program_id],
+        recent_blockhash,
+        // A simple transfer instruction: program_id_index=2 (system_program),
+        // accounts=[0 (payer), 1 (recipient)]
+        instructions: vec![solana_message::compiled_instruction::CompiledInstruction {
+            program_id_index: 2,
+            accounts: vec![0, 1],
+            data: {
+                // system_instruction::transfer encodes as: [2,0,0,0] + 8-byte LE amount
+                let mut data = vec![2, 0, 0, 0];
+                data.extend_from_slice(&100u64.to_le_bytes());
+                data
+            },
+        }],
+        // ALT lookup that also loads system_program (index 0 in the ALT) as readonly
+        address_table_lookups: vec![MessageAddressTableLookup {
+            account_key: alt_key,
+            writable_indexes: vec![],
+            readonly_indexes: vec![0], // system_program is at index 0 in the ALT
+        }],
+    };
+
+    let tx = VersionedTransaction::try_new(VersionedMessage::V0(v0_message), &[&payer])
+        .expect("Failed to create transaction");
+
+    let (status_tx, _status_rx) = crossbeam_channel::unbounded();
+    let result = svm_locker
+        .process_transaction(&None, tx, status_tx, false, true)
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction with duplicate account should be rejected, got: {:?}",
+        result
+    );
+    let err_string = result.unwrap_err().to_string();
+    assert!(
+        err_string.contains("Account loaded twice"),
+        "Expected AccountLoadedTwice error, got: {}",
+        err_string
+    );
+
+    println!("AccountLoadedTwice rejection test passed!");
 }

@@ -1059,8 +1059,20 @@ impl SurfnetSvmLocker {
                 // the RPC handler from hanging on recv() when errors occur during
                 // account fetching, ALT resolution, or other pre-processing steps.
                 // This is critical for issue #454 where program close stops block production.
-                let _ =
-                    status_tx.try_send(TransactionStatusEvent::VerificationFailure(e.to_string()));
+                //
+                // AccountLoadedTwice errors should go through SimulationFailure to produce
+                // Agave-compatible JSON-RPC error format with structured `err` and `data` fields.
+                let err_str = e.to_string();
+                if err_str.contains("Account loaded twice") {
+                    let _ =
+                        status_tx.try_send(TransactionStatusEvent::SimulationFailure((
+                            TransactionError::AccountLoadedTwice,
+                            surfpool_types::TransactionMetadata::default(),
+                        )));
+                } else {
+                    let _ = status_tx
+                        .try_send(TransactionStatusEvent::VerificationFailure(err_str));
+                }
                 return Err(e);
             }
         };
@@ -1143,6 +1155,18 @@ impl SurfnetSvmLocker {
         let tx_loaded_addresses = self
             .get_loaded_addresses(remote_ctx, &transaction.message)
             .await?;
+
+        // Check for duplicate accounts between static keys and ALT-loaded addresses.
+        // Agave rejects such transactions pre-execution with AccountLoadedTwice.
+        if let Some(ref loaded) = tx_loaded_addresses {
+            let static_keys: HashSet<&Pubkey> =
+                transaction.message.static_account_keys().iter().collect();
+            for loaded_key in loaded.all_loaded_addresses() {
+                if static_keys.contains(loaded_key) {
+                    return Err(TransactionError::AccountLoadedTwice.into());
+                }
+            }
+        }
 
         // we don't want the pubkeys of the address lookup tables to be included in the transaction accounts,
         // but we do want the pubkeys of the accounts _loaded_ by the ALT to be in the transaction accounts.
