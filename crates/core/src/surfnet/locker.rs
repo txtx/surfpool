@@ -1064,14 +1064,13 @@ impl SurfnetSvmLocker {
                 // Agave-compatible JSON-RPC error format with structured `err` and `data` fields.
                 let err_str = e.to_string();
                 if err_str.contains("Account loaded twice") {
-                    let _ =
-                        status_tx.try_send(TransactionStatusEvent::SimulationFailure((
-                            TransactionError::AccountLoadedTwice,
-                            surfpool_types::TransactionMetadata::default(),
-                        )));
+                    let _ = status_tx.try_send(TransactionStatusEvent::SimulationFailure((
+                        TransactionError::AccountLoadedTwice,
+                        surfpool_types::TransactionMetadata::default(),
+                    )));
                 } else {
-                    let _ = status_tx
-                        .try_send(TransactionStatusEvent::VerificationFailure(err_str));
+                    let _ =
+                        status_tx.try_send(TransactionStatusEvent::VerificationFailure(err_str));
                 }
                 return Err(e);
             }
