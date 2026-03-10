@@ -78,7 +78,10 @@ pub async fn handle_start_local_surfnet_command(
                 info!("Successfully restored {} accounts from snapshot", count);
             }
             Err(e) => {
-                return Err(format!("Failed to restore from snapshot '{}': {}", path_str, e));
+                return Err(format!(
+                    "Failed to restore from snapshot '{}': {}",
+                    path_str, e
+                ));
             }
         }
     }

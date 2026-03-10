@@ -136,10 +136,11 @@ impl TemplateRegistry {
             Err(e) => panic!("unable to load {} idl: {}", protocol_name, e),
         };
 
-        let collection = match serde_yaml::from_str::<YamlOverrideTemplateCollection>(overrides_content) {
-            Ok(c) => c,
-            Err(e) => panic!("unable to load {} overrides: {}", protocol_name, e),
-        };
+        let collection =
+            match serde_yaml::from_str::<YamlOverrideTemplateCollection>(overrides_content) {
+                Ok(c) => c,
+                Err(e) => panic!("unable to load {} overrides: {}", protocol_name, e),
+            };
 
         // Convert all templates in the collection
         let templates = collection.to_override_templates(idl);
@@ -386,8 +387,7 @@ mod tests {
             .find(|o| o.id == "sol")
             .expect("SOL token should be present");
         assert_eq!(
-            sol_option.value,
-            "So11111111111111111111111111111111111111112",
+            sol_option.value, "So11111111111111111111111111111111111111112",
             "SOL address should match"
         );
 
@@ -397,8 +397,7 @@ mod tests {
             .find(|o| o.id == "usdc")
             .expect("USDC token should be present");
         assert_eq!(
-            usdc_option.value,
-            "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            usdc_option.value, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             "USDC address should match"
         );
 
@@ -444,7 +443,10 @@ mod tests {
 
         // Print first 5 options to debug
         for (i, opt) in openbook_market_constant.options.iter().take(5).enumerate() {
-            println!("  Option {}: id={}, label={}, value={}", i, opt.id, opt.label, opt.value);
+            println!(
+                "  Option {}: id={}, label={}, value={}",
+                i, opt.id, opt.label, opt.value
+            );
         }
 
         // Should have around 100 OpenBook markets (not thousands of tokens)
@@ -486,9 +488,9 @@ mod tests {
 
     #[test]
     fn test_pyth_price_feed_pda_derivation() {
-        use std::collections::HashMap;
+        use std::{collections::HashMap, str::FromStr};
+
         use solana_pubkey::Pubkey;
-        use std::str::FromStr;
 
         // Test direct derivation first to verify the algorithm
         let program_id = Pubkey::from_str("pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT")
@@ -514,8 +516,8 @@ mod tests {
         println!("  Derived PDA: {}", direct_pda);
 
         // Expected address (verified on-chain as SOL/USD price feed)
-        let expected_address = Pubkey::from_str("7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE")
-            .expect("Valid pubkey");
+        let expected_address =
+            Pubkey::from_str("7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE").expect("Valid pubkey");
 
         println!("  Expected PDA: {}", expected_address);
 
@@ -575,11 +577,15 @@ mod tests {
             }
         }"#;
 
-        let account: AccountAddress = serde_json::from_str(account_json)
-            .expect("Should parse AccountAddress from JSON");
+        let account: AccountAddress =
+            serde_json::from_str(account_json).expect("Should parse AccountAddress from JSON");
 
         let refs = account.get_pda_seed_references();
-        assert_eq!(refs, vec!["feed_id"], "Should extract feed_id as PDA seed reference");
+        assert_eq!(
+            refs,
+            vec!["feed_id"],
+            "Should extract feed_id as PDA seed reference"
+        );
 
         // Test with PropertyRef seed (Raydium token mints)
         let raydium_json = r#"{
@@ -594,25 +600,32 @@ mod tests {
             }
         }"#;
 
-        let raydium_account: AccountAddress = serde_json::from_str(raydium_json)
-            .expect("Should parse Raydium AccountAddress");
+        let raydium_account: AccountAddress =
+            serde_json::from_str(raydium_json).expect("Should parse Raydium AccountAddress");
 
         let raydium_refs = raydium_account.get_pda_seed_references();
-        assert_eq!(raydium_refs, vec!["token_mint_0", "token_mint_1"],
-            "Should extract both token mint refs");
+        assert_eq!(
+            raydium_refs,
+            vec!["token_mint_0", "token_mint_1"],
+            "Should extract both token mint refs"
+        );
 
         // Test with plain Pubkey (no PDA refs)
         let pubkey_json = r#"{"pubkey": "7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE"}"#;
-        let pubkey_account: AccountAddress = serde_json::from_str(pubkey_json)
-            .expect("Should parse Pubkey AccountAddress");
+        let pubkey_account: AccountAddress =
+            serde_json::from_str(pubkey_json).expect("Should parse Pubkey AccountAddress");
 
         let pubkey_refs = pubkey_account.get_pda_seed_references();
-        assert!(pubkey_refs.is_empty(), "Pubkey address should have no PDA refs");
+        assert!(
+            pubkey_refs.is_empty(),
+            "Pubkey address should have no PDA refs"
+        );
     }
 
     #[test]
     fn test_filter_pda_refs_from_override_values() {
         use std::collections::HashMap;
+
         use surfpool_types::AccountAddress;
 
         // Simulate what happens in materialize_overrides_for_slot
@@ -630,12 +643,17 @@ mod tests {
 
         // Values from the override instance (includes both PDA ref and account data fields)
         let mut values: HashMap<String, serde_json::Value> = HashMap::new();
-        values.insert("feed_id".to_string(),
-            serde_json::Value::String("0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d".to_string()));
-        values.insert("price_message.price".to_string(),
-            serde_json::json!(15000000000i64));
-        values.insert("price_message.conf".to_string(),
-            serde_json::json!(100));
+        values.insert(
+            "feed_id".to_string(),
+            serde_json::Value::String(
+                "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d".to_string(),
+            ),
+        );
+        values.insert(
+            "price_message.price".to_string(),
+            serde_json::json!(15000000000i64),
+        );
+        values.insert("price_message.conf".to_string(), serde_json::json!(100));
 
         // Filter out PDA refs (this is what materialize_overrides_for_slot does)
         let pda_refs = account.get_pda_seed_references();
@@ -646,20 +664,31 @@ mod tests {
             .collect();
 
         // feed_id should be filtered out, only account data fields remain
-        assert!(!account_values.contains_key("feed_id"),
-            "feed_id should be filtered out as it's a PDA seed ref");
-        assert!(account_values.contains_key("price_message.price"),
-            "price_message.price should remain");
-        assert!(account_values.contains_key("price_message.conf"),
-            "price_message.conf should remain");
-        assert_eq!(account_values.len(), 2, "Should have 2 account data fields after filtering");
+        assert!(
+            !account_values.contains_key("feed_id"),
+            "feed_id should be filtered out as it's a PDA seed ref"
+        );
+        assert!(
+            account_values.contains_key("price_message.price"),
+            "price_message.price should remain"
+        );
+        assert!(
+            account_values.contains_key("price_message.conf"),
+            "price_message.conf should remain"
+        );
+        assert_eq!(
+            account_values.len(),
+            2,
+            "Should have 2 account data fields after filtering"
+        );
     }
 
     #[test]
     fn test_pda_derivation_from_json_override_instance() {
-        use solana_pubkey::Pubkey;
         use std::str::FromStr;
-        use surfpool_types::{OverrideInstance, AccountAddress};
+
+        use solana_pubkey::Pubkey;
+        use surfpool_types::{AccountAddress, OverrideInstance};
 
         // First, test AccountAddress deserialization directly
         let account_json = r#"{
@@ -672,8 +701,8 @@ mod tests {
             }
         }"#;
 
-        let account: AccountAddress = serde_json::from_str(account_json)
-            .expect("Should parse AccountAddress from JSON");
+        let account: AccountAddress =
+            serde_json::from_str(account_json).expect("Should parse AccountAddress from JSON");
         println!("Parsed AccountAddress: {:?}", account);
 
         // This JSON is exactly what the LLM sends
@@ -699,8 +728,8 @@ mod tests {
             }
         }"#;
 
-        let override_instance: OverrideInstance = serde_json::from_str(json)
-            .expect("Should parse OverrideInstance from JSON");
+        let override_instance: OverrideInstance =
+            serde_json::from_str(json).expect("Should parse OverrideInstance from JSON");
 
         println!("Parsed OverrideInstance:");
         println!("  Template ID: {}", override_instance.template_id);
@@ -716,8 +745,8 @@ mod tests {
         println!("  Resolved PDA: {}", resolved_address);
 
         // Expected SOL/USD price feed address
-        let expected_address = Pubkey::from_str("7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE")
-            .expect("Valid pubkey");
+        let expected_address =
+            Pubkey::from_str("7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE").expect("Valid pubkey");
 
         assert_eq!(
             resolved_address, expected_address,

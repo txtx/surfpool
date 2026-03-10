@@ -15,7 +15,9 @@ use serde_json::Value;
 use set_token_account::{SeededAccount, SetAccountSuccess, SetTokenAccountsResponse};
 use start_surfnet::StartSurfnetResponse;
 use surfpool_core::scenarios::TemplateRegistry;
-use surfpool_types::{CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED, Scenario, VERIFIED_TOKENS_BY_SYMBOL};
+use surfpool_types::{
+    CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED, Scenario, VERIFIED_TOKENS_BY_SYMBOL,
+};
 
 use crate::helpers::find_next_available_surfnet_port;
 
@@ -273,7 +275,10 @@ impl TokenAddressResponse {
             address: None,
             name: None,
             decimals: None,
-            error: Some(format!("Token '{}' not found in verified tokens list", symbol)),
+            error: Some(format!(
+                "Token '{}' not found in verified tokens list",
+                symbol
+            )),
         }
     }
 }
@@ -596,21 +601,31 @@ impl Surfpool {
             if let Some(template) = registry.get(&override_instance.template_id) {
                 // Normalize: Extract values from malformed PDA seeds
                 // LLMs sometimes put values directly in seeds instead of in values map
-                if let surfpool_types::AccountAddress::Pda { seeds, .. } = &override_instance.account {
+                if let surfpool_types::AccountAddress::Pda { seeds, .. } =
+                    &override_instance.account
+                {
                     for seed in seeds {
                         match seed {
                             // If bytes32Ref contains a hex value (starts with 0x), extract it
-                            surfpool_types::PdaSeed::Bytes32Ref(value) if value.starts_with("0x") => {
+                            surfpool_types::PdaSeed::Bytes32Ref(value)
+                                if value.starts_with("0x") =>
+                            {
                                 // Find the corresponding property reference from template
-                                if let surfpool_types::AccountAddress::Pda { seeds: template_seeds, .. } = &template.address {
+                                if let surfpool_types::AccountAddress::Pda {
+                                    seeds: template_seeds,
+                                    ..
+                                } = &template.address
+                                {
                                     for template_seed in template_seeds.iter() {
-                                        if let surfpool_types::PdaSeed::Bytes32Ref(prop_name) = template_seed {
+                                        if let surfpool_types::PdaSeed::Bytes32Ref(prop_name) =
+                                            template_seed
+                                        {
                                             // The template has a property reference, but LLM put the value directly
                                             // Add the value to the values map using the property name
                                             if !override_instance.values.contains_key(prop_name) {
                                                 override_instance.values.insert(
                                                     prop_name.clone(),
-                                                    serde_json::Value::String(value.clone())
+                                                    serde_json::Value::String(value.clone()),
                                                 );
                                             }
                                         }
@@ -640,7 +655,9 @@ impl Surfpool {
                                         });
                                         if !is_valid {
                                             // Show only first 10 options to avoid overwhelming error messages
-                                            let sample_options: Vec<String> = constant_def.options.iter()
+                                            let sample_options: Vec<String> = constant_def
+                                                .options
+                                                .iter()
                                                 .take(10)
                                                 .map(|opt| format!("{}: {}", opt.label, opt.value))
                                                 .collect();
@@ -664,7 +681,9 @@ impl Surfpool {
                                     }
                                 } else {
                                     // Value is missing - required for PDA derivation
-                                    let valid_options: Vec<String> = constant_def.options.iter()
+                                    let valid_options: Vec<String> = constant_def
+                                        .options
+                                        .iter()
                                         .take(5) // Show first 5 options
                                         .map(|opt| format!("{}: {}", opt.label, opt.value))
                                         .collect();

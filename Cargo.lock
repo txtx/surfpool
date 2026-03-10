@@ -4873,9 +4873,9 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
 name = "litesvm"
-version = "0.9.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c835e9bf4590c115245fe15f15025527f88738f96b1993b16cc6f1d572c4979"
+checksum = "6a6d4edace08253a908d301768f291a7115e8e19e13473dd6e1ace78d6366433"
 dependencies = [
  "agave-feature-set",
  "agave-reserved-account-keys",
@@ -4901,7 +4901,7 @@ dependencies = [
  "solana-epoch-schedule 3.0.0",
  "solana-fee",
  "solana-fee-structure",
- "solana-hash 4.2.0",
+ "solana-hash 3.1.0",
  "solana-instruction 3.1.0",
  "solana-instructions-sysvar 3.0.0",
  "solana-keypair",
@@ -4927,7 +4927,7 @@ dependencies = [
  "solana-svm-log-collector",
  "solana-svm-timings",
  "solana-svm-transaction",
- "solana-system-interface 3.0.0",
+ "solana-system-interface 2.0.0",
  "solana-system-program",
  "solana-sysvar 3.1.1",
  "solana-sysvar-id 3.1.0",
@@ -4939,9 +4939,9 @@ dependencies = [
 
 [[package]]
 name = "litesvm-token"
-version = "0.9.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc6dd44f9d2839209ba227d03cba0f45616f639d029ab6f238cb75b4e9ab46be"
+checksum = "2f319bae54889c96cef85253ea2374310998294d1dbd1d40c3b9e117a273d3c1"
 dependencies = [
  "litesvm",
  "smallvec",
@@ -4952,7 +4952,7 @@ dependencies = [
  "solana-program-pack 3.0.0",
  "solana-rent 3.1.0",
  "solana-signer",
- "solana-system-interface 3.0.0",
+ "solana-system-interface 2.0.0",
  "solana-transaction",
  "solana-transaction-error 3.0.0",
  "spl-associated-token-account-interface",
@@ -11323,7 +11323,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "surfpool-bench"
-version = "1.0.1"
+version = "1.1.1"
 dependencies = [
  "bincode",
  "bs58",
@@ -11346,7 +11346,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-cli"
-version = "1.0.1"
+version = "1.1.1"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -11405,7 +11405,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-core"
-version = "1.0.1"
+version = "1.1.1"
 dependencies = [
  "agave-feature-set",
  "agave-geyser-plugin-interface",
@@ -11483,6 +11483,7 @@ dependencies = [
  "spl-associated-token-account-interface",
  "spl-token-2022-interface",
  "spl-token-interface",
+ "spl-token-metadata-interface",
  "surfpool-db",
  "surfpool-subgraph",
  "surfpool-types",
@@ -11498,7 +11499,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-db"
-version = "1.0.1"
+version = "1.1.1"
 dependencies = [
  "diesel",
  "diesel-dynamic-schema",
@@ -11511,7 +11512,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-gql"
-version = "1.0.1"
+version = "1.1.1"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -11532,7 +11533,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-mcp"
-version = "1.0.1"
+version = "1.1.1"
 dependencies = [
  "bs58",
  "crossbeam-channel",
@@ -11577,7 +11578,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-subgraph"
-version = "1.0.1"
+version = "1.1.1"
 dependencies = [
  "agave-geyser-plugin-interface",
  "ipc-channel",
@@ -11592,7 +11593,7 @@ dependencies = [
 
 [[package]]
 name = "surfpool-types"
-version = "1.0.1"
+version = "1.1.1"
 dependencies = [
  "anchor-lang-idl",
  "base64 0.22.1",

@@ -20,10 +20,10 @@ use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
 use log::{debug, error, info, trace, warn};
-#[cfg(feature = "explorer")]
-use rust_embed::RustEmbed;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp_actix_web::transport::StreamableHttpService;
+#[cfg(feature = "explorer")]
+use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use surfpool_core::scenarios::TemplateRegistry;
 use surfpool_gql::{

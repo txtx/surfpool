@@ -1622,9 +1622,8 @@ impl SurfnetSvm {
     /// # Returns
     /// The number of accounts restored, or an error if the operation fails.
     pub fn restore_from_snapshot(&mut self, snapshot_path: &str) -> SurfpoolResult<usize> {
-        use std::collections::HashMap;
-        use std::fs;
-        use std::str::FromStr;
+        use std::{collections::HashMap, fs, str::FromStr};
+
         use surfpool_types::AccountSnapshot;
 
         let content = fs::read_to_string(snapshot_path).map_err(|e| {
@@ -2229,7 +2228,8 @@ impl SurfnetSvm {
     ) -> SurfpoolResult<()> {
         let current_slot = self.latest_epoch_info.absolute_slot;
 
-        self.materialize_overrides_for_slot(remote_ctx, current_slot).await
+        self.materialize_overrides_for_slot(remote_ctx, current_slot)
+            .await
     }
 
     /// Materializes scheduled overrides for a specific slot
@@ -2262,8 +2262,10 @@ impl SurfnetSvm {
                 .resolve(Some(&override_instance.values))
             {
                 Some(pubkey) => {
-                    if matches!(&override_instance.account, surfpool_types::AccountAddress::Pda { .. })
-                    {
+                    if matches!(
+                        &override_instance.account,
+                        surfpool_types::AccountAddress::Pda { .. }
+                    ) {
                         debug!(
                             "Derived PDA {} for override {}",
                             pubkey, override_instance.id
@@ -2411,7 +2413,9 @@ impl SurfnetSvm {
                     warn!(
                         "Account {} has insufficient data ({} bytes) for override {}. \
                         Enable fetchBeforeUse: true to fetch account data from mainnet first.",
-                        account_pubkey, account_data.len(), override_instance.id
+                        account_pubkey,
+                        account_data.len(),
+                        override_instance.id
                     );
                     continue;
                 }
@@ -5211,7 +5215,9 @@ mod tests {
 
         let address = surfpool_types::AccountAddress::Pda {
             program_id: program_id.to_string(),
-            seeds: vec![surfpool_types::PdaSeed::PropertyRef("my_pubkey".to_string())],
+            seeds: vec![surfpool_types::PdaSeed::PropertyRef(
+                "my_pubkey".to_string(),
+            )],
         };
 
         let mut values = HashMap::new();
@@ -5241,7 +5247,9 @@ mod tests {
 
         let address = surfpool_types::AccountAddress::Pda {
             program_id: program_id.to_string(),
-            seeds: vec![surfpool_types::PdaSeed::PropertyRef("my_number".to_string())],
+            seeds: vec![surfpool_types::PdaSeed::PropertyRef(
+                "my_number".to_string(),
+            )],
         };
 
         let mut values = HashMap::new();
@@ -5378,7 +5386,8 @@ mod tests {
         assert!(result.is_some(), "Should derive Raydium CLMM pool PDA");
 
         // Verify it matches the known pool address
-        let expected_pool = Pubkey::from_str("3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv").unwrap();
+        let expected_pool =
+            Pubkey::from_str("3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv").unwrap();
         assert_eq!(
             result.unwrap(),
             expected_pool,
@@ -5423,7 +5432,8 @@ mod tests {
             "Should derive pool PDA with property refs"
         );
 
-        let expected_pool = Pubkey::from_str("3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv").unwrap();
+        let expected_pool =
+            Pubkey::from_str("3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv").unwrap();
         assert_eq!(
             result.unwrap(),
             expected_pool,
@@ -5442,10 +5452,13 @@ mod tests {
 
         // Different fee tiers from our constants
         let fee_tiers = [
-            ("ultra_tight", "4BLNHtVe942GSs4teSZqGX24xwKNkqU7bGgNn3iUiUpw"), // 1 bps
-            ("tight", "HfERMT5DRA6C1TAqecrJQFpmkf3wsWTMncqnj3RDg5aw"),       // 5 bps
-            ("standard", "E64NGkDLLCdQ2yFNPcavaKptrEgmiQaNykUuLC1Qgwyp"),    // 25 bps
-            ("wide", "A1BBtTYJd4i3xU8D6Tc2FzU6ZN4oXZWXKZnCxwbHXr8x"),        // 100 bps
+            (
+                "ultra_tight",
+                "4BLNHtVe942GSs4teSZqGX24xwKNkqU7bGgNn3iUiUpw",
+            ), // 1 bps
+            ("tight", "HfERMT5DRA6C1TAqecrJQFpmkf3wsWTMncqnj3RDg5aw"), // 5 bps
+            ("standard", "E64NGkDLLCdQ2yFNPcavaKptrEgmiQaNykUuLC1Qgwyp"), // 25 bps
+            ("wide", "A1BBtTYJd4i3xU8D6Tc2FzU6ZN4oXZWXKZnCxwbHXr8x"),  // 100 bps
         ];
 
         let mut derived_pools = Vec::new();
@@ -5548,7 +5561,8 @@ mod tests {
         );
 
         // Only the correct order (SOL, USDC) matches the known pool
-        let expected_pool = Pubkey::from_str("3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv").unwrap();
+        let expected_pool =
+            Pubkey::from_str("3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv").unwrap();
         assert_eq!(
             result_sol_usdc, expected_pool,
             "SOL/USDC order should match known pool"
@@ -5584,7 +5598,11 @@ mod tests {
             };
 
             let result = address.resolve_simple();
-            assert!(result.is_some(), "Should derive AMM config for index {}", index);
+            assert!(
+                result.is_some(),
+                "Should derive AMM config for index {}",
+                index
+            );
 
             let expected = Pubkey::from_str(expected_address).unwrap();
             assert_eq!(
@@ -5630,7 +5648,8 @@ mod tests {
         assert!(result.is_some(), "Should derive pool with nested PDA");
 
         // Should match the known SOL/USDC pool
-        let expected_pool = Pubkey::from_str("3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv").unwrap();
+        let expected_pool =
+            Pubkey::from_str("3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv").unwrap();
         assert_eq!(
             result.unwrap(),
             expected_pool,
@@ -5678,7 +5697,8 @@ mod tests {
         let result = address.resolve(Some(&values));
         assert!(result.is_some(), "Should derive pool with property refs");
 
-        let expected_pool = Pubkey::from_str("3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv").unwrap();
+        let expected_pool =
+            Pubkey::from_str("3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv").unwrap();
         assert_eq!(
             result.unwrap(),
             expected_pool,
@@ -5688,8 +5708,8 @@ mod tests {
 
     #[test]
     fn test_snapshot_export_restore_round_trip() {
-        use std::collections::HashMap;
-        use std::io::Write;
+        use std::{collections::HashMap, io::Write};
+
         use surfpool_types::AccountSnapshot;
         use tempfile::NamedTempFile;
 
@@ -5850,6 +5870,7 @@ mod tests {
 
         // Test with invalid JSON
         use std::io::Write;
+
         use tempfile::NamedTempFile;
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
@@ -5864,8 +5885,8 @@ mod tests {
 
     #[test]
     fn test_snapshot_restore_partial_failure() {
-        use std::collections::HashMap;
-        use std::io::Write;
+        use std::{collections::HashMap, io::Write};
+
         use surfpool_types::AccountSnapshot;
         use tempfile::NamedTempFile;
 

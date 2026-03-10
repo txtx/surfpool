@@ -107,9 +107,9 @@ impl PdaSeed {
     /// Convert a seed to bytes, optionally using values for PropertyRef resolution
     pub fn to_bytes(&self, values: Option<&HashMap<String, serde_json::Value>>) -> Option<Vec<u8>> {
         match self {
-            PdaSeed::Pubkey(pk_str) => {
-                Pubkey::from_str(pk_str).ok().map(|pk| pk.to_bytes().to_vec())
-            }
+            PdaSeed::Pubkey(pk_str) => Pubkey::from_str(pk_str)
+                .ok()
+                .map(|pk| pk.to_bytes().to_vec()),
             PdaSeed::String(s) => Some(s.as_bytes().to_vec()),
             PdaSeed::Bytes(b) => Some(b.clone()),
             PdaSeed::PropertyRef(prop) => {
@@ -461,13 +461,19 @@ pub struct OverrideInstance {
     #[schemars(description = "Unique identifier for this instance (UUID v4 format)")]
     pub id: String,
     /// Reference to the template being used - MUST match a template id from get_override_templates
-    #[schemars(description = "Template ID from get_override_templates (e.g., 'raydium-clmm-custom', 'kamino-obligation-health')")]
+    #[schemars(
+        description = "Template ID from get_override_templates (e.g., 'raydium-clmm-custom', 'kamino-obligation-health')"
+    )]
     pub template_id: String,
     /// Values for the template properties as a JSON object (NOT a string)
-    #[schemars(description = "JSON object mapping property names to values. Keys must be from template.properties. Example: {\"liquidity\": 1000000, \"sqrt_price_x64\": 18446744073709551616}")]
+    #[schemars(
+        description = "JSON object mapping property names to values. Keys must be from template.properties. Example: {\"liquidity\": 1000000, \"sqrt_price_x64\": 18446744073709551616}"
+    )]
     pub values: HashMap<String, serde_json::Value>,
     /// Relative slot when this override should be applied (1 = 400ms after registration)
-    #[schemars(description = "Slot offset from scenario registration (integer, e.g., 1, 2, 3). Each slot is ~400ms.")]
+    #[schemars(
+        description = "Slot offset from scenario registration (integer, e.g., 1, 2, 3). Each slot is ~400ms."
+    )]
     pub scenario_relative_slot: Slot,
     /// Optional human-readable label for this instance
     #[schemars(description = "Human-readable label describing what this override does")]
@@ -476,11 +482,15 @@ pub struct OverrideInstance {
     #[schemars(description = "Whether this override is active (true/false)")]
     pub enabled: bool,
     /// Whether to fetch fresh account data just before transaction execution
-    #[schemars(description = "If true, fetches fresh account data from mainnet before applying override")]
+    #[schemars(
+        description = "If true, fetches fresh account data from mainnet before applying override"
+    )]
     #[serde(default)]
     pub fetch_before_use: bool,
     /// Account address to override - use pubkey for known addresses or pda for derived addresses
-    #[schemars(description = "Account address: either {\"pubkey\": \"base58_address\"} or {\"pda\": {\"programId\": \"...\", \"seeds\": [...]}}")]
+    #[schemars(
+        description = "Account address: either {\"pubkey\": \"base58_address\"} or {\"pda\": {\"programId\": \"...\", \"seeds\": [...]}}"
+    )]
     pub account: AccountAddress,
 }
 
@@ -514,7 +524,9 @@ impl OverrideInstance {
 #[serde(rename_all = "camelCase")]
 pub struct Scenario {
     /// Unique identifier for the scenario (UUID v4 format)
-    #[schemars(description = "Unique identifier for the scenario (UUID v4 format, e.g., '550e8400-e29b-41d4-a716-446655440000')")]
+    #[schemars(
+        description = "Unique identifier for the scenario (UUID v4 format, e.g., '550e8400-e29b-41d4-a716-446655440000')"
+    )]
     pub id: String,
     /// Human-readable name
     #[schemars(description = "Human-readable name for the scenario")]
@@ -523,10 +535,14 @@ pub struct Scenario {
     #[schemars(description = "Description of what this scenario does")]
     pub description: String,
     /// List of override instances in this scenario - MUST be an array, NOT a string
-    #[schemars(description = "Array of override instances. IMPORTANT: This must be a JSON array [], not a JSON string. Each element is an OverrideInstance object.")]
+    #[schemars(
+        description = "Array of override instances. IMPORTANT: This must be a JSON array [], not a JSON string. Each element is an OverrideInstance object."
+    )]
     pub overrides: Vec<OverrideInstance>,
     /// Tags for categorization
-    #[schemars(description = "Array of string tags for categorization (e.g., ['liquidation', 'arbitrage'])")]
+    #[schemars(
+        description = "Array of string tags for categorization (e.g., ['liquidation', 'arbitrage'])"
+    )]
     pub tags: Vec<String>,
 }
 
@@ -620,7 +636,11 @@ impl YamlOverrideTemplateFile {
             address: self.address.into(),
             account_type: self.account_type,
             properties: self.properties.into_iter().map(Into::into).collect(),
-            constants: self.constants.into_iter().map(|(k, v)| (k, v.into())).collect(),
+            constants: self
+                .constants
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
             tags: self.tags,
             llm_context: self.llm_context,
         }
@@ -692,9 +712,7 @@ impl YamlConstantDefinition {
     /// Convert to runtime ConstantDefinition, resolving verified tokens references
     pub fn to_constant_definition(self) -> ConstantDefinition {
         let options = match self.source {
-            YamlConstantSource::Inline { options } => {
-                options.into_iter().map(Into::into).collect()
-            }
+            YamlConstantSource::Inline { options } => options.into_iter().map(Into::into).collect(),
             YamlConstantSource::TokensRef {
                 source,
                 filter_tags,
@@ -839,7 +857,9 @@ impl From<YamlPropertyType> for Property {
     fn from(yaml: YamlPropertyType) -> Self {
         match yaml {
             YamlPropertyType::Field { name } => Property::field(name),
-            YamlPropertyType::ConstantRef { name, constant } => Property::constant_ref(name, constant),
+            YamlPropertyType::ConstantRef { name, constant } => {
+                Property::constant_ref(name, constant)
+            }
         }
     }
 }
@@ -917,7 +937,9 @@ impl YamlOverrideTemplateCollection {
                 protocol: self.protocol.clone(),
                 idl: idl.clone(),
                 address: entry.address.into(),
-                account_type: entry.idl_account_name.unwrap_or_else(|| default_account_type.clone()),
+                account_type: entry
+                    .idl_account_name
+                    .unwrap_or_else(|| default_account_type.clone()),
                 properties: entry.properties.into_iter().map(Into::into).collect(),
                 constants: constants.clone(),
                 tags: self.tags.clone(),
@@ -962,7 +984,11 @@ impl YamlOverrideTemplate {
             address: self.address.into(),
             account_type: self.account_type,
             properties: self.properties.into_iter().map(Into::into).collect(),
-            constants: self.constants.into_iter().map(|(k, v)| (k, v.into())).collect(),
+            constants: self
+                .constants
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
             tags: self.tags,
             llm_context: self.llm_context,
         }
@@ -1001,18 +1027,34 @@ impl From<YamlAccountAddress> for AccountAddress {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum YamlPdaSeed {
-    String { value: String },
-    Bytes { value: Vec<u8> },
-    Pubkey { value: String },
-    PropertyRef { value: String },
+    String {
+        value: String,
+    },
+    Bytes {
+        value: Vec<u8>,
+    },
+    Pubkey {
+        value: String,
+    },
+    PropertyRef {
+        value: String,
+    },
     /// A u16 value converted to big-endian bytes
-    U16Be { value: u16 },
+    U16Be {
+        value: u16,
+    },
     /// Reference to a property that should be converted to u16 big-endian bytes
-    U16BeRef { value: String },
+    U16BeRef {
+        value: String,
+    },
     /// A u16 value converted to little-endian bytes (useful for Pyth shard IDs)
-    U16Le { value: u16 },
+    U16Le {
+        value: u16,
+    },
     /// Reference to a property that's a 32-byte hex string (e.g., Pyth feed ID)
-    Bytes32Ref { value: String },
+    Bytes32Ref {
+        value: String,
+    },
     /// A nested PDA derivation - derives a PDA from inner seeds and uses it as the seed
     DerivedPda {
         program_id: String,

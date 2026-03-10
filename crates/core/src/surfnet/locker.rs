@@ -2031,7 +2031,9 @@ impl SurfnetSvmLocker {
         slot: Slot,
     ) -> SurfpoolResult<()> {
         let mut svm_writer = self.0.write().await;
-        svm_writer.materialize_overrides_for_slot(remote_ctx, slot).await
+        svm_writer
+            .materialize_overrides_for_slot(remote_ctx, slot)
+            .await
     }
 }
 
