@@ -2023,6 +2023,16 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolResult<()> {
         self.with_svm_writer(move |svm_writer| svm_writer.register_scenario(scenario, slot))
     }
+
+    /// Materializes overrides for a specific slot (not necessarily the current slot)
+    pub async fn materialize_overrides_for_slot(
+        &self,
+        remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
+        slot: Slot,
+    ) -> SurfpoolResult<()> {
+        let mut svm_writer = self.0.write().await;
+        svm_writer.materialize_overrides_for_slot(remote_ctx, slot).await
+    }
 }
 
 /// Token account related functions
