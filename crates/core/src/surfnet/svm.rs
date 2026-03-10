@@ -5713,7 +5713,7 @@ mod tests {
         use surfpool_types::AccountSnapshot;
         use tempfile::NamedTempFile;
 
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new(None, "test").unwrap();
 
         // Create test accounts with different characteristics
         let test_accounts: Vec<(Pubkey, Account)> = vec![
@@ -5760,7 +5760,10 @@ mod tests {
 
         // Verify accounts are set correctly
         for (pubkey, expected_account) in &test_accounts {
-            let actual_account = svm.get_account(pubkey).expect("Account should exist");
+            let actual_account = svm
+                .get_account(pubkey)
+                .expect("get_account should not error")
+                .expect("Account should exist");
             assert_eq!(
                 actual_account.lamports, expected_account.lamports,
                 "Lamports should match for {}",
@@ -5804,12 +5807,14 @@ mod tests {
         let snapshot_path = temp_file.path().to_str().unwrap();
 
         // Create a new SVM instance and restore the snapshot
-        let (mut svm2, _events_rx2, _geyser_rx2) = SurfnetSvm::new();
+        let (mut svm2, _events_rx2, _geyser_rx2) = SurfnetSvm::new(None, "test").unwrap();
 
         // Verify accounts don't exist in new SVM
         for (pubkey, _) in &test_accounts {
             assert!(
-                svm2.get_account(pubkey).is_none(),
+                svm2.get_account(pubkey)
+                    .expect("get_account should not error")
+                    .is_none(),
                 "Account {} should not exist in new SVM before restore",
                 pubkey
             );
@@ -5830,7 +5835,8 @@ mod tests {
         for (pubkey, expected_account) in &test_accounts {
             let restored_account = svm2
                 .get_account(pubkey)
-                .expect(&format!("Account {} should exist after restore", pubkey));
+                .expect("get_account should not error")
+                .unwrap_or_else(|| panic!("Account {} should exist after restore", pubkey));
 
             assert_eq!(
                 restored_account.lamports, expected_account.lamports,
@@ -5862,7 +5868,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_restore_invalid_file() {
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new(None, "test").unwrap();
 
         // Test with non-existent file
         let result = svm.restore_from_snapshot("/nonexistent/path/to/snapshot.json");
@@ -5890,7 +5896,7 @@ mod tests {
         use surfpool_types::AccountSnapshot;
         use tempfile::NamedTempFile;
 
-        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new();
+        let (mut svm, _events_rx, _geyser_rx) = SurfnetSvm::new(None, "test").unwrap();
 
         // Create a snapshot with one valid and one invalid account
         let mut snapshot: HashMap<String, AccountSnapshot> = HashMap::new();
@@ -5941,6 +5947,7 @@ mod tests {
         // Verify the valid account was restored
         let restored_account = svm
             .get_account(&valid_pubkey)
+            .expect("get_account should not error")
             .expect("Valid account should be restored");
         assert_eq!(restored_account.lamports, 1_000_000);
     }
