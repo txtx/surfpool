@@ -295,9 +295,11 @@ pub struct SurfnetSvm {
     pub streamed_accounts: Box<dyn Storage<String, bool>>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
     pub scheduled_overrides: Box<dyn Storage<u64, Vec<OverrideInstance>>>,
-    /// Tracks accounts that have been explicitly closed by the user.
-    /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
-    pub closed_accounts: HashSet<Pubkey>,
+    /// Tracks accounts that should not be downloaded from the remote RPC.
+    /// This includes accounts explicitly closed locally and accounts blocked via cheatcodes.
+    pub blocked_accounts: HashSet<Pubkey>,
+    /// Tracks owners whose accounts should not be downloaded from the remote RPC.
+    pub blocked_account_owners: HashSet<Pubkey>,
     /// The slot at which this surfnet instance started (may be non-zero when connected to remote).
     /// Used as the lower bound for block reconstruction.
     pub genesis_slot: Slot,
@@ -419,7 +421,8 @@ impl SurfnetSvm {
             runbook_executions: self.runbook_executions.clone(),
             account_update_slots: self.account_update_slots.clone(),
             recent_blockhashes: self.recent_blockhashes.clone(),
-            closed_accounts: self.closed_accounts.clone(),
+            blocked_accounts: self.blocked_accounts.clone(),
+            blocked_account_owners: self.blocked_account_owners.clone(),
             genesis_slot: self.genesis_slot,
             genesis_updated_at: self.genesis_updated_at,
             slot_checkpoint: OverlayStorage::wrap(self.slot_checkpoint.clone_box()),
@@ -619,7 +622,8 @@ impl SurfnetSvm {
             streamed_accounts: streamed_accounts_db,
             recent_blockhashes: VecDeque::new(),
             scheduled_overrides: scheduled_overrides_db,
-            closed_accounts: HashSet::new(),
+            blocked_accounts: HashSet::new(),
+            blocked_account_owners: HashSet::new(),
             genesis_slot: 0, // Will be updated when connecting to remote network
             genesis_updated_at: Utc::now().timestamp_millis() as u64,
             slot_checkpoint: slot_checkpoint_db,
@@ -1314,7 +1318,7 @@ impl SurfnetSvm {
         }
 
         if is_deleted_account {
-            self.closed_accounts.insert(*pubkey);
+            self.blocked_accounts.insert(*pubkey);
             if let Some(old_account) = self.get_account(pubkey)? {
                 self.remove_from_indexes(pubkey, &old_account)?;
             }
@@ -4554,14 +4558,14 @@ mod tests {
         svm.set_account(&account_pubkey, account.clone()).unwrap();
 
         assert!(svm.get_account(&account_pubkey).unwrap().is_some());
-        assert!(!svm.closed_accounts.contains(&account_pubkey));
+        assert!(!svm.blocked_accounts.contains(&account_pubkey));
         assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 1);
 
         let empty_account = Account::default();
         svm.update_account_registries(&account_pubkey, &empty_account)
             .unwrap();
 
-        assert!(svm.closed_accounts.contains(&account_pubkey));
+        assert!(svm.blocked_accounts.contains(&account_pubkey));
 
         assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 0);
 
@@ -4609,13 +4613,13 @@ mod tests {
             1
         );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 1);
-        assert!(!svm.closed_accounts.contains(&token_account_pubkey));
+        assert!(!svm.blocked_accounts.contains(&token_account_pubkey));
 
         let empty_account = Account::default();
         svm.update_account_registries(&token_account_pubkey, &empty_account)
             .unwrap();
 
-        assert!(svm.closed_accounts.contains(&token_account_pubkey));
+        assert!(svm.blocked_accounts.contains(&token_account_pubkey));
 
         assert_eq!(
             svm.get_token_accounts_by_owner(&token_owner).unwrap().len(),
