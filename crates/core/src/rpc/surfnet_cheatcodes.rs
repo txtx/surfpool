@@ -14,9 +14,10 @@ use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    AccountSnapshot, ClockCommand, ExportSnapshotConfig, GetStreamedAccountsResponse,
-    GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcCheatcodes, RpcProfileResultConfig,
-    Scenario, SimnetCommand, SimnetEvent, StreamAccountConfig, UiKeyedProfileResult,
+    AccountSnapshot, CheatcodeControlConfig, CheatcodeFilter, ClockCommand, ExportSnapshotConfig,
+    GetStreamedAccountsResponse, GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcCheatcodes,
+    RpcProfileResultConfig, Scenario, SimnetCommand, SimnetEvent, StreamAccountConfig,
+    UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -218,7 +219,7 @@ pub trait SurfnetCheatcodes {
     fn enable_cheatcode(
         &self,
         meta: Self::Metadata,
-        cheatcodes: Vec<String>,
+        cheatcodes_filter: CheatcodeFilter,
     ) -> Result<RpcResponse<()>>;
 
     /// Disables one or more Surfpool cheatcode RPC methods for the current session.
@@ -261,85 +262,10 @@ pub trait SurfnetCheatcodes {
     fn disable_cheatcode(
         &self,
         meta: Self::Metadata,
-        cheatcodes: Vec<String>,
+        cheatcodes_filter: CheatcodeFilter,
+        lockout: Option<CheatcodeControlConfig>,
     ) -> Result<RpcResponse<()>>;
 
-    /// Enables "lockout" mode so that `surfnet_enableCheatcode` and `surfnet_disableCheatcode` can be disabled.
-    ///
-    /// Once lockout is enabled, those two meta-cheatcode methods may be disabled via `surfnet_disableCheatcode`,
-    /// allowing a session to lock down further modification of the cheatcode set.
-    ///
-    /// ## Parameters
-    /// None.
-    ///
-    /// ## Returns
-    /// A `RpcResponse<()>` indicating success.
-    ///
-    /// ## Example Request
-    /// ```json
-    /// {
-    ///   "jsonrpc": "2.0",
-    ///   "id": 1,
-    ///   "method": "surfnet_lockout",
-    ///   "params": []
-    /// }
-    /// ```
-    ///
-    /// ## Example Response
-    /// ```json
-    /// {
-    ///   "jsonrpc": "2.0",
-    ///   "result": {},
-    ///   "id": 1
-    /// }
-    /// ```
-    ///
-    /// # Notes
-    /// Lockout cannot be turned off once enabled for the current session.
-    ///
-    /// # See Also
-    /// - `surfnet_enableCheatcode`, `surfnet_disableCheatcode`, `surfnet_disableAllCheatcodes`
-    #[rpc(meta, name = "surfnet_lockout")]
-    fn lockout(&self, meta: Self::Metadata) -> Result<RpcResponse<()>>;
-
-    /// Disables all Surfpool cheatcode RPC methods for the current session.
-    ///
-    /// This method turns off every cheatcode at once. After calling it, no `surfnet_*` cheatcode methods
-    /// are callable until re-enabled via `surfnet_enableCheatcode`.
-    ///
-    /// ## Parameters
-    /// None.
-    ///
-    /// ## Returns
-    /// A `RpcResponse<()>` indicating success.
-    ///
-    /// ## Example Request
-    /// ```json
-    /// {
-    ///   "jsonrpc": "2.0",
-    ///   "id": 1,
-    ///   "method": "surfnet_disableAllCheatcodes",
-    ///   "params": []
-    /// }
-    /// ```
-    ///
-    /// ## Example Response
-    /// ```json
-    /// {
-    ///   "jsonrpc": "2.0",
-    ///   "result": {},
-    ///   "id": 1
-    /// }
-    /// ```
-    ///
-    /// # Notes
-    /// Does not require lockout to be enabled; it disables all cheatcodes including
-    /// `surfnet_enableCheatcode` and `surfnet_disableCheatcode`.
-    ///
-    /// # See Also
-    /// - `surfnet_enableCheatcode`, `surfnet_disableCheatcode`, `surfnet_lockout`
-    #[rpc(meta, name = "surfnet_disableAllCheatcodes")]
-    fn disable_all_cheatcodes(&self, meta: Self::Metadata) -> Result<RpcResponse<()>>;
     /// A "cheat code" method for developers to set or update a token account in Surfpool.
     ///
     /// This method allows developers to set or update various properties of a token account,
@@ -1365,35 +1291,51 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
     fn disable_cheatcode(
         &self,
         meta: Self::Metadata,
-        cheatcodes: Vec<String>,
+        cheatcodes_filter: CheatcodeFilter,
+        control_config: Option<CheatcodeControlConfig>,
     ) -> Result<RpcResponse<()>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
             Err(e) => return Err(e.into()),
         };
+
+        let CheatcodeControlConfig { lockout } = control_config.unwrap_or_default();
+        let lockout = lockout.unwrap_or_default();
+
         if let Some(runloop_ctx) = meta {
             let mut cheatcode_ctx = runloop_ctx.cheatcode_config.lock().unwrap();
 
-            for cheatcode in cheatcodes {
-                if !cheatcode_ctx.lockout
-                    && (cheatcode.eq(&String::from(RpcCheatcodes::EnableCheatcode))
-                        || cheatcode.eq(&String::from(RpcCheatcodes::DisableCheatcode)))
-                {
-                    return Err(SurfpoolError::disable_cheatcode(
-                        "Cannot disable surfnet_enableCheatcode or surfnet_disableCheatcode rpc method when lockout is not enabledd".to_string(),
-                    )
-                    .into());
-                }
-                debug!("disabling cheatcode: {cheatcode}");
-                if RpcCheatcodes::try_from(cheatcode.as_str()).is_err() {
-                    return Err(SurfpoolError::disable_cheatcode(
-                        "Invalid cheatcode rpc method".to_string(),
-                    )
-                    .into());
-                }
+            match cheatcodes_filter {
+                CheatcodeFilter::All(all) => {
+                    if all.ne("all") {
+                        return Err(SurfpoolError::disable_cheatcode(
+                            "Invalid optioin provided for disabling all cheatcodes. Try using \"all\"".to_string(),
+                        )
+                        .into());
+                    }
 
-                if let Err(e) = cheatcode_ctx.disable_cheatcode(&cheatcode) {
-                    return Err(SurfpoolError::disable_cheatcode(e).into());
+                    cheatcode_ctx.disable_all(lockout);
+                }
+                CheatcodeFilter::List(cheatdcodes) => {
+                    for cheatcode in cheatdcodes {
+                        if !lockout && cheatcode.eq(&String::from(RpcCheatcodes::EnableCheatcode)) {
+                            return Err(SurfpoolError::disable_cheatcode(
+                                "Cannot disable surfnet_enableCheatcode rpc method when lockout is not enabledd".to_string(),
+                            )
+                            .into());
+                        }
+                        debug!("disabling cheatcode: {cheatcode}");
+                        if RpcCheatcodes::try_from(cheatcode.as_str()).is_err() {
+                            return Err(SurfpoolError::disable_cheatcode(
+                                "Invalid cheatcode rpc method".to_string(),
+                            )
+                            .into());
+                        }
+
+                        if let Err(e) = cheatcode_ctx.disable_cheatcode(&cheatcode) {
+                            return Err(SurfpoolError::disable_cheatcode(e).into());
+                        }
+                    }
                 }
             }
         }
@@ -1407,7 +1349,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
     fn enable_cheatcode(
         &self,
         meta: Self::Metadata,
-        cheatcodes: Vec<String>,
+        cheatcodes_filter: CheatcodeFilter,
     ) -> Result<RpcResponse<()>> {
         let svm_locker = match meta.get_svm_locker() {
             Ok(locker) => locker,
@@ -1415,18 +1357,32 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         };
         if let Some(runloop_ctx) = meta {
             let cheatcode_ctx = runloop_ctx.cheatcode_config;
+            match cheatcodes_filter {
+                CheatcodeFilter::All(all) => {
+                    if all.ne("all") {
+                        return Err(SurfpoolError::enable_cheatcode(
+                            "Invalid optioin provided for enabling all cheatcodes. Try using \"all\"".to_string(),
+                        )
+                        .into());
+                    }
 
-            for ref cheatcode in cheatcodes {
-                debug!("enabling cheatcode: {cheatcode}");
-                if RpcCheatcodes::try_from(cheatcode.as_str()).is_err() {
-                    return Err(SurfpoolError::enable_cheatcode(
-                        "Invalid cheatcode rpc method".to_string(),
-                    )
-                    .into());
+                    // we probably don't need to check whether lockout == true because surfnet_enableCheatcode won't be called if it's disabled
+                    cheatcode_ctx.lock().unwrap().filter = CheatcodeFilter::List(vec![]);
                 }
+                CheatcodeFilter::List(cheatcodes) => {
+                    for ref cheatcode in cheatcodes {
+                        debug!("enabling cheatcode: {cheatcode}");
+                        if RpcCheatcodes::try_from(cheatcode.as_str()).is_err() {
+                            return Err(SurfpoolError::enable_cheatcode(
+                                "Invalid cheatcode rpc method".to_string(),
+                            )
+                            .into());
+                        }
 
-                if let Err(e) = cheatcode_ctx.lock().unwrap().enable_cheatcode(cheatcode) {
-                    return Err(SurfpoolError::enable_cheatcode(e).into());
+                        if let Err(e) = cheatcode_ctx.lock().unwrap().enable_cheatcode(cheatcode) {
+                            return Err(SurfpoolError::enable_cheatcode(e).into());
+                        }
+                    }
                 }
             }
         }
@@ -1434,32 +1390,6 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         Ok(RpcResponse {
             value: (),
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
-        })
-    }
-
-    fn disable_all_cheatcodes(&self, meta: Self::Metadata) -> Result<RpcResponse<()>> {
-        if let Some(runloop_ctx) = meta {
-            let cheatcode_ctx = runloop_ctx.cheatcode_config;
-
-            cheatcode_ctx.lock().unwrap().disable_all();
-        }
-
-        Ok(RpcResponse {
-            value: (),
-            context: RpcResponseContext::new(0),
-        })
-    }
-
-    fn lockout(&self, meta: Self::Metadata) -> Result<RpcResponse<()>> {
-        if let Some(runloop_ctx) = meta {
-            let cheatcode_ctx = runloop_ctx.cheatcode_config;
-
-            cheatcode_ctx.lock().unwrap().lockout();
-        }
-
-        Ok(RpcResponse {
-            value: (),
-            context: RpcResponseContext::new(0),
         })
     }
 

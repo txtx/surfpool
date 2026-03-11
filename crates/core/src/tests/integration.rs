@@ -32,9 +32,9 @@ use solana_system_interface::{
 };
 use solana_transaction::{Transaction, versioned::VersionedTransaction};
 use surfpool_types::{
-    CheatcodeConfig, DEFAULT_SLOT_TIME_MS, Idl, RpcCheatcodes, RpcProfileDepth,
-    RpcProfileResultConfig, SimnetCommand, SimnetEvent, SurfpoolConfig, UiAccountChange,
-    UiAccountProfileState, UiKeyedProfileResult,
+    CheatcodeConfig, CheatcodeControlConfig, CheatcodeFilter, DEFAULT_SLOT_TIME_MS, Idl,
+    RpcCheatcodes, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
+    SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
     types::{
         BlockProductionMode, RpcConfig, SimnetConfig, SubgraphConfig, TransactionStatusEvent,
         UuidOrSignature,
@@ -1060,8 +1060,10 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
-    let disable_cheatcode_method: String = RpcCheatcodes::GetActiveIdl.into();
-    let invalid_cheatcode = "invalidCheatcode".to_string();
+    let valid_cheatcode_method: String = RpcCheatcodes::GetActiveIdl.into();
+    let enable_cheatcode_method: String = RpcCheatcodes::EnableCheatcode.into();
+    let disable_cheatcode_method: String = RpcCheatcodes::DisableCheatcode.into();
+    let invalid_cheatcode_method = "surfnet_invalidCheatcode".to_string();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -1073,16 +1075,16 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
         cheatcode_config: CheatcodeConfig::new(),
     };
 
-    let disable_cheatcode_result = rpc_server.disable_cheatcode(
+    // Test disable works properly
+    let disable_cheatcode_pass_result = rpc_server.disable_cheatcode(
         Some(runloop_context.clone()),
-        vec![disable_cheatcode_method.to_string()],
+        CheatcodeFilter::List(vec![valid_cheatcode_method.clone()]),
+        None,
     );
 
-    // test whether enabling and disabling cheatcodes work
     assert!(
-        disable_cheatcode_result.is_ok(),
-        "Cheatcode disable failed: {:?}",
-        disable_cheatcode_result.err()
+        disable_cheatcode_pass_result.is_ok(),
+        "Expected surfnet_disableCheatcode to pass"
     );
 
     assert!(
@@ -1090,98 +1092,223 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
             .cheatcode_config
             .lock()
             .unwrap()
-            .is_cheatcode_disabled(&disable_cheatcode_method.to_string()),
-        "Expected {} rpc method to be disabled",
-        disable_cheatcode_method
+            .is_cheatcode_disabled(&valid_cheatcode_method),
+        "Expected cheatcode to be disabled"
     );
 
-    let enable_cheatcode_result = rpc_server.enable_cheatcode(
+    let disable_enable_cheatcode_lockout_false_fails = rpc_server.disable_cheatcode(
         Some(runloop_context.clone()),
-        vec![disable_cheatcode_method.to_string()],
+        CheatcodeFilter::List(vec![enable_cheatcode_method.clone()]),
+        None,
+    );
+
+    let expected_error: jsonrpc_core::Result<()> = Err(SurfpoolError::disable_cheatcode(
+        "Cannot disable surfnet_enableCheatcode rpc method when lockout is not enabledd"
+            .to_string(),
+    )
+    .into());
+
+    assert!(
+        disable_enable_cheatcode_lockout_false_fails.is_err(),
+        "Expected surfnet_disableCheatcode to fail when disabling surfnet_enableCheatcode with lockout == false"
+    );
+    assert_eq!(
+        disable_enable_cheatcode_lockout_false_fails.err().unwrap(),
+        expected_error.err().unwrap(),
+        "Expected error did not match the resulting error"
+    );
+
+    let disable_cheatcode_fails_on_invalid_cheatcode = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::List(vec![invalid_cheatcode_method.clone()]),
+        None,
+    );
+
+    let expected_error_disable_invalid_cheatcode: jsonrpc_core::Result<()> =
+        Err(SurfpoolError::disable_cheatcode("Invalid cheatcode rpc method".to_string()).into());
+
+    assert!(
+        disable_cheatcode_fails_on_invalid_cheatcode.is_err(),
+        "Expected surfnet_disableCheatcode to fail on providing invalid cheatcode method"
+    );
+
+    assert_eq!(
+        expected_error_disable_invalid_cheatcode.err().unwrap(),
+        disable_cheatcode_fails_on_invalid_cheatcode.err().unwrap(),
+        "Resulting error does not match the expected error"
+    );
+
+    let disable_all_cheatcodes_fails_with_invalid_config = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::All("not_all".to_string()),
+        None,
+    );
+    let expected_error_disable_all_with_invalid_config: jsonrpc_core::Result<()> =
+        Err(SurfpoolError::disable_cheatcode(
+            "Invalid optioin provided for disabling all cheatcodes. Try using \"all\"".to_string(),
+        )
+        .into());
+
+    assert!(
+        disable_all_cheatcodes_fails_with_invalid_config.is_err(),
+        "Expected surfnet_disableCheatcode to fail when config is wrong"
+    );
+    assert_eq!(
+        disable_all_cheatcodes_fails_with_invalid_config
+            .err()
+            .unwrap(),
+        expected_error_disable_all_with_invalid_config
+            .err()
+            .unwrap(),
+        "Expected error did not match the resulting error"
+    );
+
+    let disabled_all_cheatcode_passes_result = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::All("all".to_string()),
+        None,
     );
 
     assert!(
-        enable_cheatcode_result.is_ok(),
-        "Cheatcode enable failed: {:?}",
-        disable_cheatcode_result.err()
+        disabled_all_cheatcode_passes_result.is_ok(),
+        "Expected surfnet_disableCheatcode to pass with valid config"
     );
 
+    assert_eq!(
+        runloop_context.cheatcode_config.lock().unwrap().filter,
+        CheatcodeConfig::filter_all_list(false),
+        "The disabled cheatcodes list doesn't match the expected one"
+    );
+
+    let disable_fails_if_cheatcode_already_disabled_result = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::List(vec![valid_cheatcode_method.clone()]),
+        None,
+    );
+
+    let expected_error_if_cheatcode_already_disabled: jsonrpc_core::Result<()> =
+        Err(SurfpoolError::disable_cheatcode("Cheatcode already disabled".to_string()).into());
+
+    assert!(
+        disable_fails_if_cheatcode_already_disabled_result.is_err(),
+        "Expected surfnet_disableCheatcode to fail if cheatcode already disabled"
+    );
+
+    assert_eq!(
+        disable_fails_if_cheatcode_already_disabled_result
+            .err()
+            .unwrap(),
+        expected_error_if_cheatcode_already_disabled.err().unwrap(),
+        "The expected error does not match the resulting error"
+    );
+
+    // test enable works properly
+    let enable_cheatcode_works_properly_result = rpc_server.enable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::List(vec![valid_cheatcode_method.clone()]),
+    );
+
+    assert!(
+        enable_cheatcode_works_properly_result.is_ok(),
+        "expected surfnet_enableCheatcode to pass"
+    );
     assert!(
         !runloop_context
             .cheatcode_config
             .lock()
             .unwrap()
-            .is_cheatcode_disabled(&disable_cheatcode_method.to_string()),
-        "Expected {} rpc method to be enabled",
-        disable_cheatcode_method
+            .is_cheatcode_disabled(&valid_cheatcode_method),
+        "Expected the cheatcode to be enabled after surnet_enableCheatcode rpc method"
     );
 
-    // Test handling an exeptional case where param provides an invalid cheatcode
-    let invalid_cheatcode_disable_result =
-        rpc_server.enable_cheatcode(Some(runloop_context.clone()), vec![invalid_cheatcode]);
-
-    assert!(
-        invalid_cheatcode_disable_result.is_err(),
-        "Expected passing an invalid cheatcode to be disabled to result in Error"
-    );
-
-    // cheatcode_config.lockout tests
-    // disabling enableCheatcode and disableCheatcode should result in error when lockout == false
-    let disable_cheatcode_enable_rpc_method_result = rpc_server.disable_cheatcode(
+    let enable_cheatcode_fails_on_invalid_cheatcode = rpc_server.enable_cheatcode(
         Some(runloop_context.clone()),
-        vec![RpcCheatcodes::EnableCheatcode.into()],
+        CheatcodeFilter::List(vec![invalid_cheatcode_method]),
     );
-    let disable_cheatcode_disable_rpc_method_result = rpc_server.disable_cheatcode(
+
+    let expected_error_enable_invalid_cheatcode: jsonrpc_core::Result<()> =
+        Err(SurfpoolError::enable_cheatcode("Invalid cheatcode rpc method".to_string()).into());
+
+    assert!(
+        enable_cheatcode_fails_on_invalid_cheatcode.is_err(),
+        "Expected surfnet_disableCheatcode to fail on providing invalid cheatcode method"
+    );
+
+    assert_eq!(
+        enable_cheatcode_fails_on_invalid_cheatcode.err().unwrap(),
+        expected_error_enable_invalid_cheatcode.err().unwrap(),
+        "Resulting error does not match the expected error"
+    );
+
+    let enable_all_cheatcodes_fails_with_invalid_config = rpc_server.enable_cheatcode(
         Some(runloop_context.clone()),
-        vec![RpcCheatcodes::DisableCheatcode.into()],
+        CheatcodeFilter::All("not_all".to_string()),
     );
-    assert!(
-        disable_cheatcode_enable_rpc_method_result.is_err()
-            && disable_cheatcode_disable_rpc_method_result.is_err(),
-        "Expected disable_cheatcode to fail when trying to disable surfnet_enableCheatcode rpc method when lockout == false"
-    );
-
-    let enable_lockout_result = rpc_server.lockout(Some(runloop_context.clone()));
+    let expected_error_enable_all_with_invalid_config: jsonrpc_core::Result<()> =
+        Err(SurfpoolError::enable_cheatcode(
+            "Invalid optioin provided for enabling all cheatcodes. Try using \"all\"".to_string(),
+        )
+        .into());
 
     assert!(
-        enable_lockout_result.is_ok(),
-        "Expected lockout rpc method to succeed"
+        enable_all_cheatcodes_fails_with_invalid_config.is_err(),
+        "Expected surfnet_disableCheatcode to fail when config is wrong"
+    );
+    assert_eq!(
+        enable_all_cheatcodes_fails_with_invalid_config
+            .err()
+            .unwrap(),
+        expected_error_enable_all_with_invalid_config.err().unwrap(),
+        "Expected error did not match the resulting error"
     );
 
-    assert!(
-        runloop_context.cheatcode_config.lock().unwrap().lockout,
-        "Expected lockout to be true"
-    );
-
-    let disable_cheatcode_control_rpc_method_succeed_result = rpc_server.disable_cheatcode(
+    let enable_all_cheatcodes_pass_result = rpc_server.enable_cheatcode(
         Some(runloop_context.clone()),
-        vec![RpcCheatcodes::EnableCheatcode.into()],
+        CheatcodeFilter::All("all".to_string()),
     );
 
     assert!(
-        disable_cheatcode_control_rpc_method_succeed_result.is_ok(),
-        "Expected disable_cheatcode to pass when trying to disable surfnet_enableCheatcode rpc method when lockout == true"
+        enable_all_cheatcodes_pass_result.is_ok(),
+        "Expected surnet_enableCheatcode with correct config to pass"
     );
 
-    // Disable all cheatcode tests
-    // NOTE: Testing whether the cheatcode rpc method are disabled after the call the disable_all_cheatcodes is not possible as
-    // filtering happens in the on_request middleware
-    let disable_all_result = rpc_server.disable_all_cheatcodes(Some(runloop_context.clone()));
+    assert_eq!(
+        runloop_context.cheatcode_config.lock().unwrap().filter,
+        CheatcodeFilter::List(vec![]),
+        "Expected all the cheatcodes to be enabled"
+    );
+
+    let disable_all_with_lockout_passes = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::All("all".to_string()),
+        Some(CheatcodeControlConfig {
+            lockout: Some(true),
+        }),
+    );
 
     assert!(
-        disable_all_result.is_ok(),
-        "Expected disable all rpc method to work without fail"
+        disable_all_with_lockout_passes.is_ok(),
+        "Expected surfnet_disableCheatcode with lockout == true to pass"
     );
 
-    assert!(
-        runloop_context
-            .cheatcode_config
-            .lock()
-            .unwrap()
-            .filter
-            .eq(&surfpool_types::CheatcodeFilter::All),
-        "Expected cheatcode filter to have the CheatcodeFilter::All variant"
+    assert_eq!(
+        runloop_context.cheatcode_config.lock().unwrap().filter,
+        CheatcodeConfig::filter_all_list(true),
+        "Expected all the features to be disabled"
     );
+
+    // assert that surfnet_enableCheatcode and surfnet_disableCheatcode both are disabled so that on_request Middleware sucessfully filters them
+    for ref cheatcode in [enable_cheatcode_method, disable_cheatcode_method] {
+        assert!(
+            runloop_context
+                .cheatcode_config
+                .lock()
+                .unwrap()
+                .is_cheatcode_disabled(cheatcode),
+            "Expected {} to be disabled",
+            cheatcode
+        );
+    }
 }
 
 #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
