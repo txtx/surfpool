@@ -1258,18 +1258,22 @@ impl RunbookExecutionStatusReport {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CheatcodeConfig {
     pub lockout: bool, // if true, allows disabling even the `surfnet_enableCheatcodes`/`surfnetdisableCheatcodes` methods
     pub filter: CheatcodeFilter,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
+pub struct CheatcodeControlConfig {
+    pub lockout: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CheatcodeFilter {
-    #[default]
-    All,
+    All(String),
     List(Vec<String>), // disables cheatcodes in a named list
 }
 
@@ -1285,8 +1289,8 @@ impl CheatcodeConfig {
         self.lockout = true;
     }
 
-    pub fn disable_all(&mut self) {
-        self.filter = CheatcodeFilter::All;
+    pub fn disable_all(&mut self, lockout: bool) {
+        self.filter = Self::filter_all_list(lockout);
     }
 
     pub fn disable_cheatcode(&mut self, cheatcode: &String) -> Result<(), String> {
@@ -1324,7 +1328,41 @@ impl CheatcodeConfig {
     pub fn is_cheatcode_disabled(&self, cheatcode: &String) -> bool {
         match &self.filter {
             CheatcodeFilter::List(list) => list.contains(cheatcode),
-            CheatcodeFilter::All => true,
+            CheatcodeFilter::All(_) => true,
+        }
+    }
+
+    pub fn filter_all_list(lockout: bool) -> CheatcodeFilter {
+        // when lockout == true, it's important to disable surfnet_disableCheatcode as well
+        // since calling surfnet_disableCheatcode with lockout == false will override the current config, which is a bug
+        if lockout {
+            CheatcodeFilter::All("all".to_string())
+        } else {
+            let filter = vec![
+                RpcCheatcodes::SetAccount.into(),
+                RpcCheatcodes::SetTokenAccount.into(),
+                RpcCheatcodes::CloneProgramAccount.into(),
+                RpcCheatcodes::ProfileTransaction.into(),
+                RpcCheatcodes::GetProfileResultsByTag.into(),
+                RpcCheatcodes::SetSupply.into(),
+                RpcCheatcodes::SetProgramAuthority.into(),
+                RpcCheatcodes::GetTransactionProfile.into(),
+                RpcCheatcodes::RegisterIdl.into(),
+                RpcCheatcodes::GetActiveIdl.into(),
+                RpcCheatcodes::GetLocalSignatures.into(),
+                RpcCheatcodes::TimeTravel.into(),
+                RpcCheatcodes::PauseClock.into(),
+                RpcCheatcodes::ResumeClock.into(),
+                RpcCheatcodes::ResetAccount.into(),
+                RpcCheatcodes::ResetNetwork.into(),
+                RpcCheatcodes::ExportSnapshot.into(),
+                RpcCheatcodes::StreamAccount.into(),
+                RpcCheatcodes::GetStreamedAccounts.into(),
+                RpcCheatcodes::GetSurfnetInfo.into(),
+                RpcCheatcodes::WriteProgram.into(),
+                RpcCheatcodes::RegisterScenario.into(),
+            ];
+            CheatcodeFilter::List(filter)
         }
     }
 }
