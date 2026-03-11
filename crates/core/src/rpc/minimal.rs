@@ -218,7 +218,7 @@ pub trait Minimal {
     /// # See Also
     /// - `getGenesisHash`, `getEpochInfo`, `getBlock`
     #[rpc(meta, name = "getHealth")]
-    fn get_health(&self, meta: Self::Metadata) -> Result<String>;
+    fn get_health(&self, meta: Self::Metadata) -> BoxFuture<Result<String>>;
 
     /// Returns the identity (public key) of the node.
     ///
@@ -664,9 +664,27 @@ impl Minimal for SurfpoolMinimalRpc {
         })
     }
 
-    fn get_health(&self, _meta: Self::Metadata) -> Result<String> {
-        // todo: we could check the time from the state clock and compare
-        Ok("ok".to_string())
+    fn get_health(&self, meta: Self::Metadata) -> BoxFuture<Result<String>> {
+        let SurfnetRpcContext {
+            svm_locker,
+            remote_ctx,
+        } = match meta.get_rpc_context(()) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+
+        Box::pin(async move {
+            if let Some((rpc_ctx, _)) = remote_ctx {
+                let rpc_epoch_info = rpc_ctx.get_epoch_info().await?;
+
+                let local_epoch_info = svm_locker.get_epoch_info();
+
+                if rpc_epoch_info.absolute_slot != local_epoch_info.absolute_slot {
+                    return Err(jsonrpc_core::Error::internal_error());
+                }
+            };
+            Ok("ok".to_string())
+        })
     }
 
     fn get_identity(&self, _meta: Self::Metadata) -> Result<RpcIdentity> {
@@ -978,11 +996,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_get_health() {
+    #[tokio::test]
+    async fn test_get_health() {
         let setup = TestSetup::new(SurfpoolMinimalRpc);
         let result = setup.rpc.get_health(Some(setup.context));
-        assert_eq!(result.unwrap(), "ok");
+        assert_eq!(result.await.unwrap(), "ok");
     }
 
     #[tokio::test(flavor = "multi_thread")]
