@@ -1,4 +1,7 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, RwLock},
+};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
@@ -15,7 +18,7 @@ use solana_transaction::versioned::VersionedTransaction;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
     AccountSnapshot, CheatcodeControlConfig, CheatcodeFilter, ClockCommand, ExportSnapshotConfig,
-    GetStreamedAccountsResponse, GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcCheatcodes,
+    GetStreamedAccountsResponse, GetSurfnetInfoResponse, Idl, ResetAccountConfig,
     RpcProfileResultConfig, Scenario, SimnetCommand, SimnetEvent, StreamAccountConfig,
     UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
@@ -1218,7 +1221,23 @@ pub trait SurfnetCheatcodes {
 }
 
 #[derive(Clone)]
-pub struct SurfnetCheatcodesRpc;
+pub struct SurfnetCheatcodesRpc {
+    pub registered_methods: Arc<RwLock<Vec<String>>>,
+}
+impl SurfnetCheatcodesRpc {
+    pub fn empty() -> Self {
+        Self {
+            registered_methods: Arc::new(RwLock::new(vec![])),
+        }
+    }
+    pub fn is_available_cheatcode(&self, cheatcode: &String) -> bool {
+        let Ok(methods) = self.registered_methods.read() else {
+            return false;
+        };
+        methods.contains(cheatcode)
+    }
+}
+
 impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
     type Metadata = Option<RunloopContext>;
 
@@ -1314,18 +1333,21 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                         .into());
                     }
 
-                    cheatcode_ctx.disable_all(lockout);
+                    let Ok(available_cheatcodes) = self.registered_methods.read() else {
+                        return Err(jsonrpc_core::Error::internal_error());
+                    };
+                    cheatcode_ctx.disable_all(lockout, (*available_cheatcodes).clone());
                 }
                 CheatcodeFilter::List(cheatdcodes) => {
                     for cheatcode in cheatdcodes {
-                        if !lockout && cheatcode.eq(&String::from(RpcCheatcodes::EnableCheatcode)) {
+                        if !lockout && cheatcode.eq("surfnet_enableCheatcode") {
                             return Err(SurfpoolError::disable_cheatcode(
                                 "Cannot disable surfnet_enableCheatcode rpc method when lockout is not enabledd".to_string(),
                             )
                             .into());
                         }
                         debug!("disabling cheatcode: {cheatcode}");
-                        if RpcCheatcodes::try_from(cheatcode.as_str()).is_err() {
+                        if !self.is_available_cheatcode(&cheatcode) {
                             return Err(SurfpoolError::disable_cheatcode(
                                 "Invalid cheatcode rpc method".to_string(),
                             )
@@ -1372,7 +1394,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 CheatcodeFilter::List(cheatcodes) => {
                     for ref cheatcode in cheatcodes {
                         debug!("enabling cheatcode: {cheatcode}");
-                        if RpcCheatcodes::try_from(cheatcode.as_str()).is_err() {
+                        if !self.is_available_cheatcode(&cheatcode) {
                             return Err(SurfpoolError::enable_cheatcode(
                                 "Invalid cheatcode rpc method".to_string(),
                             )

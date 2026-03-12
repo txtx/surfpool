@@ -1289,8 +1289,8 @@ impl CheatcodeConfig {
         self.lockout = true;
     }
 
-    pub fn disable_all(&mut self, lockout: bool) {
-        self.filter = Self::filter_all_list(lockout);
+    pub fn disable_all(&mut self, lockout: bool, available_cheatcodes: Vec<String>) {
+        self.filter = Self::filter_all_list(lockout, available_cheatcodes);
     }
 
     pub fn disable_cheatcode(&mut self, cheatcode: &String) -> Result<(), String> {
@@ -1332,129 +1332,18 @@ impl CheatcodeConfig {
         }
     }
 
-    pub fn filter_all_list(lockout: bool) -> CheatcodeFilter {
+    pub fn filter_all_list(lockout: bool, available_cheatcodes: Vec<String>) -> CheatcodeFilter {
         // when lockout == true, it's important to disable surfnet_disableCheatcode as well
         // since calling surfnet_disableCheatcode with lockout == false will override the current config, which is a bug
         if lockout {
             CheatcodeFilter::All("all".to_string())
         } else {
-            let filter = vec![
-                RpcCheatcodes::SetAccount.into(),
-                RpcCheatcodes::SetTokenAccount.into(),
-                RpcCheatcodes::CloneProgramAccount.into(),
-                RpcCheatcodes::ProfileTransaction.into(),
-                RpcCheatcodes::GetProfileResultsByTag.into(),
-                RpcCheatcodes::SetSupply.into(),
-                RpcCheatcodes::SetProgramAuthority.into(),
-                RpcCheatcodes::GetTransactionProfile.into(),
-                RpcCheatcodes::RegisterIdl.into(),
-                RpcCheatcodes::GetActiveIdl.into(),
-                RpcCheatcodes::GetLocalSignatures.into(),
-                RpcCheatcodes::TimeTravel.into(),
-                RpcCheatcodes::PauseClock.into(),
-                RpcCheatcodes::ResumeClock.into(),
-                RpcCheatcodes::ResetAccount.into(),
-                RpcCheatcodes::ResetNetwork.into(),
-                RpcCheatcodes::ExportSnapshot.into(),
-                RpcCheatcodes::StreamAccount.into(),
-                RpcCheatcodes::GetStreamedAccounts.into(),
-                RpcCheatcodes::GetSurfnetInfo.into(),
-                RpcCheatcodes::WriteProgram.into(),
-                RpcCheatcodes::RegisterScenario.into(),
-            ];
+            // remove `surfnet_disableCheatcode` and `surfnet_enableCheatcode` from the list of available cheatcodes
+            let filter = available_cheatcodes
+                .into_iter()
+                .filter(|c| (c.ne("surfnet_disableCheatcode") && c.ne("surfnet_enableCheatcode")))
+                .collect();
             CheatcodeFilter::List(filter)
-        }
-    }
-}
-
-pub enum RpcCheatcodes {
-    SetAccount,
-    EnableCheatcode,
-    DisableCheatcode,
-    SetTokenAccount,
-    CloneProgramAccount,
-    ProfileTransaction,
-    GetProfileResultsByTag,
-    SetSupply,
-    SetProgramAuthority,
-    GetTransactionProfile,
-    RegisterIdl,
-    GetActiveIdl,
-    GetLocalSignatures,
-    TimeTravel,
-    PauseClock,
-    ResumeClock,
-    ResetAccount,
-    ResetNetwork,
-    ExportSnapshot,
-    StreamAccount,
-    GetStreamedAccounts,
-    GetSurfnetInfo,
-    WriteProgram,
-    RegisterScenario,
-}
-
-impl From<RpcCheatcodes> for String {
-    fn from(value: RpcCheatcodes) -> Self {
-        match value {
-            RpcCheatcodes::SetAccount => String::from("surfnet_setAccount"),
-            RpcCheatcodes::EnableCheatcode => String::from("surfnet_enableCheatcode"),
-            RpcCheatcodes::DisableCheatcode => String::from("surfnet_disableCheatcode"),
-            RpcCheatcodes::SetTokenAccount => String::from("surfnet_setTokenAccount"),
-            RpcCheatcodes::CloneProgramAccount => String::from("surfnet_cloneProgramAccount"),
-            RpcCheatcodes::ProfileTransaction => String::from("surfnet_profileTransaction"),
-            RpcCheatcodes::GetProfileResultsByTag => String::from("surfnet_getProfileResultsByTag"),
-            RpcCheatcodes::SetSupply => String::from("surfnet_setSupply"),
-            RpcCheatcodes::SetProgramAuthority => String::from("surfnet_setProgramAuthority"),
-            RpcCheatcodes::GetTransactionProfile => String::from("surfnet_getTransactionProfile"),
-            RpcCheatcodes::RegisterIdl => String::from("surfnet_registerIdl"),
-            RpcCheatcodes::GetActiveIdl => String::from("surfnet_getActiveIdl"),
-            RpcCheatcodes::GetLocalSignatures => String::from("surfnet_getLocalSignatures"),
-            RpcCheatcodes::TimeTravel => String::from("surfnet_timeTravel"),
-            RpcCheatcodes::PauseClock => String::from("surfnet_pauseClock"),
-            RpcCheatcodes::ResumeClock => String::from("surfnet_resumeClock"),
-            RpcCheatcodes::ResetAccount => String::from("surfnet_resetAccount"),
-            RpcCheatcodes::ResetNetwork => String::from("surfnet_resetNetwork"),
-            RpcCheatcodes::ExportSnapshot => String::from("surfnet_exportSnapshot"),
-            RpcCheatcodes::StreamAccount => String::from("surfnet_streamAccount"),
-            RpcCheatcodes::GetStreamedAccounts => String::from("surfnet_getStreamedAccounts"),
-            RpcCheatcodes::GetSurfnetInfo => String::from("surfnet_getSurfnetInfo"),
-            RpcCheatcodes::WriteProgram => String::from("surfnet_writeProgram"),
-            RpcCheatcodes::RegisterScenario => String::from("surfnet_registerScenario"),
-        }
-    }
-}
-
-impl TryFrom<&str> for RpcCheatcodes {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "surfnet_setAccount" => Ok(RpcCheatcodes::SetAccount),
-            "surfnet_enableCheatcode" => Ok(RpcCheatcodes::EnableCheatcode),
-            "surfnet_disableCheatcode" => Ok(RpcCheatcodes::DisableCheatcode),
-            "surfnet_setTokenAccount" => Ok(RpcCheatcodes::SetTokenAccount),
-            "surfnet_cloneProgramAccount" => Ok(RpcCheatcodes::CloneProgramAccount),
-            "surfnet_profileTransaction" => Ok(RpcCheatcodes::ProfileTransaction),
-            "surfnet_getProfileResultsByTag" => Ok(RpcCheatcodes::GetProfileResultsByTag),
-            "surfnet_setSupply" => Ok(RpcCheatcodes::SetSupply),
-            "surfnet_setProgramAuthority" => Ok(RpcCheatcodes::SetProgramAuthority),
-            "surfnet_getTransactionProfile" => Ok(RpcCheatcodes::GetTransactionProfile),
-            "surfnet_registerIdl" => Ok(RpcCheatcodes::RegisterIdl),
-            "surfnet_getActiveIdl" => Ok(RpcCheatcodes::GetActiveIdl),
-            "surfnet_getLocalSignatures" => Ok(RpcCheatcodes::GetLocalSignatures),
-            "surfnet_timeTravel" => Ok(RpcCheatcodes::TimeTravel),
-            "surfnet_pauseClock" => Ok(RpcCheatcodes::PauseClock),
-            "surfnet_resumeClock" => Ok(RpcCheatcodes::ResumeClock),
-            "surfnet_resetAccount" => Ok(RpcCheatcodes::ResetAccount),
-            "surfnet_resetNetwork" => Ok(RpcCheatcodes::ResetNetwork),
-            "surfnet_exportSnapshot" => Ok(RpcCheatcodes::ExportSnapshot),
-            "surfnet_streamAccount" => Ok(RpcCheatcodes::StreamAccount),
-            "surfnet_getStreamedAccounts" => Ok(RpcCheatcodes::GetStreamedAccounts),
-            "surfnet_getSurfnetInfo" => Ok(RpcCheatcodes::GetSurfnetInfo),
-            "surfnet_writeProgram" => Ok(RpcCheatcodes::WriteProgram),
-            "surfnet_registerScenario" => Ok(RpcCheatcodes::RegisterScenario),
-            _ => Err(format!("unknown cheatcode method: {}", value)),
         }
     }
 }

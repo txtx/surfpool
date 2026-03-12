@@ -12,9 +12,7 @@ use jsonrpc_core::{
 };
 use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
-use surfpool_types::{
-    CheatcodeConfig, RpcCheatcodes, SimnetCommand, SimnetEvent, types::RpcConfig,
-};
+use surfpool_types::{CheatcodeConfig, SimnetCommand, SimnetEvent, types::RpcConfig};
 
 use crate::{
     PluginManagerCommand,
@@ -182,7 +180,8 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             cheatcode_config: self.cheatcode_config.clone(),
         });
 
-        if RpcCheatcodes::try_from(method_name.as_str()).is_ok()
+        // All surfnet cheatcodes will start with surfnet. If the request is a cheatcode, make sure it isn't disabled.
+        if method_name.starts_with("surfnet_")
             && let Some(meta_val) = meta.clone()
             && meta_val
                 .cheatcode_config
