@@ -1,46 +1,234 @@
 protocol: Pyth
 version: v2
 account_type: PriceUpdateV2
-idl_file_path: pyth_price_store.json
+idl_file_path: idl.json
 
 tags:
   - oracle
   - price-feed
   - defi
 
+constants:
+  price_feed:
+    label: Price Feed
+    description: Select a Pyth price feed to override
+    options:
+      - id: "sol-usd"
+        label: "SOL/USD"
+        value: "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d"
+        description: "SOL/USD (8 decimals)"
+      - id: "btc-usd"
+        label: "BTC/USD"
+        value: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43"
+        description: "BTC/USD (8 decimals)"
+      - id: "eth-btc"
+        label: "ETH/BTC"
+        value: "0xc96458d393fe9deb7a7d63a0ac41e2898a67a7750dbd166673279e06c868df0a"
+        description: "ETH/BTC (8 decimals)"
+      - id: "eth-usd"
+        label: "ETH/USD"
+        value: "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace"
+        description: "ETH/USD (8 decimals)"
+      - id: "usdc-usd"
+        label: "USDC/USD"
+        value: "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a"
+        description: "USDC/USD (8 decimals)"
+      - id: "usdt-usd"
+        label: "USDT/USD"
+        value: "0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b"
+        description: "USDT/USD (8 decimals)"
+      - id: "aave-usd"
+        label: "AAVE/USD"
+        value: "0x2b9ab1e972a281585084148ba1389800799bd4be63b957507db1349314e47445"
+        description: "AAVE/USD (8 decimals)"
+      - id: "ada-usd"
+        label: "ADA/USD"
+        value: "0x2a01deaec9e51a579277b34b122399984d0bbf57e2458a7e42fecd2829867a0d"
+        description: "ADA/USD (8 decimals)"
+      - id: "apt-usd"
+        label: "APT/USD"
+        value: "0x03ae4db29ed4ae33d323568895aa00337e658e348b37509f5372ae51f0af00d5"
+        description: "APT/USD (8 decimals)"
+      - id: "arb-usd"
+        label: "ARB/USD"
+        value: "0x3fa4252848f9f0a1480be62745a4629d9eb1322aebab8a791e344b3b9c1adcf5"
+        description: "ARB/USD (8 decimals)"
+      - id: "atom-usd"
+        label: "ATOM/USD"
+        value: "0xb00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819"
+        description: "ATOM/USD (8 decimals)"
+      - id: "avax-usd"
+        label: "AVAX/USD"
+        value: "0x93da3352f9f1d105fdfe4971cfa80e9dd777bfc5d0f683ebb6e1294b92137bb7"
+        description: "AVAX/USD (8 decimals)"
+      - id: "bnb-usd"
+        label: "BNB/USD"
+        value: "0x2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f"
+        description: "BNB/USD (8 decimals)"
+      - id: "bonk-usd"
+        label: "BONK/USD"
+        value: "0x72b021217ca3fe68922a19aaf990109cb9d84e9ad004b4d2025ad6f529314419"
+        description: "BONK/USD (10 decimals)"
+      - id: "crv-usd"
+        label: "CRV/USD"
+        value: "0xa19d04ac696c7a6616d291c7e5d1377cc8be437c327b75adb5dc1bad745fcae8"
+        description: "CRV/USD (8 decimals)"
+      - id: "dai-usd"
+        label: "DAI/USD"
+        value: "0xb0948a5e5313200c632b51bb5ca32f6de0d36e9950a942d19751e833f70dabfd"
+        description: "DAI/USD (8 decimals)"
+      - id: "doge-usd"
+        label: "DOGE/USD"
+        value: "0xdcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c"
+        description: "DOGE/USD (8 decimals)"
+      - id: "dot-usd"
+        label: "DOT/USD"
+        value: "0xca3eed9b267293f6595901c734c7525ce8ef49adafe8284606ceb307afa2ca5b"
+        description: "DOT/USD (8 decimals)"
+      - id: "frax-usd"
+        label: "FRAX/USD"
+        value: "0x735f591e4fed988cd38df74d8fcedecf2fe8d9111664e0fd500db9aa78b316b1"
+        description: "FRAX/USD (8 decimals)"
+      - id: "gmx-usd"
+        label: "GMX/USD"
+        value: "0xb962539d0fcb272a494d65ea56f94851c2bcf8823935da05bd628916e2e9edbf"
+        description: "GMX/USD (8 decimals)"
+      - id: "hnt-usd"
+        label: "HNT/USD"
+        value: "0x649fdd7ec08e8e2a20f425729854e90293dcbe2376abc47197a14da6ff339756"
+        description: "HNT/USD (8 decimals)"
+      - id: "jitosol-usd"
+        label: "JITOSOL/USD"
+        value: "0x67be9f519b95cf24338801051f9a808eff0a578ccb388db73b7f6fe1de019ffb"
+        description: "JITOSOL/USD (8 decimals)"
+      - id: "jto-usd"
+        label: "JTO/USD"
+        value: "0xb43660a5f790c69354b0729a5ef9d50d68f1df92107540210b9cccba1f947cc2"
+        description: "JTO/USD (8 decimals)"
+      - id: "jup-usd"
+        label: "JUP/USD"
+        value: "0x0a0408d619e9380abad35060f9192039ed5042fa6f82301d0e48bb52be830996"
+        description: "JUP/USD (8 decimals)"
+      - id: "ldo-usd"
+        label: "LDO/USD"
+        value: "0xc63e2a7f37a04e5e614c07238bedb25dcc38927fba8fe890597a593c0b2fa4ad"
+        description: "LDO/USD (8 decimals)"
+      - id: "link-usd"
+        label: "LINK/USD"
+        value: "0x8ac0c70fff57e9aefdf5edf44b51d62c2d433653cbb2cf5cc06bb115af04d221"
+        description: "LINK/USD (8 decimals)"
+      - id: "lusd-usd"
+        label: "LUSD/USD"
+        value: "0xc9dc99720306ef43fd301396a6f8522c8be89c6c77e8c27d87966918a943fd20"
+        description: "LUSD/USD (8 decimals)"
+      - id: "mobile-usd"
+        label: "MOBILE/USD"
+        value: "0xff4c53361e36a9b837433c87d290c229e1f01aec5ef98d9f3f70953a20a629ce"
+        description: "MOBILE/USD (8 decimals)"
+      - id: "msol-usd"
+        label: "MSOL/USD"
+        value: "0xc2289a6a43d2ce91c6f55caec370f4acc38a2ed477f58813334c6d03749ff2a4"
+        description: "MSOL/USD (8 decimals)"
+      - id: "op-usd"
+        label: "OP/USD"
+        value: "0x385f64d993f7b77d8182ed5003d97c60aa3361f3cecfe711544d2d59165e9bdf"
+        description: "OP/USD (8 decimals)"
+      - id: "orca-usd"
+        label: "ORCA/USD"
+        value: "0x37505261e557e251290b8c8899453064e8d760ed5c65a779726f2490980da74c"
+        description: "ORCA/USD (8 decimals)"
+      - id: "pendle-usd"
+        label: "PENDLE/USD"
+        value: "0x9a4df90b25497f66b1afb012467e316e801ca3d839456db028892fe8c70c8016"
+        description: "PENDLE/USD (8 decimals)"
+      - id: "pepe-usd"
+        label: "PEPE/USD"
+        value: "0xd69731a2e74ac1ce884fc3890f7ee324b6deb66147055249568869ed700882e4"
+        description: "PEPE/USD (10 decimals)"
+      - id: "pyth-usd"
+        label: "PYTH/USD"
+        value: "0x0bbf28e9a841a1cc788f6a361b17ca072d0ea3098a1e5df1c3922d06719579ff"
+        description: "PYTH/USD (8 decimals)"
+      - id: "ray-usd"
+        label: "RAY/USD"
+        value: "0x91568baa8beb53db23eb3fb7f22c6e8bd303d103919e19733f2bb642d3e7987a"
+        description: "RAY/USD (8 decimals)"
+      - id: "render-usd"
+        label: "RENDER/USD"
+        value: "0x3d4a2bd9535be6ce8059d75eadeba507b043257321aa544717c56fa19b49e35d"
+        description: "RENDER/USD (8 decimals)"
+      - id: "shib-usd"
+        label: "SHIB/USD"
+        value: "0xf0d57deca57b3da2fe63a493f4c25925fdfd8edf834b20f93e1f84dbd1504d4a"
+        description: "SHIB/USD (10 decimals)"
+      - id: "sui-usd"
+        label: "SUI/USD"
+        value: "0x23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744"
+        description: "SUI/USD (8 decimals)"
+      - id: "uni-usd"
+        label: "UNI/USD"
+        value: "0x78d185a741d07edb3412b09008b7c5cfb9bbbd7d568bf00ba737b456ba171501"
+        description: "UNI/USD (8 decimals)"
+      - id: "usdd-usd"
+        label: "USDD/USD"
+        value: "0x6d20210495d6518787b72e4ad06bc4df21e68d89a802cf6bced2fca6c29652a6"
+        description: "USDD/USD (8 decimals)"
+      - id: "wbtc-usd"
+        label: "WBTC/USD"
+        value: "0xc9d8b075a5c69303365ae23633d4e085199bf5c520a3b90fed1322a0342ffc33"
+        description: "WBTC/USD (8 decimals)"
+      - id: "weth-usd"
+        label: "WETH/USD"
+        value: "0x9d4294bbcd1174d6f2003ec365831e64cc31d9f6f15a2b85399db8d5000960f6"
+        description: "WETH/USD (8 decimals)"
+      - id: "wif-usd"
+        label: "WIF/USD"
+        value: "0x4ca4beeca86f0d164160323817a4e42b10010a724c2217c6ee41b54cd4cc61fc"
+        description: "WIF/USD (8 decimals)"
+      - id: "xrp-usd"
+        label: "XRP/USD"
+        value: "0xec5d399846a9209f3fe5881d70aae9268c94339ff9817e8d18ff19fa05eea1c8"
+        description: "XRP/USD (8 decimals)"
+
 templates:
-  - id: pyth-sol-usd-v2
-    name: Override SOL/USD Price Feed
-    description: Override Pyth SOL/USD price feed with custom price data
+  - id: pyth-price-feed-v2
+    name: Override Price Feed
+    description: Override any Pyth price feed with custom price data
     idl_account_name: PriceUpdateV2
-    properties: ["price_message.price", "price_message.publish_time"]
-    address:
-      type: pubkey
-      value: 7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE
+    properties:
+      - path: price_message.price
+        label: Price
+        description: The price value
+      - path: feed_id
+        type: constant_ref
+        label: Price Feed
+        constant: price_feed
+    llm_context: |
+      CRITICAL: Always set fetchBeforeUse: true for Pyth price feeds!
+      This fetches the current account data from mainnet before applying your price override.
 
-  - id: pyth-btc-usd-v2
-    name: Override BTC/USD Price Feed
-    description: Override Pyth BTC/USD price feed with custom price data
-    idl_account_name: PriceUpdateV2
-    properties: ["price_message.price", "price_message.publish_time"]
-    address:
-      type: pubkey
-      value: 4cSM2e6rvbGQUFiJbqytoVMi5GgghSMr8LwVrT9VPSPo
+      HOW TO USE THIS TEMPLATE:
+      1. Select the correct price feed from the `feed_id` constant options (e.g., SOL/USD, BTC/USD)
+      2. Check the feed's `llm_context` field for its decimal precision (most use 8, some use 10)
+      3. Calculate price_message.price = usd_price * 10^decimals
 
-  - id: pyth-eth-btc-v2
-    name: Override ETH/BTC Price Feed
-    description: Override Pyth ETH/BTC price feed with custom price data
-    idl_account_name: PriceUpdateV2
-    properties: ["price_message.price", "price_message.publish_time"]
-    address:
-      type: pubkey
-      value: 5JwbqPPMNpzE2jVAdobWo6m5gkhsDhRdGBo3FYbSfmaK
+      PRICE CALCULATION:
+      - For 8 decimal feeds (SOL, BTC, ETH, etc.): multiply USD price by 100,000,000
+        $145.00 SOL → 14500000000
+        $97,000 BTC → 9700000000000
+        $3,500 ETH  → 350000000000
+      - For 10 decimal feeds (BONK, PEPE, SHIB): multiply USD price by 10,000,000,000
+        $0.00002 BONK → 200000
+        $0.000012 PEPE → 120000
 
-  - id: pyth-eth-usd-v2
-    name: Override ETH/USD Price Feed
-    description: Override Pyth ETH/USD price feed with custom price data
-    idl_account_name: PriceUpdateV2
-    properties: ["price_message.price", "price_message.publish_time"]
+      EXAMPLE SCENARIO - "SOL crashes from $145 to $85":
+      Override 1 (slot 0): feed_id=SOL/USD, price_message.price=14500000000
+      Override 2 (slot 1): feed_id=SOL/USD, price_message.price=8500000000
     address:
-      type: pubkey
-      value: 42amVS4KgzR9rA28tkVYqVXjq9Qa8dcZQMbH5EYFX6XC
+      type: pda
+      program_id: pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT
+      seeds:
+        - type: u16_le
+          value: 0
+        - type: bytes32_ref
+          value: feed_id

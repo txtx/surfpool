@@ -20,6 +20,8 @@ use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;
 use log::{debug, error, info, trace, warn};
+use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use rmcp_actix_web::transport::StreamableHttpService;
 #[cfg(feature = "explorer")]
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -31,6 +33,7 @@ use surfpool_gql::{
     query::{CollectionsMetadataLookup, Dataloader, DataloaderContext, SqlStore},
     types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata, sql},
 };
+use surfpool_mcp::Surfpool;
 use surfpool_studio_ui::serve_studio_static_files;
 use surfpool_types::{
     DataIndexingCommand, OverrideTemplate, SanitizedConfig, Scenario, SubgraphCommand,
@@ -74,6 +77,14 @@ pub async fn start_subgraph_and_explorer_server(
     let template_registry_wrapped = Data::new(RwLock::new(TemplateRegistry::new()));
     let loaded_scenarios = Data::new(RwLock::new(LoadedScenarios::new()));
 
+    // Initialize MCP service
+    let mcp_service = StreamableHttpService::builder()
+        .service_factory(Arc::new(|| Ok(Surfpool::new())))
+        .session_manager(Arc::new(LocalSessionManager::default()))
+        .stateful_mode(true)
+        .sse_keep_alive(Duration::from_secs(30))
+        .build();
+
     let subgraph_handle = start_subgraph_runloop(
         subgraph_events_tx,
         subgraph_commands_rx,
@@ -97,6 +108,7 @@ pub async fn start_subgraph_and_explorer_server(
                     .allow_any_origin()
                     .allow_any_method()
                     .allow_any_header()
+                    .expose_headers(vec!["Mcp-Session-Id", "mcp-session-id"])
                     .supports_credentials()
                     .max_age(3600),
             )
@@ -115,7 +127,8 @@ pub async fn start_subgraph_and_explorer_server(
                     .route("/v1/graphql?<request..>", web::get().to(get_graphql))
                     .route("/v1/graphql", web::post().to(post_graphql))
                     .route("/v1/subscriptions", web::get().to(subscriptions)),
-            );
+            )
+            .service(web::scope("/mcp").service(mcp_service.clone().scope()));
 
         if enable_studio {
             app = app.app_data(Arc::new(RwLock::new(LoadedScenarios::new())));

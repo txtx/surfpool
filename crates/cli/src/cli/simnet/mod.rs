@@ -68,6 +68,24 @@ pub async fn handle_start_local_surfnet_command(
     let feature_config = cmd.feature_config();
     surfnet_svm.apply_feature_config(&feature_config);
 
+    // Restore from snapshots if specified
+    for snapshot_path in &cmd.snapshot {
+        let resolved_path = super::resolve_path(snapshot_path);
+        let path_str = resolved_path.to_string_lossy();
+        info!("Restoring state from snapshot: {}", path_str);
+        match surfnet_svm.restore_from_snapshot(&path_str) {
+            Ok(count) => {
+                info!("Successfully restored {} accounts from snapshot", count);
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Failed to restore from snapshot '{}': {}",
+                    path_str, e
+                ));
+            }
+        }
+    }
+
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();

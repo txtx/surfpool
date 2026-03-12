@@ -1,0 +1,226 @@
+{
+  "version": "0.1.0",
+  "name": "quote_program",
+  "metadata": {
+    "origin": "shank",
+    "address": "orac1eFjzWL5R3RbbdMV68K9H6TaCVVcL6LjvQQWAbz"
+  },
+  "instructions": [
+    {
+      "name": "VerifiedUpdate",
+      "accounts": [
+        {
+          "name": "queueAccount",
+          "isMut": false,
+          "isSigner": false,
+          "docs": ["The queue account"]
+        },
+        {
+          "name": "quoteAccount",
+          "isMut": true,
+          "isSigner": false,
+          "docs": ["The quote account to update"]
+        },
+        {
+          "name": "ixSysvar",
+          "isMut": false,
+          "isSigner": false,
+          "docs": ["Instructions sysvar"]
+        },
+        {
+          "name": "slotSysvar",
+          "isMut": false,
+          "isSigner": false,
+          "docs": ["Slot hashes sysvar"]
+        },
+        {
+          "name": "clockSysvar",
+          "isMut": false,
+          "isSigner": false,
+          "docs": ["Clock sysvar"]
+        },
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true,
+          "docs": ["Payer account"]
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false,
+          "docs": ["System program"]
+        }
+      ],
+      "args": [
+        {
+          "name": "ixIdx",
+          "type": "u8"
+        }
+      ],
+      "discriminant": {
+        "type": "u8",
+        "value": 0
+      }
+    }
+  ],
+  "accounts": [
+    {
+      "name": "SwitchboardQuote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "queue",
+            "type": "publicKey",
+            "docs": ["Queue pubkey that this oracle quote belongs to"]
+          },
+          {
+            "name": "signatures",
+            "type": {
+              "vec": {
+                "defined": "OracleSignature",
+                "lengthPrefix": "u16"
+              }
+            },
+            "docs": ["Oracle signatures (uses 2-byte u16 length prefix)"]
+          },
+          {
+            "name": "quoteHeader",
+            "type": {
+              "defined": "PackedQuoteHeader"
+            },
+            "docs": ["Quote header containing the signed slot hash"]
+          },
+          {
+            "name": "feeds",
+            "type": {
+              "vec": {
+                "defined": "PackedFeedInfo",
+                "lengthPrefix": "u8"
+              }
+            },
+            "docs": [
+              "Array of feed information (max 255, uses 1-byte u8 length prefix)"
+            ]
+          },
+          {
+            "name": "oracleIdxs",
+            "type": {
+              "vec": {
+                "type": "u8",
+                "lengthPrefix": "u8"
+              }
+            },
+            "docs": [
+              "Oracle indices that correspond to the queue's oracle array (uses 1-byte u8 length prefix)"
+            ]
+          },
+          {
+            "name": "slot",
+            "type": "u64",
+            "docs": ["Recent slot from the ED25519 instruction data"]
+          },
+          {
+            "name": "version",
+            "type": "u8",
+            "docs": ["Version from the ED25519 instruction data"]
+          },
+          {
+            "name": "tailDiscriminator",
+            "type": "u32",
+            "docs": ["Tail discriminator 'SBOD' for validation"]
+          }
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "OracleSignature",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "signatureOffset",
+            "type": "u16"
+          },
+          {
+            "name": "signatureInstructionIndex",
+            "type": "u16"
+          },
+          {
+            "name": "publicKeyOffset",
+            "type": "u16"
+          },
+          {
+            "name": "publicKeyInstructionIndex",
+            "type": "u16"
+          },
+          {
+            "name": "messageDataOffset",
+            "type": "u16"
+          },
+          {
+            "name": "messageDataSize",
+            "type": "u16"
+          },
+          {
+            "name": "messageInstructionIndex",
+            "type": "u16"
+          },
+          {
+            "name": "pubkey",
+            "type": "publicKey"
+          },
+          {
+            "name": "signature",
+            "type": {
+              "array": ["u8", 64]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PackedQuoteHeader",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oracleTimestamp",
+            "type": "i64"
+          },
+          {
+            "name": "slotHash",
+            "type": {
+              "array": ["u8", 32]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PackedFeedInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "feedId",
+            "type": {
+              "array": ["u8", 32]
+            }
+          },
+          {
+            "name": "value",
+            "type": "i128"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}

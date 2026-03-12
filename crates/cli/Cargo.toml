@@ -58,6 +58,8 @@ url = { workspace = true }
 surfpool-core = { workspace = true }
 surfpool-gql = { workspace = true }
 surfpool-mcp = { workspace = true }
+rmcp = { workspace = true, features = ["server", "transport-streamable-http-server"] }
+rmcp-actix-web = { workspace = true }
 surfpool-studio-ui = { workspace = true }
 surfpool-types = { workspace = true }
 

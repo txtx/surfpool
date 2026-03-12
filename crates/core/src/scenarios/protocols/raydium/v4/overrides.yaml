@@ -1,0 +1,517 @@
+protocol: Raydium
+version: v4
+account_type: AmmInfo
+idl_file_path: idl.json
+
+tags:
+  - amm
+  - constant-product
+  - defi
+
+constants:
+  openbook_market:
+    label: OpenBook Market
+    description: Select an OpenBook market for the AMM v4 pool
+    options:
+      - id: "sol-pippin"
+        label: "SOL/pippin"
+        value: "4Zm2A7VUfuvudpVpQkJyrg2DiZTcw6ckwbKP9LvizAkx"
+        description: "SOL/pippin AMM v4 pool (30d vol: $593.1M)"
+      - id: "sol-fartcoin"
+        label: "SOL/Fartcoin"
+        value: "HLBdJzA7KE4zxT51opWj2tVfCayB4iZH2RZ18MqKCgNM"
+        description: "SOL/Fartcoin AMM v4 pool (30d vol: $140.7M)"
+      - id: "sol-alch"
+        label: "SOL/ALCH"
+        value: "9CnPBMw348zAePQG1NKSVPJ7MZRzuqygsNvYZ2KkPRx2"
+        description: "SOL/ALCH AMM v4 pool (30d vol: $100.7M)"
+      - id: "sol-jellyjelly"
+        label: "SOL/jellyjelly"
+        value: "3ifx5PeA2S8shK12botPzW5nNtuH8SPqsc2aRcRLevCE"
+        description: "SOL/jellyjelly AMM v4 pool (30d vol: $98.6M)"
+      - id: "sol-arc"
+        label: "SOL/arc"
+        value: "GGAGxzMcwQYAj8yV39oLHGtCKUm7rHGTdGZDkmi3Qsqt"
+        description: "SOL/arc AMM v4 pool (30d vol: $76.3M)"
+      - id: "sol-fwog"
+        label: "SOL/FWOG"
+        value: "J1q31fGsvfdhewKey4Lxqc568y2HQZoJWYCqqWs966qM"
+        description: "SOL/FWOG AMM v4 pool (30d vol: $51.2M)"
+      - id: "sol-moodeng"
+        label: "SOL/MOODENG"
+        value: "7ZSzvJ6fcaLRmrWwbPXXGR759Fr8a7MCS52gfivWPGYQ"
+        description: "SOL/MOODENG AMM v4 pool (30d vol: $45.4M)"
+      - id: "popcat-sol"
+        label: "POPCAT/SOL"
+        value: "92R9ZDC7buk2gQ8kHVynnSAxKjHYGUippr9QUdZ759iF"
+        description: "POPCAT/SOL AMM v4 pool (30d vol: $42.6M)"
+      - id: "sol-zerebro"
+        label: "SOL/ZEREBRO"
+        value: "6KoCGBfB8w8kV55doVLhHMmPobEAHeHSftNfLfHDXs86"
+        description: "SOL/ZEREBRO AMM v4 pool (30d vol: $40.2M)"
+      - id: "sol-usdc"
+        label: "SOL/USDC"
+        value: "8BnEgHoWFysVcuFFX7QztDmzuH8r5ZFvyP3sYwn1XTh6"
+        description: "SOL/USDC AMM v4 pool (30d vol: $39.5M)"
+      - id: "giga-sol"
+        label: "GIGA/SOL"
+        value: "7apBzdAi3Bb35emBiChZHrrVMtEuQLhnPCVPG5afG3qm"
+        description: "GIGA/SOL AMM v4 pool (30d vol: $37.5M)"
+      - id: "sol-griffain"
+        label: "SOL/GRIFFAIN"
+        value: "2su6pnFyc6uGGwJKuyLsxU1QysidBEV21Xitp2hzPnAQ"
+        description: "SOL/GRIFFAIN AMM v4 pool (30d vol: $29.1M)"
+      - id: "bome-sol"
+        label: "BOME/SOL"
+        value: "58sHobBa2KmyE3EKxCpgxn5KGuzudmGHsgqYgrfciyzd"
+        description: "BOME/SOL AMM v4 pool (30d vol: $28.7M)"
+      - id: "sol-usd1"
+        label: "SOL/USD1"
+        value: "CV2sfgbG8eM6dJe3sozjtRoeRF2oCik5VhMhn7n2niWT"
+        description: "SOL/USD1 AMM v4 pool (30d vol: $27.7M)"
+      - id: "mew-sol"
+        label: "MEW/SOL"
+        value: "CujsiQUzNUPKTADPQ67XKJKbaVo4KpzEXvNPp1gXzQKH"
+        description: "MEW/SOL AMM v4 pool (30d vol: $26.3M)"
+      - id: "$wif-sol"
+        label: "$WIF/SOL"
+        value: "EzMCG3oJpXu2enNAh2A18iSg6Giq3Bt1wPDFDDiYgxeY"
+        description: "$WIF/SOL AMM v4 pool (30d vol: $26.0M)"
+      - id: "ray-usdc"
+        label: "RAY/USDC"
+        value: "DZjbn4XC8qoHKikZqzmhemykVzmossoayV9ffbsUqxVj"
+        description: "RAY/USDC AMM v4 pool (30d vol: $25.6M)"
+      - id: "spx-sol"
+        label: "SPX/SOL"
+        value: "AaSc4KZT7Zq9d9KdZAxuAYmgUojdowxXRc2aD3TgFkmG"
+        description: "SPX/SOL AMM v4 pool (30d vol: $25.5M)"
+      - id: "sol-swarms"
+        label: "SOL/swarms"
+        value: "5N2CczkF7ynQZLg1tFZvbMxAFFLW6v9CWfsVf24JLVY"
+        description: "SOL/swarms AMM v4 pool (30d vol: $21.0M)"
+      - id: "sol-aura"
+        label: "SOL/aura"
+        value: "3DGZraVHWYutzhs1eoxdarov8Qj5ijUyASY9XkZ3H5V1"
+        description: "SOL/aura AMM v4 pool (30d vol: $19.4M)"
+      - id: "sol-ace"
+        label: "SOL/ACE"
+        value: "BYZ3aK6tEKnTSKFWRJWu3UzXp8NQyAJEiicuSjrHi79q"
+        description: "SOL/ACE AMM v4 pool (30d vol: $16.8M)"
+      - id: "sol-vine"
+        label: "SOL/VINE"
+        value: "7bpb6bK3asNrSAfiRq1LZTKD1pfxnhYZugaWEXpE4H99"
+        description: "SOL/VINE AMM v4 pool (30d vol: $16.6M)"
+      - id: "sol-act"
+        label: "SOL/ACT"
+        value: "Em8UBZq6sBShpqEg3eKVkC3jnELLVEdvnmMppM11Bto4"
+        description: "SOL/ACT AMM v4 pool (30d vol: $16.4M)"
+      - id: "sol-dreams"
+        label: "SOL/dreams"
+        value: "AFKYSL1SeXfLjDpHyZYT5YaSwjpxr5aEHNXfp7DT9j4t"
+        description: "SOL/dreams AMM v4 pool (30d vol: $13.8M)"
+      - id: "sol-pnut"
+        label: "SOL/Pnut"
+        value: "DPAkA5GRPVZMGdw2wFvmSAnm8uAFi3vz9gwyFMUiJ4uB"
+        description: "SOL/Pnut AMM v4 pool (30d vol: $13.4M)"
+      - id: "sol-chillguy"
+        label: "SOL/CHILLGUY"
+        value: "8vHJ2BVaQu7VcshPQEp53MtR54y2o4RyPpyaMgoTyn28"
+        description: "SOL/CHILLGUY AMM v4 pool (30d vol: $13.3M)"
+      - id: "sol-shoggoth"
+        label: "SOL/Shoggoth"
+        value: "DHo6XDS6sxfKNPhxiZfksrf1GDaDw1DtcyFB7MyjZ4hQ"
+        description: "SOL/Shoggoth AMM v4 pool (30d vol: $12.8M)"
+      - id: "sol-bert"
+        label: "SOL/Bert"
+        value: "6HKGf6iTAoKqCe1x7LEkV6ugVT6SEWU3w8K6WEpq9bno"
+        description: "SOL/Bert AMM v4 pool (30d vol: $12.7M)"
+      - id: "rizzmas-sol"
+        label: "Rizzmas/SOL"
+        value: "3145TL8H59aUHKmnargJzwSboyb4uEkDZpTHmQFu6nqM"
+        description: "Rizzmas/SOL AMM v4 pool (30d vol: $12.0M)"
+      - id: "sol-ava"
+        label: "SOL/AVA"
+        value: "Gy1q9M4PHr5F74c5c9QyqZ8rYVXqpvkWUf6DsmqXjFjE"
+        description: "SOL/AVA AMM v4 pool (30d vol: $11.6M)"
+      - id: "sol-goat"
+        label: "SOL/GOAT"
+        value: "D8Y5M3n1Q12kfXavoQZrdCTnJbs6ohTxCQqZiJZiQTnQ"
+        description: "SOL/GOAT AMM v4 pool (30d vol: $9.8M)"
+      - id: "ray-sol"
+        label: "RAY/SOL"
+        value: "C6tp2RVZnxBPFbnAsfTjis8BN9tycESAT4SgDQgbbrsA"
+        description: "RAY/SOL AMM v4 pool (30d vol: $9.7M)"
+      - id: "sol-italianrot"
+        label: "SOL/Italianrot"
+        value: "7PPS8ZrM9ABstx8VUgmdq11PjGQ15r7aD1EyWmAbTa8Y"
+        description: "SOL/Italianrot AMM v4 pool (30d vol: $8.9M)"
+      - id: "usdc-$myro"
+        label: "USDC/$MYRO"
+        value: "D1EbH21mK1PiHterpcNK5HQFMBBhm5pTQAFJYukR1aeN"
+        description: "USDC/$MYRO AMM v4 pool (30d vol: $8.7M)"
+      - id: "popcat-usdc"
+        label: "POPCAT/USDC"
+        value: "5wchoBr91tdDpK4qTMFhhaYh4YGQ3t22G7LYN9ugQ7tZ"
+        description: "POPCAT/USDC AMM v4 pool (30d vol: $8.1M)"
+      - id: "sol-payai"
+        label: "SOL/PAYAI"
+        value: "9iuZBH489J9oqZouRkXoTvhxdYLnBZVeZq6rDzngPMto"
+        description: "SOL/PAYAI AMM v4 pool (30d vol: $7.6M)"
+      - id: "hnt-sol"
+        label: "HNT/SOL"
+        value: "5XRc8PY76VsK7x2KAr7a3j1NoNBxPTVRf8oHRnr2gJcz"
+        description: "HNT/SOL AMM v4 pool (30d vol: $7.2M)"
+      - id: "sol-ban"
+        label: "SOL/Ban"
+        value: "ESxe3UdJLjW2eWzdVdrbpCjjvH17Z5Bhe9SMmvGKTAcs"
+        description: "SOL/Ban AMM v4 pool (30d vol: $7.1M)"
+      - id: "nyan-sol"
+        label: "NYAN/SOL"
+        value: "8LhcZjVYNKK5mYdYQJjFVav5PjvDDEqHUHAZbJLE1Fya"
+        description: "NYAN/SOL AMM v4 pool (30d vol: $6.9M)"
+      - id: "sol-pythia"
+        label: "SOL/PYTHIA"
+        value: "4gfemrp5oTL4sobeJr349v5jJQcutFuGDQdqCzzuS8n1"
+        description: "SOL/PYTHIA AMM v4 pool (30d vol: $6.8M)"
+      - id: "ray-usdt"
+        label: "RAY/USDT"
+        value: "GpHbiJJ9VHiuHVXeoet121Utrbm1CSNNzYrBKB8Xz2oz"
+        description: "RAY/USDT AMM v4 pool (30d vol: $5.9M)"
+      - id: "wf-wfai"
+        label: "WF/WFAI"
+        value: "8euZXvbFwAe95mSj2utb1wLapKx9fy46vZ3FEDhDG7Pt"
+        description: "WF/WFAI AMM v4 pool (30d vol: $5.6M)"
+      - id: "sol-concho"
+        label: "SOL/CONCHO"
+        value: "75PgKpxPMB5DanaHvFMGh47QUhY2mfDjzC8mAX3swRpW"
+        description: "SOL/CONCHO AMM v4 pool (30d vol: $5.3M)"
+      - id: "sol-usdt"
+        label: "SOL/USDT"
+        value: "2AdaV97p6SfkuMQJdu8DHhBhmJe7oWdvbm52MJfYQmfA"
+        description: "SOL/USDT AMM v4 pool (30d vol: $5.2M)"
+      - id: "ponke-sol"
+        label: "PONKE/SOL"
+        value: "4KVf81FA4R79fKtxHJPWBRhgZpfDsihabJxPxgYbe2Gb"
+        description: "PONKE/SOL AMM v4 pool (30d vol: $5.2M)"
+      - id: "nub-sol"
+        label: "nub/SOL"
+        value: "CwCfophk9jJp27i8C6bj5M5hCQSsFWTouDwkJ26xRVtu"
+        description: "nub/SOL AMM v4 pool (30d vol: $5.1M)"
+      - id: "sol-cat"
+        label: "SOL/CAT"
+        value: "9c5Eg8Fm77fbFgG3FgWmru6NZapMDr83hsJGcjJnCXd6"
+        description: "SOL/CAT AMM v4 pool (30d vol: $4.3M)"
+      - id: "sol-pp"
+        label: "SOL/PP"
+        value: "7SLnWeRe9YnoR52KKDpYJrNvFm4pjqNU3sKELm2874FG"
+        description: "SOL/PP AMM v4 pool (30d vol: $4.3M)"
+      - id: "fartboy-sol"
+        label: "FARTBOY/SOL"
+        value: "8pTw8nTRB9e11p69G8AHoa1EREvcWrdgohQ6hK2NVGHY"
+        description: "FARTBOY/SOL AMM v4 pool (30d vol: $4.0M)"
+      - id: "sol-snai"
+        label: "SOL/SNAI"
+        value: "4ZcEVncNnTSQDgiC3zqDs5Y19hNSDj2EdLfSTPz5qiZo"
+        description: "SOL/SNAI AMM v4 pool (30d vol: $3.8M)"
+      - id: "sol-pvs"
+        label: "SOL/PVS"
+        value: "GqUYy7vCpsCYEgXv1fcxtx992dk3JHQrb9TyyVdwxn5f"
+        description: "SOL/PVS AMM v4 pool (30d vol: $3.7M)"
+      - id: "roi-usd1"
+        label: "ROI/USD1"
+        value: "psoMyZk67fP6bdnzxPmurFuvaA41kyUfJieeozg7tEY"
+        description: "ROI/USD1 AMM v4 pool (30d vol: $3.6M)"
+      - id: "sol-retire"
+        label: "SOL/retire"
+        value: "8A5rMYWmWjAPSQpMUxCZyvvCmLrjNiHqpJMfEufvvndX"
+        description: "SOL/retire AMM v4 pool (30d vol: $3.5M)"
+      - id: "lode-sol"
+        label: "LODE/SOL"
+        value: "GqznZ1PKHj6V845TtdmiPsV4P9CdaU7KCTicaVmZrvBf"
+        description: "LODE/SOL AMM v4 pool (30d vol: $3.5M)"
+      - id: "trump-sol"
+        label: "TRUMP/SOL"
+        value: "6Qa2vpQyRGrZBTDs7vZymP2hRReCVBSespBSYBrArUrZ"
+        description: "TRUMP/SOL AMM v4 pool (30d vol: $3.4M)"
+      - id: "coral-sol"
+        label: "CORAL/SOL"
+        value: "22hLVzWhKiRLa4CbFmXFui31Hj6K78sAQSM7vuFrFRmb"
+        description: "CORAL/SOL AMM v4 pool (30d vol: $3.3M)"
+      - id: "sol-moby"
+        label: "SOL/MOBY"
+        value: "D6mky3dMTH2n8ReKs8rJWiC4dExGBvVgf6cXCyKRpmeC"
+        description: "SOL/MOBY AMM v4 pool (30d vol: $3.3M)"
+      - id: "sol-ufd"
+        label: "SOL/UFD"
+        value: "7x6KvUhUjQ9KWKhGu9VXvoj1n9NV1XW4sbdZKfE3YzFE"
+        description: "SOL/UFD AMM v4 pool (30d vol: $3.2M)"
+      - id: "sol-bop"
+        label: "SOL/bop"
+        value: "6RYzckuc3Wyczh1JZdLFrtp1oaiMDFHaWaSQAMu7Kh7b"
+        description: "SOL/bop AMM v4 pool (30d vol: $3.1M)"
+      - id: "sol-allindoge"
+        label: "SOL/ALLINDOGE"
+        value: "3hsPp3ivbdbiaVxtgceE9n4XAb4TXvxx5zqkt7TvTBzF"
+        description: "SOL/ALLINDOGE AMM v4 pool (30d vol: $3.0M)"
+      - id: "hola-sol"
+        label: "HOLA/SOL"
+        value: "FJNV4TRY1BtWLFotsgheGdcoCHMFALFBKPixsY4qDJzM"
+        description: "HOLA/SOL AMM v4 pool (30d vol: $2.9M)"
+      - id: "sol-san"
+        label: "SOL/San"
+        value: "HQTTQdu1KKqH1NiLyboJRjnhXXN8x5Mo4HiFs3Sc2EKj"
+        description: "SOL/San AMM v4 pool (30d vol: $2.9M)"
+      - id: "sol-$collat"
+        label: "SOL/$COLLAT"
+        value: "5rvYEQyZsom3jUoGZ2QWFXNCashW1x15bZ2k5fyE69VT"
+        description: "SOL/$COLLAT AMM v4 pool (30d vol: $2.8M)"
+      - id: "sol-shibu"
+        label: "SOL/SHIBU"
+        value: "B2hEQPD9h6k6Qrq2rFdygGfW9k3sAoX4hjSDXPSkFs8b"
+        description: "SOL/SHIBU AMM v4 pool (30d vol: $2.8M)"
+      - id: "tai-sol"
+        label: "TAI/SOL"
+        value: "BBvyCcQXV8yhtdsM2pdonVE392LK4xT9eHUjMn4zZXpX"
+        description: "TAI/SOL AMM v4 pool (30d vol: $2.7M)"
+      - id: "sol-$michi"
+        label: "SOL/$michi"
+        value: "C5RUxJuZz5YC7s9zKiLrXePs9WxWNyJPY7jRhBe76fiJ"
+        description: "SOL/$michi AMM v4 pool (30d vol: $2.7M)"
+      - id: "sol-labubu"
+        label: "SOL/LABUBU"
+        value: "2L9z9t2B1aBAF9UYisXcNUgccJH3RMvtbZWzZpWrj3KN"
+        description: "SOL/LABUBU AMM v4 pool (30d vol: $2.5M)"
+      - id: "nos-usdc"
+        label: "NOS/USDC"
+        value: "8XaEfk3TURqgrJZvdJWrPLqyXSCmJ9MfSwZrkaYmsG7r"
+        description: "NOS/USDC AMM v4 pool (30d vol: $2.4M)"
+      - id: "retardio-sol"
+        label: "RETARDIO/SOL"
+        value: "9H9JtEzHPJqseNWjWiPeYZ1JqUTNKbx3whva27VTqBNQ"
+        description: "RETARDIO/SOL AMM v4 pool (30d vol: $2.2M)"
+      - id: "sol-avb"
+        label: "SOL/AVB"
+        value: "3Lzzft9ahF3Yr29eCWQ2L7y2j5MTaMzE3ax9szaMFnNx"
+        description: "SOL/AVB AMM v4 pool (30d vol: $2.2M)"
+      - id: "sol-dora"
+        label: "SOL/DORA"
+        value: "HztnK84FejxLJ1d2m3L9CNPh83kA4gg7SicvbRLoZwzb"
+        description: "SOL/DORA AMM v4 pool (30d vol: $2.1M)"
+      - id: "sol-buzz"
+        label: "SOL/BUZZ"
+        value: "B1QWDnTgq6YyocNWwm31tGd1GmsDj6V4dbrkLPwTzfnC"
+        description: "SOL/BUZZ AMM v4 pool (30d vol: $2.1M)"
+      - id: "pippin-sol"
+        label: "pippin/SOL"
+        value: "CMXs7d4Ato7jbLbtWouNuLycnMNjFdwj8YWWpbifYPDQ"
+        description: "pippin/SOL AMM v4 pool (30d vol: $2.1M)"
+      - id: "sol-qst"
+        label: "SOL/QST"
+        value: "fV9tXHK8wbBbLRme4a9yeWRf2YE3gCjHrrEkPtaxvbk"
+        description: "SOL/QST AMM v4 pool (30d vol: $2.0M)"
+      - id: "sol-looksmax"
+        label: "SOL/LOOKSMAX"
+        value: "HLMSDP448g5jSWMDRFi1sm5KRkvyrzNHXTc42aFmK45E"
+        description: "SOL/LOOKSMAX AMM v4 pool (30d vol: $2.0M)"
+      - id: "sol-daddy"
+        label: "SOL/DADDY"
+        value: "FvafJSu7dMFuXyzGU6A3k4k8hLmRYCnzitr7yMaaKQsU"
+        description: "SOL/DADDY AMM v4 pool (30d vol: $2.0M)"
+      - id: "sol-$1"
+        label: "SOL/$1"
+        value: "7vXXq1ipGZisWpZGEu1W8WKw4snv5DGCRXZWFNhw5TLs"
+        description: "SOL/$1 AMM v4 pool (30d vol: $2.0M)"
+      - id: "sol-wojak"
+        label: "SOL/WOJAK"
+        value: "6mJP7xFeeoF8BJWvkSz5AqoAohkwuSS8otkEabCCtsDa"
+        description: "SOL/WOJAK AMM v4 pool (30d vol: $1.9M)"
+      - id: "rizo-sol"
+        label: "RIZO/SOL"
+        value: "FuhfZARKPCzpxSJBJJGoRvjywyx9w17E7io7xeoeLX8T"
+        description: "RIZO/SOL AMM v4 pool (30d vol: $1.9M)"
+      - id: "sol-hehe"
+        label: "SOL/hehe"
+        value: "4dQr9noPevCMgy1o1stxUrZZZdQwWFk1ShfmrV9w88cd"
+        description: "SOL/hehe AMM v4 pool (30d vol: $1.9M)"
+      - id: "chex-sol"
+        label: "CHEX/SOL"
+        value: "8B6ozGVeTzB6fnvFgNgust24TMn4WFcV7LnN1ZTsUY8i"
+        description: "CHEX/SOL AMM v4 pool (30d vol: $1.8M)"
+      - id: "sol-zara"
+        label: "SOL/ZARA"
+        value: "PJcY7oW1fbzdJqWkAvEsb5xVXKEJPTBRWjMf2da5tb3"
+        description: "SOL/ZARA AMM v4 pool (30d vol: $1.7M)"
+      - id: "hosico-sol"
+        label: "Hosico/SOL"
+        value: "8sgJx1bigxapjgcpmvu3X2TwrinzWbRNVsRE2R6E2YoH"
+        description: "Hosico/SOL AMM v4 pool (30d vol: $1.7M)"
+      - id: "lockin-sol"
+        label: "LOCKIN/SOL"
+        value: "H3W1wXRGnAAopkqxW1iDHAKxCEKPmv8oR3snq2QLYCB4"
+        description: "LOCKIN/SOL AMM v4 pool (30d vol: $1.6M)"
+      - id: "sol-would"
+        label: "SOL/WOULD"
+        value: "AHeC3C7h1D1TmNM3omGk69Q9JgiCY1PBqYFNm1CWevNu"
+        description: "SOL/WOULD AMM v4 pool (30d vol: $1.6M)"
+      - id: "sol-titcoin"
+        label: "SOL/titcoin"
+        value: "Hqg15ZSWB5VFCEr5puQQJ2rEGHhzkAfmh2FzzoxJvEcS"
+        description: "SOL/titcoin AMM v4 pool (30d vol: $1.6M)"
+      - id: "sol-sigma"
+        label: "SOL/SIGMA"
+        value: "4DrR2aow56rkMN5boox6q6nEmnGKcLsYnTbMAhiw2oRd"
+        description: "SOL/SIGMA AMM v4 pool (30d vol: $1.6M)"
+      - id: "oza-sol"
+        label: "OZA/SOL"
+        value: "A4JEnz9LBm8SYgkfd6rGW5q7hLN9C6FtVjms7vwBpM7x"
+        description: "OZA/SOL AMM v4 pool (30d vol: $1.5M)"
+      - id: "usa-sol"
+        label: "USA/SOL"
+        value: "4f6LoHhZNQdYERu7gzvvhX13ugyyKotJPyC7jaVBLUHG"
+        description: "USA/SOL AMM v4 pool (30d vol: $1.4M)"
+      - id: "gme-sol"
+        label: "GME/SOL"
+        value: "J2UaGXg2YECx3GFqKVEsDqP1yZrtwVcY1gXPPLdXAodj"
+        description: "GME/SOL AMM v4 pool (30d vol: $1.4M)"
+      - id: "sol-a47"
+        label: "SOL/A47"
+        value: "YxCsbdAdfE48kW7QFJPA446dBp3qRLzMSLxpF8nBhXk"
+        description: "SOL/A47 AMM v4 pool (30d vol: $1.4M)"
+      - id: "sol-usa"
+        label: "SOL/USA"
+        value: "85PkNRCSfLhh1pPn1SHc6DFLcFkuk71HPLi18ntPPJPy"
+        description: "SOL/USA AMM v4 pool (30d vol: $1.4M)"
+      - id: "sol-pwease"
+        label: "SOL/pwease"
+        value: "A3kVzzqzpa3Xm3W2cMbjyZRpdRhLcp7qUwDqSC5yRisN"
+        description: "SOL/pwease AMM v4 pool (30d vol: $1.4M)"
+      - id: "sol-nuit"
+        label: "SOL/nuit"
+        value: "6ySxHjNAN4rCeL38sV8e4njyxkuEcaeVfSmkH4rzEofb"
+        description: "SOL/nuit AMM v4 pool (30d vol: $1.4M)"
+      - id: "sol-brew"
+        label: "SOL/BREW"
+        value: "HJx4gdWrtRTTmk9aiHqE4uw9WWtFManRjoUFNiD5WPwD"
+        description: "SOL/BREW AMM v4 pool (30d vol: $1.4M)"
+      - id: "sol-agialpha"
+        label: "SOL/AGIALPHA"
+        value: "7ieTijVeoSH7cvLpVqa78Rgb4WjYNpPJzkKcRfxbNEy3"
+        description: "SOL/AGIALPHA AMM v4 pool (30d vol: $1.3M)"
+      - id: "sol-stupid"
+        label: "SOL/Stupid"
+        value: "2W1sWeZkLLsJUtbbazm4Ri6V4Wnt1FPVd36xCf6vKGax"
+        description: "SOL/Stupid AMM v4 pool (30d vol: $1.3M)"
+      - id: "sol-mini"
+        label: "SOL/mini"
+        value: "GVMV3gZTs7AKCLwrV6iXErLbeNwTgXNcMfHPjHoCUmfs"
+        description: "SOL/mini AMM v4 pool (30d vol: $1.2M)"
+      - id: "atlas-ray"
+        label: "ATLAS/RAY"
+        value: "Bn7n597jMxU4KjBPUo3QwJhbqr5145cHy31p6EPwPHwL"
+        description: "ATLAS/RAY AMM v4 pool (30d vol: $1.2M)"
+      - id: "sol-cupsey"
+        label: "SOL/Cupsey"
+        value: "9Gp7cqMfpTmUZyjLf58UyoqQwV3AH9mieFcBextTQcET"
+        description: "SOL/Cupsey AMM v4 pool (30d vol: $1.1M)"
+
+templates:
+  - id: raydium-amm-pool-state
+    name: Override AMM Pool State
+    description: Override Raydium AMM v4 pool state including status and configuration
+    idl_account_name: AmmInfo
+    properties: ["status", "state", "lp_amount"]
+    address:
+      type: pubkey
+
+  - id: raydium-amm-fees
+    name: Override AMM Fees
+    description: Override Raydium AMM v4 fee configuration for swap simulations
+    idl_account_name: AmmInfo
+    properties:
+      [
+        "fees.swap_fee_numerator",
+        "fees.swap_fee_denominator",
+        "fees.trade_fee_numerator",
+        "fees.trade_fee_denominator",
+      ]
+    address:
+      type: pubkey
+
+  - id: raydium-amm-swap-stats
+    name: Override AMM Swap Statistics
+    description: Override Raydium AMM v4 swap statistics and cumulative amounts
+    idl_account_name: AmmInfo
+    properties:
+      [
+        "out_put.swap_coin_in_amount",
+        "out_put.swap_pc_out_amount",
+        "out_put.swap_pc_in_amount",
+        "out_put.swap_coin_out_amount",
+        "out_put.pool_open_time",
+      ]
+    address:
+      type: pubkey
+
+  - id: raydium-amm-custom
+    name: Override Custom AMM Pool
+    description: |
+      Override any Raydium AMM v4 pool by specifying the OpenBook market address.
+      AMM v4 pools are integrated with OpenBook orderbook, so the pool PDA is derived from the market address.
+      PDA seeds: [program_id, openbook_market, "amm_associated_seed"]
+    idl_account_name: AmmInfo
+    properties:
+      - path: status
+        label: Pool Status
+        description: Pool operational status
+      - path: state
+        label: Pool State
+        description: Pool state flags
+      - path: lp_amount
+        label: LP Amount
+        description: Total LP tokens in circulation
+      - path: fees.swap_fee_numerator
+        label: Swap Fee Numerator
+        description: Swap fee numerator for fee calculation
+      - path: fees.swap_fee_denominator
+        label: Swap Fee Denominator
+        description: Swap fee denominator for fee calculation
+      - path: out_put.pool_open_time
+        label: Pool Open Time
+        description: Unix timestamp when pool opened
+      - path: market
+        type: constant_ref
+        label: OpenBook Market
+        constant: openbook_market
+    llm_context: |
+      CRITICAL: Always set fetchBeforeUse: true for Raydium AMM v4 pools!
+      This fetches the current account data from mainnet before applying your overrides.
+
+      HOW TO USE THIS TEMPLATE:
+      1. Select the correct OpenBook market from the `market` constant options
+      2. The pool PDA is automatically derived from: [program_id, market, "amm_associated_seed"]
+      3. Override any pool fields you need (status, fees, etc.)
+
+      UNDERSTANDING AMM v4 POOLS:
+      - Raydium AMM v4 is integrated with OpenBook orderbook
+      - The pool address is a PDA derived from the OpenBook market address
+      - Each pool has token vaults for both coins (coin = base token, pc = quote token)
+
+      TO SIMULATE PRICE CHANGES:
+      - Don't modify AmmInfo directly for price simulation
+      - Instead, use the spl-token-account-balance template to modify vault balances
+      - Price = pc_vault_balance / coin_vault_balance (adjusted for decimals)
+
+      EXAMPLE - Override SOL/USDC pool to change fees:
+      market: select "SOL/USDC" from options
+      fees.swap_fee_numerator: 25 (0.25% fee = 25/10000)
+      fees.swap_fee_denominator: 10000
+    address:
+      type: pda
+      program_id: 675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8
+      seeds:
+        - type: pubkey
+          value: 675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8
+        - type: property_ref
+          value: market
+        - type: string
+          value: amm_associated_seed
