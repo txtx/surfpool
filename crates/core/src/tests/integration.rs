@@ -33,8 +33,8 @@ use solana_system_interface::{
 use solana_transaction::{Transaction, versioned::VersionedTransaction};
 use surfpool_types::{
     CheatcodeConfig, CheatcodeControlConfig, CheatcodeFilter, DEFAULT_SLOT_TIME_MS, Idl,
-    RpcCheatcodes, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
-    SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
+    RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent, SurfpoolConfig,
+    UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
     types::{
         BlockProductionMode, RpcConfig, SimnetConfig, SubgraphConfig, TransactionStatusEvent,
         UuidOrSignature,
@@ -764,7 +764,7 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_surfnet_estimate_compute_units(test_type: TestType) {
     let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
-    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
+    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc::empty();
 
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
@@ -1055,15 +1055,22 @@ async fn test_surfnet_estimate_compute_units(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_enable_and_disable_cheatcodes(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let valid_cheatcode_method = "surfnet_getActiveIdl".to_string();
+    let enable_cheatcode_method = "surfnet_enableCheatcode".to_string();
+    let disable_cheatcode_method = "surfnet_disableCheatcode".to_string();
+    let invalid_cheatcode_method = "surfnet_invalidCheatcode".to_string();
+    let available_methods = vec![
+        valid_cheatcode_method.clone(),
+        enable_cheatcode_method.clone(),
+        disable_cheatcode_method.clone(),
+    ];
+    let rpc_server = SurfnetCheatcodesRpc {
+        registered_methods: Arc::new(std::sync::RwLock::new(available_methods.clone())),
+    };
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
-    let valid_cheatcode_method: String = RpcCheatcodes::GetActiveIdl.into();
-    let enable_cheatcode_method: String = RpcCheatcodes::EnableCheatcode.into();
-    let disable_cheatcode_method: String = RpcCheatcodes::DisableCheatcode.into();
-    let invalid_cheatcode_method = "surfnet_invalidCheatcode".to_string();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -1176,7 +1183,7 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
 
     assert_eq!(
         runloop_context.cheatcode_config.lock().unwrap().filter,
-        CheatcodeConfig::filter_all_list(false),
+        CheatcodeConfig::filter_all_list(false, available_methods.clone()),
         "The disabled cheatcodes list doesn't match the expected one"
     );
 
@@ -1293,7 +1300,7 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
 
     assert_eq!(
         runloop_context.cheatcode_config.lock().unwrap().filter,
-        CheatcodeConfig::filter_all_list(true),
+        CheatcodeConfig::filter_all_list(true, vec![]),
         "Expected all the features to be disabled"
     );
 
@@ -1317,7 +1324,7 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_transaction_profile(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     // Set up test accounts
@@ -1539,7 +1546,7 @@ async fn test_get_transaction_profile(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_register_and_get_idl_without_slot(test_type: TestType) {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
@@ -1595,7 +1602,7 @@ fn test_register_and_get_idl_without_slot(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_register_and_get_idl_with_slot(test_type: TestType) {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
@@ -1664,7 +1671,7 @@ async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType
     let idl_v1: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
     let idl_v2: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v2.json")).unwrap();
     let idl_v3: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v3.json")).unwrap();
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
@@ -3357,7 +3364,7 @@ async fn test_profile_transaction_versioned_message(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_local_signatures_without_limit(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
@@ -3463,7 +3470,7 @@ async fn test_get_local_signatures_without_limit(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_local_signatures_with_limit(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
 
@@ -3673,7 +3680,7 @@ fn boot_simnet(
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_resume_paused_clock(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, _) =
         boot_simnet(BlockProductionMode::Clock, Some(100), test_type);
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
@@ -3751,7 +3758,7 @@ fn test_time_travel_resume_paused_clock(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_absolute_timestamp(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let slot_time = 100;
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) = boot_simnet(
         BlockProductionMode::Clock,
@@ -3838,7 +3845,7 @@ fn test_time_travel_absolute_timestamp(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_absolute_slot(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
@@ -3915,7 +3922,7 @@ fn test_time_travel_absolute_slot(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_absolute_epoch(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
@@ -4649,7 +4656,7 @@ fn test_reset_network_keeps_latest_blockhash_valid(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_reset_network_time_travel_timestamp(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
@@ -4702,7 +4709,7 @@ fn test_reset_network_time_travel_timestamp(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_reset_network_time_travel_slot(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
@@ -4759,7 +4766,7 @@ fn test_reset_network_time_travel_slot(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_reset_network_time_travel_epoch(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
@@ -7215,7 +7222,7 @@ fn test_nonce_accounts() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
     let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
-    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
+    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc::empty();
 
     // Setup: Create accounts and fund the payer
     let payer = Keypair::new();

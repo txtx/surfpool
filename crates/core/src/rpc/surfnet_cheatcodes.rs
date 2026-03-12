@@ -2092,7 +2092,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_transaction_profile() {
         // Create connection to local validator
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let recent_blockhash = client
             .context
             .svm_locker
@@ -2925,7 +2925,7 @@ mod tests {
 
     #[test]
     fn test_export_snapshot() {
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
 
         let pubkey1 = Pubkey::new_unique();
         let account1 = Account {
@@ -2961,7 +2961,7 @@ mod tests {
 
     #[test]
     fn test_export_snapshot_json_parsed() {
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
 
         let pubkey1 = Pubkey::new_unique();
         println!("Pubkey1: {}", pubkey1);
@@ -3057,7 +3057,7 @@ mod tests {
         use solana_signature::Signature;
         use surfpool_types::{ProfileResult, types::KeyedProfileResult};
 
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
 
         // Create several accounts in the network
         let account1_pubkey = Pubkey::new_unique();
@@ -3202,7 +3202,7 @@ mod tests {
             included_program_account_pubkey
         );
 
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
 
         let system_account = Account {
             lamports: 1_000_000,
@@ -3297,7 +3297,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_creates_accounts_automatically() {
         // Test that both program and program data accounts are created if they don't exist
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         // Verify accounts don't exist initially
@@ -3375,7 +3375,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_single_chunk_small() {
         // Test writing a small program in a single write
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let program_data = vec![0x01, 0x02, 0x03, 0x04, 0x05];
@@ -3424,7 +3424,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_single_chunk_large() {
         // Test writing a large program (1MB) in a single write
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let program_data = vec![0xAB; 1024 * 1024]; // 1 MB
@@ -3473,7 +3473,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_multiple_sequential_chunks() {
         // Test writing a program in multiple sequential chunks
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let chunks = vec![
@@ -3538,7 +3538,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_non_sequential_chunks() {
         // Test writing chunks out of order (backwards)
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let chunks = vec![
@@ -3604,7 +3604,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_overlapping_writes() {
         // Test that overlapping writes correctly overwrite previous data
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         // Write initial data
@@ -3672,7 +3672,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_zero_offset() {
         // Test writing at offset 0 (should write immediately after metadata)
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let data = vec![0x42; 128];
@@ -3710,7 +3710,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_large_offset() {
         // Test writing at a large offset (account should expand)
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let large_offset = 1024 * 1024; // 1 MB offset
@@ -3759,7 +3759,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_empty_data() {
         // Test writing empty data (should succeed but not write anything)
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let result = client
@@ -3781,7 +3781,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_single_byte() {
         // Test writing a single byte
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let data = vec![0x42];
@@ -3819,7 +3819,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_invalid_program_id() {
         // Test with invalid program ID
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
 
         let result = client
             .rpc
@@ -3844,7 +3844,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_invalid_hex_data() {
         // Test with invalid hex encoding
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let invalid_hex_strings = vec![
@@ -3883,7 +3883,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_rent_exemption() {
         // Test that rent exemption is maintained when account expands
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         // Write initial small data
@@ -3966,7 +3966,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_account_ownership() {
         // Test that created accounts have correct ownership
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
         let authority = Keypair::new();
 
@@ -4046,7 +4046,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_metadata_preservation() {
         // Test that program data account metadata is preserved across writes
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         // First write
@@ -4113,7 +4113,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_idempotent() {
         // Test that writing the same data twice produces the same result
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let data = vec![0x55; 512];
@@ -4179,7 +4179,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_context_slot() {
         // Test that response context contains valid slot
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let result = client
