@@ -1110,8 +1110,7 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
     );
 
     let expected_error: jsonrpc_core::Result<()> = Err(SurfpoolError::disable_cheatcode(
-        "Cannot disable surfnet_enableCheatcode rpc method when lockout is not enabledd"
-            .to_string(),
+        "Cannot disable surfnet_enableCheatcode rpc method when lockout is not enabled".to_string(),
     )
     .into());
 
@@ -1152,7 +1151,7 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
     );
     let expected_error_disable_all_with_invalid_config: jsonrpc_core::Result<()> =
         Err(SurfpoolError::disable_cheatcode(
-            "Invalid optioin provided for disabling all cheatcodes. Try using \"all\"".to_string(),
+            "Invalid option provided for disabling all cheatcodes. Try using 'all' or providing an array of specific cheatcodes".to_string(),
         )
         .into());
 
@@ -1253,7 +1252,7 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
     );
     let expected_error_enable_all_with_invalid_config: jsonrpc_core::Result<()> =
         Err(SurfpoolError::enable_cheatcode(
-            "Invalid optioin provided for enabling all cheatcodes. Try using \"all\"".to_string(),
+            "Invalid option provided for enabling all cheatcodes. Try using 'all' or providing an array of specific cheatcodes".to_string(),
         )
         .into());
 

@@ -183,23 +183,35 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
         // All surfnet cheatcodes will start with surfnet. If the request is a cheatcode, make sure it isn't disabled.
         if method_name.starts_with("surfnet_")
             && let Some(meta_val) = meta.clone()
-            && meta_val
-                .cheatcode_config
-                .lock()
-                .unwrap() // this is okay since only on_request, disable_cheatcode and enable_cheatcode only use it, the rpc method being called after on_request
-                .is_cheatcode_disabled(&method_name)
         {
-            let error = Response::from(
-                Error {
-                    code: ErrorCode::InvalidRequest,
-                    message: format!("Cheatsheet rpc method: {method_name} is currently disabled"),
-                    data: None,
-                },
-                None,
-            );
-            warn!("Request rejected due to cheatsheet being disabled");
+            let Ok(meta_val) = meta_val.cheatcode_config.lock() else {
+                let error = Response::from(
+                    Error {
+                        code: ErrorCode::InternalError,
+                        message: "An internal server error occured".to_string(),
+                        data: None,
+                    },
+                    None,
+                );
+                warn!("Request rejected due to cheatsheet being disabled");
 
-            return Either::Left(Box::pin(async move { Some(error) }));
+                return Either::Left(Box::pin(async move { Some(error) }));
+            };
+            if meta_val.is_cheatcode_disabled(&method_name) {
+                let error = Response::from(
+                    Error {
+                        code: ErrorCode::InvalidRequest,
+                        message: format!(
+                            "Cheatcode rpc method: {method_name} is currently disabled"
+                        ),
+                        data: None,
+                    },
+                    None,
+                );
+                warn!("Request rejected due to cheatcode rpc method being disabled");
+
+                return Either::Left(Box::pin(async move { Some(error) }));
+            }
         }
 
         Either::Left(Box::pin(next(request, meta).map(move |res| {

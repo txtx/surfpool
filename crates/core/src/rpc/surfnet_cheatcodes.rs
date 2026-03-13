@@ -1322,13 +1322,15 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         let lockout = lockout.unwrap_or_default();
 
         if let Some(runloop_ctx) = meta {
-            let mut cheatcode_ctx = runloop_ctx.cheatcode_config.lock().unwrap();
+            let Ok(mut cheatcode_ctx) = runloop_ctx.cheatcode_config.lock() else {
+                return Err(jsonrpc_core::Error::internal_error());
+            };
 
             match cheatcodes_filter {
                 CheatcodeFilter::All(all) => {
                     if all.ne("all") {
                         return Err(SurfpoolError::disable_cheatcode(
-                            "Invalid optioin provided for disabling all cheatcodes. Try using \"all\"".to_string(),
+                            "Invalid option provided for disabling all cheatcodes. Try using 'all' or providing an array of specific cheatcodes".to_string(),
                         )
                         .into());
                     }
@@ -1342,7 +1344,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                     for cheatcode in cheatdcodes {
                         if !lockout && cheatcode.eq("surfnet_enableCheatcode") {
                             return Err(SurfpoolError::disable_cheatcode(
-                                "Cannot disable surfnet_enableCheatcode rpc method when lockout is not enabledd".to_string(),
+                                "Cannot disable surfnet_enableCheatcode rpc method when lockout is not enabled".to_string(),
                             )
                             .into());
                         }
@@ -1378,30 +1380,32 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
             Err(e) => return Err(e.into()),
         };
         if let Some(runloop_ctx) = meta {
-            let cheatcode_ctx = runloop_ctx.cheatcode_config;
+            let Ok(mut cheatcode_ctx) = runloop_ctx.cheatcode_config.lock() else {
+                return Err(jsonrpc_core::Error::internal_error());
+            };
             match cheatcodes_filter {
                 CheatcodeFilter::All(all) => {
                     if all.ne("all") {
                         return Err(SurfpoolError::enable_cheatcode(
-                            "Invalid optioin provided for enabling all cheatcodes. Try using \"all\"".to_string(),
+                            "Invalid option provided for enabling all cheatcodes. Try using 'all' or providing an array of specific cheatcodes".to_string(),
                         )
                         .into());
                     }
 
                     // we probably don't need to check whether lockout == true because surfnet_enableCheatcode won't be called if it's disabled
-                    cheatcode_ctx.lock().unwrap().filter = CheatcodeFilter::List(vec![]);
+                    cheatcode_ctx.filter = CheatcodeFilter::List(vec![]);
                 }
                 CheatcodeFilter::List(cheatcodes) => {
                     for ref cheatcode in cheatcodes {
                         debug!("enabling cheatcode: {cheatcode}");
-                        if !self.is_available_cheatcode(&cheatcode) {
+                        if !self.is_available_cheatcode(cheatcode) {
                             return Err(SurfpoolError::enable_cheatcode(
                                 "Invalid cheatcode rpc method".to_string(),
                             )
                             .into());
                         }
 
-                        if let Err(e) = cheatcode_ctx.lock().unwrap().enable_cheatcode(cheatcode) {
+                        if let Err(e) = cheatcode_ctx.enable_cheatcode(cheatcode) {
                             return Err(SurfpoolError::enable_cheatcode(e).into());
                         }
                     }
