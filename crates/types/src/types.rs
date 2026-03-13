@@ -4,6 +4,7 @@ use std::{
     fmt,
     path::PathBuf,
     str::FromStr,
+    sync::{Arc, Mutex},
 };
 
 use blake3::Hash;
@@ -1254,6 +1255,96 @@ impl RunbookExecutionStatusReport {
     pub fn mark_completed(&mut self, error: Option<Vec<String>>) {
         self.completed_at = Some(Local::now().timestamp() as u32);
         self.errors = error;
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheatcodeConfig {
+    pub lockout: bool, // if true, allows disabling even the `surfnet_enableCheatcodes`/`surfnetdisableCheatcodes` methods
+    pub filter: CheatcodeFilter,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct CheatcodeControlConfig {
+    pub lockout: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CheatcodeFilter {
+    All(String),
+    List(Vec<String>), // disables cheatcodes in a named list
+}
+
+impl CheatcodeConfig {
+    pub fn new() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(CheatcodeConfig {
+            lockout: false,
+            filter: CheatcodeFilter::List(vec![]),
+        }))
+    }
+
+    pub fn lockout(&mut self) {
+        self.lockout = true;
+    }
+
+    pub fn disable_all(&mut self, lockout: bool, available_cheatcodes: Vec<String>) {
+        self.filter = Self::filter_all_list(lockout, available_cheatcodes);
+    }
+
+    pub fn disable_cheatcode(&mut self, cheatcode: &String) -> Result<(), String> {
+        if !self.lockout
+            && (cheatcode.eq("surfpool_enableCheatcode")
+                || cheatcode.eq("surfpool_disableCheatcode"))
+        {
+            return Err("Cannot disable surfpool_disableCheatcode or surfpool_enableCheatcode while lockout is is false".to_string());
+        }
+
+        if let CheatcodeFilter::List(list) = &mut self.filter {
+            if !list.contains(cheatcode) {
+                list.push(cheatcode.to_string());
+                Ok(())
+            } else {
+                Err("Cheatcode already disabled".to_string())
+            }
+        } else {
+            Err("All cheatcodes disabled".to_string())
+        }
+    }
+    pub fn enable_cheatcode(&mut self, cheatcode: &str) -> Result<(), String> {
+        if let CheatcodeFilter::List(list) = &mut self.filter {
+            if let Some(pos) = list.iter().position(|c| c == cheatcode) {
+                list.remove(pos);
+                Ok(())
+            } else {
+                Err("Cheatcode isn't disabled".to_string())
+            }
+        } else {
+            Err("All cheatcodes are disabled".to_string())
+        }
+    }
+
+    pub fn is_cheatcode_disabled(&self, cheatcode: &String) -> bool {
+        match &self.filter {
+            CheatcodeFilter::List(list) => list.contains(cheatcode),
+            CheatcodeFilter::All(_) => true,
+        }
+    }
+
+    pub fn filter_all_list(lockout: bool, available_cheatcodes: Vec<String>) -> CheatcodeFilter {
+        // when lockout == true, it's important to disable surfnet_disableCheatcode as well
+        // since calling surfnet_disableCheatcode with lockout == false will override the current config, which is a bug
+        if lockout {
+            CheatcodeFilter::All("all".to_string())
+        } else {
+            // remove `surfnet_disableCheatcode` and `surfnet_enableCheatcode` from the list of available cheatcodes
+            let filter = available_cheatcodes
+                .into_iter()
+                .filter(|c| (c.ne("surfnet_disableCheatcode") && c.ne("surfnet_enableCheatcode")))
+                .collect();
+            CheatcodeFilter::List(filter)
+        }
     }
 }
 

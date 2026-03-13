@@ -910,7 +910,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_set_and_get_supply() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
-        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+        let cheatcodes_rpc = SurfnetCheatcodesRpc::empty();
 
         // test initial default values
         let initial_supply = setup
@@ -959,7 +959,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_supply_exclude_accounts() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
-        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+        let cheatcodes_rpc = SurfnetCheatcodesRpc::empty();
 
         // set supply with non-circulating accounts
         let supply_update = SupplyUpdate {
@@ -1007,7 +1007,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_partial_supply_update() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
-        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+        let cheatcodes_rpc = SurfnetCheatcodesRpc::empty();
 
         // set initial values
         let initial_update = SupplyUpdate {
@@ -1051,7 +1051,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_set_supply_with_multiple_invalid_pubkeys() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
-        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+        let cheatcodes_rpc = SurfnetCheatcodesRpc::empty();
         let invalid_pubkey = "invalid_pubkey";
 
         // test with multiple invalid pubkeys - should fail on the first one
@@ -1082,7 +1082,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_set_supply_with_max_values() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
-        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+        let cheatcodes_rpc = SurfnetCheatcodesRpc::empty();
 
         let supply_update = SupplyUpdate {
             total: Some(u64::MAX),
@@ -1112,7 +1112,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_set_supply_large_valid_account_list() {
         let setup = TestSetup::new(SurfpoolAccountsScanRpc);
-        let cheatcodes_rpc = SurfnetCheatcodesRpc;
+        let cheatcodes_rpc = SurfnetCheatcodesRpc::empty();
 
         let large_account_list: Vec<String> = (0..100)
             .map(|i| match i % 10 {

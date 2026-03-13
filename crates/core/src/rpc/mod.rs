@@ -1,4 +1,7 @@
-use std::{future::Future, sync::Arc};
+use std::{
+    future::Future,
+    sync::{Arc, Mutex},
+};
 
 use blake3::Hash;
 use crossbeam_channel::Sender;
@@ -9,7 +12,7 @@ use jsonrpc_core::{
 };
 use jsonrpc_pubsub::{PubSubMetadata, Session};
 use solana_clock::Slot;
-use surfpool_types::{SimnetCommand, SimnetEvent, types::RpcConfig};
+use surfpool_types::{CheatcodeConfig, SimnetCommand, SimnetEvent, types::RpcConfig};
 
 use crate::{
     PluginManagerCommand,
@@ -48,6 +51,7 @@ pub struct RunloopContext {
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub remote_rpc_client: Option<SurfnetRemoteClient>,
     pub rpc_config: RpcConfig,
+    pub cheatcode_config: Arc<Mutex<CheatcodeConfig>>,
 }
 
 pub struct SurfnetRpcContext<T> {
@@ -113,6 +117,7 @@ pub struct SurfpoolMiddleware {
     pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub config: RpcConfig,
     pub remote_rpc_client: Option<SurfnetRemoteClient>,
+    pub cheatcode_config: Arc<Mutex<CheatcodeConfig>>,
 }
 
 impl SurfpoolMiddleware {
@@ -129,6 +134,7 @@ impl SurfpoolMiddleware {
             plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
             config: config.clone(),
             remote_rpc_client: remote_rpc_client.clone(),
+            cheatcode_config: CheatcodeConfig::new(),
         }
     }
 }
@@ -171,7 +177,43 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
             remote_rpc_client: self.remote_rpc_client.clone(),
             rpc_config: self.config.clone(),
+            cheatcode_config: self.cheatcode_config.clone(),
         });
+
+        // All surfnet cheatcodes will start with surfnet. If the request is a cheatcode, make sure it isn't disabled.
+        if method_name.starts_with("surfnet_")
+            && let Some(meta_val) = meta.clone()
+        {
+            let Ok(meta_val) = meta_val.cheatcode_config.lock() else {
+                let error = Response::from(
+                    Error {
+                        code: ErrorCode::InternalError,
+                        message: "An internal server error occured".to_string(),
+                        data: None,
+                    },
+                    None,
+                );
+                warn!("Request rejected due to cheatsheet being disabled");
+
+                return Either::Left(Box::pin(async move { Some(error) }));
+            };
+            if meta_val.is_cheatcode_disabled(&method_name) {
+                let error = Response::from(
+                    Error {
+                        code: ErrorCode::InvalidRequest,
+                        message: format!(
+                            "Cheatcode rpc method: {method_name} is currently disabled"
+                        ),
+                        data: None,
+                    },
+                    None,
+                );
+                warn!("Request rejected due to cheatcode rpc method being disabled");
+
+                return Either::Left(Box::pin(async move { Some(error) }));
+            }
+        }
+
         Either::Left(Box::pin(next(request, meta).map(move |res| {
             if let Some(Response::Single(output)) = &res {
                 if let jsonrpc_core::Output::Failure(failure) = output {
@@ -222,6 +264,7 @@ impl Middleware<Option<SurfpoolWebsocketMeta>> for SurfpoolWebsocketMiddleware {
             plugin_manager_commands_tx: self.surfpool_middleware.plugin_manager_commands_tx.clone(),
             remote_rpc_client: self.surfpool_middleware.remote_rpc_client.clone(),
             rpc_config: self.surfpool_middleware.config.clone(),
+            cheatcode_config: self.surfpool_middleware.cheatcode_config.clone(),
         };
         let session = meta
             .as_ref()

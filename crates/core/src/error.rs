@@ -105,6 +105,18 @@ impl SurfpoolError {
         Self(error)
     }
 
+    pub fn disable_cheatcode(e: String) -> Self {
+        let mut error = Error::invalid_request();
+        error.data = Some(json!(format!("Unable to disable cheatcode: {}", e)));
+        Self(error)
+    }
+
+    pub fn enable_cheatcode(e: String) -> Self {
+        let mut error = Error::invalid_request();
+        error.data = Some(json!(format!("Unable to enable cheatcode: {}", e)));
+        Self(error)
+    }
+
     pub fn set_account<T>(pubkey: Pubkey, e: T) -> Self
     where
         T: ToString,
