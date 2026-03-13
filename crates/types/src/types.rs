@@ -1296,9 +1296,9 @@ impl CheatcodeConfig {
     pub fn disable_cheatcode(&mut self, cheatcode: &String) -> Result<(), String> {
         if !self.lockout
             && (cheatcode.eq("surfpool_enableCheatcode")
-                || cheatcode.eq("surfpool_enableCheatcode"))
+                || cheatcode.eq("surfpool_disableCheatcode"))
         {
-            return Err("Cannot disable surfpool_enableCheatcode and surfpool_enableCheatcode while lockout is is false".to_string());
+            return Err("Cannot disable surfpool_disableCheatcode or surfpool_enableCheatcode while lockout is is false".to_string());
         }
 
         if let CheatcodeFilter::List(list) = &mut self.filter {
