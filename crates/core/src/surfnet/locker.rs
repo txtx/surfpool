@@ -252,7 +252,11 @@ impl SurfnetSvmLocker {
     ) -> GetAccountResult {
         let blocked_owners = self.get_blocked_account_owners();
         match result {
-            GetAccountResult::FoundAccount(_, account, _) if blocked_owners.contains(&account.owner) => {
+            GetAccountResult::FoundAccount(_, account, _)
+            | GetAccountResult::FoundProgramAccount((_, account), _)
+            | GetAccountResult::FoundTokenAccount((_, account), _)
+                if blocked_owners.contains(&account.owner) =>
+            {
                 let blocked_pubkey = *requested_pubkey;
                 self.with_svm_writer(move |svm_writer| {
                     svm_writer.blocked_accounts.insert(blocked_pubkey);
