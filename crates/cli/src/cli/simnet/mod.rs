@@ -512,15 +512,22 @@ async fn write_and_execute_iac(
     // If there were existing on-disk runbooks, we'll execute those instead of in-memory ones
     // If there were no existing runbooks and the user requested autopilot, we'll generate and execute in-memory runbooks
     // If there were no existing runbooks and the user did not request autopilot, we'll generate and execute on-disk runbooks
-    let do_execute_in_memory_runbooks = cmd.anchor_compat && !txtx_manifest_exists;
-    if !cmd.anchor_compat && txtx_manifest_exists {
+    // When --artifacts-path is set, always use in-memory runbooks so the custom bin_path is injected
+    let has_custom_artifacts_path = cmd.artifacts_path.is_some();
+    let do_execute_in_memory_runbooks =
+        has_custom_artifacts_path || (cmd.anchor_compat && !txtx_manifest_exists);
+    if !has_custom_artifacts_path && !cmd.anchor_compat && txtx_manifest_exists {
         let runbooks_ids_to_execute = cmd.runbooks.clone();
         on_disk_runbook_data = Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
     };
 
     // Are we in a project directory?
-    if let Ok(deployment) =
-        detect_program_frameworks(&cmd.manifest_path, &cmd.anchor_test_config_paths).await
+    if let Ok(deployment) = detect_program_frameworks(
+        &cmd.manifest_path,
+        &cmd.anchor_test_config_paths,
+        cmd.artifacts_path.as_deref(),
+    )
+    .await
     {
         if let Some(ProgramFrameworkData {
             framework,
@@ -549,7 +556,8 @@ async fn write_and_execute_iac(
             }
 
             // Is infrastructure-as-code (IaC) already setup?
-            let do_write_scaffold = !cmd.anchor_compat && !txtx_manifest_exists;
+            let do_write_scaffold =
+                !has_custom_artifacts_path && !cmd.anchor_compat && !txtx_manifest_exists;
             if do_write_scaffold {
                 // Scaffold IaC
                 scaffold_iac_layout(
@@ -572,6 +580,7 @@ async fn write_and_execute_iac(
                     &accounts,
                     &accounts_dir,
                     generate_subgraphs,
+                    cmd.artifacts_path.as_deref(),
                 )?);
             }
         }
@@ -593,11 +602,16 @@ async fn write_and_execute_iac(
             .map_err(|e| format!("Thread to execute runbooks exited: {}", e))?;
 
         if cmd.watch {
+            let artifacts_path_for_watch = cmd.artifacts_path.clone();
             let _handle = hiro_system_kit::thread_named("Watch Filesystem")
                 .spawn(move || {
                     let mut target_path = base_location.clone();
-                    let _ = target_path.append_path("target");
-                    let _ = target_path.append_path("deploy");
+                    if let Some(ref path) = artifacts_path_for_watch {
+                        let _ = target_path.append_path(path);
+                    } else {
+                        let _ = target_path.append_path("target");
+                        let _ = target_path.append_path("deploy");
+                    }
                     let (tx, rx) = mpsc::channel::<NotifyResult<Event>>();
                     let mut watcher = notify::recommended_watcher(tx).map_err(|e| e.to_string())?;
                     watcher

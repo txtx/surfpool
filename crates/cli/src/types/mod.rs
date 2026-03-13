@@ -28,8 +28,9 @@ impl Framework {
     pub fn get_in_memory_interpolated_program_deployment_template(
         &self,
         program_name: &str,
+        artifacts_path: Option<&str>,
     ) -> String {
-        match self {
+        let base = match self {
             Framework::Anchor => {
                 get_in_memory_interpolated_anchor_program_deployment_template(program_name)
             }
@@ -37,6 +38,22 @@ impl Framework {
             Framework::Native | Framework::Steel | Framework::Pinocchio => {
                 get_in_memory_interpolated_native_program_deployment_template(program_name)
             }
+        };
+        if let Some(artifacts) = artifacts_path {
+            let get_program_fn = match self {
+                Framework::Anchor => "svm::get_program_from_anchor_project",
+                _ => "svm::get_program_from_native_project",
+            };
+            let bin_path = format!("{}/{}.so", artifacts.trim_end_matches('/'), program_name);
+            // Pass bin_path as the 4th argument (program_name, keypair_path, idl_path, bin_path)
+            let old = format!("program = {}(\"{}\") ", get_program_fn, program_name);
+            let new = format!(
+                "program = {}(\"{}\", null, null, \"{}\") ",
+                get_program_fn, program_name, bin_path
+            );
+            base.replace(&old, &new)
+        } else {
+            base
         }
     }
     pub fn get_interpolated_subgraph_template(
