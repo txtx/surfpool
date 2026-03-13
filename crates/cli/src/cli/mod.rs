@@ -192,8 +192,8 @@ pub struct StartSimnet {
     /// Watch programs in your artifacts folder (default: `target/deploy`), and automatically re-execute the deployment runbook when the `.so` files change. (eg. surfpool start --watch)
     #[clap(long = "watch", action=ArgAction::SetTrue, default_value = "false")]
     pub watch: bool,
-    /// Override the path where .so program artifacts are loaded from (default: target/deploy). Only available for local development - cannot be used with --network. (eg. surfpool start --artifacts-path ./target/deploy/debug)
-    #[arg(long = "artifacts-path", conflicts_with = "network")]
+    /// Override the path where .so program artifacts are loaded from (default: target/deploy). (eg. surfpool start --artifacts-path ./target/deploy/debug)
+    #[arg(long = "artifacts-path")]
     pub artifacts_path: Option<String>,
     /// List of geyser plugins to load (eg. surfpool start --geyser-plugin-config plugin1.json --geyser-plugin-config plugin2.json)
     #[arg(long = "geyser-plugin-config", short = 'g')]
