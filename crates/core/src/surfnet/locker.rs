@@ -3049,6 +3049,18 @@ impl SurfnetSvmLocker {
         slot: &Slot,
         config: &RpcBlockConfig,
     ) -> SurfpoolContextualizedResult<Option<UiConfirmedBlock>> {
+        let committed_slot = self.get_slot_for_commitment(&config.commitment.unwrap_or_default());
+        if *slot > committed_slot {
+            return Ok(SvmAccessContext {
+                slot: committed_slot,
+                latest_epoch_info: self.get_epoch_info(),
+                latest_blockhash: self
+                    .get_latest_blockhash(&CommitmentConfig::processed())
+                    .unwrap_or_default(),
+                inner: None,
+            });
+        }
+
         let first_local_slot = self.get_first_local_slot();
 
         let result = if first_local_slot.is_some() && first_local_slot.unwrap() > *slot {
