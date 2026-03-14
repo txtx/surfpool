@@ -4811,11 +4811,13 @@ async fn test_block_account_download_including_owned_accounts(test_type: TestTyp
         .expect("Failed to block account download");
 
     assert!(
-        surfnet_svm_locker.get_blocked_accounts().contains(&owner),
+        surfnet_svm_locker.is_account_blocked(&owner),
         "Owner should be recorded as blocked"
     );
     assert!(
-        surfnet_svm_locker.get_blocked_account_owners().contains(&owner),
+        surfnet_svm_locker
+            .get_blocked_account_owners()
+            .contains(&owner),
         "Owner should be recorded as a blocked account owner"
     );
 

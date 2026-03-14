@@ -1759,9 +1759,9 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
     ) -> BoxFuture<Result<RpcResponse<()>>> {
         let SurfnetRpcContext { svm_locker, .. } =
             match meta.get_rpc_context(CommitmentConfig::confirmed()) {
-            Ok(res) => res,
-            Err(e) => return e.into(),
-        };
+                Ok(res) => res,
+                Err(e) => return e.into(),
+            };
         let pubkey = match verify_pubkey(&pubkey_str) {
             Ok(res) => res,
             Err(e) => return e.into(),

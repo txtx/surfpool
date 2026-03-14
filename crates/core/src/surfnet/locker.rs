@@ -71,8 +71,8 @@ use crate::{
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
     surfnet::{FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH},
     types::{
-        GeyserAccountUpdate, RemoteRpcResult, SurfnetTransactionStatus, TimeTravelConfig,
-        TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
+        BlockedAccountConfig, GeyserAccountUpdate, RemoteRpcResult, SurfnetTransactionStatus,
+        TimeTravelConfig, TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
     },
 };
 
@@ -259,7 +259,12 @@ impl SurfnetSvmLocker {
             {
                 let blocked_pubkey = *requested_pubkey;
                 self.with_svm_writer(move |svm_writer| {
-                    svm_writer.blocked_accounts.insert(blocked_pubkey);
+                    let _ = svm_writer.blocked_accounts.store(
+                        blocked_pubkey.to_string(),
+                        BlockedAccountConfig {
+                            include_owned_accounts: false,
+                        },
+                    );
                 });
                 GetAccountResult::None(*requested_pubkey)
             }
@@ -299,14 +304,12 @@ impl SurfnetSvmLocker {
         let result = self.get_account_local(pubkey);
 
         if result.inner.is_none() {
-            // Check if the account has been explicitly blocked - if so, don't fetch from remote.
-            let is_blocked = self.get_blocked_accounts().contains(pubkey);
+            let is_blocked = self.is_account_blocked(pubkey);
 
             if !is_blocked {
                 let remote_account = client.get_account(pubkey, commitment_config).await?;
-                Ok(result.with_new_value(
-                    self.filter_downloaded_account_result(pubkey, remote_account),
-                ))
+                Ok(result
+                    .with_new_value(self.filter_downloaded_account_result(pubkey, remote_account)))
             } else {
                 Ok(result)
             }
@@ -387,7 +390,7 @@ impl SurfnetSvmLocker {
             let GetAccountResult::None(pubkey) = result else {
                 continue;
             };
-            if self.get_blocked_accounts().contains(pubkey) {
+            if self.is_account_blocked(pubkey) {
                 continue;
             }
             missing_accounts.push(*pubkey);
@@ -433,8 +436,7 @@ impl SurfnetSvmLocker {
             .map(|(pubkey, local_result)| {
                 match local_result {
                     GetAccountResult::None(_) => {
-                        // Replace with remote result if available and not blocked.
-                        if self.get_blocked_accounts().contains(pubkey) {
+                        if self.is_account_blocked(pubkey) {
                             GetAccountResult::None(*pubkey)
                         } else {
                             remote_map
@@ -1988,8 +1990,7 @@ impl SurfnetSvmLocker {
 
         self.with_svm_writer(move |svm_writer| {
             let _ = svm_writer.reset_network(epoch_info);
-            svm_writer.blocked_accounts.clear();
-            svm_writer.blocked_account_owners.clear();
+            let _ = svm_writer.blocked_accounts.clear();
         });
         Ok(())
     }
@@ -2010,14 +2011,13 @@ impl SurfnetSvmLocker {
             pubkey
         )));
 
-        if include_owned_accounts {
-            self.with_svm_writer(|svm_writer| {
-                svm_writer.blocked_account_owners.insert(pubkey);
-            });
-        }
-
         self.with_svm_writer(move |svm_writer| {
-            svm_writer.blocked_accounts.insert(pubkey);
+            let _ = svm_writer.blocked_accounts.store(
+                pubkey.to_string(),
+                BlockedAccountConfig {
+                    include_owned_accounts,
+                },
+            );
         });
 
         Ok(())
@@ -2058,24 +2058,43 @@ impl SurfnetSvmLocker {
     /// This is useful when resetting an account for a refresh/stream operation.
     pub fn unblock_account_download(&self, pubkey: Pubkey) -> SurfpoolResult<()> {
         self.with_svm_writer(move |svm_writer| {
-            svm_writer.blocked_accounts.remove(&pubkey);
-            svm_writer.blocked_account_owners.remove(&pubkey);
+            let _ = svm_writer.blocked_accounts.take(&pubkey.to_string());
         });
         Ok(())
     }
 
+    /// Returns true if the given pubkey is blocked from remote download.
+    pub fn is_account_blocked(&self, pubkey: &Pubkey) -> bool {
+        self.with_svm_reader(|svm_reader| {
+            svm_reader
+                .blocked_accounts
+                .contains_key(&pubkey.to_string())
+                .unwrap_or(false)
+        })
+    }
+
     /// Gets all currently blocked account downloads.
     pub fn get_blocked_accounts(&self) -> Vec<Pubkey> {
-        self.with_svm_reader(|svm_reader| svm_reader.blocked_accounts.iter().copied().collect())
+        self.with_svm_reader(|svm_reader| {
+            svm_reader
+                .blocked_accounts
+                .keys()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|k| k.parse().ok())
+                .collect()
+        })
     }
 
     /// Gets all owners whose accounts are blocked from remote download.
     pub fn get_blocked_account_owners(&self) -> Vec<Pubkey> {
         self.with_svm_reader(|svm_reader| {
             svm_reader
-                .blocked_account_owners
-                .iter()
-                .copied()
+                .blocked_accounts
+                .into_iter()
+                .unwrap_or_else(|_| Box::new(std::iter::empty()))
+                .filter(|(_, config)| config.include_owned_accounts)
+                .filter_map(|(k, _)| k.parse().ok())
                 .collect()
         })
     }
