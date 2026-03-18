@@ -1110,7 +1110,7 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
     );
 
     let expected_error: jsonrpc_core::Result<()> = Err(SurfpoolError::disable_cheatcode(
-        "Cannot disable surfnet_enableCheatcode rpc method when lockout is not enabled".to_string(),
+        "Cannot disable surfnet_enableCheatcode or surfnet_disableCheatcode rpc method when lockout is not enabled".to_string(),
     )
     .into());
 
@@ -1121,6 +1121,28 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
     assert_eq!(
         disable_enable_cheatcode_lockout_false_fails.err().unwrap(),
         expected_error.err().unwrap(),
+        "Expected error did not match the resulting error"
+    );
+
+    // Test that surfnet_disableCheatcode cannot be disabled without lockout
+    let disable_disable_cheatcode_lockout_false_fails = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::List(vec![disable_cheatcode_method.clone()]),
+        None,
+    );
+
+    let expected_error_disable_self: jsonrpc_core::Result<()> = Err(SurfpoolError::disable_cheatcode(
+        "Cannot disable surfnet_enableCheatcode or surfnet_disableCheatcode rpc method when lockout is not enabled".to_string(),
+    )
+    .into());
+
+    assert!(
+        disable_disable_cheatcode_lockout_false_fails.is_err(),
+        "Expected surfnet_disableCheatcode to fail when disabling surfnet_disableCheatcode with lockout == false"
+    );
+    assert_eq!(
+        disable_disable_cheatcode_lockout_false_fails.err().unwrap(),
+        expected_error_disable_self.err().unwrap(),
         "Expected error did not match the resulting error"
     );
 
