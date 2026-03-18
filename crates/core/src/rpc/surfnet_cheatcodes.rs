@@ -1860,8 +1860,7 @@ mod tests {
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_system_interface::instruction::create_account;
-    use solana_transaction::Transaction;
-    use solana_transaction::versioned::VersionedTransaction;
+    use solana_transaction::{Transaction, versioned::VersionedTransaction};
     use spl_associated_token_account_interface::{
         address::get_associated_token_address_with_program_id,
         instruction::create_associated_token_account,
@@ -4037,7 +4036,10 @@ mod tests {
 
         // Verify written content matches exactly
         let written_data = &account.data[metadata_size..];
-        assert_eq!(written_data, &program_data, "Written data should match exactly");
+        assert_eq!(
+            written_data, &program_data,
+            "Written data should match exactly"
+        );
 
         // Verify no trailing non-zero bytes beyond written data
         assert!(
