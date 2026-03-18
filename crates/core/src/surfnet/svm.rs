@@ -1013,6 +1013,9 @@ impl SurfnetSvm {
     }
 
     pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
+        // Currently, liteSVM doesn't create feature gate accounts and store them in the vm,
+        // so when a user is fetching one, we make one on the fly.
+        // TODO: remove once https://github.com/LiteSVM/litesvm/pull/308 is released
         self.feature_set.active().get(pubkey).map(|_| {
             let feature_bytes = bincode::serialize(&FEATURE).unwrap();
             let lamports = self

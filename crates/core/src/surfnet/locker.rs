@@ -251,11 +251,15 @@ impl SurfnetSvmLocker {
 
             if result.is_none() {
                 return match svm_reader.get_account_from_feature_set(pubkey) {
-                    Some(account) => GetAccountResult::FoundAccount(
-                        *pubkey, account,
-                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                        false,
-                    ),
+                    Some(account) => {
+                        GetAccountResult::FoundAccount(
+                            *pubkey, account,
+                            // mark this as an account to insert into the SVM, since the feature is activated and LiteSVM doesn't
+                            // automatically insert activated feature accounts
+                            // TODO: mark as false once https://github.com/LiteSVM/litesvm/pull/308 is released
+                            true,
+                        )
+                    }
                     None => GetAccountResult::None(*pubkey),
                 };
             } else {
@@ -326,8 +330,10 @@ impl SurfnetSvmLocker {
                     result = match svm_reader.get_account_from_feature_set(pubkey) {
                         Some(account) => GetAccountResult::FoundAccount(
                             *pubkey, account,
-                            // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                            false,
+                            // mark this as an account to insert into the SVM, since the feature is activated and LiteSVM doesn't
+                            // automatically insert activated feature accounts
+                            // TODO: mark as false once https://github.com/LiteSVM/litesvm/pull/308 is released
+                            true,
                         ),
                         None => GetAccountResult::None(*pubkey),
                     }
