@@ -1326,6 +1326,10 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 return Err(jsonrpc_core::Error::internal_error());
             };
 
+            if lockout {
+                cheatcode_ctx.lockout();
+            }
+
             match cheatcodes_filter {
                 CheatcodeFilter::All(all) => {
                     if all.ne("all") {
@@ -1341,7 +1345,8 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                     cheatcode_ctx.disable_all(lockout, (*available_cheatcodes).clone());
                 }
                 CheatcodeFilter::List(cheatcodes) => {
-                    for cheatcode in cheatcodes {
+                    // Validate all cheatcodes before disabling any (atomic processing)
+                    for cheatcode in &cheatcodes {
                         if !lockout
                             && (cheatcode.eq("surfnet_enableCheatcode")
                                 || cheatcode.eq("surfnet_disableCheatcode"))
@@ -1351,14 +1356,15 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                             )
                             .into());
                         }
-                        debug!("disabling cheatcode: {cheatcode}");
-                        if !self.is_available_cheatcode(&cheatcode) {
+                        if !self.is_available_cheatcode(cheatcode) {
                             return Err(SurfpoolError::disable_cheatcode(
                                 "Invalid cheatcode rpc method".to_string(),
                             )
                             .into());
                         }
-
+                    }
+                    // Apply all after validation passes
+                    for cheatcode in cheatcodes {
                         if let Err(e) = cheatcode_ctx.disable_cheatcode(&cheatcode) {
                             return Err(SurfpoolError::disable_cheatcode(e).into());
                         }

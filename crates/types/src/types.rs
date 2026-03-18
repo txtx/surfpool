@@ -1290,13 +1290,15 @@ impl CheatcodeConfig {
     }
 
     pub fn disable_all(&mut self, lockout: bool, available_cheatcodes: Vec<String>) {
+        if lockout {
+            self.lockout = true;
+        }
         self.filter = Self::filter_all_list(lockout, available_cheatcodes);
     }
 
     pub fn disable_cheatcode(&mut self, cheatcode: &String) -> Result<(), String> {
         if !self.lockout
-            && (cheatcode.eq("surfnet_enableCheatcode")
-                || cheatcode.eq("surfnet_disableCheatcode"))
+            && (cheatcode.eq("surfnet_enableCheatcode") || cheatcode.eq("surfnet_disableCheatcode"))
         {
             return Err("Cannot disable surfnet_disableCheatcode or surfnet_enableCheatcode while lockout is false".to_string());
         }
@@ -1354,6 +1356,81 @@ mod tests {
     use solana_account_decoder_client_types::{ParsedAccount, UiAccountData};
 
     use super::*;
+
+    #[test]
+    fn test_disable_cheatcode_with_lockout_allows_protected_methods() {
+        // This test catches the bug where lockout was not propagated to
+        // CheatcodeConfig before calling disable_cheatcode(), causing
+        // "Cannot disable surfnet_disableCheatcode or surfnet_enableCheatcode
+        // while lockout is false" even when the request included lockout: true.
+        let config = CheatcodeConfig::new();
+        let mut config = config.lock().unwrap();
+
+        // Simulate the RPC layer propagating lockout before processing the list
+        config.lockout();
+
+        // These should succeed because lockout is set
+        assert!(config
+            .disable_cheatcode(&"surfnet_setAccount".to_string())
+            .is_ok());
+        assert!(config
+            .disable_cheatcode(&"surfnet_enableCheatcode".to_string())
+            .is_ok());
+        assert!(config
+            .disable_cheatcode(&"surfnet_disableCheatcode".to_string())
+            .is_ok());
+    }
+
+    #[test]
+    fn test_disable_cheatcode_without_lockout_rejects_protected_methods() {
+        let config = CheatcodeConfig::new();
+        let mut config = config.lock().unwrap();
+
+        // Without lockout, disabling protected methods should fail
+        assert!(config
+            .disable_cheatcode(&"surfnet_enableCheatcode".to_string())
+            .is_err());
+        assert!(config
+            .disable_cheatcode(&"surfnet_disableCheatcode".to_string())
+            .is_err());
+
+        // But regular cheatcodes should still work
+        assert!(config
+            .disable_cheatcode(&"surfnet_setAccount".to_string())
+            .is_ok());
+    }
+
+    #[test]
+    fn test_disable_all_with_lockout_persists_lockout_flag() {
+        // This test catches the bug where disable_all() did not set
+        // self.lockout = true, so subsequent operations would not see lockout.
+        let config = CheatcodeConfig::new();
+        let mut config = config.lock().unwrap();
+
+        let available = vec![
+            "surfnet_setAccount".to_string(),
+            "surfnet_enableCheatcode".to_string(),
+            "surfnet_disableCheatcode".to_string(),
+        ];
+
+        config.disable_all(true, available);
+        assert!(config.lockout);
+    }
+
+    #[test]
+    fn test_disable_all_without_lockout_does_not_set_lockout() {
+        let config = CheatcodeConfig::new();
+        let mut config = config.lock().unwrap();
+
+        let available = vec![
+            "surfnet_setAccount".to_string(),
+            "surfnet_enableCheatcode".to_string(),
+            "surfnet_disableCheatcode".to_string(),
+        ];
+
+        config.disable_all(false, available);
+        assert!(!config.lockout);
+    }
 
     #[test]
     fn print_ui_keyed_profile_result() {
