@@ -249,8 +249,8 @@ impl SurfnetSvmLocker {
         &self,
         requested_pubkey: &Pubkey,
         result: GetAccountResult,
+        blocked_owners: &[Pubkey],
     ) -> GetAccountResult {
-        let blocked_owners = self.get_blocked_account_owners();
         match result {
             GetAccountResult::FoundAccount(_, account, _)
             | GetAccountResult::FoundProgramAccount((_, account), _)
@@ -259,12 +259,14 @@ impl SurfnetSvmLocker {
             {
                 let blocked_pubkey = *requested_pubkey;
                 self.with_svm_writer(move |svm_writer| {
-                    let _ = svm_writer.blocked_accounts.store(
+                    if let Err(e) = svm_writer.blocked_accounts.store(
                         blocked_pubkey.to_string(),
                         BlockedAccountConfig {
                             include_owned_accounts: false,
                         },
-                    );
+                    ) {
+                        warn!("Failed to store blocked account {}: {}", blocked_pubkey, e);
+                    }
                 });
                 GetAccountResult::None(*requested_pubkey)
             }
@@ -307,9 +309,13 @@ impl SurfnetSvmLocker {
             let is_blocked = self.is_account_blocked(pubkey);
 
             if !is_blocked {
+                let blocked_owners = self.get_blocked_account_owners();
                 let remote_account = client.get_account(pubkey, commitment_config).await?;
-                Ok(result
-                    .with_new_value(self.filter_downloaded_account_result(pubkey, remote_account)))
+                Ok(result.with_new_value(self.filter_downloaded_account_result(
+                    pubkey,
+                    remote_account,
+                    &blocked_owners,
+                )))
             } else {
                 Ok(result)
             }
@@ -416,6 +422,7 @@ impl SurfnetSvmLocker {
             .await?;
 
         // Build map of pubkey -> remote result for O(1) lookup
+        let blocked_owners = self.get_blocked_account_owners();
         let remote_map: HashMap<Pubkey, GetAccountResult> = missing_accounts
             .iter()
             .copied()
@@ -423,7 +430,11 @@ impl SurfnetSvmLocker {
             .map(|(requested_pubkey, result)| {
                 (
                     requested_pubkey,
-                    self.filter_downloaded_account_result(&requested_pubkey, result),
+                    self.filter_downloaded_account_result(
+                        &requested_pubkey,
+                        result,
+                        &blocked_owners,
+                    ),
                 )
             })
             .collect();
@@ -435,16 +446,10 @@ impl SurfnetSvmLocker {
             .zip(local_results.into_iter())
             .map(|(pubkey, local_result)| {
                 match local_result {
-                    GetAccountResult::None(_) => {
-                        if self.is_account_blocked(pubkey) {
-                            GetAccountResult::None(*pubkey)
-                        } else {
-                            remote_map
-                                .get(pubkey)
-                                .cloned()
-                                .unwrap_or(GetAccountResult::None(*pubkey))
-                        }
-                    }
+                    GetAccountResult::None(_) => remote_map
+                        .get(pubkey)
+                        .cloned()
+                        .unwrap_or(GetAccountResult::None(*pubkey)),
                     found => {
                         debug!("Keeping local account: {}", pubkey);
                         found
