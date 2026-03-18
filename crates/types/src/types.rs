@@ -1370,15 +1370,21 @@ mod tests {
         config.lockout();
 
         // These should succeed because lockout is set
-        assert!(config
-            .disable_cheatcode(&"surfnet_setAccount".to_string())
-            .is_ok());
-        assert!(config
-            .disable_cheatcode(&"surfnet_enableCheatcode".to_string())
-            .is_ok());
-        assert!(config
-            .disable_cheatcode(&"surfnet_disableCheatcode".to_string())
-            .is_ok());
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_setAccount".to_string())
+                .is_ok()
+        );
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_enableCheatcode".to_string())
+                .is_ok()
+        );
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_disableCheatcode".to_string())
+                .is_ok()
+        );
     }
 
     #[test]
@@ -1387,17 +1393,23 @@ mod tests {
         let mut config = config.lock().unwrap();
 
         // Without lockout, disabling protected methods should fail
-        assert!(config
-            .disable_cheatcode(&"surfnet_enableCheatcode".to_string())
-            .is_err());
-        assert!(config
-            .disable_cheatcode(&"surfnet_disableCheatcode".to_string())
-            .is_err());
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_enableCheatcode".to_string())
+                .is_err()
+        );
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_disableCheatcode".to_string())
+                .is_err()
+        );
 
         // But regular cheatcodes should still work
-        assert!(config
-            .disable_cheatcode(&"surfnet_setAccount".to_string())
-            .is_ok());
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_setAccount".to_string())
+                .is_ok()
+        );
     }
 
     #[test]
