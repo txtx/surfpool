@@ -1340,11 +1340,14 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                     };
                     cheatcode_ctx.disable_all(lockout, (*available_cheatcodes).clone());
                 }
-                CheatcodeFilter::List(cheatdcodes) => {
-                    for cheatcode in cheatdcodes {
-                        if !lockout && cheatcode.eq("surfnet_enableCheatcode") {
+                CheatcodeFilter::List(cheatcodes) => {
+                    for cheatcode in cheatcodes {
+                        if !lockout
+                            && (cheatcode.eq("surfnet_enableCheatcode")
+                                || cheatcode.eq("surfnet_disableCheatcode"))
+                        {
                             return Err(SurfpoolError::disable_cheatcode(
-                                "Cannot disable surfnet_enableCheatcode rpc method when lockout is not enabled".to_string(),
+                                "Cannot disable surfnet_enableCheatcode or surfnet_disableCheatcode rpc method when lockout is not enabled".to_string(),
                             )
                             .into());
                         }

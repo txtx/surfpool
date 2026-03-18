@@ -193,7 +193,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
                     },
                     None,
                 );
-                warn!("Request rejected due to cheatsheet being disabled");
+                warn!("Request rejected due to cheatcode being disabled");
 
                 return Either::Left(Box::pin(async move { Some(error) }));
             };
