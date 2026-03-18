@@ -2012,12 +2012,14 @@ impl SurfnetSvmLocker {
         )));
 
         self.with_svm_writer(move |svm_writer| {
-            let _ = svm_writer.blocked_accounts.store(
+            if let Err(e) = svm_writer.blocked_accounts.store(
                 pubkey.to_string(),
                 BlockedAccountConfig {
                     include_owned_accounts,
                 },
-            );
+            ) {
+                warn!("Failed to store blocked account {}: {}", pubkey, e);
+            }
         });
 
         Ok(())
@@ -2058,7 +2060,9 @@ impl SurfnetSvmLocker {
     /// This is useful when resetting an account for a refresh/stream operation.
     pub fn unblock_account_download(&self, pubkey: Pubkey) -> SurfpoolResult<()> {
         self.with_svm_writer(move |svm_writer| {
-            let _ = svm_writer.blocked_accounts.take(&pubkey.to_string());
+            if let Err(e) = svm_writer.blocked_accounts.take(&pubkey.to_string()) {
+                warn!("Failed to unblock account {}: {}", pubkey, e);
+            }
         });
         Ok(())
     }
@@ -2079,9 +2083,18 @@ impl SurfnetSvmLocker {
             svm_reader
                 .blocked_accounts
                 .keys()
-                .unwrap_or_default()
+                .unwrap_or_else(|e| {
+                    warn!("Failed to read blocked_accounts keys: {}", e);
+                    Vec::new()
+                })
                 .iter()
-                .filter_map(|k| k.parse().ok())
+                .filter_map(|k| match k.parse() {
+                    Ok(pk) => Some(pk),
+                    Err(e) => {
+                        warn!("Invalid pubkey in blocked_accounts: {}: {}", k, e);
+                        None
+                    }
+                })
                 .collect()
         })
     }
@@ -2092,9 +2105,18 @@ impl SurfnetSvmLocker {
             svm_reader
                 .blocked_accounts
                 .into_iter()
-                .unwrap_or_else(|_| Box::new(std::iter::empty()))
+                .unwrap_or_else(|e| {
+                    warn!("Failed to iterate blocked_accounts: {}", e);
+                    Box::new(std::iter::empty())
+                })
                 .filter(|(_, config)| config.include_owned_accounts)
-                .filter_map(|(k, _)| k.parse().ok())
+                .filter_map(|(k, _)| match k.parse() {
+                    Ok(pk) => Some(pk),
+                    Err(e) => {
+                        warn!("Invalid pubkey in blocked_accounts: {}: {}", k, e);
+                        None
+                    }
+                })
                 .collect()
         })
     }
