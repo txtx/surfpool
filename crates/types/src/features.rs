@@ -204,8 +204,9 @@ impl SvmFeatureConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use agave_feature_set::*;
+
+    use super::*;
 
     // ==================== parse_feature_pubkey tests ====================
 
