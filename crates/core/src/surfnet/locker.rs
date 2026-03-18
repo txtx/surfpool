@@ -3410,11 +3410,10 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolResult<()> {
         let program_data_address = get_program_data_address(&program_id);
 
-        let _ = self
+        let program_account = self
             .get_or_create_program_account(program_id, program_data_address, remote_ctx)
             .await?;
 
-        // Get or create program data account
         let _ = self
             .write_program_data_account_with_offset(
                 program_id,
@@ -3425,6 +3424,21 @@ impl SurfnetSvmLocker {
                 remote_ctx,
             )
             .await?;
+
+        // Re-set the program account to force LiteSVM to recompile the program
+        // from the updated programdata. Without this, the program cache retains
+        // the noop placeholder compiled during initial program account creation.
+        // Errors are expected for incomplete ELF (multi-chunk writes) and are
+        // logged but not propagated.
+        let set_result = self.with_svm_writer(|svm_writer| {
+            svm_writer.set_account(&program_id, program_account.clone())
+        });
+        if let Err(e) = set_result {
+            let _ = self.simnet_events_tx().send(SimnetEvent::info(format!(
+                "Program cache update deferred for {}: {}",
+                program_id, e
+            )));
+        }
 
         Ok(())
     }
@@ -3629,6 +3643,16 @@ impl SurfnetSvmLocker {
         let metadata_bytes = bincode::serialize(&new_metadata).map_err(|e| {
             SurfpoolError::internal(format!("Failed to serialize program data metadata: {}", e))
         })?;
+
+        // Strip the minimum_program.so placeholder if it was pre-filled by
+        // init_programdata_account during program account creation. This prevents
+        // leftover placeholder bytes when the actual program is smaller than 3312 bytes.
+        let minimum_program_bytes = crate::surfnet::noop_program::NOOP_PROGRAM_ELF;
+        if program_data_account.data.len() == metadata_size + minimum_program_bytes.len()
+            && program_data_account.data[metadata_size..] == *minimum_program_bytes
+        {
+            program_data_account.data.truncate(metadata_size);
+        }
 
         // Calculate absolute offset in account data (metadata + offset)
         let absolute_offset = metadata_size + offset;
