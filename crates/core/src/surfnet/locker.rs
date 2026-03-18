@@ -246,7 +246,6 @@ impl SurfnetSvmLocker {
 impl SurfnetSvmLocker {
     /// Filters the downloaded account result to remove accounts that are owned by blocked owners.
     fn filter_downloaded_account_result(
-        &self,
         requested_pubkey: &Pubkey,
         result: GetAccountResult,
         blocked_owners: &[Pubkey],
@@ -257,17 +256,6 @@ impl SurfnetSvmLocker {
             | GetAccountResult::FoundTokenAccount((_, account), _)
                 if blocked_owners.contains(&account.owner) =>
             {
-                let blocked_pubkey = *requested_pubkey;
-                self.with_svm_writer(move |svm_writer| {
-                    if let Err(e) = svm_writer.blocked_accounts.store(
-                        blocked_pubkey.to_string(),
-                        BlockedAccountConfig {
-                            include_owned_accounts: false,
-                        },
-                    ) {
-                        warn!("Failed to store blocked account {}: {}", blocked_pubkey, e);
-                    }
-                });
                 GetAccountResult::None(*requested_pubkey)
             }
             other => other,
@@ -311,11 +299,13 @@ impl SurfnetSvmLocker {
             if !is_blocked {
                 let blocked_owners = self.get_blocked_account_owners();
                 let remote_account = client.get_account(pubkey, commitment_config).await?;
-                Ok(result.with_new_value(self.filter_downloaded_account_result(
-                    pubkey,
-                    remote_account,
-                    &blocked_owners,
-                )))
+                Ok(
+                    result.with_new_value(Self::filter_downloaded_account_result(
+                        pubkey,
+                        remote_account,
+                        &blocked_owners,
+                    )),
+                )
             } else {
                 Ok(result)
             }
@@ -430,7 +420,7 @@ impl SurfnetSvmLocker {
             .map(|(requested_pubkey, result)| {
                 (
                     requested_pubkey,
-                    self.filter_downloaded_account_result(
+                    Self::filter_downloaded_account_result(
                         &requested_pubkey,
                         result,
                         &blocked_owners,
@@ -1961,7 +1951,8 @@ impl SurfnetSvmLocker {
             pubkey
         )));
         // Unblock the account so it can be fetched from mainnet again.
-        self.unblock_account_download(pubkey)?;
+        self.unblock_account_download(pubkey, include_owned_accounts)?;
+
         self.with_svm_writer(move |svm_writer| {
             svm_writer.reset_account(&pubkey, include_owned_accounts)
         })
@@ -2063,10 +2054,33 @@ impl SurfnetSvmLocker {
     ///
     /// This allows the account to be fetched from mainnet again if requested.
     /// This is useful when resetting an account for a refresh/stream operation.
-    pub fn unblock_account_download(&self, pubkey: Pubkey) -> SurfpoolResult<()> {
+    pub fn unblock_account_download(
+        &self,
+        pubkey: Pubkey,
+        include_owned_accounts: bool,
+    ) -> SurfpoolResult<()> {
         self.with_svm_writer(move |svm_writer| {
             if let Err(e) = svm_writer.blocked_accounts.take(&pubkey.to_string()) {
                 warn!("Failed to unblock account {}: {}", pubkey, e);
+            }
+
+            if include_owned_accounts {
+                // Unblock any locally-known accounts owned by this pubkey.
+                // Uses the accounts_by_owner index as a fast lookup.
+                let owned_pubkeys: Vec<Pubkey> = svm_writer
+                    .accounts_by_owner
+                    .get(&pubkey.to_string())
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|pk_str| pk_str.parse().ok())
+                    .collect();
+                for owned_pk in owned_pubkeys {
+                    if let Err(e) = svm_writer.blocked_accounts.take(&owned_pk.to_string()) {
+                        warn!("Failed to unblock account {}: {}", owned_pk, e);
+                    }
+                }
             }
         });
         Ok(())
@@ -2079,28 +2093,6 @@ impl SurfnetSvmLocker {
                 .blocked_accounts
                 .contains_key(&pubkey.to_string())
                 .unwrap_or(false)
-        })
-    }
-
-    /// Gets all currently blocked account downloads.
-    pub fn get_blocked_accounts(&self) -> Vec<Pubkey> {
-        self.with_svm_reader(|svm_reader| {
-            svm_reader
-                .blocked_accounts
-                .keys()
-                .unwrap_or_else(|e| {
-                    warn!("Failed to read blocked_accounts keys: {}", e);
-                    Vec::new()
-                })
-                .iter()
-                .filter_map(|k| match k.parse() {
-                    Ok(pk) => Some(pk),
-                    Err(e) => {
-                        warn!("Invalid pubkey in blocked_accounts: {}: {}", k, e);
-                        None
-                    }
-                })
-                .collect()
         })
     }
 
