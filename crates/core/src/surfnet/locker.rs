@@ -4827,7 +4827,11 @@ mod tests {
         let sig_d = Signature::new_unique();
         let slot = 5;
 
-        seed_signature_history(&locker, &pubkey, &[(slot, vec![sig_a, sig_b, sig_c, sig_d])]);
+        seed_signature_history(
+            &locker,
+            &pubkey,
+            &[(slot, vec![sig_a, sig_b, sig_c, sig_d])],
+        );
         let sigs = fetch_signature_strings(
             &locker,
             &pubkey,
@@ -4967,7 +4971,10 @@ mod tests {
         seed_signature_history(
             &locker,
             &pubkey,
-            &[(5, vec![sig_s5_a, sig_s5_b]), (10, vec![sig_s10_a, sig_s10_b])],
+            &[
+                (5, vec![sig_s5_a, sig_s5_b]),
+                (10, vec![sig_s10_a, sig_s10_b]),
+            ],
         );
         let sigs = fetch_signature_strings(&locker, &pubkey, None);
 
