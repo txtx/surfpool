@@ -947,7 +947,7 @@ pub trait Full {
     /// - `address`: The base-58 encoded address to query.
     /// - `config` (optional): Configuration object with the following fields:
     ///   - `before`: Start search before this signature.
-    ///   - `until`: Search until this signature (inclusive).
+    ///   - `until`: Search until this signature (exclusive).
     ///   - `limit`: Maximum number of results to return (default: 1,000; max: 1,000).
     ///   - `commitment`: The level of commitment desired (e.g., finalized).
     ///   - `minContextSlot`: The minimum slot that the query should be evaluated at.
