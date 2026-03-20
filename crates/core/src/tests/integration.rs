@@ -1,6 +1,7 @@
 use std::{str::FromStr, sync::Arc, time::Duration};
 
 use base64::Engine;
+use bincode::Options;
 use crossbeam_channel::{unbounded, unbounded as crossbeam_unbounded};
 use jsonrpc_core::{
     Error, Result as JsonRpcResult,
@@ -11,7 +12,8 @@ use solana_account::Account;
 use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount};
 use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
 use solana_client::{
-    nonblocking::rpc_client::RpcClient, rpc_config::RpcSimulateTransactionConfig,
+    nonblocking::rpc_client::RpcClient,
+    rpc_config::{RpcContextConfig, RpcSimulateTransactionConfig},
     rpc_response::RpcLogsResponse,
 };
 use solana_clock::{Clock, Slot};
@@ -21,8 +23,8 @@ use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
-    AddressLookupTableAccount, Message, VersionedMessage, legacy,
-    v0::{self},
+    AddressLookupTableAccount, Message, MessageHeader, VersionedMessage, legacy,
+    v0::{self, MessageAddressTableLookup},
 };
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -49,8 +51,8 @@ use crate::{
     error::SurfpoolError,
     rpc::{
         RunloopContext,
-        full::FullClient,
-        minimal::MinimalClient,
+        full::{Full, FullClient, SurfpoolFullRpc},
+        minimal::{Minimal, MinimalClient, SurfpoolMinimalRpc},
         surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
     runloops::start_local_surfnet_runloop,
@@ -4740,6 +4742,132 @@ async fn test_closed_accounts(test_type: TestType) {
     }
 }
 
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_get_multiple_accounts_only_program_accounts(test_type: TestType) {
+    let program_pubkey = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    // Start datasource surfnet A (offline, no remote)
+    let (datasource_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+    println!("Datasource surfnet started at {}", datasource_url);
+
+    // Insert a proper upgradeable program into A.
+    // Using write_program ensures the program and program-data accounts are
+    // stored with the correct BPF loader owner and serialized state, which is
+    // required by LiteSVM's account validation.
+    datasource_svm_locker
+        .write_program(program_pubkey, None, 0, &[1, 2, 3], &None)
+        .await
+        .expect("Failed to write program account");
+
+    // Start surfnet B pointing to A as remote
+    let (surfnet_url, _surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_url), another_test_type)
+            .expect("Failed to start surfnet");
+    println!("Surfnet B started at {}", surfnet_url);
+
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Fetch the executable account via get_multiple_accounts.
+    let accounts = rpc_client
+        .get_multiple_accounts(&[program_pubkey])
+        .await
+        .expect("Failed to get multiple accounts");
+
+    let account = accounts[0]
+        .as_ref()
+        .expect("Program account should be found (not None)");
+    assert!(account.executable, "Account should be executable");
+    println!("Program account successfully fetched via get_multiple_accounts");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_get_multiple_accounts_ordering(test_type: TestType) {
+    let program_pubkey = Pubkey::new_unique();
+    let plain_pubkey = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    // Start datasource surfnet A (offline, no remote)
+    let (datasource_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+
+    // Insert a program account on A
+    datasource_svm_locker
+        .write_program(program_pubkey, None, 0, &[1, 2, 3], &None)
+        .await
+        .expect("Failed to write program account");
+
+    // Insert a plain SOL account on A
+    datasource_svm_locker
+        .airdrop(&plain_pubkey, LAMPORTS_PER_SOL)
+        .expect("Failed to airdrop to plain account");
+
+    // Start surfnet B pointing to A as remote
+    let (surfnet_url, _) = start_surfnet(vec![], Some(datasource_url), another_test_type)
+        .expect("Failed to start surfnet B");
+
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Fetch with program FIRST, plain SECOND — this is the ordering that the old code broke
+    let accounts = rpc_client
+        .get_multiple_accounts(&[program_pubkey, plain_pubkey])
+        .await
+        .expect("Failed to get multiple accounts");
+
+    assert_eq!(accounts.len(), 2);
+
+    // Index 0 must be the program account (executable)
+    let prog_account = accounts[0]
+        .as_ref()
+        .expect("Program account should be found at index 0");
+    assert!(
+        prog_account.executable,
+        "accounts[0] should be executable (program)"
+    );
+
+    // Index 1 must be the plain account (not executable, has lamports)
+    let plain_account = accounts[1]
+        .as_ref()
+        .expect("Plain account should be found at index 1");
+    assert!(
+        !plain_account.executable,
+        "accounts[1] should not be executable (plain)"
+    );
+    assert_eq!(
+        plain_account.lamports, LAMPORTS_PER_SOL,
+        "accounts[1] should have airdrop lamports"
+    );
+}
+
 // websocket rpc methods tests
 
 #[test_case(SignatureSubscriptionType::processed() ; "processed commitment")]
@@ -7671,4 +7799,190 @@ async fn test_token2022_metadata_realloc(test_type: TestType) {
         result,
     );
     println!("✓ Regression test #530: Token-2022 metadata CPI realloc works correctly");
+}
+
+async fn test_duplicate_transaction_rejected(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 1_000_000;
+
+    // Airdrop SOL to payer
+    svm_locker
+        .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 10))
+        .unwrap()
+        .unwrap();
+
+    // Build a transfer transaction
+    let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let latest_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let transaction =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
+
+    // First submission should succeed
+    let (status_tx, status_rx) = crossbeam_unbounded();
+    svm_locker
+        .process_transaction(&None, transaction.clone(), status_tx, false, true)
+        .await
+        .unwrap();
+
+    match status_rx.recv() {
+        Ok(TransactionStatusEvent::Success(_)) => {
+            println!("First transaction processed successfully");
+        }
+        other => {
+            panic!("Expected first transaction to succeed, got: {:?}", other);
+        }
+    }
+
+    // Second submission of the same transaction should be rejected
+    let (status_tx2, status_rx2) = crossbeam_unbounded();
+    let result = svm_locker
+        .process_transaction(&None, transaction.clone(), status_tx2, false, true)
+        .await;
+
+    assert!(result.is_err(), "Duplicate transaction should be rejected");
+
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("already been processed"),
+        "Error should mention 'already been processed', got: {err_msg}"
+    );
+
+    // Status channel should receive a VerificationFailure
+    match status_rx2.recv() {
+        Ok(TransactionStatusEvent::VerificationFailure(msg)) => {
+            assert!(
+                msg.contains("already been processed"),
+                "VerificationFailure should mention 'already been processed', got: {msg}"
+            );
+            println!("Duplicate correctly rejected with VerificationFailure");
+        }
+        other => {
+            panic!(
+                "Expected VerificationFailure on status channel, got: {:?}",
+                other
+            );
+        }
+    }
+
+    // Verify the original transaction data is still stored correctly
+    let sig = transaction.signatures[0].to_string();
+    let stored = svm_locker.with_svm_reader(|svm| svm.transactions.get(&sig));
+    assert!(
+        matches!(
+            stored,
+            Ok(Some(crate::types::SurfnetTransactionStatus::Processed(_)))
+        ),
+        "Original transaction should still be stored as Processed"
+    );
+
+    println!("Duplicate transaction rejection test passed!");
+}
+
+// ============================================================================
+// AccountLoadedTwice: V0 transactions with duplicate accounts in static keys + ALT
+// ============================================================================
+// When a V0 transaction has an account in both its static keys and an Address
+// Lookup Table, Agave rejects pre-execution with AccountLoadedTwice (0 CU).
+// Surfpool must match this behavior.
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_account_loaded_twice_rejected(test_type: TestType) {
+    let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+
+    let payer = Keypair::new();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    // Create an ALT that contains system_program (11111...111)
+    let alt_key = Pubkey::new_unique();
+    let system_program_id = system_program::id();
+
+    let alt_account_data = AddressLookupTable {
+        meta: LookupTableMeta {
+            authority: Some(payer.pubkey()),
+            ..Default::default()
+        },
+        addresses: vec![system_program_id].into(),
+    };
+
+    svm_locker.with_svm_writer(|svm| {
+        let alt_data = alt_account_data.serialize_for_tests().unwrap();
+        let alt_account = Account {
+            lamports: 1_000_000,
+            data: alt_data,
+            owner: solana_address_lookup_table_interface::program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        svm.set_account(&alt_key, alt_account).unwrap();
+    });
+
+    // Build a V0 message that has system_program in BOTH static keys AND the ALT.
+    // try_compile would deduplicate, so we build the message manually.
+    let recipient = Pubkey::new_unique();
+    let v0_message = v0::Message {
+        header: MessageHeader {
+            num_required_signatures: 1,
+            num_readonly_signed_accounts: 0,
+            // system_program is readonly unsigned
+            num_readonly_unsigned_accounts: 1,
+        },
+        // Static keys: [payer (signer+writable), recipient (writable), system_program (readonly)]
+        account_keys: vec![payer.pubkey(), recipient, system_program_id],
+        recent_blockhash,
+        // A simple transfer instruction: program_id_index=2 (system_program),
+        // accounts=[0 (payer), 1 (recipient)]
+        instructions: vec![solana_message::compiled_instruction::CompiledInstruction {
+            program_id_index: 2,
+            accounts: vec![0, 1],
+            data: {
+                // system_instruction::transfer encodes as: [2,0,0,0] + 8-byte LE amount
+                let mut data = vec![2, 0, 0, 0];
+                data.extend_from_slice(&100u64.to_le_bytes());
+                data
+            },
+        }],
+        // ALT lookup that also loads system_program (index 0 in the ALT) as readonly
+        address_table_lookups: vec![MessageAddressTableLookup {
+            account_key: alt_key,
+            writable_indexes: vec![],
+            readonly_indexes: vec![0], // system_program is at index 0 in the ALT
+        }],
+    };
+
+    let tx = VersionedTransaction::try_new(VersionedMessage::V0(v0_message), &[&payer])
+        .expect("Failed to create transaction");
+
+    let (status_tx, _status_rx) = crossbeam_channel::unbounded();
+    let result = svm_locker
+        .process_transaction(&None, tx, status_tx, false, true)
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction with duplicate account should be rejected, got: {:?}",
+        result
+    );
+    let err_string = result.unwrap_err().to_string();
+    assert!(
+        err_string.contains("Account loaded twice"),
+        "Expected AccountLoadedTwice error, got: {}",
+        err_string
+    );
+
+    println!("AccountLoadedTwice rejection test passed!");
 }

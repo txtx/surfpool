@@ -1,106 +1,119 @@
 use std::str::FromStr;
 
+use agave_feature_set::FEATURE_NAMES;
 use serde::{Deserialize, Serialize};
-use strum::{Display, EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
+use solana_pubkey::Pubkey;
 
-/// SVM feature flags that can be enabled or disabled via CLI.
+/// Returns the pubkey for a known feature name (kebab-case or snake_case).
 ///
-/// These correspond to the fields in `solana_svm_feature_set::SVMFeatureSet`.
-/// Use kebab-case on the CLI (e.g., `--feature disable-fees-sysvar`).
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    EnumIter,
-    EnumString,
-    Display,
-    IntoStaticStr,
-)]
-#[strum(serialize_all = "kebab-case")]
-#[serde(rename_all = "kebab-case")]
-pub enum SvmFeature {
-    MovePrecompileVerificationToSvm,
-    StricterAbiAndRuntimeConstraints,
-    EnableBpfLoaderSetAuthorityCheckedIx,
-    EnableLoaderV4,
-    DepleteCuMeterOnVmFailure,
-    AbortOnInvalidCurve,
-    Blake3SyscallEnabled,
-    Curve25519SyscallEnabled,
-    DisableDeployOfAllocFreeSyscall,
-    DisableFeesSysvar,
-    DisableSbpfV0Execution,
-    EnableAltBn128CompressionSyscall,
-    EnableAltBn128Syscall,
-    EnableBigModExpSyscall,
-    EnableGetEpochStakeSyscall,
-    EnablePoseidonSyscall,
-    EnableSbpfV1DeploymentAndExecution,
-    EnableSbpfV2DeploymentAndExecution,
-    EnableSbpfV3DeploymentAndExecution,
-    GetSysvarSyscallEnabled,
-    LastRestartSlotSysvar,
-    ReenableSbpfV0Execution,
-    RemainingComputeUnitsSyscallEnabled,
-    RemoveBpfLoaderIncorrectProgramId,
-    MoveStakeAndMoveLamportsIxs,
-    StakeRaiseMinimumDelegationTo1Sol,
-    DeprecateLegacyVoteIxs,
-    MaskOutRentEpochInVmSerialization,
-    SimplifyAltBn128SyscallErrorCodes,
-    FixAltBn128MultiplicationInputLength,
-    IncreaseTxAccountLockLimit,
-    EnableExtendProgramChecked,
-    FormalizeLoadedTransactionDataSize,
-    DisableZkElgamalProofProgram,
-    ReenableZkElgamalProofProgram,
-    RaiseCpiNestingLimitTo8,
-    AccountDataDirectMapping,
-    ProvideInstructionDataOffsetInVmR2,
-    IncreaseCpiAccountInfoLimit,
-    VoteStateV4,
-    PoseidonEnforcePadding,
-    FixAltBn128PairingLengthCheck,
-    LiftCpiCallerRestriction,
-    RemoveAccountsExecutableFlagChecks,
-    LoosenCpiSizeRestriction,
-    DisableRentFeesCollection,
+/// This covers the set of features previously exposed as CLI names.
+fn lookup_feature_by_name(name: &str) -> Option<Pubkey> {
+    use agave_feature_set::*;
+
+    // Normalize: accept both kebab-case and snake_case by converting underscores to hyphens
+    let normalized = name.replace('_', "-");
+    let s = normalized.as_str();
+
+    let pubkey = match s {
+        "move-precompile-verification-to-svm" => move_precompile_verification_to_svm::id(),
+        "stricter-abi-and-runtime-constraints" => stricter_abi_and_runtime_constraints::id(),
+        "enable-bpf-loader-set-authority-checked-ix" => {
+            enable_bpf_loader_set_authority_checked_ix::id()
+        }
+        "enable-loader-v4" => enable_loader_v4::id(),
+        "deplete-cu-meter-on-vm-failure" => deplete_cu_meter_on_vm_failure::id(),
+        "abort-on-invalid-curve" => abort_on_invalid_curve::id(),
+        "blake3-syscall-enabled" => blake3_syscall_enabled::id(),
+        "curve25519-syscall-enabled" => curve25519_syscall_enabled::id(),
+        "disable-deploy-of-alloc-free-syscall" => disable_deploy_of_alloc_free_syscall::id(),
+        "disable-fees-sysvar" => disable_fees_sysvar::id(),
+        "disable-sbpf-v0-execution" => disable_sbpf_v0_execution::id(),
+        "enable-alt-bn128-compression-syscall" => enable_alt_bn128_compression_syscall::id(),
+        "enable-alt-bn128-syscall" => enable_alt_bn128_syscall::id(),
+        "enable-big-mod-exp-syscall" => enable_big_mod_exp_syscall::id(),
+        "enable-get-epoch-stake-syscall" => enable_get_epoch_stake_syscall::id(),
+        "enable-poseidon-syscall" => enable_poseidon_syscall::id(),
+        "enable-sbpf-v1-deployment-and-execution" => enable_sbpf_v1_deployment_and_execution::id(),
+        "enable-sbpf-v2-deployment-and-execution" => enable_sbpf_v2_deployment_and_execution::id(),
+        "enable-sbpf-v3-deployment-and-execution" => enable_sbpf_v3_deployment_and_execution::id(),
+        "get-sysvar-syscall-enabled" => get_sysvar_syscall_enabled::id(),
+        "last-restart-slot-sysvar" => last_restart_slot_sysvar::id(),
+        "reenable-sbpf-v0-execution" => reenable_sbpf_v0_execution::id(),
+        "remaining-compute-units-syscall-enabled" => remaining_compute_units_syscall_enabled::id(),
+        "remove-bpf-loader-incorrect-program-id" => remove_bpf_loader_incorrect_program_id::id(),
+        "move-stake-and-move-lamports-ixs" => move_stake_and_move_lamports_ixs::id(),
+        "stake-raise-minimum-delegation-to-1-sol" => stake_raise_minimum_delegation_to_1_sol::id(),
+        "deprecate-legacy-vote-ixs" => deprecate_legacy_vote_ixs::id(),
+        "mask-out-rent-epoch-in-vm-serialization" => mask_out_rent_epoch_in_vm_serialization::id(),
+        "simplify-alt-bn128-syscall-error-codes" => simplify_alt_bn128_syscall_error_codes::id(),
+        "fix-alt-bn128-multiplication-input-length" => {
+            fix_alt_bn128_multiplication_input_length::id()
+        }
+        "increase-tx-account-lock-limit" => increase_tx_account_lock_limit::id(),
+        "enable-extend-program-checked" => enable_extend_program_checked::id(),
+        "formalize-loaded-transaction-data-size" => formalize_loaded_transaction_data_size::id(),
+        "disable-zk-elgamal-proof-program" => disable_zk_elgamal_proof_program::id(),
+        "reenable-zk-elgamal-proof-program" => reenable_zk_elgamal_proof_program::id(),
+        "raise-cpi-nesting-limit-to-8" => raise_cpi_nesting_limit_to_8::id(),
+        "account-data-direct-mapping" => account_data_direct_mapping::id(),
+        "provide-instruction-data-offset-in-vm-r2" => {
+            provide_instruction_data_offset_in_vm_r2::id()
+        }
+        "increase-cpi-account-info-limit" => increase_cpi_account_info_limit::id(),
+        "vote-state-v4" => vote_state_v4::id(),
+        "poseidon-enforce-padding" => poseidon_enforce_padding::id(),
+        "fix-alt-bn128-pairing-length-check" => fix_alt_bn128_pairing_length_check::id(),
+        // "lift-cpi-caller-restriction" not available in agave-feature-set 3.1.x
+        "remove-accounts-executable-flag-checks" => remove_accounts_executable_flag_checks::id(),
+        "loosen-cpi-size-restriction" => loosen_cpi_size_restriction::id(),
+        "disable-rent-fees-collection" => disable_rent_fees_collection::id(),
+        "deprecate-rent-exemption-threshold" => deprecate_rent_exemption_threshold::id(),
+        "replace-spl-token-with-p-token" => replace_spl_token_with_p_token::id(),
+        _ => return None,
+    };
+
+    Some(pubkey)
 }
 
-impl SvmFeature {
-    /// Returns an iterator over all available SVM features.
-    pub fn all() -> impl Iterator<Item = SvmFeature> {
-        SvmFeature::iter()
+/// Parse a feature from either a name (kebab-case or snake_case) or a base58 pubkey string,
+/// validating it against known agave feature gates.
+pub fn parse_feature_pubkey(s: &str) -> Result<Pubkey, String> {
+    // 1. Try name lookup (supports both kebab-case and snake_case)
+    if let Some(pubkey) = lookup_feature_by_name(s) {
+        return Ok(pubkey);
     }
 
-    /// Returns the kebab-case string representation used in CLI.
-    pub fn as_str(&self) -> &'static str {
-        self.into()
-    }
-}
-
-/// Parse an SvmFeature from a string, with a custom error message.
-pub fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
-    SvmFeature::from_str(s).map_err(|_| {
+    // 2. Try base58 pubkey parse
+    let pubkey = Pubkey::from_str(s).map_err(|_| {
         format!(
-            "Unknown SVM feature: '{}'. Use --help to see available features.",
+            "Invalid feature pubkey: '{}'. Expected a base58-encoded pubkey of a known agave feature gate.",
             s
         )
-    })
+    })?;
+
+    if !FEATURE_NAMES.contains_key(&pubkey) {
+        let mut available: Vec<_> = FEATURE_NAMES
+            .iter()
+            .map(|(k, name)| format!("  {} ({})", k, name))
+            .collect();
+        available.sort();
+        return Err(format!(
+            "Available features:\n{}\n\nUnknown feature: '{}'. Not a known agave feature gate. Available features listed above.",
+            pubkey,
+            available.join("\n")
+        ));
+    }
+
+    Ok(pubkey)
 }
 
 /// Configuration for SVM features, specifying which features to enable or disable.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SvmFeatureConfig {
     /// Features to explicitly enable (override defaults)
-    pub enable: Vec<SvmFeature>,
+    pub enable: Vec<Pubkey>,
     /// Features to explicitly disable (override defaults)
-    pub disable: Vec<SvmFeature>,
+    pub disable: Vec<Pubkey>,
 }
 
 impl SvmFeatureConfig {
@@ -115,36 +128,39 @@ impl SvmFeatureConfig {
     /// Note: This may need periodic updates as mainnet features change.
     /// Last updated: 2025-01-25 (queried from mainnet RPC)
     pub fn default_mainnet_features() -> Self {
+        use agave_feature_set::*;
+
         // Features that are NOT yet active on mainnet (should be disabled)
         let disable = vec![
             // Blake3 syscall not yet on mainnet
-            SvmFeature::Blake3SyscallEnabled,
+            blake3_syscall_enabled::id(),
             // Legacy vote deprecation not yet on mainnet
-            SvmFeature::DeprecateLegacyVoteIxs,
+            deprecate_legacy_vote_ixs::id(),
             // SBPF v0 disable/reenable not yet on mainnet
-            SvmFeature::DisableSbpfV0Execution,
-            SvmFeature::ReenableSbpfV0Execution,
+            disable_sbpf_v0_execution::id(),
+            reenable_sbpf_v0_execution::id(),
             // ZK ElGamal disable not yet on mainnet (reenable IS active)
-            SvmFeature::DisableZkElgamalProofProgram,
+            disable_zk_elgamal_proof_program::id(),
             // Extended program checked not yet on mainnet
-            SvmFeature::EnableExtendProgramChecked,
+            enable_extend_program_checked::id(),
             // Loader v4 not yet on mainnet
-            SvmFeature::EnableLoaderV4,
+            enable_loader_v4::id(),
             // SBPF v1 not yet on mainnet (v2 and v3 ARE active)
-            SvmFeature::EnableSbpfV1DeploymentAndExecution,
+            enable_sbpf_v1_deployment_and_execution::id(),
             // Transaction data size formalization not yet on mainnet
-            SvmFeature::FormalizeLoadedTransactionDataSize,
+            formalize_loaded_transaction_data_size::id(),
             // Precompile verification move not yet on mainnet
-            SvmFeature::MovePrecompileVerificationToSvm,
+            move_precompile_verification_to_svm::id(),
             // Stake move instructions not yet on mainnet
-            SvmFeature::MoveStakeAndMoveLamportsIxs,
+            move_stake_and_move_lamports_ixs::id(),
             // Stake minimum delegation raise not yet on mainnet
-            SvmFeature::StakeRaiseMinimumDelegationTo1Sol,
+            stake_raise_minimum_delegation_to_1_sol::id(),
             // New features from LiteSVM 0.9.0 / Solana SVM v3.1 (not yet on mainnet)
-            SvmFeature::LiftCpiCallerRestriction,
-            SvmFeature::RemoveAccountsExecutableFlagChecks,
-            SvmFeature::LoosenCpiSizeRestriction,
-            SvmFeature::DisableRentFeesCollection,
+            remove_accounts_executable_flag_checks::id(),
+            loosen_cpi_size_restriction::id(),
+            disable_rent_fees_collection::id(),
+            deprecate_rent_exemption_threshold::id(),
+            replace_spl_token_with_p_token::id(),
         ];
 
         Self {
@@ -154,7 +170,7 @@ impl SvmFeatureConfig {
     }
 
     /// Adds a feature to enable.
-    pub fn enable(mut self, feature: SvmFeature) -> Self {
+    pub fn enable(mut self, feature: Pubkey) -> Self {
         if !self.enable.contains(&feature) {
             self.enable.push(feature);
         }
@@ -164,7 +180,7 @@ impl SvmFeatureConfig {
     }
 
     /// Adds a feature to disable.
-    pub fn disable(mut self, feature: SvmFeature) -> Self {
+    pub fn disable(mut self, feature: Pubkey) -> Self {
         if !self.disable.contains(&feature) {
             self.disable.push(feature);
         }
@@ -175,7 +191,7 @@ impl SvmFeatureConfig {
 
     /// Checks if a feature should be enabled based on this configuration.
     /// Returns None if not explicitly configured (use default).
-    pub fn is_enabled(&self, feature: &SvmFeature) -> Option<bool> {
+    pub fn is_enabled(&self, feature: &Pubkey) -> Option<bool> {
         if self.enable.contains(feature) {
             Some(true)
         } else if self.disable.contains(feature) {
@@ -188,97 +204,49 @@ impl SvmFeatureConfig {
 
 #[cfg(test)]
 mod tests {
+    use agave_feature_set::*;
+
     use super::*;
 
-    // ==================== SvmFeature parsing tests ====================
+    // ==================== parse_feature_pubkey tests ====================
 
     #[test]
-    fn test_feature_from_str_valid() {
-        assert_eq!(
-            SvmFeature::from_str("disable-fees-sysvar").unwrap(),
-            SvmFeature::DisableFeesSysvar
-        );
-        assert_eq!(
-            SvmFeature::from_str("enable-loader-v4").unwrap(),
-            SvmFeature::EnableLoaderV4
-        );
-        assert_eq!(
-            SvmFeature::from_str("blake3-syscall-enabled").unwrap(),
-            SvmFeature::Blake3SyscallEnabled
-        );
-        assert_eq!(
-            SvmFeature::from_str("enable-sbpf-v2-deployment-and-execution").unwrap(),
-            SvmFeature::EnableSbpfV2DeploymentAndExecution
-        );
+    fn test_parse_feature_pubkey_valid() {
+        let pubkey = parse_feature_pubkey(&enable_loader_v4::id().to_string()).unwrap();
+        assert_eq!(pubkey, enable_loader_v4::id());
     }
 
     #[test]
-    fn test_feature_from_str_invalid() {
-        assert!(SvmFeature::from_str("invalid-feature").is_err());
-        assert!(SvmFeature::from_str("").is_err());
-        assert!(SvmFeature::from_str("disable_fees_sysvar").is_err()); // underscore instead of hyphen
-        assert!(SvmFeature::from_str("DISABLE-FEES-SYSVAR").is_err()); // uppercase
+    fn test_parse_feature_name_snake_case() {
+        let pubkey = parse_feature_pubkey("enable_loader_v4").unwrap();
+        assert_eq!(pubkey, enable_loader_v4::id());
     }
 
     #[test]
-    fn test_parse_svm_feature_error_message() {
-        let err = parse_svm_feature("not-a-feature").unwrap_err();
-        assert!(err.contains("Unknown SVM feature"));
-        assert!(err.contains("not-a-feature"));
-    }
-
-    // ==================== SvmFeature display tests ====================
-
-    #[test]
-    fn test_feature_display() {
-        assert_eq!(
-            SvmFeature::DisableFeesSysvar.to_string(),
-            "disable-fees-sysvar"
-        );
-        assert_eq!(SvmFeature::EnableLoaderV4.to_string(), "enable-loader-v4");
-        assert_eq!(
-            SvmFeature::EnableSbpfV3DeploymentAndExecution.to_string(),
-            "enable-sbpf-v3-deployment-and-execution"
-        );
+    fn test_parse_feature_name_kebab_case() {
+        let pubkey = parse_feature_pubkey("enable-loader-v4").unwrap();
+        assert_eq!(pubkey, enable_loader_v4::id());
     }
 
     #[test]
-    fn test_feature_as_str() {
-        assert_eq!(
-            SvmFeature::DisableFeesSysvar.as_str(),
-            "disable-fees-sysvar"
-        );
-        assert_eq!(SvmFeature::EnableLoaderV4.as_str(), "enable-loader-v4");
+    fn test_parse_feature_name_prefers_name_over_pubkey() {
+        // Verify that a known feature name resolves correctly
+        let pubkey = parse_feature_pubkey("blake3_syscall_enabled").unwrap();
+        assert_eq!(pubkey, blake3_syscall_enabled::id());
     }
 
     #[test]
-    fn test_feature_roundtrip() {
-        for feature in SvmFeature::all() {
-            let s = feature.to_string();
-            let parsed = SvmFeature::from_str(&s).unwrap();
-            assert_eq!(feature, parsed, "Roundtrip failed for {:?}", feature);
-        }
-    }
-
-    // ==================== SvmFeature::all() tests ====================
-
-    #[test]
-    fn test_feature_all_count() {
-        // Ensure we have all 46 features
-        assert_eq!(SvmFeature::all().count(), 46);
+    fn test_parse_feature_unknown_name() {
+        let err = parse_feature_pubkey("nonexistent-feature-name").unwrap_err();
+        assert!(err.contains("Invalid feature"));
+        assert!(err.contains("nonexistent-feature-name"));
     }
 
     #[test]
-    fn test_feature_all_unique() {
-        let all: Vec<_> = SvmFeature::all().collect();
-        let mut seen = std::collections::HashSet::new();
-        for feature in &all {
-            assert!(
-                seen.insert(feature),
-                "Duplicate feature in all(): {:?}",
-                feature
-            );
-        }
+    fn test_parse_feature_pubkey_unknown_pubkey() {
+        // System program is not a feature gate
+        let err = parse_feature_pubkey("11111111111111111111111111111111").unwrap_err();
+        assert!(err.contains("Not a known agave feature gate"));
     }
 
     // ==================== SvmFeatureConfig basic tests ====================
@@ -299,21 +267,16 @@ mod tests {
 
     #[test]
     fn test_feature_config_enable() {
-        let config = SvmFeatureConfig::new().enable(SvmFeature::EnableLoaderV4);
-
-        assert_eq!(config.is_enabled(&SvmFeature::EnableLoaderV4), Some(true));
+        let config = SvmFeatureConfig::new().enable(enable_loader_v4::id());
+        assert_eq!(config.is_enabled(&enable_loader_v4::id()), Some(true));
         assert_eq!(config.enable.len(), 1);
         assert!(config.disable.is_empty());
     }
 
     #[test]
     fn test_feature_config_disable() {
-        let config = SvmFeatureConfig::new().disable(SvmFeature::DisableFeesSysvar);
-
-        assert_eq!(
-            config.is_enabled(&SvmFeature::DisableFeesSysvar),
-            Some(false)
-        );
+        let config = SvmFeatureConfig::new().disable(disable_fees_sysvar::id());
+        assert_eq!(config.is_enabled(&disable_fees_sysvar::id()), Some(false));
         assert!(config.enable.is_empty());
         assert_eq!(config.disable.len(), 1);
     }
@@ -321,51 +284,47 @@ mod tests {
     #[test]
     fn test_feature_config_is_enabled_not_configured() {
         let config = SvmFeatureConfig::new();
-        assert_eq!(config.is_enabled(&SvmFeature::Blake3SyscallEnabled), None);
+        assert_eq!(config.is_enabled(&blake3_syscall_enabled::id()), None);
     }
 
     // ==================== SvmFeatureConfig complex scenarios ====================
 
     #[test]
     fn test_feature_config_enable_then_disable() {
-        // Enabling then disabling should result in disabled
         let config = SvmFeatureConfig::new()
-            .enable(SvmFeature::EnableLoaderV4)
-            .disable(SvmFeature::EnableLoaderV4);
+            .enable(enable_loader_v4::id())
+            .disable(enable_loader_v4::id());
 
-        assert_eq!(config.is_enabled(&SvmFeature::EnableLoaderV4), Some(false));
+        assert_eq!(config.is_enabled(&enable_loader_v4::id()), Some(false));
         assert!(config.enable.is_empty());
         assert_eq!(config.disable.len(), 1);
     }
 
     #[test]
     fn test_feature_config_disable_then_enable() {
-        // Disabling then enabling should result in enabled
         let config = SvmFeatureConfig::new()
-            .disable(SvmFeature::EnableLoaderV4)
-            .enable(SvmFeature::EnableLoaderV4);
+            .disable(enable_loader_v4::id())
+            .enable(enable_loader_v4::id());
 
-        assert_eq!(config.is_enabled(&SvmFeature::EnableLoaderV4), Some(true));
+        assert_eq!(config.is_enabled(&enable_loader_v4::id()), Some(true));
         assert_eq!(config.enable.len(), 1);
         assert!(config.disable.is_empty());
     }
 
     #[test]
     fn test_feature_config_enable_idempotent() {
-        // Enabling the same feature twice should not duplicate
         let config = SvmFeatureConfig::new()
-            .enable(SvmFeature::EnableLoaderV4)
-            .enable(SvmFeature::EnableLoaderV4);
+            .enable(enable_loader_v4::id())
+            .enable(enable_loader_v4::id());
 
         assert_eq!(config.enable.len(), 1);
     }
 
     #[test]
     fn test_feature_config_disable_idempotent() {
-        // Disabling the same feature twice should not duplicate
         let config = SvmFeatureConfig::new()
-            .disable(SvmFeature::EnableLoaderV4)
-            .disable(SvmFeature::EnableLoaderV4);
+            .disable(enable_loader_v4::id())
+            .disable(enable_loader_v4::id());
 
         assert_eq!(config.disable.len(), 1);
     }
@@ -373,22 +332,16 @@ mod tests {
     #[test]
     fn test_feature_config_multiple_features() {
         let config = SvmFeatureConfig::new()
-            .enable(SvmFeature::EnableLoaderV4)
-            .enable(SvmFeature::Blake3SyscallEnabled)
-            .disable(SvmFeature::DisableFeesSysvar)
-            .disable(SvmFeature::DisableSbpfV0Execution);
+            .enable(enable_loader_v4::id())
+            .enable(blake3_syscall_enabled::id())
+            .disable(disable_fees_sysvar::id())
+            .disable(disable_sbpf_v0_execution::id());
 
-        assert_eq!(config.is_enabled(&SvmFeature::EnableLoaderV4), Some(true));
+        assert_eq!(config.is_enabled(&enable_loader_v4::id()), Some(true));
+        assert_eq!(config.is_enabled(&blake3_syscall_enabled::id()), Some(true));
+        assert_eq!(config.is_enabled(&disable_fees_sysvar::id()), Some(false));
         assert_eq!(
-            config.is_enabled(&SvmFeature::Blake3SyscallEnabled),
-            Some(true)
-        );
-        assert_eq!(
-            config.is_enabled(&SvmFeature::DisableFeesSysvar),
-            Some(false)
-        );
-        assert_eq!(
-            config.is_enabled(&SvmFeature::DisableSbpfV0Execution),
+            config.is_enabled(&disable_sbpf_v0_execution::id()),
             Some(false)
         );
         assert_eq!(config.enable.len(), 2);
@@ -401,50 +354,49 @@ mod tests {
     fn test_mainnet_features_disabled_list() {
         let config = SvmFeatureConfig::default_mainnet_features();
 
-        // All these should be disabled on mainnet (queried 2025-01-25)
         assert_eq!(
-            config.is_enabled(&SvmFeature::Blake3SyscallEnabled),
+            config.is_enabled(&blake3_syscall_enabled::id()),
             Some(false)
         );
         assert_eq!(
-            config.is_enabled(&SvmFeature::DeprecateLegacyVoteIxs),
+            config.is_enabled(&deprecate_legacy_vote_ixs::id()),
             Some(false)
         );
         assert_eq!(
-            config.is_enabled(&SvmFeature::DisableSbpfV0Execution),
+            config.is_enabled(&disable_sbpf_v0_execution::id()),
             Some(false)
         );
         assert_eq!(
-            config.is_enabled(&SvmFeature::ReenableSbpfV0Execution),
+            config.is_enabled(&reenable_sbpf_v0_execution::id()),
             Some(false)
         );
         assert_eq!(
-            config.is_enabled(&SvmFeature::DisableZkElgamalProofProgram),
+            config.is_enabled(&disable_zk_elgamal_proof_program::id()),
             Some(false)
         );
         assert_eq!(
-            config.is_enabled(&SvmFeature::EnableExtendProgramChecked),
+            config.is_enabled(&enable_extend_program_checked::id()),
             Some(false)
         );
-        assert_eq!(config.is_enabled(&SvmFeature::EnableLoaderV4), Some(false));
+        assert_eq!(config.is_enabled(&enable_loader_v4::id()), Some(false));
         assert_eq!(
-            config.is_enabled(&SvmFeature::EnableSbpfV1DeploymentAndExecution),
-            Some(false)
-        );
-        assert_eq!(
-            config.is_enabled(&SvmFeature::FormalizeLoadedTransactionDataSize),
+            config.is_enabled(&enable_sbpf_v1_deployment_and_execution::id()),
             Some(false)
         );
         assert_eq!(
-            config.is_enabled(&SvmFeature::MovePrecompileVerificationToSvm),
+            config.is_enabled(&formalize_loaded_transaction_data_size::id()),
             Some(false)
         );
         assert_eq!(
-            config.is_enabled(&SvmFeature::MoveStakeAndMoveLamportsIxs),
+            config.is_enabled(&move_precompile_verification_to_svm::id()),
             Some(false)
         );
         assert_eq!(
-            config.is_enabled(&SvmFeature::StakeRaiseMinimumDelegationTo1Sol),
+            config.is_enabled(&move_stake_and_move_lamports_ixs::id()),
+            Some(false)
+        );
+        assert_eq!(
+            config.is_enabled(&stake_raise_minimum_delegation_to_1_sol::id()),
             Some(false)
         );
     }
@@ -457,19 +409,15 @@ mod tests {
 
     #[test]
     fn test_mainnet_features_override_with_enable() {
-        // Start with mainnet defaults, then enable a disabled feature
-        let config =
-            SvmFeatureConfig::default_mainnet_features().enable(SvmFeature::EnableLoaderV4);
+        let config = SvmFeatureConfig::default_mainnet_features().enable(enable_loader_v4::id());
 
-        // Should now be enabled
-        assert_eq!(config.is_enabled(&SvmFeature::EnableLoaderV4), Some(true));
-        // Other mainnet-disabled features should still be disabled
+        assert_eq!(config.is_enabled(&enable_loader_v4::id()), Some(true));
         assert_eq!(
-            config.is_enabled(&SvmFeature::Blake3SyscallEnabled),
+            config.is_enabled(&blake3_syscall_enabled::id()),
             Some(false)
         );
         assert_eq!(
-            config.is_enabled(&SvmFeature::EnableExtendProgramChecked),
+            config.is_enabled(&enable_extend_program_checked::id()),
             Some(false)
         );
     }
@@ -479,43 +427,28 @@ mod tests {
         let config = SvmFeatureConfig::default_mainnet_features();
 
         // Features that ARE active on mainnet should not be in disable list
-        // These should return None (use default, which is enabled)
-        assert_eq!(config.is_enabled(&SvmFeature::DisableFeesSysvar), None);
+        assert_eq!(config.is_enabled(&disable_fees_sysvar::id()), None);
+        assert_eq!(config.is_enabled(&curve25519_syscall_enabled::id()), None);
+        assert_eq!(config.is_enabled(&enable_alt_bn128_syscall::id()), None);
+        assert_eq!(config.is_enabled(&enable_poseidon_syscall::id()), None);
         assert_eq!(
-            config.is_enabled(&SvmFeature::Curve25519SyscallEnabled),
-            None
-        );
-        assert_eq!(config.is_enabled(&SvmFeature::EnableAltBn128Syscall), None);
-        assert_eq!(config.is_enabled(&SvmFeature::EnablePoseidonSyscall), None);
-        assert_eq!(
-            config.is_enabled(&SvmFeature::EnableSbpfV2DeploymentAndExecution),
+            config.is_enabled(&enable_sbpf_v2_deployment_and_execution::id()),
             None
         );
         assert_eq!(
-            config.is_enabled(&SvmFeature::EnableSbpfV3DeploymentAndExecution),
+            config.is_enabled(&enable_sbpf_v3_deployment_and_execution::id()),
             None
         );
-        assert_eq!(
-            config.is_enabled(&SvmFeature::RaiseCpiNestingLimitTo8),
-            None
-        );
+        assert_eq!(config.is_enabled(&raise_cpi_nesting_limit_to_8::id()), None);
     }
 
     // ==================== Serialization tests ====================
 
     #[test]
-    fn test_feature_serde_roundtrip() {
-        let feature = SvmFeature::EnableLoaderV4;
-        let json = serde_json::to_string(&feature).unwrap();
-        let parsed: SvmFeature = serde_json::from_str(&json).unwrap();
-        assert_eq!(feature, parsed);
-    }
-
-    #[test]
     fn test_feature_config_serde_roundtrip() {
         let config = SvmFeatureConfig::new()
-            .enable(SvmFeature::EnableLoaderV4)
-            .disable(SvmFeature::DisableFeesSysvar);
+            .enable(enable_loader_v4::id())
+            .disable(disable_fees_sysvar::id());
 
         let json = serde_json::to_string(&config).unwrap();
         let parsed: SvmFeatureConfig = serde_json::from_str(&json).unwrap();
@@ -523,66 +456,15 @@ mod tests {
         assert_eq!(config, parsed);
     }
 
-    #[test]
-    fn test_feature_json_format() {
-        let feature = SvmFeature::EnableLoaderV4;
-        let json = serde_json::to_string(&feature).unwrap();
-        // Should use kebab-case due to serde rename_all
-        assert_eq!(json, "\"enable-loader-v4\"");
-    }
-
-    #[test]
-    fn test_feature_config_json_format() {
-        let config = SvmFeatureConfig::new().enable(SvmFeature::EnableLoaderV4);
-
-        let json = serde_json::to_string(&config).unwrap();
-        assert!(json.contains("\"enable\""));
-        assert!(json.contains("enable-loader-v4"));
-    }
-
     // ==================== Edge cases ====================
-
-    #[test]
-    fn test_feature_equality() {
-        assert_eq!(SvmFeature::EnableLoaderV4, SvmFeature::EnableLoaderV4);
-        assert_ne!(SvmFeature::EnableLoaderV4, SvmFeature::DisableFeesSysvar);
-    }
-
-    #[test]
-    fn test_feature_clone() {
-        let feature = SvmFeature::EnableLoaderV4;
-        let cloned = feature.clone();
-        assert_eq!(feature, cloned);
-    }
 
     #[test]
     fn test_feature_config_clone() {
         let config = SvmFeatureConfig::new()
-            .enable(SvmFeature::EnableLoaderV4)
-            .disable(SvmFeature::DisableFeesSysvar);
+            .enable(enable_loader_v4::id())
+            .disable(disable_fees_sysvar::id());
 
         let cloned = config.clone();
         assert_eq!(config, cloned);
-    }
-
-    #[test]
-    fn test_feature_hash() {
-        use std::collections::HashSet;
-
-        let mut set = HashSet::new();
-        set.insert(SvmFeature::EnableLoaderV4);
-        set.insert(SvmFeature::DisableFeesSysvar);
-        set.insert(SvmFeature::EnableLoaderV4); // duplicate
-
-        assert_eq!(set.len(), 2);
-        assert!(set.contains(&SvmFeature::EnableLoaderV4));
-        assert!(set.contains(&SvmFeature::DisableFeesSysvar));
-    }
-
-    #[test]
-    fn test_feature_debug() {
-        let feature = SvmFeature::EnableLoaderV4;
-        let debug_str = format!("{:?}", feature);
-        assert_eq!(debug_str, "EnableLoaderV4");
     }
 }

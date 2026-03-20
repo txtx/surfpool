@@ -42,6 +42,7 @@ ratatui = { workspace = true }
 rust-embed = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+agave-feature-set = { workspace = true }
 solana-clock = { workspace = true }
 solana-commitment-config = { workspace = true }
 solana-epoch-info = { workspace = true }
