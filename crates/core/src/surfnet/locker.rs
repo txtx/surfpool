@@ -51,8 +51,6 @@ use solana_transaction_status::{
     TransactionConfirmationStatus as SolanaTransactionConfirmationStatus, UiConfirmedBlock,
     UiTransactionEncoding,
 };
-#[cfg(feature = "prometheus")]
-use surfpool_types::MetricsData;
 use surfpool_types::{
     AccountSnapshot, ComputeUnitsEstimationResult, ExecutionCapture, ExportSnapshotConfig, Idl,
     KeyedProfileResult, ProfileResult, RpcProfileResultConfig, RunbookExecutionStatusReport,
@@ -1042,28 +1040,22 @@ impl SurfnetSvmLocker {
             }
         };
 
-        self.with_svm_writer(|svm_writer| {
-            svm_writer.write_executed_profile_result(signature, profile_result)
-        })?;
-
         #[cfg(feature = "prometheus")]
-        {
-            let metric_data = self.with_svm_reader(|svm| MetricsData {
-                slot: svm.latest_epoch_info.absolute_slot,
-                epoch: svm.latest_epoch_info.epoch,
-                slot_index: svm.latest_epoch_info.slot_index,
-                transactions_count: svm.transactions.count().unwrap_or(0) as usize,
-                transactions_processed: svm.transactions_processed,
-                start_time: svm.start_time,
-                signature_subs: svm.signature_subscriptions.len(),
-                account_subs: svm.account_subscriptions.len(),
-                slot_subs: svm.slot_subscriptions.len(),
-                logs_subs: svm.logs_subscriptions.len(),
+        let write_result = {
+            let (write_result, snapshot) = self.with_svm_writer(|svm| {
+                let res = svm.write_executed_profile_result(signature, profile_result);
+                let snap = svm.snapshot_status();
+                (res, snap)
             });
-            let _ = self
-                .simnet_events_tx()
-                .send(SimnetEvent::MetricsData(metric_data));
-        }
+            crate::telemetry::try_record_snapshot(&snapshot);
+            write_result
+        };
+
+        #[cfg(not(feature = "prometheus"))]
+        let write_result = self
+            .with_svm_writer(|svm| svm.write_executed_profile_result(signature, profile_result));
+
+        write_result?;
 
         Ok(())
     }

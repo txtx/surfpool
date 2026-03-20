@@ -69,9 +69,9 @@ use surfpool_types::{
     AccountChange, AccountProfileState, AccountSnapshot, DEFAULT_PROFILING_MAP_CAPACITY,
     DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, ExportSnapshotScope, FifoMap, Idl,
     OverrideInstance, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
-    RunbookExecutionStatusReport, SimnetEvent, SvmFeature, SvmFeatureConfig,
+    RunbookExecutionStatusReport, SimnetEvent, SurfpoolStatus, SvmFeature, SvmFeatureConfig,
     TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
-    UiProfileResult, VersionedIdl,
+    UiProfileResult, VersionedIdl, WsSubscriptions,
     types::{
         ComputeUnitsEstimationResult, KeyedProfileResult, UiKeyedProfileResult, UuidOrSignature,
     },
@@ -346,6 +346,27 @@ impl SurfnetSvm {
         self.simulated_transaction_profiles.shutdown();
         self.executed_transaction_profiles.shutdown();
         self.account_associated_data.shutdown();
+    }
+
+    /// Returns a snapshot of the current SVM status for RPC and metrics.
+    pub fn snapshot_status(&self) -> SurfpoolStatus {
+        SurfpoolStatus {
+            slot: self.latest_epoch_info.absolute_slot,
+            epoch: self.latest_epoch_info.epoch,
+            slot_index: self.latest_epoch_info.slot_index,
+            transactions_count: self.transactions.count().unwrap_or(0),
+            transactions_processed: self.transactions_processed,
+            uptime_ms: std::time::SystemTime::now()
+                .duration_since(self.start_time)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+            ws_subscriptions: WsSubscriptions {
+                signatures: self.signature_subscriptions.len(),
+                accounts: self.account_subscriptions.len(),
+                slots: self.slot_subscriptions.len(),
+                logs: self.logs_subscriptions.len(),
+            },
+        }
     }
 
     /// Creates a clone of the SVM with overlay storage wrappers for all database-backed fields.

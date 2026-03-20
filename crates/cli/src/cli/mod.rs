@@ -20,8 +20,6 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
 use surfpool_mcp::McpOptions;
-#[cfg(feature = "prometheus")]
-use surfpool_types::TelemetryConfig;
 use surfpool_types::{
     AccountSnapshot, BlockProductionMode, CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED,
     DEFAULT_DEVNET_RPC_URL, DEFAULT_GOSSIP_PORT, DEFAULT_MAINNET_RPC_URL, DEFAULT_NETWORK_HOST,
@@ -475,15 +473,6 @@ impl StartSimnet {
             subgraph: self.subgraph_config(),
             studio: self.studio_config(),
             plugin_config_path,
-            #[cfg(feature = "prometheus")]
-            telemetry: self.telemetry_config(),
-        }
-    }
-    #[cfg(feature = "prometheus")]
-    pub fn telemetry_config(&self) -> TelemetryConfig {
-        TelemetryConfig {
-            enabled: self.metrics_enabled,
-            prometheus_addr: self.metrics_addr.clone(),
         }
     }
 }

@@ -3,7 +3,7 @@ use std::time::Duration;
 use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_client::rpc_custom_error::RpcCustomError;
-use surfpool_types::{SimnetCommand, SimnetEvent, SurfpoolStatus, WsSubscriptions};
+use surfpool_types::{SimnetCommand, SimnetEvent, SurfpoolStatus};
 use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 
@@ -366,6 +366,7 @@ impl AdminRpc for SurfpoolAdminRpc {
         let datetime_utc: chrono::DateTime<chrono::Utc> = system_time.into();
         Ok(datetime_utc.to_rfc3339())
     }
+
     fn surfpool_status(&self, meta: Self::Metadata) -> Result<SurfpoolStatus> {
         // Ensure we have RunloopContext metadata
         let Some(ctx) = meta else {
@@ -375,47 +376,7 @@ impl AdminRpc for SurfpoolAdminRpc {
             .into());
         };
 
-        // Read a snapshot of SVM state under a reader lock
-        // Read a consistent snapshot of SVM state
-        let status = ctx.svm_locker.with_svm_reader(|svm| {
-            // Epoch / slot info
-            let slot = svm.latest_epoch_info.absolute_slot;
-            let epoch = svm.latest_epoch_info.epoch;
-            let slot_index = svm.latest_epoch_info.slot_index;
-
-            // transactions_count via Storage::count(); fall back to 0 on error
-            let transactions_count = svm.transactions.count().unwrap_or(0);
-
-            // monotonic processed counter
-            let transactions_processed = svm.transactions_processed;
-
-            // subscription counts (in-memory collections)
-            let signature_subscriptions = svm.signature_subscriptions.len();
-            let account_subscriptions = svm.account_subscriptions.len();
-            let slot_subscriptions = svm.slot_subscriptions.len();
-            let logs_subscriptions = svm.logs_subscriptions.len();
-
-            // uptime in ms
-            let uptime_ms = match std::time::SystemTime::now().duration_since(svm.start_time) {
-                Ok(d) => d.as_millis() as u64,
-                Err(_) => 0,
-            };
-
-            SurfpoolStatus {
-                slot,
-                epoch,
-                slot_index,
-                transactions_count,
-                transactions_processed,
-                uptime_ms,
-                ws_subscriptions: WsSubscriptions {
-                    signatures: signature_subscriptions,
-                    accounts: account_subscriptions,
-                    slots: slot_subscriptions,
-                    logs: logs_subscriptions,
-                },
-            }
-        });
+        let status = ctx.svm_locker.with_svm_reader(|svm| svm.snapshot_status());
         Ok(status)
     }
 }

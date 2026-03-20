@@ -4,7 +4,6 @@ use std::{
     fmt,
     path::PathBuf,
     str::FromStr,
-    time::SystemTime,
 };
 
 use blake3::Hash;
@@ -418,8 +417,6 @@ pub enum SubgraphCommand {
 #[derive(Debug)]
 pub enum SimnetEvent {
     /// Surfnet is ready, with the initial count of processed transactions from storage
-    #[cfg(feature = "prometheus")]
-    MetricsData(MetricsData),
     Ready(u64),
     Connected(String),
     Aborted(String),
@@ -603,9 +600,6 @@ pub struct SurfpoolConfig {
     pub subgraph: SubgraphConfig,
     pub studio: StudioConfig,
     pub plugin_config_path: Vec<PathBuf>,
-    #[cfg(feature = "prometheus")]
-    #[serde(default)]
-    pub telemetry: TelemetryConfig,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1283,33 +1277,6 @@ pub struct SurfpoolStatus {
     pub ws_subscriptions: WsSubscriptions,
 }
 
-#[cfg(feature = "prometheus")]
-#[derive(Clone, Debug)]
-pub struct MetricsData {
-    pub slot: u64,
-    pub epoch: u64,
-    pub slot_index: u64,
-    pub transactions_count: usize,
-    pub transactions_processed: u64,
-    pub start_time: SystemTime,
-    pub signature_subs: usize,
-    pub account_subs: usize,
-    pub slot_subs: usize,
-    pub logs_subs: usize,
-}
-
-#[cfg(feature = "prometheus")]
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct TelemetryConfig {
-    pub enabled: bool,
-    #[serde(default = "default_prometheus_addr")]
-    pub prometheus_addr: String,
-}
-
-#[cfg(feature = "prometheus")]
-fn default_prometheus_addr() -> String {
-    "0.0.0.0:9000".to_string()
-}
 
 #[cfg(test)]
 mod tests {

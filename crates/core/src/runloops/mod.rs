@@ -449,6 +449,12 @@ pub async fn start_block_production_runloop(
                 svm_locker
                     .confirm_current_block(&remote_client_with_commitment)
                     .await?;
+
+                #[cfg(feature = "prometheus")]
+                {
+                    let snapshot = svm_locker.with_svm_reader(|svm| svm.snapshot_status());
+                    crate::telemetry::try_record_snapshot(&snapshot);
+                }
             }
         }
     }
