@@ -5,24 +5,7 @@ use std::{
     time::SystemTime,
 };
 
-use agave_feature_set::{
-    FeatureSet, abort_on_invalid_curve, blake3_syscall_enabled, curve25519_syscall_enabled,
-    deplete_cu_meter_on_vm_failure, deprecate_legacy_vote_ixs,
-    disable_deploy_of_alloc_free_syscall, disable_fees_sysvar, disable_sbpf_v0_execution,
-    disable_zk_elgamal_proof_program, enable_alt_bn128_compression_syscall,
-    enable_alt_bn128_syscall, enable_big_mod_exp_syscall,
-    enable_bpf_loader_set_authority_checked_ix, enable_extend_program_checked,
-    enable_get_epoch_stake_syscall, enable_loader_v4, enable_poseidon_syscall,
-    enable_sbpf_v1_deployment_and_execution, enable_sbpf_v2_deployment_and_execution,
-    enable_sbpf_v3_deployment_and_execution, fix_alt_bn128_multiplication_input_length,
-    formalize_loaded_transaction_data_size, get_sysvar_syscall_enabled,
-    increase_tx_account_lock_limit, last_restart_slot_sysvar, loosen_cpi_size_restriction,
-    mask_out_rent_epoch_in_vm_serialization, move_precompile_verification_to_svm,
-    move_stake_and_move_lamports_ixs, raise_cpi_nesting_limit_to_8, reenable_sbpf_v0_execution,
-    reenable_zk_elgamal_proof_program, remaining_compute_units_syscall_enabled,
-    remove_bpf_loader_incorrect_program_id, simplify_alt_bn128_syscall_error_codes,
-    stake_raise_minimum_delegation_to_1_sol, stricter_abi_and_runtime_constraints,
-};
+use agave_feature_set::{FeatureSet, enable_extend_program_checked};
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use convert_case::Casing;
@@ -44,6 +27,7 @@ use solana_client::{
 use solana_clock::{Clock, Slot};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
+use solana_epoch_schedule::EpochSchedule;
 use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
@@ -69,9 +53,8 @@ use surfpool_types::{
     AccountChange, AccountProfileState, AccountSnapshot, DEFAULT_PROFILING_MAP_CAPACITY,
     DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, ExportSnapshotScope, FifoMap, Idl,
     OverrideInstance, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
-    RunbookExecutionStatusReport, SimnetEvent, SvmFeature, SvmFeatureConfig,
-    TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
-    UiProfileResult, VersionedIdl,
+    RunbookExecutionStatusReport, SimnetEvent, SvmFeatureConfig, TransactionConfirmationStatus,
+    TransactionStatusEvent, UiAccountChange, UiAccountProfileState, UiProfileResult, VersionedIdl,
     types::{
         ComputeUnitsEstimationResult, KeyedProfileResult, UiKeyedProfileResult, UuidOrSignature,
     },
@@ -642,108 +625,17 @@ impl SurfnetSvm {
     /// * `config` - The feature configuration specifying which features to enable/disable.
     pub fn apply_feature_config(&mut self, config: &SvmFeatureConfig) {
         // Apply explicit enables
-        for feature in &config.enable {
-            if let Some(id) = Self::feature_to_id(feature) {
-                self.feature_set.activate(&id, 0);
-            }
+        for pubkey in &config.enable {
+            self.feature_set.activate(pubkey, 0);
         }
 
         // Apply explicit disables
-        for feature in &config.disable {
-            if let Some(id) = Self::feature_to_id(feature) {
-                self.feature_set.deactivate(&id);
-            }
+        for pubkey in &config.disable {
+            self.feature_set.deactivate(pubkey);
         }
 
         // Rebuild inner VM with updated feature set
         self.inner.apply_feature_config(self.feature_set.clone());
-    }
-
-    /// Maps an SvmFeature enum variant to its corresponding feature ID (Pubkey).
-    fn feature_to_id(feature: &SvmFeature) -> Option<Pubkey> {
-        match feature {
-            SvmFeature::MovePrecompileVerificationToSvm => {
-                Some(move_precompile_verification_to_svm::id())
-            }
-            SvmFeature::StricterAbiAndRuntimeConstraints => {
-                Some(stricter_abi_and_runtime_constraints::id())
-            }
-            SvmFeature::EnableBpfLoaderSetAuthorityCheckedIx => {
-                Some(enable_bpf_loader_set_authority_checked_ix::id())
-            }
-            SvmFeature::EnableLoaderV4 => Some(enable_loader_v4::id()),
-            SvmFeature::DepleteCuMeterOnVmFailure => Some(deplete_cu_meter_on_vm_failure::id()),
-            SvmFeature::AbortOnInvalidCurve => Some(abort_on_invalid_curve::id()),
-            SvmFeature::Blake3SyscallEnabled => Some(blake3_syscall_enabled::id()),
-            SvmFeature::Curve25519SyscallEnabled => Some(curve25519_syscall_enabled::id()),
-            SvmFeature::DisableDeployOfAllocFreeSyscall => {
-                Some(disable_deploy_of_alloc_free_syscall::id())
-            }
-            SvmFeature::DisableFeesSysvar => Some(disable_fees_sysvar::id()),
-            SvmFeature::DisableSbpfV0Execution => Some(disable_sbpf_v0_execution::id()),
-            SvmFeature::EnableAltBn128CompressionSyscall => {
-                Some(enable_alt_bn128_compression_syscall::id())
-            }
-            SvmFeature::EnableAltBn128Syscall => Some(enable_alt_bn128_syscall::id()),
-            SvmFeature::EnableBigModExpSyscall => Some(enable_big_mod_exp_syscall::id()),
-            SvmFeature::EnableGetEpochStakeSyscall => Some(enable_get_epoch_stake_syscall::id()),
-            SvmFeature::EnablePoseidonSyscall => Some(enable_poseidon_syscall::id()),
-            SvmFeature::EnableSbpfV1DeploymentAndExecution => {
-                Some(enable_sbpf_v1_deployment_and_execution::id())
-            }
-            SvmFeature::EnableSbpfV2DeploymentAndExecution => {
-                Some(enable_sbpf_v2_deployment_and_execution::id())
-            }
-            SvmFeature::EnableSbpfV3DeploymentAndExecution => {
-                Some(enable_sbpf_v3_deployment_and_execution::id())
-            }
-            SvmFeature::GetSysvarSyscallEnabled => Some(get_sysvar_syscall_enabled::id()),
-            SvmFeature::LastRestartSlotSysvar => Some(last_restart_slot_sysvar::id()),
-            SvmFeature::ReenableSbpfV0Execution => Some(reenable_sbpf_v0_execution::id()),
-            SvmFeature::RemainingComputeUnitsSyscallEnabled => {
-                Some(remaining_compute_units_syscall_enabled::id())
-            }
-            SvmFeature::RemoveBpfLoaderIncorrectProgramId => {
-                Some(remove_bpf_loader_incorrect_program_id::id())
-            }
-            SvmFeature::MoveStakeAndMoveLamportsIxs => Some(move_stake_and_move_lamports_ixs::id()),
-            SvmFeature::StakeRaiseMinimumDelegationTo1Sol => {
-                Some(stake_raise_minimum_delegation_to_1_sol::id())
-            }
-            SvmFeature::DeprecateLegacyVoteIxs => Some(deprecate_legacy_vote_ixs::id()),
-            SvmFeature::MaskOutRentEpochInVmSerialization => {
-                Some(mask_out_rent_epoch_in_vm_serialization::id())
-            }
-            SvmFeature::SimplifyAltBn128SyscallErrorCodes => {
-                Some(simplify_alt_bn128_syscall_error_codes::id())
-            }
-            SvmFeature::FixAltBn128MultiplicationInputLength => {
-                Some(fix_alt_bn128_multiplication_input_length::id())
-            }
-            SvmFeature::IncreaseTxAccountLockLimit => Some(increase_tx_account_lock_limit::id()),
-            SvmFeature::EnableExtendProgramChecked => Some(enable_extend_program_checked::id()),
-            SvmFeature::FormalizeLoadedTransactionDataSize => {
-                Some(formalize_loaded_transaction_data_size::id())
-            }
-            SvmFeature::DisableZkElgamalProofProgram => {
-                Some(disable_zk_elgamal_proof_program::id())
-            }
-            SvmFeature::ReenableZkElgamalProofProgram => {
-                Some(reenable_zk_elgamal_proof_program::id())
-            }
-            SvmFeature::RaiseCpiNestingLimitTo8 => Some(raise_cpi_nesting_limit_to_8::id()),
-            // Features not yet available in agave-feature-set 3.0.0 - will be added when upgrading
-            SvmFeature::AccountDataDirectMapping => None, // bpf_account_data_direct_mapping
-            SvmFeature::ProvideInstructionDataOffsetInVmR2 => None, // provide_instruction_data_offset_in_vm_r2
-            SvmFeature::IncreaseCpiAccountInfoLimit => None, // increase_cpi_account_info_limit
-            SvmFeature::VoteStateV4 => None,                 // vote_state_v4
-            SvmFeature::PoseidonEnforcePadding => None,      // poseidon_enforce_padding
-            SvmFeature::FixAltBn128PairingLengthCheck => None, // fix_alt_bn128_pairing_length_check
-            SvmFeature::LiftCpiCallerRestriction => None,    // lift_cpi_caller_restriction
-            SvmFeature::RemoveAccountsExecutableFlagChecks => None, // remove_accounts_executable_flag_checks
-            SvmFeature::LoosenCpiSizeRestriction => Some(loosen_cpi_size_restriction::id()),
-            SvmFeature::DisableRentFeesCollection => None, // disable_rent_fees_collection
-        }
     }
 
     pub fn increment_write_version(&mut self) -> u64 {
@@ -762,6 +654,7 @@ impl SurfnetSvm {
     pub fn initialize(
         &mut self,
         epoch_info: EpochInfo,
+        epoch_schedule: EpochSchedule,
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
@@ -784,6 +677,8 @@ impl SurfnetSvm {
         for (_, template) in registry.templates.into_iter() {
             let _ = self.register_idl(template.idl, None);
         }
+
+        self.inner.set_sysvar(&epoch_schedule);
 
         if let Some(remote_client) = remote_ctx {
             let _ = self
@@ -1014,6 +909,9 @@ impl SurfnetSvm {
     }
 
     pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
+        // Currently, liteSVM doesn't create feature gate accounts and store them in the vm,
+        // so when a user is fetching one, we make one on the fly.
+        // TODO: remove once https://github.com/LiteSVM/litesvm/pull/308 is released
         self.feature_set.active().get(pubkey).map(|_| {
             let feature_bytes = bincode::serialize(&FEATURE).unwrap();
             let lamports = self
@@ -1234,6 +1132,35 @@ impl SurfnetSvm {
         } else {
             self.check_blockhash_is_recent(recent_blockhash)
         }
+    }
+
+    /// Verifies the signature of a transaction and validates that it hasn't already been processed.
+    /// ### Note
+    /// LiteSVM also can do this for our transactions, but we disable it.
+    /// If sigverify is enabled at the LiteSVM level, the transaction simulations are always verified as well.
+    /// So, if the user is trying to skip signature verification for a simulation, we'd need to unset and set this value,
+    /// requiring a mutable reference to the SVM, which we don't have/want in the simulation path.
+    /// Additionally, having this function internally lets us do this check before we start fetching accounts from mainnet.
+    pub fn sigverify(&self, tx: &VersionedTransaction) -> Result<(), FailedTransactionMetadata> {
+        let signature = tx.signatures[0];
+
+        if tx.verify_with_results().iter().any(|valid| !*valid) {
+            return Err(FailedTransactionMetadata {
+                err: TransactionError::SignatureFailure,
+                meta: TransactionMetadata::default(),
+            });
+        }
+
+        if matches!(
+            self.transactions.get(&signature.to_string()),
+            Ok(Some(SurfnetTransactionStatus::Processed(_)))
+        ) {
+            return Err(FailedTransactionMetadata {
+                err: TransactionError::AlreadyProcessed,
+                meta: TransactionMetadata::default(),
+            });
+        }
+        Ok(())
     }
 
     /// Sets an account in the local SVM state and notifies listeners.
@@ -1605,12 +1532,9 @@ impl SurfnetSvm {
     ) -> TransactionResult {
         #[cfg(feature = "prometheus")]
         let tx_start = std::time::Instant::now();
-
-        if sigverify && tx.verify_with_results().iter().any(|valid| !*valid) {
-            return Err(FailedTransactionMetadata {
-                err: TransactionError::SignatureFailure,
-                meta: TransactionMetadata::default(),
-            });
+      
+        if sigverify {
+            self.sigverify(&tx)?;
         }
 
         if cu_analysis_enabled {
@@ -1719,11 +1643,8 @@ impl SurfnetSvm {
         tx: VersionedTransaction,
         sigverify: bool,
     ) -> Result<SimulatedTransactionInfo, FailedTransactionMetadata> {
-        if sigverify && tx.verify_with_results().iter().any(|valid| !*valid) {
-            return Err(FailedTransactionMetadata {
-                err: TransactionError::SignatureFailure,
-                meta: TransactionMetadata::default(),
-            });
+        if sigverify {
+            self.sigverify(&tx)?;
         }
 
         if !self.validate_transaction_blockhash(&tx) {
@@ -3505,6 +3426,13 @@ impl SurfnetSvm {
 
 #[cfg(test)]
 mod tests {
+    use agave_feature_set::{
+        blake3_syscall_enabled, curve25519_syscall_enabled, disable_fees_sysvar,
+        enable_extend_program_checked, enable_loader_v4, enable_sbpf_v1_deployment_and_execution,
+        enable_sbpf_v2_deployment_and_execution, enable_sbpf_v3_deployment_and_execution,
+        formalize_loaded_transaction_data_size, move_precompile_verification_to_svm,
+        raise_cpi_nesting_limit_to_8,
+    };
     use base64::{Engine, engine::general_purpose};
     use borsh::BorshSerialize;
     // use test_log::test; // uncomment to get logs from litesvm
@@ -4283,50 +4211,6 @@ mod tests {
 
     // Feature configuration tests
 
-    #[test]
-    fn test_feature_to_id_all_features_have_mapping() {
-        // Track features with and without mappings
-        // Some features return None because they're not yet available in agave-feature-set 3.0.0
-        let mut mapped_count = 0;
-        let mut unmapped_features = Vec::new();
-
-        for feature in SvmFeature::all() {
-            let id = SurfnetSvm::feature_to_id(&feature);
-            if id.is_some() {
-                mapped_count += 1;
-            } else {
-                unmapped_features.push(feature);
-            }
-        }
-
-        // Currently 9 features return None (not available in agave-feature-set 3.0.0):
-        // AccountDataDirectMapping, ProvideInstructionDataOffsetInVmR2, IncreaseCpiAccountInfoLimit,
-        // VoteStateV4, PoseidonEnforcePadding, FixAltBn128PairingLengthCheck, LiftCpiCallerRestriction,
-        // RemoveAccountsExecutableFlagChecks, DisableRentFeesCollection
-        assert_eq!(
-            unmapped_features.len(),
-            9,
-            "Expected 9 unmapped features (pending agave-feature-set upgrade), found: {:?}",
-            unmapped_features
-        );
-        assert_eq!(mapped_count, 37, "Expected 37 mapped features");
-    }
-
-    #[test]
-    fn test_feature_to_id_returns_valid_pubkeys() {
-        // Spot check a few known features
-        let loader_v4_id = SurfnetSvm::feature_to_id(&SvmFeature::EnableLoaderV4);
-        assert!(loader_v4_id.is_some());
-        assert_ne!(loader_v4_id.unwrap(), Pubkey::default());
-
-        let disable_fees_id = SurfnetSvm::feature_to_id(&SvmFeature::DisableFeesSysvar);
-        assert!(disable_fees_id.is_some());
-        assert_ne!(disable_fees_id.unwrap(), Pubkey::default());
-
-        // Different features should have different IDs
-        assert_ne!(loader_v4_id, disable_fees_id);
-    }
-
     #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
     #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
     #[test_case(TestType::no_db(); "with no db")]
@@ -4352,7 +4236,7 @@ mod tests {
         assert!(!svm.feature_set.is_active(&feature_id));
 
         // Now enable it via config
-        let config = SvmFeatureConfig::new().enable(SvmFeature::EnableLoaderV4);
+        let config = SvmFeatureConfig::new().enable(enable_loader_v4::id());
         svm.apply_feature_config(&config);
 
         assert!(svm.feature_set.is_active(&feature_id));
@@ -4370,7 +4254,7 @@ mod tests {
         assert!(svm.feature_set.is_active(&feature_id));
 
         // Now disable it via config
-        let config = SvmFeatureConfig::new().disable(SvmFeature::DisableFeesSysvar);
+        let config = SvmFeatureConfig::new().disable(disable_fees_sysvar::id());
         svm.apply_feature_config(&config);
 
         assert!(!svm.feature_set.is_active(&feature_id));
@@ -4431,8 +4315,7 @@ mod tests {
         let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Start with mainnet defaults, but enable loader v4
-        let config =
-            SvmFeatureConfig::default_mainnet_features().enable(SvmFeature::EnableLoaderV4);
+        let config = SvmFeatureConfig::default_mainnet_features().enable(enable_loader_v4::id());
 
         svm.apply_feature_config(&config);
 
@@ -4455,10 +4338,10 @@ mod tests {
         let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let config = SvmFeatureConfig::new()
-            .enable(SvmFeature::EnableLoaderV4)
-            .enable(SvmFeature::EnableSbpfV2DeploymentAndExecution)
-            .disable(SvmFeature::DisableFeesSysvar)
-            .disable(SvmFeature::Blake3SyscallEnabled);
+            .enable(enable_loader_v4::id())
+            .enable(enable_sbpf_v2_deployment_and_execution::id())
+            .disable(disable_fees_sysvar::id())
+            .disable(blake3_syscall_enabled::id());
 
         svm.apply_feature_config(&config);
 
@@ -4486,7 +4369,7 @@ mod tests {
                 .is_some()
         );
 
-        let config = SvmFeatureConfig::new().disable(SvmFeature::DisableFeesSysvar);
+        let config = SvmFeatureConfig::new().disable(disable_fees_sysvar::id());
         svm.apply_feature_config(&config);
 
         // Native mint should still exist after (re-added in apply_feature_config)
@@ -4506,8 +4389,8 @@ mod tests {
         let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let config = SvmFeatureConfig::new()
-            .enable(SvmFeature::EnableLoaderV4)
-            .disable(SvmFeature::DisableFeesSysvar);
+            .enable(enable_loader_v4::id())
+            .disable(disable_fees_sysvar::id());
 
         // Apply twice
         svm.apply_feature_config(&config);

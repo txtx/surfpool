@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use convert_case::{Case, Casing};
+use log::debug;
 use serde::{Deserialize, Serialize};
 use txtx_addon_network_svm::templates::{AccountDirEntry, AccountEntry};
 use txtx_core::kit::helpers::fs::FileLocation;
@@ -78,7 +79,20 @@ pub fn try_get_programs_from_project(
             .cloned()
             .unwrap_or_default();
 
-        let mut accounts: Vec<AccountEntry> = vec![];
+        let mut accounts: Vec<AccountEntry> = if test_suite_paths.is_empty() {
+            manifest
+                .test
+                .as_ref()
+                .and_then(|test| test.validator.as_ref())
+                .and_then(|validator| validator.account.as_ref())
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            debug!(
+                "Test suite paths provided, deferring to Test.toml files for account configuration"
+            );
+            vec![]
+        };
 
         let mut accounts_dirs = manifest
             .test

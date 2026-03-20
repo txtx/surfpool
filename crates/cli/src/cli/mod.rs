@@ -25,7 +25,7 @@ use surfpool_types::{
     DEFAULT_DEVNET_RPC_URL, DEFAULT_GOSSIP_PORT, DEFAULT_MAINNET_RPC_URL, DEFAULT_NETWORK_HOST,
     DEFAULT_RPC_PORT, DEFAULT_SLOT_TIME_MS, DEFAULT_TESTNET_RPC_URL, DEFAULT_TPU_PORT,
     DEFAULT_TPU_QUIC_PORT, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, SimnetEvent, StudioConfig,
-    SubgraphConfig, SurfpoolConfig, SvmFeature, SvmFeatureConfig,
+    SubgraphConfig, SurfpoolConfig, SvmFeatureConfig, parse_feature_pubkey,
 };
 use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
@@ -235,13 +235,17 @@ pub struct StartSimnet {
     /// Path to the Test.toml test suite files to load (eg. surfpool start --anchor-test-config-path ./path/to/Test.toml)
     #[arg(long = "anchor-test-config-path")]
     pub anchor_test_config_paths: Vec<String>,
-    /// Enable specific SVM features. Can be specified multiple times. (eg. surfpool start --feature enable-loader-v4 --feature enable-sbpf-v2-deployment-and-execution)
-    #[arg(long = "feature", short = 'f', value_parser = parse_svm_feature)]
-    pub features: Vec<SvmFeature>,
-    /// Disable specific SVM features. Can be specified multiple times. (eg. surfpool start --disable-feature disable-fees-sysvar)
-    #[arg(long = "disable-feature", value_parser = parse_svm_feature)]
-    pub disable_features: Vec<SvmFeature>,
-    /// Enable all SVM features (override mainnet defaults which are used by default)
+    /// Enable specific SVM features by pubkey. Can be specified multiple times. (eg. surfpool start --feature <base58-pubkey> --feature <another-pubkey>)
+    /// Note: providing feature names has been deprecated. Previously supported feature names will still work, but this will be dropped in the future.
+    /// Instead, you should migrate to providing the pubkey for the feature.
+    #[arg(long = "feature", short = 'f', value_parser = parse_feature_pubkey)]
+    pub features: Vec<Pubkey>,
+    /// Disable specific SVM features by pubkey. Can be specified multiple times. (eg. surfpool start --disable-feature <base58-pubkey> --disable-feature <another-pubkey>)
+    /// Note: providing feature names has been deprecated. Previously supported feature names will still work, but this will be dropped in the future.
+    /// Instead, you should migrate to providing the pubkey for the feature.
+    #[arg(long = "disable-feature", value_parser = parse_feature_pubkey)]
+    pub disable_features: Vec<Pubkey>,
+    /// Enable all SVM features from agave-feature-set (override mainnet defaults)
     #[clap(long = "features-all", action=ArgAction::SetTrue, default_value = "false")]
     pub all_features: bool,
     /// A set of inputs to use for the runbook (eg. surfpool start --runbook-input myInputs.json)
@@ -277,15 +281,6 @@ pub struct StartSimnet {
     /// Skip signature verification for all transactions (eg. surfpool start --skip-signature-verification)
     #[clap(long = "skip-signature-verification", action=ArgAction::SetTrue, default_value = "false")]
     pub skip_signature_verification: bool,
-}
-
-fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
-    SvmFeature::from_str(s).map_err(|_| {
-        format!(
-            "Unknown SVM feature: '{}'. Use --help to see available features.",
-            s
-        )
-    })
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -383,10 +378,10 @@ impl StartSimnet {
 
     pub fn feature_config(&self) -> SvmFeatureConfig {
         let mut config = if self.all_features {
-            // Enable all SVM features (override mainnet defaults)
+            // Enable all SVM features from agave-feature-set (override mainnet defaults)
             let mut cfg = SvmFeatureConfig::default();
-            for feature in SvmFeature::all() {
-                cfg = cfg.enable(feature);
+            for pubkey in agave_feature_set::FEATURE_NAMES.keys() {
+                cfg = cfg.enable(*pubkey);
             }
             cfg
         } else {
@@ -395,13 +390,13 @@ impl StartSimnet {
         };
 
         // Apply explicit enables (these override defaults)
-        for feature in &self.features {
-            config = config.enable(*feature);
+        for pubkey in &self.features {
+            config = config.enable(*pubkey);
         }
 
         // Apply explicit disables (these override defaults)
-        for feature in &self.disable_features {
-            config = config.disable(*feature);
+        for pubkey in &self.disable_features {
+            config = config.disable(*pubkey);
         }
 
         config
